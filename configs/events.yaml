@@ -1,0 +1,109 @@
+vision:
+
+  id:
+
+    seen:
+      severity: info
+      ttl: 10s
+
+    lost:
+      severity: low
+      ttl: 10s
+
+    uncertain:
+      severity: medium
+      ttl: 5s
+
+    changed:
+      severity: medium
+      ttl: 5s
+
+
+  motion:
+
+    detected:
+      severity: low
+      ttl: 5s
+
+    stopped:
+      severity: low
+      ttl: 5s
+
+
+  pose:
+
+    standing:
+      severity: info
+      ttl: 10s
+
+    sitting:
+      severity: info
+      ttl: 30s
+
+    lying:
+      severity: low
+      ttl: 60s
+
+    fallen:
+      severity: high
+      ttl: 120s
+
+
+  weapon:
+
+    detected:
+      severity: critical
+      ttl: 30s
+
+    knife:
+      severity: critical
+      ttl: 30s
+
+    firearm:
+      severity: critical
+      ttl: 30s
+
+
+  camera:
+
+    offline:
+      severity: high
+      ttl: 300s
+
+    occluded:
+      severity: critical
+      ttl: 60s
+
+    tampered:
+      severity: critical
+      ttl: 120s
+
+    blurred:
+      severity: medium
+      ttl: 30s
+
+
+  light:
+
+    on:
+      severity: info
+      ttl: 300s
+
+    off:
+      severity: info
+      ttl: 300s
+
+    changed:
+      severity: low
+      ttl: 5s
+
+
+  track:
+
+    started:
+      severity: info
+      ttl: 10s
+
+    lost:
+      severity: medium
+      ttl: 10s

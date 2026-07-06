@@ -1,0 +1,139 @@
+devices:
+
+  - id: cam_01
+
+    type: camera
+
+    role: access_control
+
+    room: zoneA.L0.entree
+
+    secret: "a8c1f3b2e7d44921c83f6a4d0c9e2f1b"
+
+    capabilities:
+      - vision
+      - infrared
+      - motion_detection
+
+    network:
+      mac: "02:11:22:33:44:01"
+      ip: "10.42.0.10"
+
+    firmware:
+      version: "0.1.0"
+
+  - id: cam_02
+
+    type: camera
+
+    room: zoneA.L0.salon
+
+    secret: "b7d32e9c0fa44b1aa5d81c3e9f2a6b7c"
+
+    capabilities:
+      - vision
+      - infrared
+
+    network:
+      mac: "02:11:22:33:44:02"
+      ip: "10.42.0.11"
+
+    firmware:
+      version: "0.1.0"
+
+  - id: cam_03
+
+    type: camera
+
+    room: zoneA.L1.chambre_enfant
+
+    secret: "91fa2cbb3e4d4a77b1d0f239a0e42a9d"
+
+    capabilities:
+      - vision
+      - infrared
+      - cry_detection
+
+    network:
+      mac: "02:11:22:33:44:03"
+      ip: "10.42.0.12"
+
+    firmware:
+      version: "0.1.0"
+
+  - id: cam_04
+
+    type: camera
+
+    room: zoneA.L2.chambre_amis
+
+    secret: "2fd93bc7aa0141a9b34a5ef0c8d71f42"
+
+    capabilities:
+      - vision
+
+    network:
+      mac: "02:11:22:33:44:04"
+      ip: "10.42.0.13"
+
+    firmware:
+      version: "0.1.0"
+
+  - id: cam_05
+
+    type: camera
+
+    room: zoneA.L2.chambre_enfant
+
+    secret: "7bb3a14f99ef4f72a81de0ab29ce51d0"
+
+    capabilities:
+      - vision
+      - infrared
+
+    network:
+      mac: "02:11:22:33:44:05"
+      ip: "10.42.0.14"
+
+    firmware:
+      version: "0.1.0"
+
+  - id: relay_01
+
+    type: voice_relay
+
+    room: zoneA.L0.salon
+
+    secret: "relaysecret00000000000000000001"
+
+    capabilities:
+      - microphone
+      - speaker
+      - tts
+      - wakeword
+
+    network:
+      mac: "02:11:22:33:55:01"
+      ip: "10.42.0.20"
+
+    firmware:
+      version: "0.1.0"
+
+  - id: relay_02
+
+    type: voice_relay
+
+    room: zoneA.L1.couloir
+
+    secret: "relaysecret00000000000000000002"
+
+    capabilities:
+      - microphone
+      - speaker
+
+    network:
+      mac: "02:11:22:33:55:02"
+      ip: "10.42.0.21"
+
+    firmware:
+      version: "0.1.0"

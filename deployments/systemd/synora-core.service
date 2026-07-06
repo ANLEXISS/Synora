@@ -1,0 +1,24 @@
+[Unit]
+Description=Synora Core Engine
+After=network.target synora-bus.service
+Requires=synora-bus.service
+
+[Service]
+Type=simple
+
+User=synora
+Group=synora
+
+ExecStart=/opt/synora/bin/synora-core
+
+Environment=SYNORA_LOG_PATH=/var/log/synora/events.log
+
+Restart=always
+RestartSec=2
+
+NoNewPrivileges=true
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

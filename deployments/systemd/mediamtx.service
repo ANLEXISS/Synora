@@ -1,0 +1,26 @@
+[Unit]
+Description=MediaMTX RTSP Server
+After=network.target
+
+[Service]
+Type=simple
+
+User=synora
+Group=synora
+
+WorkingDirectory=/opt/synora/mediamtx
+
+ExecStart=/opt/synora/mediamtx/mediamtx /opt/synora/mediamtx/mediamtx.yml
+
+Restart=always
+RestartSec=2
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,73 @@
+###############################################
+# General
+
+logLevel: info
+logDestinations: [stdout]
+logStructured: false
+
+readTimeout: 10s
+writeTimeout: 10s
+writeQueueSize: 512
+
+###############################################
+# Authentication
+
+authMethod: internal
+
+authInternalUsers:
+- user: any
+  pass:
+  ips: []
+  permissions:
+  - action: publish
+  - action: read
+  - action: playback
+
+- user: any
+  pass:
+  ips: ['127.0.0.1', '::1']
+  permissions:
+  - action: api
+  - action: metrics
+  - action: pprof
+
+###############################################
+# Control API (IMPORTANT FOR SYNORA)
+
+api: yes
+apiAddress: 0.0.0.0:9997
+apiEncryption: false
+apiAllowOrigins: ['*']
+
+###############################################
+# RTSP SERVER
+
+rtsp: yes
+rtspAddress: 0.0.0.0:8554
+
+# Force TCP only (recommended for home networks)
+rtspTransports: [tcp]
+
+###############################################
+# Disable unnecessary protocols (optional but cleaner)
+
+rtmp: no
+hls: no
+webrtc: no
+srt: no
+
+###############################################
+# Default path configuration
+
+pathDefaults:
+
+  source: publisher
+
+  # allow camera reconnect
+  overridePublisher: true
+
+###############################################
+# Paths
+
+paths:
+  all_others:

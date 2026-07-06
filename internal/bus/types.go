@@ -1,0 +1,42 @@
+package bus
+
+import (
+	"encoding/json"
+	"net"
+	"sync"
+	"time"
+
+	"synora/pkg/contract"
+)
+
+type Client struct {
+	address string
+	service string
+
+	mu          sync.Mutex
+	writeMu     sync.Mutex
+	reconnectMu sync.Mutex
+
+	conn                 net.Conn
+	lastReconnectAttempt time.Time
+	lastReconnectErr     error
+
+	pending map[string]chan contract.Message
+
+	incoming chan contract.Message
+}
+
+type ClientConn struct {
+	name     string
+	conn     net.Conn
+	lastSeen time.Time
+	encoder  *json.Encoder
+	mu       sync.Mutex
+}
+
+type Server struct {
+	address string
+
+	mu      sync.RWMutex
+	clients map[string]*ClientConn
+}

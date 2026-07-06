@@ -1,0 +1,49 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Go
+bin/
+coverage.out
+
+# Models
+*.onnx
+*.rknn
+*.pt
+*.pth
+*.weights
+
+# AI datasets
+datasets/
+data/
+faces/
+clips/
+debug/
+cache/
+tmp/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.*
+
+# Webapp excluded for now
+webapp/
+frontend/
+node_modules/
+dist/
+build/
+.next/
+.nuxt/

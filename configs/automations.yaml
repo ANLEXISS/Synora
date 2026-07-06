@@ -1,0 +1,16 @@
+automations:
+
+  - id: entrance_activity_night
+
+    trigger: vision.identity
+
+    conditions:
+
+      - type: time
+        from: "23:00"
+        to: "06:00"
+
+    actions:
+
+      - device: light_entree
+        command: on

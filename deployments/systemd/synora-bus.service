@@ -1,0 +1,21 @@
+[Unit]
+Description=Synora Event Bus
+After=network.target
+
+[Service]
+Type=simple
+
+User=synora
+Group=synora
+
+ExecStart=/opt/synora/bin/synora-bus
+
+Restart=always
+RestartSec=2
+
+NoNewPrivileges=true
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

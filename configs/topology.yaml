@@ -1,0 +1,71 @@
+locked : true
+
+zones:
+  zoneA:
+    floors:
+      L0:
+        rooms:
+          entree:
+            connect:
+              - zoneA.L0.salle_a_manger
+              - zoneA.L0.cuisine
+              - zoneA.L0.bureau
+          salon:
+            connect:
+              - zoneA.L0.salle_a_manger
+              - zoneA.L1.couloir
+          cuisine:
+            connect:
+              - zoneA.L0.entree
+              - zoneA.L0.bureau
+          bureau:
+            connect:
+              - zoneA.L0.cuisine
+
+          salle_a_manger:
+            connect:
+              - zoneA.L0.salon
+              - zoneA.L0.entree
+
+      L1:
+        rooms:
+          couloir:
+            connect:
+              - zoneA.L1.chambre_parentale
+              - zoneA.L1.chambre_enfant
+              - zoneA.L1.salle_de_bain
+              - zoneA.L0.salon
+              - zoneA.L2.couloir
+
+          chambre_parentale:
+            connect:
+              - zoneA.L1.couloir
+
+          chambre_enfant:
+            connect:
+              - zoneA.L1.couloir
+
+          salle_de_bain:
+            connect:
+              - zoneA.L1.couloir
+
+      L2:
+        rooms:
+          couloir:
+            connect:
+              - zoneA.L2.chambre_amis
+              - zoneA.L2.chambre_enfant
+              - zoneA.L2.salle_de_bain
+              - zoneA.L1.couloir
+
+          chambre_amis:
+            connect:
+              - zoneA.L2.couloir
+
+          chambre_enfant:
+            connect:
+              - zoneA.L2.couloir
+
+          salle_de_bain:
+            connect:
+              - zoneA.L2.couloir
