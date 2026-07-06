@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"time"
 
 	"synora/pkg/contract"
@@ -19,7 +20,7 @@ func NewServer(address string) *Server {
 
 func (s *Server) Start() error {
 
-	if err := os.MkdirAll("/run/synora", 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.address), 0755); err != nil {
 		return err
 	}
 

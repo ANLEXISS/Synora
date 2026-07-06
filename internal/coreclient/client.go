@@ -23,20 +23,29 @@ func New(
 }
 
 func (c *Client) Snapshot() (
-	*contract.Snapshot,
+	*contract.PublicSnapshot,
 	error,
 ) {
-
-	var snapshot contract.Snapshot
-
-	if err := c.call("core.snapshot", nil, &snapshot); err != nil {
+	state, err := c.coreState()
+	if err != nil {
 		return nil, err
 	}
 
+	snapshot := contract.PublicSnapshotFromCoreState(state)
 	return &snapshot, nil
 }
 
-func (c *Client) State() (map[string]any, error) {
+func (c *Client) State() (*contract.PublicSnapshot, error) {
+	state, err := c.coreState()
+	if err != nil {
+		return nil, err
+	}
+
+	snapshot := contract.PublicSnapshotFromCoreState(state)
+	return &snapshot, nil
+}
+
+func (c *Client) coreState() (map[string]any, error) {
 	var state map[string]any
 	if err := c.call("core.state", nil, &state); err != nil {
 		return nil, err

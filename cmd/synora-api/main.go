@@ -5,11 +5,13 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"synora/internal/bus"
 	"synora/internal/coreclient"
+	"synora/pkg/contract"
 )
 
 type healthResponse struct {
@@ -18,12 +20,20 @@ type healthResponse struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+type snapshotProvider interface {
+	Snapshot() (*contract.PublicSnapshot, error)
+}
+
+type stateProvider interface {
+	State() (*contract.PublicSnapshot, error)
+}
+
 func main() {
 
 	addr := ":8080"
 
 	busClient, err := bus.NewClient(
-		"/run/synora/bus.sock",
+		getenv("SYNORA_BUS", "/run/synora/bus.sock"),
 		"api",
 	)
 
@@ -156,7 +166,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func handleSnapshot(
-	core *coreclient.Client,
+	core snapshotProvider,
 ) http.HandlerFunc {
 
 	return func(
@@ -185,7 +195,7 @@ func handleSnapshot(
 }
 
 func handleState(
-	core *coreclient.Client,
+	core stateProvider,
 ) http.HandlerFunc {
 
 	return func(
@@ -206,6 +216,14 @@ func handleState(
 
 		writeJSON(w, http.StatusOK, state)
 	}
+}
+
+func getenv(key, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func handleDevices(

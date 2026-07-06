@@ -270,6 +270,118 @@ func TestStateSnapshotJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
+	coreState := map[string]any{
+		"system": map[string]any{
+			"LastState":       "idle",
+			"IntrusionTime":   time.Time{},
+			"LastStateTime":   "0001-01-01T00:00:00Z",
+			"IntrusionActive": false,
+		},
+		"devices": []any{
+			map[string]any{
+				"ID":       "camera-1",
+				"Type":     "camera",
+				"NodeID":   "entry",
+				"LastSeen": "0001-01-01T00:00:00Z",
+			},
+		},
+		"device": []any{
+			map[string]any{"ID": "legacy-camera"},
+		},
+		"events": []any{
+			map[string]any{"id": "evt-1", "timestamp": "0001-01-01T00:00:00Z"},
+		},
+		"event": []any{
+			map[string]any{"id": "legacy-event"},
+		},
+		"automations": []any{
+			map[string]any{
+				"id":      "auto-1",
+				"event":   "vision.motion",
+				"actions": []any{map[string]any{"device": "light-1", "command": "on"}},
+			},
+		},
+		"automation": []any{
+			map[string]any{"id": "legacy-automation"},
+		},
+		"state_store": map[string]any{
+			"clips": map[string]any{
+				"clip-1": map[string]any{
+					"CameraID":  "camera-1",
+					"CreatedAt": "0001-01-01T00:00:00Z",
+				},
+			},
+			"presence": map[string]any{
+				"alexis": map[string]any{
+					"ResidentID": "alexis",
+					"LastSeen":   time.Time{},
+				},
+			},
+			"identities": map[string]any{
+				"alexis": map[string]any{
+					"LastNodeID": "entry",
+					"LastSeen":   "0001-01-01T00:00:00Z",
+				},
+			},
+		},
+		"metrics": map[string]any{
+			"events_processed": float64(1),
+			"state_store_size": float64(3),
+		},
+	}
+
+	snapshot := PublicSnapshotFromCoreState(coreState)
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatalf("marshal public snapshot: %v", err)
+	}
+
+	var object map[string]any
+	if err := json.Unmarshal(data, &object); err != nil {
+		t.Fatalf("unmarshal public snapshot: %v", err)
+	}
+	for _, key := range []string{"state_store", "device", "event", "automation"} {
+		if _, ok := object[key]; ok {
+			t.Fatalf("public snapshot exposes legacy/internal key %q in %s", key, string(data))
+		}
+	}
+	for _, key := range []string{"devices", "events", "automations", "clips", "presence", "identities"} {
+		if _, ok := object[key]; !ok {
+			t.Fatalf("public snapshot missing key %q in %s", key, string(data))
+		}
+	}
+	if got := snapshot.Devices[0]["last_seen"]; got != nil {
+		t.Fatalf("zero last_seen should be nil, got %#v", got)
+	}
+	if got := snapshot.System["intrusion_time"]; got != nil {
+		t.Fatalf("zero intrusion_time should be nil, got %#v", got)
+	}
+	if got := snapshot.System["last_state_time"]; got != nil {
+		t.Fatalf("zero last_state_time should be nil, got %#v", got)
+	}
+	if _, ok := snapshot.Automations[0]["event"]; ok {
+		t.Fatalf("automation event key should be normalized: %#v", snapshot.Automations[0])
+	}
+	if snapshot.Automations[0]["event_type"] != "vision.motion" {
+		t.Fatalf("automation event_type mismatch: %#v", snapshot.Automations[0])
+	}
+	actions := snapshot.Automations[0]["actions"].([]any)
+	action := actions[0].(map[string]any)
+	if _, ok := action["device"]; ok {
+		t.Fatalf("automation action device key should be normalized: %#v", action)
+	}
+	if action["device_id"] != "light-1" {
+		t.Fatalf("automation action device_id mismatch: %#v", action)
+	}
+	if _, ok := snapshot.Metrics["state_store_size"]; ok {
+		t.Fatalf("metric state_store_size should be normalized: %#v", snapshot.Metrics)
+	}
+	if snapshot.Metrics["state_size"] != float64(3) {
+		t.Fatalf("metric state_size mismatch: %#v", snapshot.Metrics)
+	}
+}
+
 func TestDocumentedEventTypesNormalize(t *testing.T) {
 	documented := []string{
 		EventVisionIdentity,
