@@ -3,11 +3,6 @@ import os
 import numpy as np
 
 try:
-    import onnxruntime as ort
-except ImportError:
-    ort = None
-
-try:
     from rknnlite.api import RKNNLite
 except Exception as e:
     print("RKNN IMPORT ERROR:", e)
@@ -43,70 +38,6 @@ class ModelRunner:
     def close(self):
         pass
 
-
-class ONNXRunner(ModelRunner):
-
-    backend = "onnx"
-
-    def __init__(
-        self,
-        model_path,
-    ):
-
-        if ort is None:
-            raise RuntimeError(
-                "onnxruntime not installed"
-            )
-
-        if not os.path.exists(
-            model_path
-        ):
-            raise RuntimeError(
-                f"ONNX model missing: {model_path}"
-            )
-
-        so = ort.SessionOptions()
-
-        so.intra_op_num_threads = 1
-        so.inter_op_num_threads = 1
-
-        self.session = ort.InferenceSession(
-            model_path,
-            sess_options=so,
-            providers=[
-                "CPUExecutionProvider"
-            ],
-        )
-
-        self.input_name = (
-            self.session.get_inputs()[0].name
-        )
-
-        self.output_names = [
-            o.name
-            for o in self.session.get_outputs()
-        ]
-
-        log.warning(
-            "ONNX backend ready model=%s",
-            model_path,
-        )
-
-    def infer(
-        self,
-        input_tensor,
-    ):
-
-        tensor = np.ascontiguousarray(
-            input_tensor
-        )
-
-        return self.session.run(
-            self.output_names,
-            {
-                self.input_name: tensor
-            },
-        )
 
 class RKNNRunner(ModelRunner):
 
@@ -207,7 +138,9 @@ def create_model_runner(
     ) == "1"
 
     if force_cpu:
-        backend = "onnx"
+        log.warning(
+            "VISION_FORCE_CPU ignored: RKNN runtime is required"
+        )
 
     log.warning(
         "Requested backend=%s model=%s",
@@ -215,90 +148,36 @@ def create_model_runner(
         model_path,
     )
 
-    # ----------------------------
-    # FORCE RKNN
-    # ----------------------------
-
-    if backend == "rknn":
-
-        if RKNNLite is None:
-            raise RuntimeError(
-                "RKNN requested but unavailable"
-            )
-
-        core_mask = getattr(
-            RKNNLite,
-            "NPU_CORE_0_1_2",
-            RKNNLite.NPU_CORE_0,
+    if backend not in (
+        "auto",
+        "rknn",
+    ):
+        raise RuntimeError(
+            f"Unsupported backend: {backend}; RKNN is required"
         )
 
-        return RKNNRunner(
-            model_path,
-            core_mask,
+    if not model_path.endswith(
+        ".rknn"
+    ):
+        raise RuntimeError(
+            f"RKNN model required: {model_path}"
         )
 
-    # ----------------------------
-    # FORCE ONNX
-    # ----------------------------
-
-    if backend == "onnx":
-
-        onnx_model = model_path.replace(
-            ".rknn",
-            ".onnx",
+    if RKNNLite is None:
+        raise RuntimeError(
+            "RKNNLite unavailable"
         )
 
-        return ONNXRunner(
-            onnx_model
-        )
+    core_mask = getattr(
+        RKNNLite,
+        "NPU_CORE_0_1_2",
+        None,
+    )
 
-    # ----------------------------
-    # AUTO
-    # ----------------------------
+    if core_mask is None:
+        core_mask = RKNNLite.NPU_CORE_0
 
-    if backend == "auto":
-
-        if (
-            model_path.endswith(".rknn")
-            and rknn_available()
-        ):
-
-            try:
-
-                log.warning(
-                    "AUTO selected RKNN"
-                )
-
-                core_mask = getattr(
-                    RKNNLite,
-                    "NPU_CORE_0_1_2",
-                    RKNNLite.NPU_CORE_0,
-                )
-
-                return RKNNRunner(
-                    model_path,
-                    core_mask,
-                )
-
-            except Exception:
-
-                log.exception(
-                    "RKNN startup failed"
-                )
-
-        onnx_model = model_path.replace(
-            ".rknn",
-            ".onnx",
-        )
-
-        log.warning(
-            "AUTO fallback to ONNX"
-        )
-
-        return ONNXRunner(
-            onnx_model
-        )
-
-    raise RuntimeError(
-        f"Unknown backend: {backend}"
+    return RKNNRunner(
+        model_path,
+        core_mask,
     )

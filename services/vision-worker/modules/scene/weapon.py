@@ -13,11 +13,10 @@ class WeaponDetector:
 
     def __init__(self):
 
-        MODEL_PATH = "/var/opt/synora/models/weapon.onnx"
+        MODEL_PATH = "/var/lib/synora/models/weapon.rknn"
 
         self.runner = create_model_runner(
-            MODEL_PATH,
-            model_name="weapon_detector",
+            MODEL_PATH
         )
 
         self.last_detections = []

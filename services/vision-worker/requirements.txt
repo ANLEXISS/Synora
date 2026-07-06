@@ -1,12 +1,5 @@
-rknn-toolkit-lite2
-onnxruntime==1.17.3
+rknn-toolkit-lite2; platform_machine == "aarch64" or platform_machine == "arm64"
 opencv-python-headless==4.10.0.84
 numpy==1.26.4
-paho-mqtt
-insightface==0.7.3
 flask
-ultralytics
-requests
-faiss-cpu
 scipy
-pillow
