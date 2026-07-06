@@ -177,6 +177,39 @@ func TestActionContractsJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestActionRequestJSONRoundTrip(t *testing.T) {
+	now := time.Date(2026, 7, 4, 10, 15, 0, 0, time.UTC)
+	request := ActionRequest{
+		ID:             "act-1",
+		Version:        "v1",
+		RequestID:      "req-1",
+		CorrelationID:  "corr-1",
+		Source:         "core",
+		Target:         "actions",
+		Timestamp:      now,
+		IdempotencyKey: "idem-1",
+		Action: Action{
+			Device:  "light-1",
+			Command: "on",
+			Value:   true,
+		},
+	}
+
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal action request: %v", err)
+	}
+	assertJSONField(t, data, "idempotency_key")
+
+	var decoded ActionRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal action request: %v", err)
+	}
+	if decoded.ID != request.ID || decoded.Action.Device != "light-1" || !decoded.Timestamp.Equal(now) {
+		t.Fatalf("decoded action request mismatch: %#v", decoded)
+	}
+}
+
 func TestRPCContractsJSONRoundTrip(t *testing.T) {
 	request := RPCRequest{
 		ID:            "rpc-1",
@@ -379,6 +412,40 @@ func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
 	}
 	if snapshot.Metrics["state_size"] != float64(3) {
 		t.Fatalf("metric state_size mismatch: %#v", snapshot.Metrics)
+	}
+}
+
+func TestPublicSnapshotJSONRoundTrip(t *testing.T) {
+	snapshot := PublicSnapshot{
+		System:      map[string]any{"last_state": "idle"},
+		Devices:     []map[string]any{{"id": "cam_01", "last_seen": nil}},
+		Residents:   []map[string]any{{"id": "alexis", "state": "present"}},
+		Nodes:       []map[string]any{{"id": "entry"}},
+		Events:      []map[string]any{{"id": "evt-1", "type": EventVisionIdentity}},
+		Automations: []map[string]any{{"id": "auto-1", "event_type": EventVisionIdentity}},
+		Cameras:     []map[string]any{},
+		Tracks:      []map[string]any{},
+		Clusters:    []map[string]any{},
+		Clips:       []map[string]any{},
+		Presence:    []map[string]any{},
+		Identities:  []map[string]any{},
+		Metrics:     map[string]any{"state_size": float64(1)},
+	}
+
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatalf("marshal public snapshot: %v", err)
+	}
+	for _, field := range []string{"devices", "events", "automations", "metrics"} {
+		assertJSONField(t, data, field)
+	}
+
+	var decoded PublicSnapshot
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal public snapshot: %v", err)
+	}
+	if decoded.Devices[0]["id"] != "cam_01" || decoded.Events[0]["type"] != EventVisionIdentity {
+		t.Fatalf("decoded public snapshot mismatch: %#v", decoded)
 	}
 }
 

@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 	"time"
@@ -122,6 +123,9 @@ func collection(value any) []map[string]any {
 		}
 		return out
 	default:
+		if converted := jsonValue(value); converted != nil {
+			return collection(converted)
+		}
 		return []map[string]any{}
 	}
 }
@@ -138,6 +142,9 @@ func mapValue(value any) map[string]any {
 	case map[string]any:
 		return typed
 	default:
+		if converted, ok := jsonValue(value).(map[string]any); ok {
+			return converted
+		}
 		return nil
 	}
 }
@@ -180,8 +187,34 @@ func normalizeValue(value any) any {
 		}
 		return out
 	default:
+		if converted := jsonValue(value); converted != nil {
+			return normalizeValue(converted)
+		}
 		return value
 	}
+}
+
+func jsonValue(value any) any {
+	if value == nil {
+		return nil
+	}
+	switch value.(type) {
+	case string, bool,
+		float32, float64,
+		int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64,
+		map[string]any, []any, []map[string]any:
+		return nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil || string(data) == "null" {
+		return nil
+	}
+	var decoded any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return nil
+	}
+	return decoded
 }
 
 func mapOrEmpty(value map[string]any) map[string]any {

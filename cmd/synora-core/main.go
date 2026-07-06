@@ -37,7 +37,7 @@ type coreApp struct {
 
 	snapshotPending atomic.Bool
 
-	bus        *bus.Client
+	bus        coreBus
 	engine     *engine.Engine
 	automation *automation.Engine
 	device     *device.Registry
@@ -57,6 +57,11 @@ type coreApp struct {
 	snapshotBuilder   *snapshot.Builder
 	snapshotPublisher snapshot.Publisher
 	actionDispatcher  automation.Dispatcher
+}
+
+type coreBus interface {
+	Send(contract.Message) error
+	SubscribeChannel(string) <-chan contract.Message
 }
 
 func main() {
