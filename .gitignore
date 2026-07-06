@@ -47,3 +47,6 @@ dist/
 build/
 .next/
 .nuxt/
+
+*.mp4
+tools/mediamtx/mediamtx
