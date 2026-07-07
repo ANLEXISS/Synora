@@ -984,12 +984,14 @@ class VisionPipeline:
     def run_recognition(
         self,
         camera,
+        scene_id=None,
     ):
         events = []
 
-        scene_id = (
-            f"scene-{int(time.time())}"
-        )
+        if scene_id is None:
+            scene_id = (
+                f"scene-{int(time.time())}"
+            )
 
         persons_count = len(
             self.active_tracks_seen
@@ -1383,7 +1385,23 @@ class VisionPipeline:
         self,
         clip_path,
         camera,
+        clip_id=None,
+        node_id=None,
+        device_id=None,
     ):
+
+        scene_id = (
+            clip_id or
+            f"scene-{int(time.time())}"
+        )
+
+        self.events.set_context(
+            camera_id=camera,
+            device_id=device_id or camera,
+            node_id=node_id,
+            clip_id=clip_id,
+            clip_path=clip_path,
+        )
 
         analysis_levels = [
             {
@@ -1453,12 +1471,6 @@ class VisionPipeline:
 
             self.frame_id = 0
 
-            self.TARGET_FPS = (
-                level["target_fps"]
-                if level["target_fps"] > 0
-                else fps
-            )
-
             cap = cv2.VideoCapture(
                 clip_path
             )
@@ -1473,6 +1485,7 @@ class VisionPipeline:
                     "decode",
                     f"video open failed: {clip_path}",
                 )
+                self.events.clear_context()
 
                 return {
                     "events": []
@@ -1484,6 +1497,12 @@ class VisionPipeline:
 
             if fps <= 0:
                 fps = 25
+
+            self.TARGET_FPS = (
+                level["target_fps"]
+                if level["target_fps"] > 0
+                else fps
+            )
 
             frame_index = 0
 
@@ -1537,7 +1556,8 @@ class VisionPipeline:
             cap.release()
 
             events = self.run_recognition(
-                camera
+                camera,
+                scene_id=scene_id,
             )
 
             recognized = any(
@@ -1600,6 +1620,7 @@ class VisionPipeline:
         self.frame_id = 0
 
         self.person_seen = False
+        self.events.clear_context()
 
         return {
             "events": final_events

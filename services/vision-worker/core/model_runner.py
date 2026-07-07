@@ -5,8 +5,10 @@ import numpy as np
 try:
     from rknnlite.api import RKNNLite
 except Exception as e:
-    print("RKNN IMPORT ERROR:", e)
+    _RKNN_IMPORT_ERROR = e
     RKNNLite = None
+else:
+    _RKNN_IMPORT_ERROR = None
 
 log = logging.getLogger(
     "synora.vision.model_runner"
@@ -165,7 +167,7 @@ def create_model_runner(
 
     if RKNNLite is None:
         raise RuntimeError(
-            "RKNNLite unavailable"
+            f"RKNNLite unavailable: {_RKNN_IMPORT_ERROR}"
         )
 
     core_mask = getattr(
