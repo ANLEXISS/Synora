@@ -27,6 +27,7 @@ func TestGraphDoesNotImportSynoraBoundaryDomains(t *testing.T) {
 		"synora/internal/bus",
 		"synora/internal/discovery",
 		"synora/internal/state",
+		"synora/pkg/contract",
 	}
 
 	assertNoForbiddenImports(t, "graph", forbiddenImports)
@@ -39,9 +40,20 @@ func TestCognitiveDoesNotImportSynoraBoundaryDomains(t *testing.T) {
 		"synora/internal/bus",
 		"synora/internal/discovery",
 		"synora/internal/state",
+		"synora/pkg/contract",
 	}
 
 	assertNoForbiddenImports(t, "cognitive", forbiddenImports)
+}
+
+func TestCoreDoesNotImportGraphMemoryDirectly(t *testing.T) {
+	forbiddenImports := []string{
+		"synora/internal/engine/graph",
+		"synora/internal/engine/cognitive",
+		"synora/internal/engine/contracts",
+	}
+
+	assertNoForbiddenImports(t, "../../cmd/synora-core", forbiddenImports)
 }
 
 func assertNoForbiddenImports(t *testing.T, root string, forbiddenImports []string) {

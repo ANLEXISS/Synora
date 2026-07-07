@@ -2,6 +2,7 @@ package cognitive
 
 import (
 	"math"
+	"strings"
 	"time"
 
 	"synora/internal/engine/contracts"
@@ -103,40 +104,30 @@ func ComputeDecision(
 		)
 
 	return contracts.DecisionResult{
-		DivergenceScore:
-			divergence.Divergence,
+		DivergenceScore: divergence.Divergence,
 
-		DecisionScore:
+		DecisionScore: decision,
+
+		GraphTrust: graphTrust,
+
+		GuidelineTrust: guidelineTrust,
+
+		OutcomeValue: outcomeValue,
+
+		GuidelineValue: guidelineValue,
+
+		Outcome: outcome,
+
+		Level: SeverityFromDecision(
 			decision,
+		),
 
-		GraphTrust:
-			graphTrust,
+		Reasons: buildReasons(
+			divergence,
+			decision,
+		),
 
-		GuidelineTrust:
-			guidelineTrust,
-
-		OutcomeValue:
-			outcomeValue,
-
-		GuidelineValue:
-			guidelineValue,
-
-		Outcome:
-			outcome,
-
-		Level:
-			SeverityFromDecision(
-				decision,
-			),
-
-		Reasons:
-			buildReasons(
-				divergence,
-				decision,
-			),
-
-		Timestamp:
-			time.Now(),
+		Timestamp: time.Now(),
 	}
 }
 
@@ -217,4 +208,67 @@ func buildReasons(
 	}
 
 	return reasons
+}
+
+func annotateDecision(
+	decision contracts.DecisionResult,
+	event *contracts.Event,
+	sequenceKey string,
+	node *contracts.BehaviorNode,
+	source string,
+) contracts.DecisionResult {
+	decision.SequenceKey = sequenceKey
+	decision.GraphUsed = node != nil
+	if source != "" {
+		decision.Evidence = append(decision.Evidence, "match_source="+source)
+	}
+	if node != nil {
+		decision.Evidence = append(decision.Evidence, "node="+node.TopologyNode)
+	}
+
+	if lowConfidenceUncertain(event) {
+		decision.ValidationRequired = true
+		decision.ValidationReason = "low_confidence_identity"
+		decision.Reasons = appendReason(decision.Reasons, decision.ValidationReason)
+	}
+
+	if node != nil && isRapidNovelTransition(node) {
+		decision.ValidationRequired = true
+		if decision.ValidationReason == "" {
+			decision.ValidationReason = "rapid_novel_transition"
+		}
+		decision.Reasons = appendReason(decision.Reasons, "rapid_novel_transition")
+	}
+
+	return decision
+}
+
+func lowConfidenceUncertain(event *contracts.Event) bool {
+	if event == nil {
+		return false
+	}
+	if !strings.Contains(event.Type, "uncertain") {
+		return false
+	}
+	return event.Confidence > 0 && event.Confidence < 0.50
+}
+
+func isRapidNovelTransition(node *contracts.BehaviorNode) bool {
+	if node == nil || node.Context == nil {
+		return false
+	}
+	novel, _ := node.Context["novel_transition"].(bool)
+	if !novel {
+		return false
+	}
+	return toFloat64(node.Context["transition_ms"]) <= float64(2*time.Second.Milliseconds())
+}
+
+func appendReason(reasons []string, reason string) []string {
+	for _, current := range reasons {
+		if current == reason {
+			return reasons
+		}
+	}
+	return append(reasons, reason)
 }

@@ -43,6 +43,15 @@ func (e *Engine) ProcessEvent(
 	)
 }
 
+func (e *Engine) Sequence(
+	sequenceKey string,
+) (*contracts.ActiveSequence, bool) {
+	if e == nil || e.sequences == nil {
+		return nil, false
+	}
+	return e.sequences.Get(sequenceKey)
+}
+
 // -----------------------------------------------------------------------------
 // ANALYSIS
 // -----------------------------------------------------------------------------
@@ -50,6 +59,10 @@ func (e *Engine) ProcessEvent(
 func (e *Engine) AnalyzeEvent(
 	event *contracts.Event,
 ) contracts.DecisionResult {
+	sequenceKey :=
+		graph.SequenceKey(
+			event,
+		)
 
 	seq :=
 		e.sequences.AddEvent(
@@ -99,32 +112,44 @@ func (e *Engine) AnalyzeEvent(
 					seq.Predictions =
 						root.Children
 
-					return ComputeDecision(
-						divergence,
+					return annotateDecision(
+						ComputeDecision(
+							divergence,
 
-						root.Outcome,
+							root.Outcome,
 
+							event,
+						),
 						event,
+						sequenceKey,
+						root,
+						"root_fallback",
 					)
 				}
 			}
 		}
 
-		return ComputeDecision(
-			SimilarityResult{
-				EventSimilarity:       0,
-				TopologySimilarity:    0,
-				TimeSimilarity:        0,
-				StatisticalSimilarity: 0,
+		return annotateDecision(
+			ComputeDecision(
+				SimilarityResult{
+					EventSimilarity:       0,
+					TopologySimilarity:    0,
+					TimeSimilarity:        0,
+					StatisticalSimilarity: 0,
 
-				Similarity: 0,
+					Similarity: 0,
 
-				Divergence: 1,
-			},
+					Divergence: 1,
+				},
 
-			nil,
+				nil,
 
+				event,
+			),
 			event,
+			sequenceKey,
+			nil,
+			"no_graph_match",
 		)
 	}
 
@@ -192,14 +217,20 @@ func (e *Engine) AnalyzeEvent(
 
 	if matchedNode == nil {
 
-		return ComputeDecision(
-			SimilarityResult{
-				Divergence: 1,
-			},
+		return annotateDecision(
+			ComputeDecision(
+				SimilarityResult{
+					Divergence: 1,
+				},
 
-			nil,
+				nil,
 
+				event,
+			),
 			event,
+			sequenceKey,
+			nil,
+			"no_match",
 		)
 	}
 
@@ -209,21 +240,27 @@ func (e *Engine) AnalyzeEvent(
 
 	if bestSimilarity < MinSimilarity {
 
-		return ComputeDecision(
-			SimilarityResult{
-				EventSimilarity:       bestResult.EventSimilarity,
-				TopologySimilarity:    bestResult.TopologySimilarity,
-				TimeSimilarity:        bestResult.TimeSimilarity,
-				StatisticalSimilarity: bestResult.StatisticalSimilarity,
+		return annotateDecision(
+			ComputeDecision(
+				SimilarityResult{
+					EventSimilarity:       bestResult.EventSimilarity,
+					TopologySimilarity:    bestResult.TopologySimilarity,
+					TimeSimilarity:        bestResult.TimeSimilarity,
+					StatisticalSimilarity: bestResult.StatisticalSimilarity,
 
-				Similarity: bestSimilarity,
+					Similarity: bestSimilarity,
 
-				Divergence: 1,
-			},
+					Divergence: 1,
+				},
 
-			nil,
+				nil,
 
+				event,
+			),
 			event,
+			sequenceKey,
+			matchedNode,
+			"low_similarity",
 		)
 	}
 
@@ -241,12 +278,18 @@ func (e *Engine) AnalyzeEvent(
 	// DECISION
 	// -------------------------------------------------------------------------
 
-	return ComputeDecision(
-		bestResult,
+	return annotateDecision(
+		ComputeDecision(
+			bestResult,
 
-		matchedNode.Outcome,
+			matchedNode.Outcome,
 
+			event,
+		),
 		event,
+		sequenceKey,
+		matchedNode,
+		"graph_match",
 	)
 }
 

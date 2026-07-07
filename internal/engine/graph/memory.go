@@ -58,6 +58,10 @@ func SequenceKey(
 func createNodeFromEvent(
 	event *contracts.Event,
 ) *contracts.BehaviorNode {
+	context := make(map[string]any)
+	for key, value := range event.Metadata {
+		context[key] = value
+	}
 
 	return &contracts.BehaviorNode{
 		Event: event.Type,
@@ -78,7 +82,7 @@ func createNodeFromEvent(
 
 		LastSeen: event.Timestamp,
 
-		Context: make(map[string]any),
+		Context: context,
 
 		Children: make(
 			[]*contracts.BehaviorNode,
@@ -146,6 +150,9 @@ func updateAverageDelta(
 func (g *GraphMemory) LearnEvent(
 	event *contracts.Event,
 ) {
+	if event == nil {
+		return
+	}
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -287,6 +294,10 @@ func (g *GraphMemory) LearnEvent(
 				calculateWeight(
 					int(child.Count),
 				)
+			if child.Context == nil {
+				child.Context = make(map[string]any)
+			}
+			child.Context["novel_transition"] = false
 
 			g.lastNodes[sequenceKey] =
 				child
@@ -315,6 +326,12 @@ func (g *GraphMemory) LearnEvent(
 
 	node.AvgDeltaMs =
 		delta.Milliseconds()
+	if node.Context == nil {
+		node.Context = make(map[string]any)
+	}
+	node.Context["novel_transition"] = true
+	node.Context["transition_ms"] = delta.Milliseconds()
+	node.Context["previous_topology_node"] = previousNode.TopologyNode
 
 	previousNode.Children =
 		append(

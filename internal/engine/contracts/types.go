@@ -36,11 +36,11 @@ const (
 type DivergenceReason string
 
 const (
-	DivergenceUnexpectedEvent     DivergenceReason = "unexpected_event"
-	DivergenceUnexpectedTopology  DivergenceReason = "unexpected_topology"
-	DivergenceUnexpectedTime      DivergenceReason = "unexpected_time"
-	DivergenceUnexpectedSequence  DivergenceReason = "unexpected_sequence"
-	DivergenceRarePath            DivergenceReason = "rare_path"
+	DivergenceUnexpectedEvent    DivergenceReason = "unexpected_event"
+	DivergenceUnexpectedTopology DivergenceReason = "unexpected_topology"
+	DivergenceUnexpectedTime     DivergenceReason = "unexpected_time"
+	DivergenceUnexpectedSequence DivergenceReason = "unexpected_sequence"
+	DivergenceRarePath           DivergenceReason = "rare_path"
 )
 
 type OutcomeType string
@@ -78,8 +78,6 @@ type RuntimeState struct {
 
 	mu sync.RWMutex
 }
-
-
 
 type ResidentState struct {
 	ResidentID string
@@ -243,7 +241,6 @@ type NoveltyRecord struct {
 }
 
 type Outcome struct {
-
 	Type OutcomeType
 
 	Value float64
@@ -269,7 +266,14 @@ type DecisionResult struct {
 
 	Level Severity
 
-	Reasons []string
+	Reasons  []string
+	Evidence []string
+
+	SequenceKey string
+	GraphUsed   bool
+
+	ValidationRequired bool
+	ValidationReason   string
 
 	Outcome *Outcome
 
@@ -277,9 +281,9 @@ type DecisionResult struct {
 }
 
 type SimilarityResult struct {
-	EventSimilarity      float64
-	TopologySimilarity   float64
-	TimeSimilarity       float64
+	EventSimilarity       float64
+	TopologySimilarity    float64
+	TimeSimilarity        float64
 	StatisticalSimilarity float64
 
 	Similarity float64

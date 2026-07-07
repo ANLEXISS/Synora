@@ -74,6 +74,12 @@ func NormalizeEvent(event *contract.Event, registry *device.Registry) time.Time 
 			event.Identity,
 		}, "|")
 	}
+	if event.TrackID == "" {
+		event.TrackID = resolvePayloadString(event.Payload, "track_id")
+	}
+	if event.ClipID == "" {
+		event.ClipID = resolvePayloadString(event.Payload, "clip_id")
+	}
 
 	return now
 }
@@ -104,7 +110,7 @@ func ToCGEEvent(
 		TargetID:     targetID,
 		TopologyNode: event.NodeID,
 		Timestamp:    now,
-		TrackID:      resolvePayloadString(event.Payload, "track_id"),
+		TrackID:      event.TrackID,
 		Confidence:   event.Confidence,
 		Severity:     severityFromPriority(event.Priority),
 		Metadata:     metadata,
@@ -135,6 +141,14 @@ func ToSynoraDecision(
 		Reason:         reason,
 		State:          stateValue,
 		NodeID:         event.NodeID,
+		ClipID:         event.ClipID,
+		TrackID:        event.TrackID,
+		GroupKey:       event.GroupKey,
+		SequenceKey:    result.SequenceKey,
+		GraphUsed:      result.GraphUsed,
+
+		ValidationRequired: result.ValidationRequired,
+		ValidationReason:   result.ValidationReason,
 	}
 }
 
@@ -144,6 +158,9 @@ func BuildResult(
 	decisionResult cgecontracts.DecisionResult,
 	now time.Time,
 ) *Result {
+	event.ValidationRequired = decisionResult.ValidationRequired
+	event.ValidationReason = decisionResult.ValidationReason
+
 	return &Result{
 		Decision:   ToSynoraDecision(event, decisionResult, now),
 		NodeStates: buildNodeStates(event, decisionResult, now),
@@ -224,14 +241,16 @@ func buildClip(event *contract.Event, now time.Time) *state.ClipState {
 		cameraID = resolvePayloadString(event.Payload, "camera", "camera_id")
 	}
 
-	clipID := resolvePayloadString(event.Payload, "clip_id")
+	clipID := event.ClipID
 	if clipID == "" {
 		clipID = idgen.New("clip")
+		event.ClipID = clipID
 	}
 
 	return &state.ClipState{
 		ID:        clipID,
 		CameraID:  cameraID,
+		EventID:   event.ID,
 		Path:      path,
 		Start:     now,
 		End:       now,
@@ -268,6 +287,9 @@ func buildSystemState(
 func subjectFromEvent(event *contract.Event) (cgecontracts.SubjectType, string) {
 	if identity := normalizedIdentity(event.Identity); identity != "" {
 		return cgecontracts.SubjectResident, identity
+	}
+	if bestMatch := normalizedIdentity(resolvePayloadString(event.Payload, "best_match")); bestMatch != "" {
+		return cgecontracts.SubjectResident, bestMatch
 	}
 	if event.DeviceID != "" {
 		return cgecontracts.SubjectDevice, event.DeviceID

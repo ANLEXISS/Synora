@@ -17,7 +17,7 @@ import (
 	"synora/internal/idgen"
 	"synora/internal/ingest"
 	corerpc "synora/internal/rpc"
-	"synora/internal/snapshot"
+	snapshotpkg "synora/internal/snapshot"
 	"synora/internal/state"
 	"synora/internal/stateapply"
 	"synora/internal/topology"
@@ -54,8 +54,8 @@ type coreApp struct {
 	normalQueue       chan *contract.Event
 	ingest            *ingest.Queue
 	rpc               *corerpc.Server
-	snapshotBuilder   *snapshot.Builder
-	snapshotPublisher snapshot.Publisher
+	snapshotBuilder   *snapshotpkg.Builder
+	snapshotPublisher snapshotpkg.Publisher
 	actionDispatcher  automation.Dispatcher
 }
 
@@ -120,7 +120,7 @@ func main() {
 		highPriority: make(chan *contract.Event, 128),
 		normalQueue:  make(chan *contract.Event, 512),
 	}
-	app.snapshotBuilder = &snapshot.Builder{
+	app.snapshotBuilder = &snapshotpkg.Builder{
 		Mu:         &app.mu,
 		State:      app.state,
 		Devices:    app.device,
@@ -130,7 +130,7 @@ func main() {
 		Events:     app.eventStore,
 		Metrics:    app.metrics,
 	}
-	app.snapshotPublisher = snapshot.Publisher{
+	app.snapshotPublisher = snapshotpkg.Publisher{
 		Builder: app.snapshotBuilder,
 		Bus:     app.bus,
 	}

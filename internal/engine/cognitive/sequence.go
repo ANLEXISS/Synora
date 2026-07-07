@@ -1,9 +1,11 @@
 package cognitive
 
 import (
-	"time"
 	"sync"
+	"time"
+
 	"synora/internal/engine/contracts"
+	"synora/internal/engine/graph"
 )
 
 type SequenceManager struct {
@@ -28,6 +30,7 @@ func NewSequenceManager(
 }
 
 func (m *SequenceManager) GetOrCreateSequence(
+	sequenceKey string,
 	subjectID string,
 ) *contracts.ActiveSequence {
 
@@ -35,7 +38,7 @@ func (m *SequenceManager) GetOrCreateSequence(
 	defer m.Mu.Unlock()
 
 	seq, ok :=
-		m.Sequences[subjectID]
+		m.Sequences[sequenceKey]
 
 	if ok &&
 		!seq.Closed {
@@ -44,7 +47,7 @@ func (m *SequenceManager) GetOrCreateSequence(
 	}
 
 	seq = &contracts.ActiveSequence{
-		ID: subjectID +
+		ID: sequenceKey +
 			"-" +
 			time.Now().Format(
 				"20060102150405",
@@ -66,7 +69,7 @@ func (m *SequenceManager) GetOrCreateSequence(
 		Predictions: nil,
 	}
 
-	m.Sequences[subjectID] = seq
+	m.Sequences[sequenceKey] = seq
 
 	return seq
 }
@@ -77,6 +80,7 @@ func (m *SequenceManager) AddEvent(
 
 	seq :=
 		m.GetOrCreateSequence(
+			graph.SequenceKey(event),
 			event.SubjectID,
 		)
 
@@ -93,4 +97,12 @@ func (m *SequenceManager) AddEvent(
 		event.Timestamp
 
 	return seq
+}
+
+func (m *SequenceManager) Get(sequenceKey string) (*contracts.ActiveSequence, bool) {
+	m.Mu.RLock()
+	defer m.Mu.RUnlock()
+
+	seq, ok := m.Sequences[sequenceKey]
+	return seq, ok
 }

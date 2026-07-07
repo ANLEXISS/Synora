@@ -85,6 +85,7 @@ type PresenceState struct {
 type ClipState struct {
 	ID        string    `json:"id"`
 	CameraID  string    `json:"camera_id"`
+	EventID   string    `json:"event_id,omitempty"`
 	Path      string    `json:"path,omitempty"`
 	Start     time.Time `json:"start"`
 	End       time.Time `json:"end"`

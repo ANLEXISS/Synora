@@ -76,20 +76,29 @@ type Event struct {
 
 	Priority int    `json:"priority,omitempty"`
 	GroupKey string `json:"group_key,omitempty"`
+	TrackID  string `json:"track_id,omitempty"`
+	ClipID   string `json:"clip_id,omitempty"`
+
+	ValidationRequired bool   `json:"validation_required,omitempty"`
+	ValidationReason   string `json:"validation_reason,omitempty"`
 }
 
 type eventJSON struct {
-	ID         string         `json:"id,omitempty"`
-	Type       string         `json:"type"`
-	Source     string         `json:"source"`
-	Timestamp  time.Time      `json:"timestamp,omitempty"`
-	Payload    map[string]any `json:"payload,omitempty"`
-	DeviceID   string         `json:"device_id,omitempty"`
-	NodeID     string         `json:"node_id,omitempty"`
-	Identity   string         `json:"identity,omitempty"`
-	Confidence float64        `json:"confidence,omitempty"`
-	Priority   int            `json:"priority,omitempty"`
-	GroupKey   string         `json:"group_key,omitempty"`
+	ID                 string         `json:"id,omitempty"`
+	Type               string         `json:"type"`
+	Source             string         `json:"source"`
+	Timestamp          time.Time      `json:"timestamp,omitempty"`
+	Payload            map[string]any `json:"payload,omitempty"`
+	DeviceID           string         `json:"device_id,omitempty"`
+	NodeID             string         `json:"node_id,omitempty"`
+	Identity           string         `json:"identity,omitempty"`
+	Confidence         float64        `json:"confidence,omitempty"`
+	Priority           int            `json:"priority,omitempty"`
+	GroupKey           string         `json:"group_key,omitempty"`
+	TrackID            string         `json:"track_id,omitempty"`
+	ClipID             string         `json:"clip_id,omitempty"`
+	ValidationRequired bool           `json:"validation_required,omitempty"`
+	ValidationReason   string         `json:"validation_reason,omitempty"`
 }
 
 func (e *Event) UnmarshalJSON(data []byte) error {
@@ -100,26 +109,34 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	applyLegacyEventFields(data, &decoded)
 
 	*e = Event{
-		ID:         decoded.ID,
-		Type:       decoded.Type,
-		Source:     decoded.Source,
-		Timestamp:  decoded.Timestamp,
-		Payload:    decoded.Payload,
-		DeviceID:   decoded.DeviceID,
-		NodeID:     decoded.NodeID,
-		Identity:   decoded.Identity,
-		Confidence: decoded.Confidence,
-		Priority:   decoded.Priority,
-		GroupKey:   decoded.GroupKey,
+		ID:                 decoded.ID,
+		Type:               decoded.Type,
+		Source:             decoded.Source,
+		Timestamp:          decoded.Timestamp,
+		Payload:            decoded.Payload,
+		DeviceID:           decoded.DeviceID,
+		NodeID:             decoded.NodeID,
+		Identity:           decoded.Identity,
+		Confidence:         decoded.Confidence,
+		Priority:           decoded.Priority,
+		GroupKey:           decoded.GroupKey,
+		TrackID:            decoded.TrackID,
+		ClipID:             decoded.ClipID,
+		ValidationRequired: decoded.ValidationRequired,
+		ValidationReason:   decoded.ValidationReason,
 	}
 	return nil
 }
 
 func applyLegacyEventFields(data []byte, decoded *eventJSON) {
 	legacy := struct {
-		DeviceID string `json:"DeviceID,omitempty"`
-		NodeID   string `json:"NodeID,omitempty"`
-		GroupKey string `json:"GroupKey,omitempty"`
+		DeviceID           string `json:"DeviceID,omitempty"`
+		NodeID             string `json:"NodeID,omitempty"`
+		GroupKey           string `json:"GroupKey,omitempty"`
+		TrackID            string `json:"TrackID,omitempty"`
+		ClipID             string `json:"ClipID,omitempty"`
+		ValidationRequired bool   `json:"ValidationRequired,omitempty"`
+		ValidationReason   string `json:"ValidationReason,omitempty"`
 	}{}
 	if err := json.Unmarshal(data, &legacy); err != nil {
 		return
@@ -132,6 +149,18 @@ func applyLegacyEventFields(data []byte, decoded *eventJSON) {
 	}
 	if decoded.GroupKey == "" {
 		decoded.GroupKey = legacy.GroupKey
+	}
+	if decoded.TrackID == "" {
+		decoded.TrackID = legacy.TrackID
+	}
+	if decoded.ClipID == "" {
+		decoded.ClipID = legacy.ClipID
+	}
+	if !decoded.ValidationRequired {
+		decoded.ValidationRequired = legacy.ValidationRequired
+	}
+	if decoded.ValidationReason == "" {
+		decoded.ValidationReason = legacy.ValidationReason
 	}
 }
 

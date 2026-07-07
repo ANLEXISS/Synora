@@ -11,7 +11,7 @@ import (
 	"synora/internal/engine"
 	"synora/internal/event"
 	"synora/internal/ingest"
-	"synora/internal/snapshot"
+	snapshotpkg "synora/internal/snapshot"
 	"synora/internal/state"
 	"synora/internal/topology"
 	"synora/pkg/contract"
@@ -218,21 +218,26 @@ func newTestCoreApp(t *testing.T) (*coreApp, *memoryCoreBus) {
 
 	bus := newMemoryCoreBus()
 	devices := device.NewRegistry()
-	devices.Register([]device.DeviceConfig{{
-		ID:     "cam_01",
-		Type:   "camera",
-		Room:   "entry",
-		NodeID: "entry",
-		Role:   "access_control",
-	}})
+	devices.Register([]device.DeviceConfig{
+		{ID: "cam_01", Type: "camera", Room: "entry", NodeID: "entry", Role: "access_control"},
+		{ID: "cam_02", Type: "camera", Room: "salon", NodeID: "salon"},
+		{ID: "cam_03", Type: "camera", Room: "child_room", NodeID: "child_room"},
+		{ID: "cam_04", Type: "camera", Room: "guest_room", NodeID: "guest_room"},
+		{ID: "cam_05", Type: "camera", Room: "remote_room", NodeID: "remote_room"},
+	})
 
 	topo := &topology.Topology{
 		Nodes: map[string]*topology.Node{
-			"entry": {ID: "entry", Name: "Entry", Type: topology.NodeRoom},
+			"entry":       {ID: "entry", Name: "Entry", Type: topology.NodeRoom},
+			"salon":       {ID: "salon", Name: "Salon", Type: topology.NodeRoom},
+			"child_room":  {ID: "child_room", Name: "Child Room", Type: topology.NodeRoom},
+			"guest_room":  {ID: "guest_room", Name: "Guest Room", Type: topology.NodeRoom},
+			"remote_room": {ID: "remote_room", Name: "Remote Room", Type: topology.NodeRoom},
 		},
 	}
 	residents := map[string]*topology.Resident{
 		"alexis": {ID: "alexis", Name: "Alexis", Role: "resident"},
+		"carole": {ID: "carole", Name: "Carole", Role: "resident"},
 	}
 	store := state.NewStore()
 	automationEngine := automation.NewEngine(t.TempDir() + "/automations.yaml")
@@ -252,7 +257,7 @@ func newTestCoreApp(t *testing.T) (*coreApp, *memoryCoreBus) {
 			Parser: ingest.Parser{Devices: devices},
 		},
 	}
-	app.snapshotBuilder = &snapshot.Builder{
+	app.snapshotBuilder = &snapshotpkg.Builder{
 		Mu:         &app.mu,
 		State:      app.state,
 		Devices:    app.device,
@@ -262,7 +267,7 @@ func newTestCoreApp(t *testing.T) (*coreApp, *memoryCoreBus) {
 		Events:     app.eventStore,
 		Metrics:    app.metrics,
 	}
-	app.snapshotPublisher = snapshot.Publisher{
+	app.snapshotPublisher = snapshotpkg.Publisher{
 		Builder: app.snapshotBuilder,
 		Bus:     bus,
 		Now:     func() time.Time { return time.Date(2026, 7, 6, 10, 3, 0, 0, time.UTC) },

@@ -59,6 +59,11 @@ func TestEventJSONRoundTripAndLegacyInput(t *testing.T) {
 		Confidence: 0.73,
 		Priority:   PriorityNormal,
 		GroupKey:   "vision.unknown|camera-1",
+		TrackID:    "track-1",
+		ClipID:     "clip-1",
+
+		ValidationRequired: true,
+		ValidationReason:   "low_confidence_identity",
 	}
 
 	data, err := json.Marshal(event)
@@ -68,20 +73,23 @@ func TestEventJSONRoundTripAndLegacyInput(t *testing.T) {
 	assertJSONField(t, data, "device_id")
 	assertJSONField(t, data, "node_id")
 	assertJSONField(t, data, "group_key")
+	assertJSONField(t, data, "track_id")
+	assertJSONField(t, data, "clip_id")
+	assertJSONField(t, data, "validation_required")
 
 	var decoded Event
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal event: %v", err)
 	}
-	if decoded.DeviceID != event.DeviceID || decoded.NodeID != event.NodeID || decoded.GroupKey != event.GroupKey {
+	if decoded.DeviceID != event.DeviceID || decoded.NodeID != event.NodeID || decoded.GroupKey != event.GroupKey || decoded.ClipID != event.ClipID || !decoded.ValidationRequired {
 		t.Fatalf("decoded event mismatch: %#v", decoded)
 	}
 
-	legacy := []byte(`{"ID":"evt-2","Type":"vision.motion","Source":"camera-2","DeviceID":"device-2","NodeID":"hall","GroupKey":"legacy"}`)
+	legacy := []byte(`{"ID":"evt-2","Type":"vision.motion","Source":"camera-2","DeviceID":"device-2","NodeID":"hall","GroupKey":"legacy","ClipID":"legacy-clip","ValidationRequired":true}`)
 	if err := json.Unmarshal(legacy, &decoded); err != nil {
 		t.Fatalf("unmarshal legacy event: %v", err)
 	}
-	if decoded.ID != "evt-2" || decoded.DeviceID != "device-2" || decoded.NodeID != "hall" || decoded.GroupKey != "legacy" {
+	if decoded.ID != "evt-2" || decoded.DeviceID != "device-2" || decoded.NodeID != "hall" || decoded.GroupKey != "legacy" || decoded.ClipID != "legacy-clip" || !decoded.ValidationRequired {
 		t.Fatalf("legacy event mismatch: %#v", decoded)
 	}
 }
@@ -99,6 +107,14 @@ func TestDecisionJSONRoundTripAndLegacyInput(t *testing.T) {
 		Reason:         "unknown identity",
 		State:          "suspicious",
 		NodeID:         "entry",
+		ClipID:         "clip-1",
+		TrackID:        "track-1",
+		GroupKey:       "vision.unknown|camera-1",
+		SequenceKey:    "resident:alexis",
+		GraphUsed:      true,
+
+		ValidationRequired: true,
+		ValidationReason:   "rapid_novel_transition",
 	}
 
 	data, err := json.Marshal(decision)
@@ -108,20 +124,24 @@ func TestDecisionJSONRoundTripAndLegacyInput(t *testing.T) {
 	assertJSONField(t, data, "event_id")
 	assertJSONField(t, data, "effective_score")
 	assertJSONField(t, data, "node_id")
+	assertJSONField(t, data, "clip_id")
+	assertJSONField(t, data, "sequence_key")
+	assertJSONField(t, data, "graph_used")
+	assertJSONField(t, data, "validation_required")
 
 	var decoded Decision
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal decision: %v", err)
 	}
-	if decoded.EventID != decision.EventID || decoded.EffectiveScore != decision.EffectiveScore || decoded.NodeID != decision.NodeID {
+	if decoded.EventID != decision.EventID || decoded.EffectiveScore != decision.EffectiveScore || decoded.NodeID != decision.NodeID || decoded.ClipID != decision.ClipID || !decoded.GraphUsed || !decoded.ValidationRequired {
 		t.Fatalf("decoded decision mismatch: %#v", decoded)
 	}
 
-	legacy := []byte(`{"ID":"dec-2","Type":"intrusion","EventID":"evt-2","EffectiveScore":0.42,"NodeID":"kitchen"}`)
+	legacy := []byte(`{"ID":"dec-2","Type":"intrusion","EventID":"evt-2","EffectiveScore":0.42,"NodeID":"kitchen","ClipID":"legacy-clip","GraphUsed":true,"ValidationRequired":true}`)
 	if err := json.Unmarshal(legacy, &decoded); err != nil {
 		t.Fatalf("unmarshal legacy decision: %v", err)
 	}
-	if decoded.ID != "dec-2" || decoded.EventID != "evt-2" || decoded.EffectiveScore != 0.42 || decoded.NodeID != "kitchen" {
+	if decoded.ID != "dec-2" || decoded.EventID != "evt-2" || decoded.EffectiveScore != 0.42 || decoded.NodeID != "kitchen" || decoded.ClipID != "legacy-clip" || !decoded.GraphUsed || !decoded.ValidationRequired {
 		t.Fatalf("legacy decision mismatch: %#v", decoded)
 	}
 }
@@ -342,6 +362,7 @@ func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
 			"clips": map[string]any{
 				"clip-1": map[string]any{
 					"CameraID":  "camera-1",
+					"EventID":   "evt-clip",
 					"CreatedAt": "0001-01-01T00:00:00Z",
 				},
 			},
@@ -392,6 +413,9 @@ func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
 	}
 	if got := snapshot.System["last_state_time"]; got != nil {
 		t.Fatalf("zero last_state_time should be nil, got %#v", got)
+	}
+	if snapshot.Clips[0]["event_id"] != "evt-clip" {
+		t.Fatalf("clip event_id should be exposed: %#v", snapshot.Clips[0])
 	}
 	if _, ok := snapshot.Automations[0]["event"]; ok {
 		t.Fatalf("automation event key should be normalized: %#v", snapshot.Automations[0])
