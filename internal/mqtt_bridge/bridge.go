@@ -12,7 +12,7 @@ func NewClient(broker string) *Client {
 
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(broker)
-	opts.SetClientID("orion-core")
+	opts.SetClientID("synora-core")
 
 	client := mqtt.NewClient(opts)
 

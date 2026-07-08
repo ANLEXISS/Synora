@@ -58,7 +58,21 @@ check_port 8888
 echo
 echo "Checking python vision dependencies..."
 
-sudo -u synora /var/lib/synora/services/vision-worker/venv/bin/python - <<EOF
+if [ -x /opt/synora/venv/bin/python ]; then
+    echo "✅ python venv exists"
+else
+    echo "❌ python venv missing"
+    exit 1
+fi
+
+if [ -f /opt/synora/services/vision-worker/worker.py ]; then
+    echo "✅ vision worker installed"
+else
+    echo "❌ vision worker missing"
+    exit 1
+fi
+
+sudo -u synora /opt/synora/venv/bin/python - <<EOF
 import cv2
 import numpy
 import scipy
