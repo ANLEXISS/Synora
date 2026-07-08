@@ -69,12 +69,12 @@ func (c *Client) Topology() ([]map[string]any, error) {
 	return topology, nil
 }
 
-func (c *Client) SystemHealth() (map[string]any, error) {
-	var health map[string]any
+func (c *Client) SystemHealth() (*contract.RuntimeHealth, error) {
+	var health contract.RuntimeHealth
 	if err := c.call("system.health", nil, &health); err != nil {
 		return nil, err
 	}
-	return health, nil
+	return &health, nil
 }
 
 func (c *Client) UpdateDevice(

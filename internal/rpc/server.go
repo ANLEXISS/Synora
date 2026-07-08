@@ -22,6 +22,10 @@ type Sender interface {
 	Send(contract.Message) error
 }
 
+type Requester interface {
+	Request(msgType string, source string, payload []byte, target string) (*contract.Message, error)
+}
+
 type Metrics interface {
 	Snapshot(*state.Store) map[string]any
 	SourceStatus(string, time.Duration) map[string]any
@@ -160,17 +164,47 @@ func (s *Server) eventList(_ contract.Message) (any, error) {
 }
 
 func (s *Server) systemHealth(_ contract.Message) (any, error) {
-	return map[string]any{
-		"service":    "core",
-		"status":     "ok",
-		"checked_at": time.Now().UTC(),
-		"services": map[string]any{
-			"core":      map[string]any{"status": "ok", "last_seen": time.Now().UTC()},
-			"vision":    s.metrics.SourceStatus("vision", 2*time.Minute),
-			"discovery": s.metrics.SourceStatus("discovery", 2*time.Minute),
-			"api":       s.metrics.SourceStatus("api", 10*time.Minute),
+	if requester, ok := s.bus.(Requester); ok {
+		response, err := requester.Request(
+			contract.RPCRuntimeHealth,
+			"core",
+			nil,
+			"runtime-manager",
+		)
+
+		if err == nil && response != nil && len(response.Payload) > 0 {
+			var health contract.RuntimeHealth
+			if decodeErr := json.Unmarshal(
+				response.Payload,
+				&health,
+			); decodeErr == nil {
+				return health, nil
+			}
+		}
+	}
+
+	now := time.Now().UTC()
+
+	return contract.RuntimeHealth{
+		Services: map[string]contract.RuntimeServiceHealth{
+			"synora-core": {
+				Name:    "synora-core",
+				Status:  "ok",
+				Active:  true,
+				Checked: now,
+			},
 		},
-		"metrics": s.metrics.Snapshot(s.state),
+		Network: contract.RuntimeNetworkHealth{
+			Status: "unknown",
+		},
+		MediaMTX: contract.RuntimeMediaMTXHealth{
+			Status: "unknown",
+		},
+		Disk: contract.RuntimeDiskHealth{
+			Status: "unknown",
+		},
+		Uptime:    0,
+		Timestamp: now,
 	}, nil
 }
 

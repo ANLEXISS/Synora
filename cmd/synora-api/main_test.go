@@ -13,6 +13,7 @@ import (
 type fakeCore struct {
 	snapshot *contract.PublicSnapshot
 	state    *contract.PublicSnapshot
+	health   *contract.RuntimeHealth
 	err      error
 }
 
@@ -28,6 +29,13 @@ func (f fakeCore) State() (*contract.PublicSnapshot, error) {
 		return nil, f.err
 	}
 	return f.state, nil
+}
+
+func (f fakeCore) SystemHealth() (*contract.RuntimeHealth, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.health, nil
 }
 
 func TestHandleSnapshotReturnsPublicSnapshot(t *testing.T) {
@@ -123,5 +131,52 @@ func TestHandleSnapshotError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleSystemHealthReturnsCleanRuntimeHealth(t *testing.T) {
+	core := fakeCore{
+		health: &contract.RuntimeHealth{
+			Services: map[string]contract.RuntimeServiceHealth{
+				"synora-core": {
+					Name:   "synora-core",
+					Status: "active",
+					Active: true,
+				},
+			},
+			Network: contract.RuntimeNetworkHealth{
+				Status: "ok",
+			},
+			MediaMTX: contract.RuntimeMediaMTXHealth{
+				Status: "active",
+			},
+			Disk: contract.RuntimeDiskHealth{
+				Status: "ok",
+			},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/health", nil)
+	rec := httptest.NewRecorder()
+
+	handleSystemHealth(core).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+
+	if _, ok := body["payload"]; ok {
+		t.Fatalf("system health is double wrapped: %s", rec.Body.String())
+	}
+
+	for _, key := range []string{"services", "network", "mediamtx", "disk"} {
+		if _, ok := body[key]; !ok {
+			t.Fatalf("system health missing key %q in %s", key, rec.Body.String())
+		}
 	}
 }

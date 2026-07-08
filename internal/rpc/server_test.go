@@ -24,6 +24,38 @@ func (s *testSender) Send(msg contract.Message) error {
 	return nil
 }
 
+type testRuntimeBus struct {
+	testSender
+
+	response *contract.Message
+	err      error
+
+	requests []contract.Message
+}
+
+func (b *testRuntimeBus) Request(
+	msgType string,
+	source string,
+	payload []byte,
+	target string,
+) (*contract.Message, error) {
+	b.requests = append(
+		b.requests,
+		contract.Message{
+			Type:    msgType,
+			Source:  source,
+			Target:  target,
+			Payload: payload,
+		},
+	)
+
+	if b.err != nil {
+		return nil, b.err
+	}
+
+	return b.response, nil
+}
+
 type testMetrics struct{}
 
 func (testMetrics) Snapshot(*state.Store) map[string]any {
@@ -108,5 +140,84 @@ func TestRPCStateAndSnapshot(t *testing.T) {
 	}
 	if len(legacy.Structure.Devices) != 1 || len(legacy.Residents.Residents) != 1 {
 		t.Fatalf("unexpected snapshot payload: %#v", legacy)
+	}
+}
+
+func TestSystemHealthUsesRuntimeManager(t *testing.T) {
+	store := state.NewStore()
+	runtimeHealth := contract.RuntimeHealth{
+		Services: map[string]contract.RuntimeServiceHealth{
+			"synora-core": {
+				Name:   "synora-core",
+				Status: "active",
+				Active: true,
+			},
+		},
+		Network: contract.RuntimeNetworkHealth{
+			Status: "ok",
+		},
+		MediaMTX: contract.RuntimeMediaMTXHealth{
+			Status: "active",
+		},
+		Disk: contract.RuntimeDiskHealth{
+			Status: "ok",
+		},
+		Timestamp: time.Date(
+			2026,
+			7,
+			8,
+			12,
+			0,
+			0,
+			0,
+			time.UTC,
+		),
+	}
+
+	payload, err := json.Marshal(
+		runtimeHealth,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bus := &testRuntimeBus{
+		response: &contract.Message{
+			Payload: payload,
+		},
+	}
+
+	server := NewServer(Config{
+		Bus:     bus,
+		State:   store,
+		Metrics: testMetrics{},
+	})
+
+	server.Handle(contract.Message{
+		ID:     "rpc-health",
+		Type:   "system.health",
+		Kind:   contract.KindRPC,
+		Source: "api",
+	})
+
+	if len(bus.requests) != 1 {
+		t.Fatalf("runtime requests=%d", len(bus.requests))
+	}
+
+	if bus.requests[0].Type != contract.RPCRuntimeHealth || bus.requests[0].Target != "runtime-manager" {
+		t.Fatalf("unexpected runtime request: %#v", bus.requests[0])
+	}
+
+	if len(bus.messages) != 1 {
+		t.Fatalf("responses=%d", len(bus.messages))
+	}
+
+	var got contract.RuntimeHealth
+	if err := json.Unmarshal(bus.messages[0].Payload, &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if got.Network.Status != "ok" {
+		t.Fatalf("health=%#v", got)
 	}
 }

@@ -71,6 +71,7 @@ build:
 	go build -o bin/synora-bus ./cmd/synora-bus
 	go build -o bin/synora-api ./cmd/synora-api
 	go build -o bin/synora-discovery ./cmd/synora-discovery
+	go build -o bin/synora-runtime-manager ./cmd/synora-runtime-manager
 
 # ------------------------------------------------
 # BUILD WEBAPP
@@ -286,6 +287,10 @@ install-vision-worker:
 	sudo mkdir -p $(VISION_WORKER_DIR)
 
 	sudo rsync -a --delete \
+		--exclude='__pycache__/' \
+		--exclude='*.pyc' \
+		--exclude='venv/' \
+		--exclude='tests/' \
 		services/vision-worker/ \
 		$(VISION_WORKER_DIR)/
 
@@ -352,6 +357,10 @@ install-bins:
 
 	sudo install -m 0755 \
 		bin/synora-discovery \
+		$(BIN_DIR)/
+
+	sudo install -m 0755 \
+		bin/synora-runtime-manager \
 		$(BIN_DIR)/
 
 # ------------------------------------------------
@@ -514,7 +523,8 @@ doctor:
 		synora-actions \
 		synora-bus \
 		synora-api \
-		synora-discovery; do \
+		synora-discovery \
+		synora-runtime-manager; do \
 		if [ -x $(BIN_DIR)/$$b ]; then \
 			echo "$(GREEN)OK $$b$(NC)"; \
 		else \

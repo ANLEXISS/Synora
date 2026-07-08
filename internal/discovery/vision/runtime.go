@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"os"
-	"os/exec"
 	"sync"
 	"time"
 )
@@ -16,7 +14,7 @@ const (
 )
 
 type Runtime struct {
-	cmd *exec.Cmd
+	manager *WorkerManager
 
 	conn net.Conn
 
@@ -56,32 +54,42 @@ type WorkerResponse struct {
 }
 
 func NewRuntime() *Runtime {
+	return NewRuntimeWithManager(
+		NewWorkerManager(
+			nil,
+			WorkerManagerConfig{},
+		),
+	)
+}
 
-	return &Runtime{}
+func NewRuntimeWithManager(
+	manager *WorkerManager,
+) *Runtime {
+	return &Runtime{
+		manager: manager,
+	}
 }
 
 func (v *Runtime) Start() error {
-
-	_ = os.Remove(
-		SocketPath,
-	)
-
-	v.cmd = exec.Command(
-		"/opt/synora/venv/bin/python",
-		"/opt/synora/services/vision-worker/worker.py",
-	)
-
-	v.cmd.Stdout = os.Stdout
-	v.cmd.Stderr = os.Stderr
-
-	err := v.cmd.Start()
-
-	if err != nil {
-
+	if err := v.manager.Start(
+		"discovery",
+	); err != nil {
 		return err
 	}
 
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	return v.connect()
+}
+
+func (v *Runtime) connect() error {
+	if v.conn != nil {
+		return nil
+	}
+
 	var conn net.Conn
+	var err error
 
 	for i := 0; i < 50; i++ {
 
@@ -102,7 +110,7 @@ func (v *Runtime) Start() error {
 	if err != nil {
 
 		return fmt.Errorf(
-			"failed to connect vision worker: %w",
+			"failed to connect vision worker socket: %w",
 			err,
 		)
 	}
@@ -119,9 +127,42 @@ func (v *Runtime) Start() error {
 func (v *Runtime) Process(
 	job *ClipJob,
 ) (*WorkerResponse, error) {
+	returnValue := &WorkerResponse{}
+
+	err := v.manager.WithCamera(
+		job.CameraID,
+		func() error {
+			resp, err := v.processLocked(
+				job,
+			)
+
+			if err != nil {
+				return err
+			}
+
+			*returnValue = *resp
+
+			return nil
+		},
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return returnValue, nil
+}
+
+func (v *Runtime) processLocked(
+	job *ClipJob,
+) (*WorkerResponse, error) {
 
 	v.mu.Lock()
 	defer v.mu.Unlock()
+
+	if err := v.connect(); err != nil {
+		return nil, err
+	}
 
 	req := Request{
 		ID: job.ID,
@@ -136,6 +177,7 @@ func (v *Runtime) Process(
 	).Encode(req)
 
 	if err != nil {
+		v.closeConn()
 
 		return nil, err
 	}
@@ -147,6 +189,7 @@ func (v *Runtime) Process(
 	).Decode(&resp)
 
 	if err != nil {
+		v.closeConn()
 
 		return nil, err
 	}
@@ -160,4 +203,13 @@ func (v *Runtime) Process(
 	}
 
 	return &resp, nil
+}
+
+func (v *Runtime) closeConn() {
+	if v.conn != nil {
+		_ = v.conn.Close()
+	}
+
+	v.conn = nil
+	v.reader = nil
 }

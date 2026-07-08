@@ -28,6 +28,10 @@ type stateProvider interface {
 	State() (*contract.PublicSnapshot, error)
 }
 
+type systemHealthProvider interface {
+	SystemHealth() (*contract.RuntimeHealth, error)
+}
+
 func main() {
 
 	addr := ":8080"
@@ -275,7 +279,7 @@ func handleTopology(
 }
 
 func handleSystemHealth(
-	core *coreclient.Client,
+	core systemHealthProvider,
 ) http.HandlerFunc {
 
 	return func(
@@ -294,13 +298,7 @@ func handleSystemHealth(
 			return
 		}
 
-		writeJSON(
-			w,
-			http.StatusOK,
-			map[string]any{
-				"payload": health,
-			},
-		)
+		writeJSON(w, http.StatusOK, health)
 	}
 }
 

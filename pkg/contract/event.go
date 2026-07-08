@@ -41,6 +41,13 @@ const (
 	// EventDeviceOffline reports that a device or camera is no longer reachable.
 	EventDeviceOffline = "device.offline"
 
+	// Discovery events
+	EventDiscoveryCameraOnline  = "discovery.camera.online"
+	EventDiscoveryCameraOffline = "discovery.camera.offline"
+	EventDiscoveryWorkerStarted = "discovery.worker.started"
+	EventDiscoveryWorkerStopped = "discovery.worker.stopped"
+	EventDiscoveryWorkerCrashed = "discovery.worker.crashed"
+
 	// System events
 	// EventSystemStateChanged reports a state transition published by the Core.
 	EventSystemStateChanged = "system.state.changed"
@@ -223,6 +230,11 @@ func NormalizeEventType(raw string) string {
 		EventVisionMotion,
 		EventDeviceTrigger,
 		EventDeviceOffline,
+		EventDiscoveryCameraOnline,
+		EventDiscoveryCameraOffline,
+		EventDiscoveryWorkerStarted,
+		EventDiscoveryWorkerStopped,
+		EventDiscoveryWorkerCrashed,
 		EventSystemStateChanged,
 		EventSystemPresence,
 		EventActionRequest:
@@ -269,7 +281,9 @@ func EventPriority(eventType string) int {
 
 	case EventVisionTamper,
 		EventVisionFall,
-		EventDeviceOffline:
+		EventDeviceOffline,
+		EventDiscoveryCameraOffline,
+		EventDiscoveryWorkerCrashed:
 		return PriorityHigh
 
 	case EventVisionUnknown,
@@ -277,6 +291,9 @@ func EventPriority(eventType string) int {
 		EventVisionIdentity,
 		EventVisionMotion,
 		EventDeviceTrigger,
+		EventDiscoveryCameraOnline,
+		EventDiscoveryWorkerStarted,
+		EventDiscoveryWorkerStopped,
 		EventActionRequest,
 		EventActionResult:
 		return PriorityNormal

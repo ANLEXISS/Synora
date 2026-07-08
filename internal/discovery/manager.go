@@ -17,6 +17,8 @@ type Manager struct {
 
 	vision *vision.Runtime
 
+	workerManager *vision.WorkerManager
+
 	devices *discoveryruntime.Registry
 
 	auth *DeviceStore
@@ -46,14 +48,25 @@ func NewManager(
 		len(auth.secrets),
 	)
 
+	workerManager := vision.NewWorkerManager(
+		busClient,
+		vision.WorkerManagerConfig{},
+	)
+
 	m := &Manager{
 		bus: busClient,
 
 		network: network.NewManager(),
 
-		vision: vision.NewRuntime(),
+		workerManager: workerManager,
 
-		devices: discoveryruntime.NewRegistry(),
+		vision: vision.NewRuntimeWithManager(
+			workerManager,
+		),
+
+		devices: discoveryruntime.NewRegistry(
+			busClient,
+		),
 
 		auth: auth,
 	}
