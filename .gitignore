@@ -2,10 +2,13 @@
 venv/
 .venv/
 __pycache__/
+**/__pycache__/
 *.pyc
+services/vision-worker/venv/
 
 # Go
 bin/
+main
 coverage.out
 
 # Models
@@ -43,10 +46,13 @@ Thumbs.db
 webapp/
 frontend/
 node_modules/
+webapp/node_modules/
+webapp/dist/
 dist/
 build/
 .next/
 .nuxt/
 
 *.mp4
+yolo_debug.txt
 tools/mediamtx/mediamtx

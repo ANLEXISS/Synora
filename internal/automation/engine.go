@@ -1,15 +1,20 @@
 package automation
 
-import "synora/pkg/contract"
+import (
+	"time"
+
+	"synora/pkg/contract"
+)
 
 type Engine struct {
 	store    *Store
 	filePath string
+	Now      func() time.Time
 }
 
 func NewEngine(path string, _ ...interface{}) *Engine {
 	return &Engine{
-		store: &Store{rules: make(map[string]Rule)},
+		store:    &Store{rules: make(map[string]Rule)},
 		filePath: path,
 	}
 }
@@ -52,6 +57,7 @@ func (e *Engine) Evaluate(event *contract.Event, decision *contract.Decision) []
 		return nil
 	}
 
+	now := e.now()
 	matched := make([]contract.Action, 0)
 	for _, rule := range e.store.List() {
 		if rule.State != "" && rule.State != decision.State {
@@ -66,10 +72,10 @@ func (e *Engine) Evaluate(event *contract.Event, decision *contract.Decision) []
 		if decision.EffectiveScore < rule.MinScore {
 			continue
 		}
-		if rule.Schedule != nil && !isWithinSchedule(rule.Schedule) {
+		if rule.Schedule != nil && !isWithinSchedule(rule.Schedule, now) {
 			continue
 		}
-		if len(rule.Conditions) > 0 && !evaluateConditions(rule.Conditions, *event, decision) {
+		if len(rule.Conditions) > 0 && !evaluateConditions(rule.Conditions, *event, decision, now) {
 			continue
 		}
 		matched = append(matched, rule.Actions...)
@@ -79,4 +85,11 @@ func (e *Engine) Evaluate(event *contract.Event, decision *contract.Decision) []
 
 func (e *Engine) Process(event *contract.Event, decision *contract.Decision) []contract.Action {
 	return e.Evaluate(event, decision)
+}
+
+func (e *Engine) now() time.Time {
+	if e != nil && e.Now != nil {
+		return e.Now()
+	}
+	return time.Now()
 }

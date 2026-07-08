@@ -7,9 +7,7 @@ import (
 	"synora/pkg/contract"
 )
 
-func evaluateConditions(conds []Condition, event contract.Event, decision *contract.Decision) bool {
-	now := time.Now()
-
+func evaluateConditions(conds []Condition, event contract.Event, decision *contract.Decision, now time.Time) bool {
 	for _, c := range conds {
 		switch c.Field {
 		case "device":
@@ -103,13 +101,12 @@ func parseClock(value string) (int, int, bool) {
 	return hour.Hour(), hour.Minute(), true
 }
 
-func isWithinSchedule(schedule *Schedule) bool {
+func isWithinSchedule(schedule *Schedule, now time.Time) bool {
 
 	if schedule == nil {
 		return true
 	}
 
-	now := time.Now()
 	current := now.Hour()*60 + now.Minute()
 
 	startMinutes := -1
