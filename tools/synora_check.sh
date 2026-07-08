@@ -22,10 +22,10 @@ check_service () {
 echo "Checking systemd services..."
 check_service synora-bus
 check_service synora-core
-check_service synora-discovery
-check_service synora-vision
-check_service mediamtx
+check_service synora-actions
 check_service synora-api
+check_service synora-discovery
+check_service mediamtx
 
 echo
 echo "Checking sockets..."
@@ -60,7 +60,8 @@ echo "Checking python vision dependencies..."
 
 sudo -u synora /var/lib/synora/services/vision-worker/venv/bin/python - <<EOF
 import cv2
-import onnxruntime
+import numpy
+import scipy
 print("✅ python dependencies OK")
 EOF
 

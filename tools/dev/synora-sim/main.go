@@ -25,15 +25,15 @@ func main() {
 	body, _ := json.Marshal(payload)
 
 	msg := contract.Message{
-	ID:        idgen.New("msg"),
-	Type:      "vision.identity",
-	Kind:      contract.KindEvent,
-	Source:    "vision-worker",
-	Target:    "core",
-	Timestamp: time.Now().UTC(),
-	Priority:  contract.PriorityNormal,
-	Payload:   body,
-}
+		ID:        idgen.New("msg"),
+		Type:      "vision.identity",
+		Kind:      contract.KindEvent,
+		Source:    "vision-worker",
+		Target:    "core",
+		Timestamp: time.Now().UTC(),
+		Priority:  contract.PriorityNormal,
+		Payload:   body,
+	}
 
 	client.Send(msg)
 }

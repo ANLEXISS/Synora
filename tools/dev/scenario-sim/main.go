@@ -22,9 +22,9 @@ type Scenario struct {
 
 func send(client *bus.Client, step Step) {
 	msg := contract.Message{
-		Type:   step.Type,
-		Source: step.Source,
-		Target: "core",
+		Type:    step.Type,
+		Source:  step.Source,
+		Target:  "core",
 		Payload: []byte(step.Payload),
 	}
 

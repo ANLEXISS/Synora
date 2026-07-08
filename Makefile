@@ -187,7 +187,10 @@ install-models:
 
 	sudo mkdir -p $(MODELS_DIR)
 
-	sudo rsync -a --delete \
+	sudo rsync -a --delete --delete-excluded \
+		--include='*/' \
+		--include='*.rknn' \
+		--exclude='*' \
 		models/ \
 		$(MODELS_DIR)/
 
