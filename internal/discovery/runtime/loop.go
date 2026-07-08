@@ -53,6 +53,7 @@ func StartLoop(
 
 			payload, err := json.Marshal(map[string]any{
 				"device_id": device.ID,
+				"camera_id": device.ID,
 				"type":      device.Type,
 				"online":    false,
 				"timestamp": now,
@@ -71,7 +72,7 @@ func StartLoop(
 
 			err = publisher.Send(contract.Message{
 				ID:        idgen.New("msg"),
-				Type:      "device.offline",
+				Type:      contract.EventDeviceOffline,
 				Kind:      contract.KindEvent,
 				Source:    "discovery",
 				Target:    "core",
@@ -87,6 +88,12 @@ func StartLoop(
 					err,
 				)
 			}
+
+			deviceID := device.ID
+			go registry.PublishCameraOffline(
+				deviceID,
+				now,
+			)
 		})
 	}
 }

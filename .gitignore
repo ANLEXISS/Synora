@@ -42,12 +42,13 @@ Thumbs.db
 .env
 .env.*
 
-# Webapp excluded for now
-webapp/
-frontend/
+# Webapp build artifacts
 node_modules/
 webapp/node_modules/
 webapp/dist/
+webapp/build/
+webapp/.vite/
+webapp/.cache/
 dist/
 build/
 .next/

@@ -21,7 +21,7 @@ type Authenticator interface {
 }
 
 type DeviceTracker interface {
-	TouchCameraClip(deviceID string, now time.Time)
+	TouchCameraClip(deviceID string, now time.Time) bool
 }
 
 type Queue interface {
