@@ -58,6 +58,8 @@ const (
 	EventActionRequest = "action.request"
 	// EventActionResult reports the outcome of an action request.
 	EventActionResult = "action.result"
+	// EventAutomationAction is the temporary legacy action command emitted by older automations.
+	EventAutomationAction = "automation.action"
 )
 
 /*
@@ -237,6 +239,7 @@ func NormalizeEventType(raw string) string {
 		EventDiscoveryWorkerCrashed,
 		EventSystemStateChanged,
 		EventSystemPresence,
+		EventAutomationAction,
 		EventActionRequest:
 		return raw
 
@@ -294,6 +297,7 @@ func EventPriority(eventType string) int {
 		EventDiscoveryCameraOnline,
 		EventDiscoveryWorkerStarted,
 		EventDiscoveryWorkerStopped,
+		EventAutomationAction,
 		EventActionRequest,
 		EventActionResult:
 		return PriorityNormal

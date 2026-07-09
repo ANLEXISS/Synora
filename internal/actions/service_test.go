@@ -92,7 +92,7 @@ func TestServiceExecutesActionRequestAndPublishesResult(t *testing.T) {
 		t.Fatalf("expected executor call, got %d", executor.calls)
 	}
 	result := decodeOnlyResult(t, bus)
-	if result.Status != StatusAccepted || result.ActionID != "act-1" || result.RequestID != "req-1" {
+	if result.Status != StatusAccepted || result.ActionID != "act-1" || result.RequestID != "act-1" || result.Type != "device.command" || result.Target != "siren-1" {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	if result.StartedAt.IsZero() || result.FinishedAt.IsZero() {
@@ -278,15 +278,15 @@ func TestServicePublishesSkippedForUnknownActionType(t *testing.T) {
 	})
 
 	result := decodeOnlyResult(t, bus)
-	if result.Status != StatusSkipped || result.Error != "" {
+	if result.Status != StatusUnknownAction || result.Error != "" {
 		t.Fatalf("unexpected unknown action result: %#v", result)
 	}
 }
 
 func TestServiceRetriesFailedAction(t *testing.T) {
 	payload, err := json.Marshal(contract.ActionRequest{
-		ID:    "act-retry",
-		Retry: 2,
+		ID:         "act-retry",
+		RetryCount: 2,
 		Action: contract.Action{
 			Type: "mqtt.publish",
 		},
@@ -317,6 +317,57 @@ func TestServiceRetriesFailedAction(t *testing.T) {
 	result := decodeOnlyResult(t, bus)
 	if result.Status != StatusError || result.Details["attempts"] != float64(3) {
 		t.Fatalf("unexpected retry result: %#v", result)
+	}
+}
+
+func TestServiceDryRunDoesNotExecuteHandler(t *testing.T) {
+	payload, err := json.Marshal(contract.ActionRequest{
+		ID:     "act-dry-run",
+		Type:   "device.command",
+		Target: "siren-1",
+		Metadata: map[string]any{
+			"simulated":   true,
+			"test_run_id": "sim-1",
+			"dry_run":     true,
+		},
+		Action: contract.Action{
+			Device:  "siren-1",
+			Command: "on",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	bus := &recordingBus{}
+	executor := &recordingExecutor{}
+	service := &Service{
+		Bus:      bus,
+		Executor: executor,
+		Deduper:  NewDeduper(),
+	}
+
+	service.HandleMessage(context.Background(), contract.Message{
+		ID:      "msg-dry-run",
+		Type:    contract.EventActionRequest,
+		Kind:    contract.KindCommand,
+		Source:  "core",
+		Payload: payload,
+	})
+
+	if executor.calls != 0 {
+		t.Fatalf("dry-run should not execute handler, got %d calls", executor.calls)
+	}
+	result := decodeOnlyResult(t, bus)
+	if result.Status != StatusSimulatedSuccess {
+		t.Fatalf("unexpected dry-run result: %#v", result)
+	}
+	metadata, ok := result.Data["metadata"].(map[string]any)
+	if !ok || metadata["simulated"] != true || metadata["test_run_id"] != "sim-1" || metadata["dry_run"] != true {
+		t.Fatalf("simulation metadata should be preserved: %#v", result.Data)
+	}
+	if result.Data["dry_run"] != true || result.Data["simulated"] != true {
+		t.Fatalf("dry-run result should be identifiable: %#v", result.Data)
 	}
 }
 

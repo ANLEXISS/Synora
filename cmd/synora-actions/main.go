@@ -47,7 +47,8 @@ func main() {
 	}
 
 	for msg := range busClient.SubscribeChannel("actions") {
-		if msg.Kind != contract.KindCommand || msg.Type != contract.EventActionRequest {
+		// TODO: remove automation.action once all deployed automations emit action.request.
+		if msg.Kind != contract.KindCommand || (msg.Type != contract.EventActionRequest && msg.Type != contract.EventAutomationAction) {
 			continue
 		}
 		service.HandleMessage(context.Background(), msg)

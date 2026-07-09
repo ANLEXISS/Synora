@@ -71,6 +71,7 @@ func (b *Builder) CoreState() map[string]any {
 			"identities":     b.State.Snapshot("identities"),
 			"presence":       b.State.Snapshot("presence"),
 			"clips":          b.State.Snapshot("clips"),
+			"events":         b.State.Snapshot("events"),
 			"validations":    b.State.Snapshot("validations"),
 			"action_results": b.State.Snapshot("action_results"),
 			"system":         b.State.SystemState(),

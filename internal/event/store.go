@@ -2,6 +2,7 @@ package event
 
 import (
 	"sync"
+
 	"synora/pkg/contract"
 )
 
@@ -34,6 +35,30 @@ func (s *Store) Add(e *contract.Event) {
 	}
 }
 
+func (s *Store) Load(events []*contract.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.events = make([]*contract.Event, s.limit)
+	s.index = 0
+	s.full = false
+	for _, event := range events {
+		if event == nil {
+			continue
+		}
+		cloned := *event
+		if event.Payload != nil {
+			cloned.Payload = cloneMap(event.Payload)
+		}
+		s.events[s.index] = &cloned
+		s.index++
+		if s.index >= s.limit {
+			s.index = 0
+			s.full = true
+		}
+	}
+}
+
 func (s *Store) List() []*contract.Event {
 
 	s.mu.RLock()
@@ -53,5 +78,20 @@ func (s *Store) List() []*contract.Event {
 	n := copy(out, s.events[s.index:])
 	copy(out[n:], s.events[:s.index])
 
+	return out
+}
+
+func cloneMap(source map[string]any) map[string]any {
+	if source == nil {
+		return nil
+	}
+	out := make(map[string]any, len(source))
+	for key, value := range source {
+		if nested, ok := value.(map[string]any); ok {
+			out[key] = cloneMap(nested)
+			continue
+		}
+		out[key] = value
+	}
 	return out
 }

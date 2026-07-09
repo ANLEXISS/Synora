@@ -281,6 +281,8 @@ func TestActionRequestJSONRoundTrip(t *testing.T) {
 	now := time.Date(2026, 7, 4, 10, 15, 0, 0, time.UTC)
 	request := ActionRequest{
 		ID:             "act-1",
+		AutomationID:   "auto-1",
+		ActionID:       "action-1",
 		Type:           "device.command",
 		Version:        "v1",
 		RequestID:      "req-1",
@@ -292,8 +294,14 @@ func TestActionRequestJSONRoundTrip(t *testing.T) {
 		IdempotencyKey: "idem-1",
 		SourceEventID:  "evt-1",
 		DecisionID:     "dec-1",
+		SituationID:    "sit-1",
+		ClipID:         "clip-1",
+		NodeID:         "entry",
+		DeviceID:       "cam-1",
 		TimeoutMs:      1000,
-		Retry:          2,
+		RetryCount:     2,
+		CooldownKey:    "auto-1:action-1",
+		Metadata:       map[string]any{"origin": "automation"},
 		Action: Action{
 			Device:  "light-1",
 			Command: "on",
@@ -306,15 +314,91 @@ func TestActionRequestJSONRoundTrip(t *testing.T) {
 		t.Fatalf("marshal action request: %v", err)
 	}
 	assertJSONField(t, data, "idempotency_key")
+	assertJSONField(t, data, "automation_id")
+	assertJSONField(t, data, "action_id")
 	assertJSONField(t, data, "source_event_id")
 	assertJSONField(t, data, "decision_id")
+	assertJSONField(t, data, "retry_count")
+	assertJSONField(t, data, "cooldown_key")
 
 	var decoded ActionRequest
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal action request: %v", err)
 	}
-	if decoded.ID != request.ID || decoded.Action.Device != "light-1" || !decoded.Timestamp.Equal(now) || decoded.TimeoutMs != 1000 || decoded.Retry != 2 {
+	if decoded.ID != request.ID || decoded.AutomationID != "auto-1" || decoded.ActionID != "action-1" || decoded.Action.Device != "light-1" || !decoded.Timestamp.Equal(now) || decoded.TimeoutMs != 1000 || decoded.RetryCount != 2 || decoded.ClipID != "clip-1" {
 		t.Fatalf("decoded action request mismatch: %#v", decoded)
+	}
+}
+
+func TestActionResultJSONRoundTrip(t *testing.T) {
+	startedAt := time.Date(2026, 7, 4, 10, 15, 1, 0, time.UTC)
+	finishedAt := startedAt.Add(125 * time.Millisecond)
+	result := ActionResult{
+		ID:           "ares-1",
+		RequestID:    "areq-1",
+		AutomationID: "auto-1",
+		ActionID:     "action-1",
+		Type:         "device.command",
+		Target:       "light-1",
+		Status:       ActionStatusSuccess,
+		StartedAt:    startedAt,
+		FinishedAt:   finishedAt,
+		DurationMs:   125,
+		Attempts:     2,
+		Data:         map[string]any{"adapter": "fake"},
+	}
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal action result: %v", err)
+	}
+	for _, field := range []string{"request_id", "automation_id", "action_id", "duration_ms", "attempts", "data"} {
+		assertJSONField(t, data, field)
+	}
+
+	var decoded ActionResult
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal action result: %v", err)
+	}
+	if decoded.RequestID != "areq-1" || decoded.AutomationID != "auto-1" || decoded.Attempts != 2 || decoded.DurationMs != 125 || decoded.Data["adapter"] != "fake" {
+		t.Fatalf("decoded action result mismatch: %#v", decoded)
+	}
+}
+
+func TestAutomationJSONRoundTripMultipleConditionsAndActions(t *testing.T) {
+	rule := Automation{
+		ID:             "auto-1",
+		Name:           "Entry activity",
+		Enabled:        true,
+		Description:    "Turn on entry lights for high confidence motion.",
+		Priority:       10,
+		Trigger:        AutomationTrigger{EventType: EventVisionMotion, State: "active"},
+		ConditionLogic: "all",
+		Conditions: []Condition{
+			{ID: "c1", Field: "node", Op: "==", Value: "entry"},
+			{ID: "c2", Field: "score", Op: ">=", Value: 0.8, ValueType: "number"},
+		},
+		Actions: []AutomationAction{
+			{ID: "a1", Type: "device.command", Target: "light-1", Data: map[string]any{"command": "on"}, TimeoutMs: 250, RetryCount: 1, Enabled: true, Order: 1},
+			{ID: "a2", Type: "mqtt.publish", Target: "synora/events", Data: map[string]any{"payload": "motion"}, Enabled: true, Order: 2},
+		},
+		CooldownMs: 5000,
+	}
+
+	data, err := json.Marshal(rule)
+	if err != nil {
+		t.Fatalf("marshal automation: %v", err)
+	}
+	for _, field := range []string{"condition_logic", "conditions", "actions", "cooldown_ms"} {
+		assertJSONField(t, data, field)
+	}
+
+	var decoded Automation
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal automation: %v", err)
+	}
+	if decoded.ID != "auto-1" || !decoded.Enabled || len(decoded.Conditions) != 2 || len(decoded.Actions) != 2 || decoded.Actions[0].RetryCount != 1 {
+		t.Fatalf("decoded automation mismatch: %#v", decoded)
 	}
 }
 

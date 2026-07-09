@@ -61,7 +61,7 @@ func TestRouterSkipsUnknownActionWithoutFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if result.Status != StatusSkipped {
-		t.Fatalf("unknown action should be skipped, got %#v", result)
+	if result.Status != StatusUnknownAction {
+		t.Fatalf("unknown action should be reported, got %#v", result)
 	}
 }

@@ -7,10 +7,12 @@ import (
 )
 
 const (
-	StatusSuccess = "success"
-	StatusError   = "error"
-	StatusTimeout = "timeout"
-	StatusSkipped = "skipped"
+	StatusSuccess          = contract.ActionStatusSuccess
+	StatusError            = contract.ActionStatusError
+	StatusTimeout          = contract.ActionStatusTimeout
+	StatusSkipped          = contract.ActionStatusSkipped
+	StatusUnknownAction    = contract.ActionStatusUnknownAction
+	StatusSimulatedSuccess = contract.ActionStatusSimulatedSuccess
 
 	StatusAccepted  = StatusSuccess
 	StatusDuplicate = StatusSkipped

@@ -56,8 +56,11 @@ func TestCriticalFlowIdentityUpdatesStateSnapshotAndDispatchesAction(t *testing.
 
 	if err := app.automation.Add(automation.Rule{
 		ID:        "identity-action",
+		Enabled:   true,
 		EventType: contract.EventVisionIdentity,
-		Actions: []contract.Action{{
+		Actions: []automation.AutomationAction{{
+			ID:      "action-light-entry",
+			Enabled: true,
 			Device:  "light-entry",
 			Command: "on",
 		}},

@@ -20,13 +20,39 @@ type Store struct {
 	Clips         map[string]*ClipState
 	Validations   map[string]*contract.ValidationRequest
 	ActionResults map[string]*contract.ActionResult
+	RecentEvents  []*contract.Event
 	EventWindows  map[string]*contract.EventWindow
 	System        *SystemState
+
+	persistence Persistence
 }
 
-func NewStore(_ ...string) *Store {
+const (
+	maxActionResults = 200
+	maxRecentEvents  = 200
+)
+
+type Option func(*Store)
+
+func WithPersistence(persistence Persistence) Option {
+	return func(s *Store) {
+		s.persistence = persistence
+	}
+}
+
+func WithPersistencePath(path string) Option {
+	return WithPersistence(NewFilePersistence(path))
+}
+
+func (s *Store) SetPersistence(persistence Persistence) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.persistence = persistence
+}
+
+func NewStore(options ...Option) *Store {
 	now := time.Now().UTC()
-	return &Store{
+	store := &Store{
 		DeviceStates:  make(map[string]*DeviceState),
 		CameraStates:  make(map[string]*CameraState),
 		NodeStates:    make(map[string]*NodeState),
@@ -37,12 +63,19 @@ func NewStore(_ ...string) *Store {
 		Clips:         make(map[string]*ClipState),
 		Validations:   make(map[string]*contract.ValidationRequest),
 		ActionResults: make(map[string]*contract.ActionResult),
+		RecentEvents:  []*contract.Event{},
 		EventWindows:  make(map[string]*contract.EventWindow),
 		System: &SystemState{
 			LastState:     "idle",
 			LastStateTime: now,
 		},
 	}
+	for _, option := range options {
+		if option != nil {
+			option(store)
+		}
+	}
+	return store
 }
 
 func (s *Store) SetDeviceState(value *DeviceState) {
@@ -169,9 +202,10 @@ func (s *Store) SetIdentity(value *IdentityState) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	cloned := *value
 	s.Identities[value.ID] = &cloned
+	s.mu.Unlock()
+	s.SaveNow()
 }
 
 func (s *Store) Identity(id string) (*IdentityState, bool) {
@@ -187,8 +221,9 @@ func (s *Store) Identity(id string) (*IdentityState, bool) {
 
 func (s *Store) DeleteIdentity(id string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.Identities, id)
+	s.mu.Unlock()
+	s.SaveNow()
 }
 
 func (s *Store) SetPresence(value *PresenceState) {
@@ -196,9 +231,10 @@ func (s *Store) SetPresence(value *PresenceState) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	cloned := *value
 	s.Presence[value.ID] = &cloned
+	s.mu.Unlock()
+	s.SaveNow()
 }
 
 func (s *Store) PresenceState(id string) (*PresenceState, bool) {
@@ -214,8 +250,9 @@ func (s *Store) PresenceState(id string) (*PresenceState, bool) {
 
 func (s *Store) DeletePresence(id string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.Presence, id)
+	s.mu.Unlock()
+	s.SaveNow()
 }
 
 func (s *Store) SetClip(value *ClipState) {
@@ -223,9 +260,10 @@ func (s *Store) SetClip(value *ClipState) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	cloned := *value
 	s.Clips[value.ID] = &cloned
+	s.mu.Unlock()
+	s.SaveNow()
 }
 
 func (s *Store) Clip(id string) (*ClipState, bool) {
@@ -241,8 +279,9 @@ func (s *Store) Clip(id string) (*ClipState, bool) {
 
 func (s *Store) DeleteClip(id string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.Clips, id)
+	s.mu.Unlock()
+	s.SaveNow()
 }
 
 func (s *Store) SetValidation(value *contract.ValidationRequest) {
@@ -250,8 +289,9 @@ func (s *Store) SetValidation(value *contract.ValidationRequest) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.Validations[value.ID] = cloneValidation(value)
+	s.mu.Unlock()
+	s.SaveNow()
 }
 
 func (s *Store) Validation(id string) (*contract.ValidationRequest, bool) {
@@ -292,10 +332,12 @@ func (s *Store) SetActionResult(value *contract.ActionResult) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	cloned := cloneActionResult(value)
 	cloned.ID = id
 	s.ActionResults[id] = cloned
+	s.trimActionResultsLocked(maxActionResults)
+	s.mu.Unlock()
+	s.SaveNow()
 }
 
 func (s *Store) ActionResultsList() []contract.ActionResult {
@@ -309,6 +351,19 @@ func (s *Store) ActionResultsList() []contract.ActionResult {
 		out = append(out, *cloneActionResult(value))
 	}
 	return out
+}
+
+func (s *Store) SetRecentEvents(events []*contract.Event) {
+	s.mu.Lock()
+	s.RecentEvents = cloneEvents(trimEvents(events, maxRecentEvents))
+	s.mu.Unlock()
+	s.SaveNow()
+}
+
+func (s *Store) RecentEventsList() []*contract.Event {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneEvents(s.RecentEvents)
 }
 
 func (s *Store) SetEventWindow(nodeID string, value *contract.EventWindow) {
@@ -456,6 +511,13 @@ func (s *Store) Snapshot(collection string) map[string]interface{} {
 			}
 			out[id] = *cloneActionResult(value)
 		}
+	case "events":
+		for _, value := range s.RecentEvents {
+			if value == nil || value.ID == "" {
+				continue
+			}
+			out[value.ID] = *cloneEvent(value)
+		}
 	case "windows":
 		for id, value := range s.EventWindows {
 			if value == nil {
@@ -515,6 +577,10 @@ func (s *Store) Upsert(collection string, id string, data interface{}) {
 		s.SetActionResult(&value)
 	case *contract.ActionResult:
 		s.SetActionResult(value)
+	case contract.Event:
+		s.SetRecentEvents(append(s.RecentEventsList(), &value))
+	case *contract.Event:
+		s.SetRecentEvents(append(s.RecentEventsList(), value))
 	case contract.EventWindow:
 		s.SetEventWindow(id, &value)
 	case *contract.EventWindow:
@@ -556,10 +622,14 @@ func (s *Store) Delete(collection string, id string) {
 		s.mu.Lock()
 		delete(s.Validations, id)
 		s.mu.Unlock()
+		s.SaveNow()
 	case "action_results":
 		s.mu.Lock()
 		delete(s.ActionResults, id)
 		s.mu.Unlock()
+		s.SaveNow()
+	case "events":
+		s.deleteRecentEvent(id)
 	case "windows":
 		s.DeleteEventWindow(id)
 	}
@@ -640,6 +710,163 @@ func cloneWindow(value *contract.EventWindow) *contract.EventWindow {
 	return &cloned
 }
 
+func (s *Store) LoadPersisted() (PersistedSummary, error) {
+	if s.persistence == nil {
+		return PersistedSummary{}, nil
+	}
+	persisted, err := s.persistence.Load()
+	if persisted == nil {
+		return PersistedSummary{}, err
+	}
+	s.applyPersistedState(persisted)
+	return persistedSummary(persisted), err
+}
+
+func (s *Store) SaveNow() error {
+	if s.persistence == nil {
+		return nil
+	}
+	persisted := s.PersistedState()
+	return s.persistence.Save(persisted)
+}
+
+func (s *Store) Close() error {
+	if s.persistence == nil {
+		return nil
+	}
+	return s.persistence.Close()
+}
+
+func (s *Store) PersistedState() *PersistedState {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.persistedStateLocked(time.Now().UTC())
+}
+
+func (s *Store) applyPersistedState(persisted *PersistedState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if persisted.Clips != nil {
+		s.Clips = make(map[string]*ClipState, len(persisted.Clips))
+		for id, value := range persisted.Clips {
+			cloned := value
+			if cloned.ID == "" {
+				cloned.ID = id
+			}
+			s.Clips[id] = &cloned
+		}
+	}
+	if persisted.Validations != nil {
+		s.Validations = make(map[string]*contract.ValidationRequest, len(persisted.Validations))
+		for id, value := range persisted.Validations {
+			cloned := cloneValidation(&value)
+			if cloned.ID == "" {
+				cloned.ID = id
+			}
+			s.Validations[id] = cloned
+		}
+	}
+	if persisted.ActionResults != nil {
+		s.ActionResults = make(map[string]*contract.ActionResult, len(persisted.ActionResults))
+		for id, value := range persisted.ActionResults {
+			cloned := cloneActionResult(&value)
+			if cloned.ID == "" {
+				cloned.ID = id
+			}
+			s.ActionResults[id] = cloned
+		}
+		s.trimActionResultsLocked(maxActionResults)
+	}
+	if persisted.Events != nil {
+		s.RecentEvents = cloneEvents(trimEvents(persisted.Events, maxRecentEvents))
+	}
+	if persisted.Identities != nil {
+		s.Identities = make(map[string]*IdentityState, len(persisted.Identities))
+		for id, value := range persisted.Identities {
+			cloned := value
+			if cloned.ID == "" {
+				cloned.ID = id
+			}
+			s.Identities[id] = &cloned
+		}
+	}
+	if persisted.Presence != nil {
+		s.Presence = make(map[string]*PresenceState, len(persisted.Presence))
+		for id, value := range persisted.Presence {
+			cloned := value
+			if cloned.ID == "" {
+				cloned.ID = id
+			}
+			s.Presence[id] = &cloned
+		}
+	}
+}
+
+func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
+	persisted := emptyPersistedState()
+	persisted.SavedAt = savedAt
+	for id, value := range s.Clips {
+		if value == nil {
+			continue
+		}
+		persisted.Clips[id] = *value
+	}
+	for id, value := range s.Validations {
+		if value == nil {
+			continue
+		}
+		persisted.Validations[id] = *cloneValidation(value)
+	}
+	for id, value := range s.ActionResults {
+		if value == nil {
+			continue
+		}
+		persisted.ActionResults[id] = *cloneActionResult(value)
+	}
+	persisted.Events = cloneEvents(trimEvents(s.RecentEvents, maxRecentEvents))
+	for id, value := range s.Identities {
+		if value == nil {
+			continue
+		}
+		persisted.Identities[id] = *value
+	}
+	for id, value := range s.Presence {
+		if value == nil {
+			continue
+		}
+		persisted.Presence[id] = *value
+	}
+	return persisted
+}
+
+func persistedSummary(value *PersistedState) PersistedSummary {
+	if value == nil {
+		return PersistedSummary{}
+	}
+	return PersistedSummary{
+		Events:        len(value.Events),
+		Clips:         len(value.Clips),
+		Validations:   len(value.Validations),
+		ActionResults: len(value.ActionResults),
+		Identities:    len(value.Identities),
+		Presence:      len(value.Presence),
+	}
+}
+
+func (s *Store) deleteRecentEvent(id string) {
+	s.mu.Lock()
+	out := s.RecentEvents[:0]
+	for _, value := range s.RecentEvents {
+		if value == nil || value.ID == id {
+			continue
+		}
+		out = append(out, value)
+	}
+	s.RecentEvents = out
+	s.mu.Unlock()
+	s.SaveNow()
+}
+
 func cloneMap(source map[string]any) map[string]any {
 	if source == nil {
 		return nil
@@ -653,6 +880,38 @@ func cloneMap(source map[string]any) map[string]any {
 		out[key] = value
 	}
 	return out
+}
+
+func cloneEvents(source []*contract.Event) []*contract.Event {
+	if source == nil {
+		return nil
+	}
+	out := make([]*contract.Event, 0, len(source))
+	for _, value := range source {
+		if value == nil {
+			continue
+		}
+		out = append(out, cloneEvent(value))
+	}
+	return out
+}
+
+func trimEvents(events []*contract.Event, limit int) []*contract.Event {
+	if limit <= 0 || len(events) <= limit {
+		return events
+	}
+	return events[len(events)-limit:]
+}
+
+func cloneEvent(value *contract.Event) *contract.Event {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	if value.Payload != nil {
+		cloned.Payload = cloneMap(value.Payload)
+	}
+	return &cloned
 }
 
 func cloneValidation(value *contract.ValidationRequest) *contract.ValidationRequest {
@@ -676,5 +935,39 @@ func cloneActionResult(value *contract.ActionResult) *contract.ActionResult {
 	if value.Details != nil {
 		cloned.Details = cloneMap(value.Details)
 	}
+	if value.Data != nil {
+		cloned.Data = cloneMap(value.Data)
+	}
 	return &cloned
+}
+
+func (s *Store) trimActionResultsLocked(limit int) {
+	if limit <= 0 || len(s.ActionResults) <= limit {
+		return
+	}
+	for len(s.ActionResults) > limit {
+		var oldestID string
+		var oldestTime time.Time
+		for id, value := range s.ActionResults {
+			if value == nil {
+				oldestID = id
+				break
+			}
+			ts := value.FinishedAt
+			if ts.IsZero() {
+				ts = value.StartedAt
+			}
+			if ts.IsZero() {
+				ts = value.Timestamp
+			}
+			if oldestID == "" || ts.Before(oldestTime) {
+				oldestID = id
+				oldestTime = ts
+			}
+		}
+		if oldestID == "" {
+			return
+		}
+		delete(s.ActionResults, oldestID)
+	}
 }

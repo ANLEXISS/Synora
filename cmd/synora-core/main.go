@@ -73,6 +73,10 @@ func main() {
 	devicePath := getenv("SYNORA_DEVICE", "/etc/synora/devices.yaml")
 	automationPath := getenv("SYNORA_AUTOMATION", "/etc/synora/automations.yaml")
 	securityPath := getenv("SYNORA_SECURITY", "/etc/synora/security.yaml")
+	statePath := getenv("SYNORA_STATE_PATH", "")
+	if statePath == "" {
+		statePath = state.DefaultStatePath()
+	}
 
 	busClient, err := bus.NewClient(busPath, "core")
 	if err != nil {
@@ -164,6 +168,19 @@ func main() {
 	})
 
 	app.seedState()
+	app.state.SetPersistence(state.NewFilePersistence(statePath))
+	summary, err := app.state.LoadPersisted()
+	if err != nil {
+		log.Println("state persistence load warning:", err)
+	}
+	app.eventStore.Load(app.state.RecentEventsList())
+	log.Printf(
+		"state restored events=%d clips=%d validations=%d action_results=%d",
+		summary.Events,
+		summary.Clips,
+		summary.Validations,
+		summary.ActionResults,
+	)
 	app.publishStateSnapshot()
 	go app.processLoop()
 	go app.cleanupLoop()
@@ -265,6 +282,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	stateapply.TouchDeviceState(a.state, a.device, event)
 
 	a.eventStore.Add(event)
+	a.state.SetRecentEvents(a.eventStore.List())
 
 	if event.Type == contract.EventActionResult {
 		a.storeActionResult(event)
@@ -305,15 +323,12 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	if result != nil &&
 		result.Decision != nil {
 
-		for _, action := range a.automation.Evaluate(
+		for _, request := range a.automation.EvaluateRequests(
 			event,
 			result.Decision,
 		) {
 
-			if err := a.actionDispatcher.Dispatch(action, automation.ActionContext{
-				SourceEventID: event.ID,
-				DecisionID:    result.Decision.ID,
-			}); err != nil {
+			if err := a.actionDispatcher.DispatchRequest(request); err != nil {
 				log.Println("core: action dispatch error", err)
 			}
 		}

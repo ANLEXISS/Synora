@@ -21,11 +21,14 @@ func TestEventAutomationDispatchesActionRequest(t *testing.T) {
 	engine := NewEngine(t.TempDir() + "/automations.yaml")
 	err := engine.Add(Rule{
 		ID:        "rule-1",
+		Enabled:   true,
 		EventType: contract.EventVisionUnknown,
 		State:     "suspicious",
 		Node:      "entry",
 		MinScore:  0.5,
-		Actions: []contract.Action{{
+		Actions: []AutomationAction{{
+			ID:        "action-1",
+			Enabled:   true,
 			Type:      "device.command",
 			Device:    "siren-1",
 			Command:   "on",

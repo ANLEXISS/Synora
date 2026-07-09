@@ -71,6 +71,9 @@ func LoadFromFile(path string) ([]Rule, error) {
 	var current yamlAutomations
 	if err := yaml.Unmarshal(data, &current); err == nil && len(current.Automations) > 0 {
 		if isCurrentFormat(current.Automations) {
+			for i := range current.Automations {
+				current.Automations[i] = normalizeRule(current.Automations[i])
+			}
 			return current.Automations, nil
 		}
 	}
@@ -88,6 +91,7 @@ func LoadFromFile(path string) ([]Rule, error) {
 
 		rule := Rule{
 			ID:        item.ID,
+			Enabled:   true,
 			EventType: item.EventType,
 			State:     item.State,
 			Node:      item.Node,
@@ -142,7 +146,7 @@ func LoadFromFile(path string) ([]Rule, error) {
 
 		for _, action := range item.Actions {
 
-			a := contract.Action{}
+			a := AutomationAction{Enabled: true}
 
 			if t, ok := action["type"].(string); ok {
 				a.Type = t
@@ -150,6 +154,9 @@ func LoadFromFile(path string) ([]Rule, error) {
 
 			if d, ok := action["device"].(string); ok {
 				a.Device = d
+				if a.Target == "" {
+					a.Target = d
+				}
 			}
 
 			if c, ok := action["command"].(string); ok {
@@ -162,6 +169,9 @@ func LoadFromFile(path string) ([]Rule, error) {
 
 			if ch, ok := action["channel"].(string); ok {
 				a.Channel = ch
+				if a.Target == "" {
+					a.Target = ch
+				}
 			}
 
 			if r, ok := action["residents"].([]any); ok {
@@ -175,7 +185,7 @@ func LoadFromFile(path string) ([]Rule, error) {
 			rule.Actions = append(rule.Actions, a)
 		}
 
-		out = append(out, rule)
+		out = append(out, normalizeRule(rule))
 	}
 
 	return out, nil

@@ -23,7 +23,7 @@ type Service struct {
 }
 
 func (s *Service) HandleMessage(ctx context.Context, msg contract.Message) {
-	if msg.Kind != contract.KindCommand || msg.Type != contract.EventActionRequest {
+	if msg.Kind != contract.KindCommand || (msg.Type != contract.EventActionRequest && msg.Type != contract.EventAutomationAction) {
 		return
 	}
 
@@ -64,6 +64,16 @@ func (s *Service) HandleMessage(ctx context.Context, msg contract.Message) {
 		s.publishResult(msg, request, StatusDuplicate, "", now, now, map[string]any{
 			"idempotency_key": key,
 			"reason":          "duplicate",
+		})
+		return
+	}
+
+	if requestDryRun(request) {
+		now := s.now()
+		s.publishResult(msg, request, StatusSimulatedSuccess, "", now, now, map[string]any{
+			"dry_run":   true,
+			"simulated": true,
+			"reason":    "simulation dry-run; action handler was not executed",
 		})
 		return
 	}
@@ -148,8 +158,11 @@ func normalizeRequest(request *contract.ActionRequest) {
 	if request.TimeoutMs == 0 {
 		request.TimeoutMs = request.Action.TimeoutMs
 	}
+	if request.RetryCount == 0 {
+		request.RetryCount = firstNonZero(request.Retry, request.Action.Retry)
+	}
 	if request.Retry == 0 {
-		request.Retry = request.Action.Retry
+		request.Retry = request.RetryCount
 	}
 }
 
@@ -158,7 +171,7 @@ func (s *Service) executeWithRetry(
 	executor Executor,
 	request contract.ActionRequest,
 ) (string, string, time.Time, time.Time, map[string]any) {
-	attempts := request.Retry + 1
+	attempts := request.RetryCount + 1
 	if attempts < 1 {
 		attempts = 1
 	}
@@ -211,7 +224,7 @@ func (s *Service) executeWithRetry(
 		status = StatusTimeout
 	}
 	details := cloneMap(lastResult.Details)
-	if request.Retry > 0 {
+	if request.RetryCount > 0 {
 		if details == nil {
 			details = map[string]any{}
 		}
@@ -260,17 +273,34 @@ func (s *Service) publishResult(
 	result := contract.ActionResult{
 		ID:            id,
 		Version:       request.Version,
-		RequestID:     firstNonEmpty(request.RequestID, msg.RequestID, msg.ID),
+		RequestID:     firstNonEmpty(request.ID, request.RequestID, msg.RequestID, msg.ID),
+		AutomationID:  request.AutomationID,
+		ActionID:      firstNonEmpty(request.ActionID, request.ID, msg.ID),
+		Type:          request.Type,
+		Target:        request.Target,
 		CorrelationID: firstNonEmpty(request.CorrelationID, msg.CorrelationID),
-		ActionID:      firstNonEmpty(request.ID, msg.ID),
 		Source:        "actions",
 		Timestamp:     now,
 		Status:        status,
 		Error:         errorMessage,
 		StartedAt:     startedAt,
 		FinishedAt:    now,
+		DurationMs:    durationMillis(startedAt, now),
+		Attempts:      attemptsFromDetails(details),
+		Data:          details,
 		Details:       details,
 	}
+	if result.Data == nil {
+		result.Data = map[string]any{}
+	}
+	if len(request.Metadata) > 0 {
+		result.Data["metadata"] = cloneMap(request.Metadata)
+	}
+	if requestDryRun(request) {
+		result.Data["dry_run"] = true
+		result.Data["simulated"] = true
+	}
+	result.Details = result.Data
 
 	payload, err := json.Marshal(result)
 	if err != nil {
@@ -382,4 +412,44 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func firstNonZero(values ...int) int {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func requestDryRun(request contract.ActionRequest) bool {
+	if request.Metadata == nil {
+		return false
+	}
+	value, ok := request.Metadata["dry_run"].(bool)
+	return ok && value
+}
+
+func durationMillis(startedAt time.Time, finishedAt time.Time) int64 {
+	if startedAt.IsZero() || finishedAt.IsZero() {
+		return 0
+	}
+	return finishedAt.Sub(startedAt).Milliseconds()
+}
+
+func attemptsFromDetails(details map[string]any) int {
+	if details == nil {
+		return 1
+	}
+	switch value := details["attempts"].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 1
+	}
 }

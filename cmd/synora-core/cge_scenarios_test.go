@@ -295,8 +295,9 @@ func TestCGEScenarioWeaponDetected(t *testing.T) {
 	core := newTestCore(t)
 	if err := core.app.automation.Add(automation.Rule{
 		ID:        "weapon-critical-action",
+		Enabled:   true,
 		EventType: contract.EventVisionWeapon,
-		Actions:   []contract.Action{{Device: "siren", Command: "on"}},
+		Actions:   []automation.AutomationAction{{ID: "siren-on", Enabled: true, Device: "siren", Command: "on"}},
 	}); err != nil {
 		t.Fatalf("add weapon automation: %v", err)
 	}
@@ -500,9 +501,10 @@ func addNightAutomation(t *testing.T, core *scenarioCore) {
 	t.Helper()
 	if err := core.app.automation.Add(automation.Rule{
 		ID:        "night-identity-light",
+		Enabled:   true,
 		EventType: contract.EventVisionIdentity,
 		Schedule:  &automation.Schedule{Start: "23:00", End: "06:00"},
-		Actions:   []contract.Action{{Device: "light_entree", Command: "on"}},
+		Actions:   []automation.AutomationAction{{ID: "light-entrance-on", Enabled: true, Device: "light_entree", Command: "on"}},
 	}); err != nil {
 		t.Fatalf("add night automation: %v", err)
 	}
