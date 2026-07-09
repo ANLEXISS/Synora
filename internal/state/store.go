@@ -10,30 +10,34 @@ import (
 type Store struct {
 	mu sync.RWMutex
 
-	DeviceStates map[string]*DeviceState
-	CameraStates map[string]*CameraState
-	NodeStates   map[string]*NodeState
-	Tracks       map[string]*Track
-	Clusters     map[string]*Cluster
-	Identities   map[string]*IdentityState
-	Presence     map[string]*PresenceState
-	Clips        map[string]*ClipState
-	EventWindows map[string]*contract.EventWindow
-	System       *SystemState
+	DeviceStates  map[string]*DeviceState
+	CameraStates  map[string]*CameraState
+	NodeStates    map[string]*NodeState
+	Tracks        map[string]*Track
+	Clusters      map[string]*Cluster
+	Identities    map[string]*IdentityState
+	Presence      map[string]*PresenceState
+	Clips         map[string]*ClipState
+	Validations   map[string]*contract.ValidationRequest
+	ActionResults map[string]*contract.ActionResult
+	EventWindows  map[string]*contract.EventWindow
+	System        *SystemState
 }
 
 func NewStore(_ ...string) *Store {
 	now := time.Now().UTC()
 	return &Store{
-		DeviceStates: make(map[string]*DeviceState),
-		CameraStates: make(map[string]*CameraState),
-		NodeStates:   make(map[string]*NodeState),
-		Tracks:       make(map[string]*Track),
-		Clusters:     make(map[string]*Cluster),
-		Identities:   make(map[string]*IdentityState),
-		Presence:     make(map[string]*PresenceState),
-		Clips:        make(map[string]*ClipState),
-		EventWindows: make(map[string]*contract.EventWindow),
+		DeviceStates:  make(map[string]*DeviceState),
+		CameraStates:  make(map[string]*CameraState),
+		NodeStates:    make(map[string]*NodeState),
+		Tracks:        make(map[string]*Track),
+		Clusters:      make(map[string]*Cluster),
+		Identities:    make(map[string]*IdentityState),
+		Presence:      make(map[string]*PresenceState),
+		Clips:         make(map[string]*ClipState),
+		Validations:   make(map[string]*contract.ValidationRequest),
+		ActionResults: make(map[string]*contract.ActionResult),
+		EventWindows:  make(map[string]*contract.EventWindow),
 		System: &SystemState{
 			LastState:     "idle",
 			LastStateTime: now,
@@ -241,6 +245,72 @@ func (s *Store) DeleteClip(id string) {
 	delete(s.Clips, id)
 }
 
+func (s *Store) SetValidation(value *contract.ValidationRequest) {
+	if value == nil || value.ID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Validations[value.ID] = cloneValidation(value)
+}
+
+func (s *Store) Validation(id string) (*contract.ValidationRequest, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.Validations[id]
+	if !ok || value == nil {
+		return nil, false
+	}
+	return cloneValidation(value), true
+}
+
+func (s *Store) ValidationsList() []contract.ValidationRequest {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]contract.ValidationRequest, 0, len(s.Validations))
+	for _, value := range s.Validations {
+		if value == nil {
+			continue
+		}
+		out = append(out, *cloneValidation(value))
+	}
+	return out
+}
+
+func (s *Store) SetActionResult(value *contract.ActionResult) {
+	if value == nil {
+		return
+	}
+	id := value.ID
+	if id == "" {
+		id = value.RequestID
+	}
+	if id == "" {
+		id = value.ActionID
+	}
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cloned := cloneActionResult(value)
+	cloned.ID = id
+	s.ActionResults[id] = cloned
+}
+
+func (s *Store) ActionResultsList() []contract.ActionResult {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]contract.ActionResult, 0, len(s.ActionResults))
+	for _, value := range s.ActionResults {
+		if value == nil {
+			continue
+		}
+		out = append(out, *cloneActionResult(value))
+	}
+	return out
+}
+
 func (s *Store) SetEventWindow(nodeID string, value *contract.EventWindow) {
 	if nodeID == "" || value == nil {
 		return
@@ -372,6 +442,20 @@ func (s *Store) Snapshot(collection string) map[string]interface{} {
 			cloned := *value
 			out[id] = cloned
 		}
+	case "validations":
+		for id, value := range s.Validations {
+			if value == nil {
+				continue
+			}
+			out[id] = *cloneValidation(value)
+		}
+	case "action_results":
+		for id, value := range s.ActionResults {
+			if value == nil {
+				continue
+			}
+			out[id] = *cloneActionResult(value)
+		}
 	case "windows":
 		for id, value := range s.EventWindows {
 			if value == nil {
@@ -423,6 +507,14 @@ func (s *Store) Upsert(collection string, id string, data interface{}) {
 		s.SetClip(&value)
 	case *ClipState:
 		s.SetClip(value)
+	case contract.ValidationRequest:
+		s.SetValidation(&value)
+	case *contract.ValidationRequest:
+		s.SetValidation(value)
+	case contract.ActionResult:
+		s.SetActionResult(&value)
+	case *contract.ActionResult:
+		s.SetActionResult(value)
 	case contract.EventWindow:
 		s.SetEventWindow(id, &value)
 	case *contract.EventWindow:
@@ -460,6 +552,14 @@ func (s *Store) Delete(collection string, id string) {
 		s.DeletePresence(id)
 	case "clips":
 		s.DeleteClip(id)
+	case "validations":
+		s.mu.Lock()
+		delete(s.Validations, id)
+		s.mu.Unlock()
+	case "action_results":
+		s.mu.Lock()
+		delete(s.ActionResults, id)
+		s.mu.Unlock()
 	case "windows":
 		s.DeleteEventWindow(id)
 	}
@@ -553,4 +653,28 @@ func cloneMap(source map[string]any) map[string]any {
 		out[key] = value
 	}
 	return out
+}
+
+func cloneValidation(value *contract.ValidationRequest) *contract.ValidationRequest {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	cloned.Evidence = append([]string(nil), value.Evidence...)
+	if value.ResolvedAt != nil {
+		resolvedAt := *value.ResolvedAt
+		cloned.ResolvedAt = &resolvedAt
+	}
+	return &cloned
+}
+
+func cloneActionResult(value *contract.ActionResult) *contract.ActionResult {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	if value.Details != nil {
+		cloned.Details = cloneMap(value.Details)
+	}
+	return &cloned
 }

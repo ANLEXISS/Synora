@@ -101,6 +101,37 @@ func TestCGEGraphUsageDifferentiatesNovelTransition(t *testing.T) {
 	}
 }
 
+func TestCGEResultExposesSituationsWithClipID(t *testing.T) {
+	engineInstance := newCGETestEngine()
+	store := state.NewStore()
+
+	result := engineInstance.Analyze(cgeEvent(
+		"evt-weapon",
+		contract.EventVisionWeapon,
+		"cam_01",
+		"",
+		cgeTime(0),
+		map[string]any{
+			"clip_id": "clip-weapon",
+			"weapon":  "knife",
+		},
+	), store)
+
+	if result == nil || len(result.Situations) != 1 {
+		t.Fatalf("expected one exposed situation, got %#v", result)
+	}
+	got := result.Situations[0]
+	if got.Type != "threat.weapon" {
+		t.Fatalf("unexpected situation type: %#v", got)
+	}
+	if got.ClipID != "clip-weapon" {
+		t.Fatalf("expected clip_id propagation, got %#v", got)
+	}
+	if len(got.Evidence) == 0 {
+		t.Fatalf("expected situation evidence, got %#v", got)
+	}
+}
+
 func newCGETestEngine() *Engine {
 	devices := device.NewRegistry()
 	devices.Register([]device.DeviceConfig{

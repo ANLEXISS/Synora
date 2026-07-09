@@ -146,15 +146,79 @@ func TestDecisionJSONRoundTripAndLegacyInput(t *testing.T) {
 	}
 }
 
+func TestValidationRequestJSONRoundTrip(t *testing.T) {
+	createdAt := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	resolvedAt := createdAt.Add(time.Minute)
+	validation := ValidationRequest{
+		ID:               "validation-1",
+		DecisionID:       "dec-1",
+		EventID:          "evt-1",
+		SituationID:      "sit-1",
+		Reason:           "rapid_novel_transition",
+		Evidence:         []string{"event:evt-1"},
+		ProposedIdentity: "alexis",
+		NodeID:           "entry",
+		ClipID:           "clip-1",
+		Status:           ValidationStatusAccepted,
+		CreatedAt:        createdAt,
+		ResolvedAt:       &resolvedAt,
+	}
+
+	data, err := json.Marshal(validation)
+	if err != nil {
+		t.Fatalf("marshal validation request: %v", err)
+	}
+	for _, field := range []string{"decision_id", "event_id", "situation_id", "proposed_identity", "resolved_at"} {
+		assertJSONField(t, data, field)
+	}
+
+	var decoded ValidationRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal validation request: %v", err)
+	}
+	if decoded.ID != validation.ID || decoded.DecisionID != "dec-1" || decoded.Status != ValidationStatusAccepted || decoded.ResolvedAt == nil {
+		t.Fatalf("decoded validation mismatch: %#v", decoded)
+	}
+}
+
+func TestValidationResolveRequestJSONRoundTrip(t *testing.T) {
+	req := ValidationResolveRequest{
+		ID:               "validation-1",
+		Action:           ValidationActionAssignIdentity,
+		ProposedIdentity: "camille",
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal validation resolve request: %v", err)
+	}
+	assertJSONField(t, data, "proposed_identity")
+
+	var decoded ValidationResolveRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal validation resolve request: %v", err)
+	}
+	if decoded.Action != ValidationActionAssignIdentity || decoded.ProposedIdentity != "camille" {
+		t.Fatalf("decoded validation resolve mismatch: %#v", decoded)
+	}
+}
+
 func TestActionContractsJSONRoundTrip(t *testing.T) {
 	request := ActionRequest{
 		ID:             "act-1",
+		Type:           "device.command",
 		Version:        "v1",
 		RequestID:      "req-1",
 		CorrelationID:  "corr-1",
 		Source:         "core",
-		Target:         "actions",
+		Target:         "light-1",
+		CreatedAt:      time.Date(2026, 7, 4, 10, 14, 59, 0, time.UTC),
 		IdempotencyKey: "key-1",
+		Data:           map[string]any{"command": "set", "value": true},
+		SourceEventID:  "evt-1",
+		DecisionID:     "dec-1",
+		TimeoutMs:      500,
+		Retry:          1,
 		Action: Action{
 			Device:  "light-1",
 			Command: "set",
@@ -167,32 +231,48 @@ func TestActionContractsJSONRoundTrip(t *testing.T) {
 		t.Fatalf("marshal action request: %v", err)
 	}
 	assertJSONField(t, data, "idempotency_key")
+	assertJSONField(t, data, "source_event_id")
+	assertJSONField(t, data, "decision_id")
+	assertJSONField(t, data, "timeout_ms")
+	assertJSONField(t, data, "created_at")
 
 	var decoded ActionRequest
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal action request: %v", err)
 	}
-	if decoded.Action.Device != request.Action.Device || decoded.IdempotencyKey != request.IdempotencyKey {
+	if decoded.Action.Device != request.Action.Device ||
+		decoded.IdempotencyKey != request.IdempotencyKey ||
+		decoded.SourceEventID != "evt-1" ||
+		decoded.DecisionID != "dec-1" ||
+		decoded.TimeoutMs != 500 ||
+		decoded.Retry != 1 {
 		t.Fatalf("decoded action request mismatch: %#v", decoded)
 	}
 
+	startedAt := time.Date(2026, 7, 4, 10, 15, 1, 0, time.UTC)
+	finishedAt := startedAt.Add(time.Second)
 	result := ActionResult{
-		ID:       "res-1",
-		ActionID: "act-1",
-		Status:   "accepted",
-		Details:  map[string]any{"adapter": "fake"},
+		ID:         "res-1",
+		ActionID:   "act-1",
+		RequestID:  "req-1",
+		Status:     "success",
+		StartedAt:  startedAt,
+		FinishedAt: finishedAt,
+		Details:    map[string]any{"adapter": "fake"},
 	}
 	data, err = json.Marshal(result)
 	if err != nil {
 		t.Fatalf("marshal action result: %v", err)
 	}
 	assertJSONField(t, data, "action_id")
+	assertJSONField(t, data, "started_at")
+	assertJSONField(t, data, "finished_at")
 
 	var decodedResult ActionResult
 	if err := json.Unmarshal(data, &decodedResult); err != nil {
 		t.Fatalf("unmarshal action result: %v", err)
 	}
-	if decodedResult.ActionID != result.ActionID || decodedResult.Status != result.Status {
+	if decodedResult.ActionID != result.ActionID || decodedResult.Status != result.Status || !decodedResult.StartedAt.Equal(startedAt) {
 		t.Fatalf("decoded action result mismatch: %#v", decodedResult)
 	}
 }
@@ -201,13 +281,19 @@ func TestActionRequestJSONRoundTrip(t *testing.T) {
 	now := time.Date(2026, 7, 4, 10, 15, 0, 0, time.UTC)
 	request := ActionRequest{
 		ID:             "act-1",
+		Type:           "device.command",
 		Version:        "v1",
 		RequestID:      "req-1",
 		CorrelationID:  "corr-1",
 		Source:         "core",
-		Target:         "actions",
+		Target:         "light-1",
 		Timestamp:      now,
+		CreatedAt:      now,
 		IdempotencyKey: "idem-1",
+		SourceEventID:  "evt-1",
+		DecisionID:     "dec-1",
+		TimeoutMs:      1000,
+		Retry:          2,
 		Action: Action{
 			Device:  "light-1",
 			Command: "on",
@@ -220,12 +306,14 @@ func TestActionRequestJSONRoundTrip(t *testing.T) {
 		t.Fatalf("marshal action request: %v", err)
 	}
 	assertJSONField(t, data, "idempotency_key")
+	assertJSONField(t, data, "source_event_id")
+	assertJSONField(t, data, "decision_id")
 
 	var decoded ActionRequest
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal action request: %v", err)
 	}
-	if decoded.ID != request.ID || decoded.Action.Device != "light-1" || !decoded.Timestamp.Equal(now) {
+	if decoded.ID != request.ID || decoded.Action.Device != "light-1" || !decoded.Timestamp.Equal(now) || decoded.TimeoutMs != 1000 || decoded.Retry != 2 {
 		t.Fatalf("decoded action request mismatch: %#v", decoded)
 	}
 }
@@ -378,6 +466,25 @@ func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
 					"LastSeen":   "0001-01-01T00:00:00Z",
 				},
 			},
+			"validations": map[string]any{
+				"validation-1": map[string]any{
+					"DecisionID":       "dec-1",
+					"EventID":          "evt-1",
+					"SituationID":      "sit-1",
+					"ProposedIdentity": "alexis",
+					"Status":           ValidationStatusPending,
+					"CreatedAt":        "0001-01-01T00:00:00Z",
+				},
+			},
+			"action_results": map[string]any{
+				"action-result-1": map[string]any{
+					"RequestID":  "act-1",
+					"ActionID":   "act-1",
+					"Status":     "success",
+					"StartedAt":  "0001-01-01T00:00:00Z",
+					"FinishedAt": "0001-01-01T00:00:00Z",
+				},
+			},
 		},
 		"metrics": map[string]any{
 			"events_processed": float64(1),
@@ -400,7 +507,7 @@ func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
 			t.Fatalf("public snapshot exposes legacy/internal key %q in %s", key, string(data))
 		}
 	}
-	for _, key := range []string{"devices", "events", "automations", "clips", "presence", "identities"} {
+	for _, key := range []string{"devices", "events", "automations", "clips", "presence", "identities", "validations", "action_results"} {
 		if _, ok := object[key]; !ok {
 			t.Fatalf("public snapshot missing key %q in %s", key, string(data))
 		}
@@ -416,6 +523,12 @@ func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
 	}
 	if snapshot.Clips[0]["event_id"] != "evt-clip" {
 		t.Fatalf("clip event_id should be exposed: %#v", snapshot.Clips[0])
+	}
+	if snapshot.Validations[0]["decision_id"] != "dec-1" || snapshot.Validations[0]["proposed_identity"] != "alexis" {
+		t.Fatalf("validation should be exposed cleanly: %#v", snapshot.Validations[0])
+	}
+	if snapshot.ActionResults[0]["request_id"] != "act-1" || snapshot.ActionResults[0]["status"] != "success" {
+		t.Fatalf("action result should be exposed cleanly: %#v", snapshot.ActionResults[0])
 	}
 	if _, ok := snapshot.Automations[0]["event"]; ok {
 		t.Fatalf("automation event key should be normalized: %#v", snapshot.Automations[0])
@@ -441,26 +554,28 @@ func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
 
 func TestPublicSnapshotJSONRoundTrip(t *testing.T) {
 	snapshot := PublicSnapshot{
-		System:      map[string]any{"last_state": "idle"},
-		Devices:     []map[string]any{{"id": "cam_01", "last_seen": nil}},
-		Residents:   []map[string]any{{"id": "alexis", "state": "present"}},
-		Nodes:       []map[string]any{{"id": "entry"}},
-		Events:      []map[string]any{{"id": "evt-1", "type": EventVisionIdentity}},
-		Automations: []map[string]any{{"id": "auto-1", "event_type": EventVisionIdentity}},
-		Cameras:     []map[string]any{},
-		Tracks:      []map[string]any{},
-		Clusters:    []map[string]any{},
-		Clips:       []map[string]any{},
-		Presence:    []map[string]any{},
-		Identities:  []map[string]any{},
-		Metrics:     map[string]any{"state_size": float64(1)},
+		System:        map[string]any{"last_state": "idle"},
+		Devices:       []map[string]any{{"id": "cam_01", "last_seen": nil}},
+		Residents:     []map[string]any{{"id": "alexis", "state": "present"}},
+		Nodes:         []map[string]any{{"id": "entry"}},
+		Events:        []map[string]any{{"id": "evt-1", "type": EventVisionIdentity}},
+		Automations:   []map[string]any{{"id": "auto-1", "event_type": EventVisionIdentity}},
+		Cameras:       []map[string]any{},
+		Tracks:        []map[string]any{},
+		Clusters:      []map[string]any{},
+		Clips:         []map[string]any{},
+		Presence:      []map[string]any{},
+		Identities:    []map[string]any{},
+		Validations:   []map[string]any{{"id": "validation-1", "status": ValidationStatusPending}},
+		ActionResults: []map[string]any{{"id": "action-result-1", "status": "success"}},
+		Metrics:       map[string]any{"state_size": float64(1)},
 	}
 
 	data, err := json.Marshal(snapshot)
 	if err != nil {
 		t.Fatalf("marshal public snapshot: %v", err)
 	}
-	for _, field := range []string{"devices", "events", "automations", "metrics"} {
+	for _, field := range []string{"devices", "events", "automations", "validations", "action_results", "metrics"} {
 		assertJSONField(t, data, field)
 	}
 
@@ -468,7 +583,7 @@ func TestPublicSnapshotJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal public snapshot: %v", err)
 	}
-	if decoded.Devices[0]["id"] != "cam_01" || decoded.Events[0]["type"] != EventVisionIdentity {
+	if decoded.Devices[0]["id"] != "cam_01" || decoded.Events[0]["type"] != EventVisionIdentity || decoded.Validations[0]["status"] != ValidationStatusPending || decoded.ActionResults[0]["status"] != "success" {
 		t.Fatalf("decoded public snapshot mismatch: %#v", decoded)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"synora/internal/engine/adapter"
 	"synora/internal/engine/cognitive"
 	"synora/internal/engine/graph"
+	"synora/internal/engine/situation"
 	"synora/internal/state"
 	"synora/internal/topology"
 	"synora/pkg/contract"
@@ -50,6 +51,7 @@ func (e *Engine) Analyze(
 
 	e.graphMemory.LearnEvent(cgeEvent)
 	decisionResult := e.cognitive.ProcessEvent(cgeEvent)
+	decisionResult.Situations = situation.Analyze(cgeEvent, decisionResult, now)
 
 	return adapter.BuildResult(event, store, decisionResult, now)
 }

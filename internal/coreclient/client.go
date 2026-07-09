@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"synora/internal/bus"
+	"synora/internal/security"
 	"synora/pkg/contract"
 )
 
@@ -77,6 +78,33 @@ func (c *Client) SystemHealth() (*contract.RuntimeHealth, error) {
 	return &health, nil
 }
 
+func (c *Client) Validations() ([]contract.ValidationRequest, error) {
+	var validations []contract.ValidationRequest
+	if err := c.call("validations.list", nil, &validations); err != nil {
+		return nil, err
+	}
+	return validations, nil
+}
+
+func (c *Client) ResolveValidation(
+	id string,
+	data json.RawMessage,
+) (*contract.ValidationRequest, error) {
+	var req contract.ValidationResolveRequest
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &req); err != nil {
+			return nil, err
+		}
+	}
+	req.ID = strings.TrimSpace(id)
+
+	var validation contract.ValidationRequest
+	if err := c.call("validations.resolve", req, &validation); err != nil {
+		return nil, err
+	}
+	return &validation, nil
+}
+
 func (c *Client) UpdateDevice(
 	id string,
 	data json.RawMessage,
@@ -103,6 +131,31 @@ func (c *Client) DeleteDevice(id string) (map[string]any, error) {
 		return nil, err
 	}
 	return result, nil
+}
+
+func (c *Client) StartPairing() (*security.PairingStartResponse, error) {
+	var result security.PairingStartResponse
+	if err := c.call("devices.pairing.start", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) CompletePairing(
+	data json.RawMessage,
+) (*security.PairingCompleteResponse, error) {
+	var req security.PairingCompleteRequest
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &req); err != nil {
+			return nil, err
+		}
+	}
+
+	var result security.PairingCompleteResponse
+	if err := c.call("devices.pairing.complete", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func (c *Client) ResetTopology(

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"synora/internal/automation"
 	"synora/internal/device"
 	"synora/internal/event"
+	"synora/internal/security"
 	"synora/internal/snapshot"
 	"synora/internal/state"
 	"synora/internal/topology"
@@ -219,5 +221,146 @@ func TestSystemHealthUsesRuntimeManager(t *testing.T) {
 
 	if got.Network.Status != "ok" {
 		t.Fatalf("health=%#v", got)
+	}
+}
+
+func TestValidationRPCListAndResolve(t *testing.T) {
+	store := state.NewStore()
+	store.SetValidation(&contract.ValidationRequest{
+		ID:               "validation-1",
+		DecisionID:       "dec-1",
+		EventID:          "evt-1",
+		Reason:           "rapid_novel_transition",
+		Evidence:         []string{"event:evt-1"},
+		ProposedIdentity: "alexis",
+		NodeID:           "entry",
+		Status:           contract.ValidationStatusPending,
+		CreatedAt:        time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC),
+	})
+
+	sender := &testSender{}
+	server := NewServer(Config{
+		Bus:   sender,
+		State: store,
+	})
+
+	server.Handle(contract.Message{
+		ID:     "rpc-validations-list",
+		Type:   "validations.list",
+		Kind:   contract.KindRPC,
+		Source: "api",
+	})
+
+	if len(sender.messages) != 1 {
+		t.Fatalf("expected validations.list response, got %d", len(sender.messages))
+	}
+	var listed []contract.ValidationRequest
+	if err := json.Unmarshal(sender.messages[0].Payload, &listed); err != nil {
+		t.Fatalf("unmarshal validations.list: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != "validation-1" {
+		t.Fatalf("unexpected validations.list payload: %#v", listed)
+	}
+
+	payload, err := json.Marshal(contract.ValidationResolveRequest{
+		ID:               "validation-1",
+		Action:           contract.ValidationActionAssignIdentity,
+		ProposedIdentity: "camille",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.Handle(contract.Message{
+		ID:      "rpc-validations-resolve",
+		Type:    "validations.resolve",
+		Kind:    contract.KindRPC,
+		Source:  "api",
+		Payload: payload,
+	})
+
+	if len(sender.messages) != 2 {
+		t.Fatalf("expected validations.resolve response, got %d", len(sender.messages))
+	}
+	var resolved contract.ValidationRequest
+	if err := json.Unmarshal(sender.messages[1].Payload, &resolved); err != nil {
+		t.Fatalf("unmarshal validations.resolve: %v", err)
+	}
+	if resolved.Status != contract.ValidationStatusAccepted || resolved.ProposedIdentity != "camille" || resolved.ResolvedAt == nil {
+		t.Fatalf("unexpected resolved validation: %#v", resolved)
+	}
+
+	stored, ok := store.Validation("validation-1")
+	if !ok || stored.Status != contract.ValidationStatusAccepted || stored.ProposedIdentity != "camille" {
+		t.Fatalf("validation feedback was not stored: %#v", stored)
+	}
+}
+
+func TestDevicePairingRPCPersistsSecretHash(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "security.yaml")
+	cfg := &security.Config{
+		APITokenHash:   security.HashSecret("dev-token"),
+		AllowedOrigins: []string{"http://localhost:3000"},
+		DeviceSecrets:  map[string]string{},
+		PairingEnabled: true,
+	}
+	if err := security.Save(path, cfg); err != nil {
+		t.Fatalf("save security config: %v", err)
+	}
+
+	sender := &testSender{}
+	server := NewServer(Config{
+		Bus:          sender,
+		SecurityPath: path,
+	})
+	server.Handle(contract.Message{
+		ID:     "rpc-pairing-start",
+		Type:   "devices.pairing.start",
+		Kind:   contract.KindRPC,
+		Source: "api",
+	})
+	if len(sender.messages) != 1 {
+		t.Fatalf("expected pairing start response, got %d", len(sender.messages))
+	}
+
+	var start security.PairingStartResponse
+	if err := json.Unmarshal(sender.messages[0].Payload, &start); err != nil {
+		t.Fatalf("unmarshal pairing start: %v", err)
+	}
+	if start.PairingID == "" {
+		t.Fatalf("missing pairing id: %#v", start)
+	}
+
+	payload, err := json.Marshal(security.PairingCompleteRequest{
+		PairingID: start.PairingID,
+		DeviceID:  "cam_new",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.Handle(contract.Message{
+		ID:      "rpc-pairing-complete",
+		Type:    "devices.pairing.complete",
+		Kind:    contract.KindRPC,
+		Source:  "api",
+		Payload: payload,
+	})
+	if len(sender.messages) != 2 {
+		t.Fatalf("expected pairing complete response, got %d", len(sender.messages))
+	}
+
+	var complete security.PairingCompleteResponse
+	if err := json.Unmarshal(sender.messages[1].Payload, &complete); err != nil {
+		t.Fatalf("unmarshal pairing complete: %v", err)
+	}
+	if complete.DeviceID != "cam_new" || complete.Secret == "" || complete.SecretHash == "" {
+		t.Fatalf("unexpected pairing complete: %#v", complete)
+	}
+
+	stored, err := security.Load(path)
+	if err != nil {
+		t.Fatalf("load security config: %v", err)
+	}
+	if stored.DeviceSecrets["cam_new"] != complete.SecretHash {
+		t.Fatalf("stored secret hash mismatch: %#v", stored.DeviceSecrets)
 	}
 }

@@ -156,6 +156,38 @@ func TestCriticalFlowUnknownProducesDecisionAndSnapshotEvent(t *testing.T) {
 	}
 }
 
+func TestCriticalFlowStoresActionResultInPublicSnapshot(t *testing.T) {
+	app, bus := newTestCoreApp(t)
+	startedAt := time.Date(2026, 7, 6, 10, 2, 0, 0, time.UTC)
+	finishedAt := startedAt.Add(150 * time.Millisecond)
+
+	app.processEvent(&contract.Event{
+		ID:        "evt-action-result",
+		Type:      contract.EventActionResult,
+		Source:    "actions",
+		Timestamp: finishedAt,
+		Payload: map[string]any{
+			"id":          "ares-1",
+			"request_id":  "act-1",
+			"action_id":   "act-1",
+			"status":      "success",
+			"started_at":  startedAt.Format(time.RFC3339Nano),
+			"finished_at": finishedAt.Format(time.RFC3339Nano),
+		},
+	})
+
+	public := contract.PublicSnapshotFromCoreState(app.snapshotBuilder.CoreState())
+	if len(public.ActionResults) != 1 {
+		t.Fatalf("expected public action result, got %#v", public.ActionResults)
+	}
+	if public.ActionResults[0]["request_id"] != "act-1" || public.ActionResults[0]["status"] != "success" {
+		t.Fatalf("unexpected action result snapshot: %#v", public.ActionResults[0])
+	}
+	if len(bus.messagesOfType("engine.decision")) != 0 {
+		t.Fatalf("action.result should not go through CGE decisions: %#v", bus.messages)
+	}
+}
+
 func TestCriticalFlowMotionUpdatesDeviceAndSnapshotEvent(t *testing.T) {
 	app, bus := newTestCoreApp(t)
 

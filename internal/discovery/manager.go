@@ -2,12 +2,14 @@ package discovery
 
 import (
 	"log"
+	"os"
 
 	"synora/internal/bus"
 	"synora/internal/discovery/ingress"
 	"synora/internal/discovery/network"
 	discoveryruntime "synora/internal/discovery/runtime"
 	"synora/internal/discovery/vision"
+	"synora/internal/security"
 )
 
 type Manager struct {
@@ -21,7 +23,7 @@ type Manager struct {
 
 	devices *discoveryruntime.Registry
 
-	auth *DeviceStore
+	auth *security.DeviceVerifier
 
 	network *network.Manager
 }
@@ -30,8 +32,12 @@ func NewManager(
 	busClient *bus.Client,
 ) *Manager {
 
-	cfg, err := LoadDevicesConfig(
-		"/etc/synora/devices.yaml",
+	securityPath := os.Getenv("SYNORA_SECURITY")
+	if securityPath == "" {
+		securityPath = security.DefaultPath
+	}
+	cfg, err := security.Load(
+		securityPath,
 	)
 
 	if err != nil {
@@ -39,14 +45,16 @@ func NewManager(
 		log.Fatal(err)
 	}
 
-	auth := NewDeviceStoreFromConfig(
-		cfg,
+	log.Printf(
+		"loaded device secrets=%d",
+		len(cfg.DeviceSecrets),
 	)
 
-	log.Printf(
-		"loaded devices=%d",
-		len(auth.secrets),
-	)
+	auth := &security.DeviceVerifier{
+		Config: func() (*security.Config, error) {
+			return security.Load(securityPath)
+		},
+	}
 
 	workerManager := vision.NewWorkerManager(
 		busClient,

@@ -3,8 +3,10 @@ package actions
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"synora/internal/idgen"
@@ -12,11 +14,12 @@ import (
 )
 
 type Service struct {
-	Executor Executor
-	Bus      Publisher
-	Deduper  *Deduper
-	Now      func() time.Time
-	NewID    func(prefix string) string
+	Executor       Executor
+	Bus            Publisher
+	Deduper        *Deduper
+	Now            func() time.Time
+	NewID          func(prefix string) string
+	DefaultTimeout time.Duration
 }
 
 func (s *Service) HandleMessage(ctx context.Context, msg contract.Message) {
@@ -27,7 +30,8 @@ func (s *Service) HandleMessage(ctx context.Context, msg contract.Message) {
 	request, err := DecodeRequest(msg)
 	if err != nil {
 		log.Printf("actions: invalid action payload id=%s err=%v", msg.ID, err)
-		s.publishResult(msg, contract.ActionRequest{}, StatusFailed, err.Error(), nil)
+		now := s.now()
+		s.publishResult(msg, contract.ActionRequest{}, StatusError, err.Error(), now, now, nil)
 		return
 	}
 
@@ -43,17 +47,23 @@ func (s *Service) HandleMessage(ctx context.Context, msg contract.Message) {
 	if request.Source == "" {
 		request.Source = msg.Source
 	}
-	if request.Target == "" {
-		request.Target = msg.Target
-	}
 	if request.Timestamp.IsZero() {
 		request.Timestamp = msg.Timestamp
 	}
+	if request.CreatedAt.IsZero() {
+		request.CreatedAt = request.Timestamp
+	}
+	if request.CreatedAt.IsZero() {
+		request.CreatedAt = s.now()
+	}
+	normalizeRequest(&request)
 
 	key := idempotencyKey(request, msg)
 	if s.deduper().SeenOrAdd(key) {
-		s.publishResult(msg, request, StatusDuplicate, "", map[string]any{
+		now := s.now()
+		s.publishResult(msg, request, StatusDuplicate, "", now, now, map[string]any{
 			"idempotency_key": key,
+			"reason":          "duplicate",
 		})
 		return
 	}
@@ -63,17 +73,8 @@ func (s *Service) HandleMessage(ctx context.Context, msg contract.Message) {
 		executor = DryRunExecutor{Adapter: "dry_run"}
 	}
 
-	result, err := executor.Execute(ctx, request)
-	if err != nil {
-		s.publishResult(msg, request, StatusFailed, err.Error(), result.Details)
-		return
-	}
-
-	status := result.Status
-	if status == "" {
-		status = StatusAccepted
-	}
-	s.publishResult(msg, request, status, "", result.Details)
+	status, errorMessage, startedAt, finishedAt, details := s.executeWithRetry(ctx, executor, request)
+	s.publishResult(msg, request, status, errorMessage, startedAt, finishedAt, details)
 }
 
 func DecodeRequest(msg contract.Message) (contract.ActionRequest, error) {
@@ -85,7 +86,14 @@ func DecodeRequest(msg contract.Message) (contract.ActionRequest, error) {
 	if err := json.Unmarshal(msg.Payload, &request); err != nil {
 		return request, err
 	}
-	if !isEmptyAction(request.Action) || request.ID != "" || request.RequestID != "" || request.IdempotencyKey != "" {
+	if !isEmptyAction(request.Action) ||
+		request.ID != "" ||
+		request.Type != "" ||
+		request.Target != "" ||
+		len(request.Data) > 0 ||
+		request.RequestID != "" ||
+		request.IdempotencyKey != "" {
+		normalizeRequest(&request)
 		return request, nil
 	}
 
@@ -98,7 +106,132 @@ func DecodeRequest(msg contract.Message) (contract.ActionRequest, error) {
 	}
 
 	request.Action = legacy
+	normalizeRequest(&request)
 	return request, nil
+}
+
+func normalizeRequest(request *contract.ActionRequest) {
+	if request == nil {
+		return
+	}
+	if request.Type == "" {
+		request.Type = request.Action.Type
+	}
+	if request.Target == "" {
+		request.Target = actionTarget(request.Action)
+	}
+	if len(request.Data) == 0 {
+		request.Data = actionData(request.Action)
+	}
+	if request.Action.Type == "" {
+		request.Action.Type = request.Type
+	}
+	if request.Action.Data == nil && request.Data != nil {
+		request.Action.Data = cloneMap(request.Data)
+	}
+	if request.Action.Device == "" && strings.HasPrefix(strings.ToLower(request.Type), "device.") {
+		request.Action.Device = request.Target
+	}
+	if request.Action.Channel == "" && strings.HasPrefix(strings.ToLower(request.Type), "mqtt.") {
+		request.Action.Channel = request.Target
+	}
+	if request.Action.Command == "" {
+		if command, ok := request.Data["command"].(string); ok {
+			request.Action.Command = command
+		}
+	}
+	if request.Action.Value == nil {
+		if value, ok := request.Data["value"]; ok {
+			request.Action.Value = value
+		}
+	}
+	if request.TimeoutMs == 0 {
+		request.TimeoutMs = request.Action.TimeoutMs
+	}
+	if request.Retry == 0 {
+		request.Retry = request.Action.Retry
+	}
+}
+
+func (s *Service) executeWithRetry(
+	ctx context.Context,
+	executor Executor,
+	request contract.ActionRequest,
+) (string, string, time.Time, time.Time, map[string]any) {
+	attempts := request.Retry + 1
+	if attempts < 1 {
+		attempts = 1
+	}
+
+	var lastErr error
+	var lastResult ExecutionResult
+	var startedAt time.Time
+	var finishedAt time.Time
+	for attempt := 1; attempt <= attempts; attempt++ {
+		startedAt = s.now()
+		execCtx := ctx
+		cancel := func() {}
+		if timeout := s.timeout(request); timeout > 0 {
+			execCtx, cancel = context.WithTimeout(ctx, timeout)
+		}
+		result, err := executor.Execute(execCtx, request)
+		cancel()
+		finishedAt = s.now()
+
+		lastResult = result
+		lastErr = err
+		if err == nil {
+			status := result.Status
+			if status == "" {
+				status = StatusSuccess
+			}
+			details := cloneMap(result.Details)
+			if attempt > 1 {
+				if details == nil {
+					details = map[string]any{}
+				}
+				details["attempts"] = attempt
+			}
+			return status, "", startedAt, finishedAt, details
+		}
+		if !isTimeoutError(err) && attempt < attempts {
+			continue
+		}
+		if isTimeoutError(err) && attempt < attempts {
+			continue
+		}
+	}
+
+	status := StatusError
+	errorMessage := ""
+	if lastErr != nil {
+		errorMessage = lastErr.Error()
+	}
+	if isTimeoutError(lastErr) {
+		status = StatusTimeout
+	}
+	details := cloneMap(lastResult.Details)
+	if request.Retry > 0 {
+		if details == nil {
+			details = map[string]any{}
+		}
+		details["attempts"] = attempts
+	}
+	return status, errorMessage, startedAt, finishedAt, details
+}
+
+func (s *Service) timeout(request contract.ActionRequest) time.Duration {
+	if request.TimeoutMs > 0 {
+		return time.Duration(request.TimeoutMs) * time.Millisecond
+	}
+	return s.DefaultTimeout
+}
+
+func (s *Service) now() time.Time {
+	if s.Now != nil {
+		return s.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 func (s *Service) publishResult(
@@ -106,15 +239,17 @@ func (s *Service) publishResult(
 	request contract.ActionRequest,
 	status string,
 	errorMessage string,
+	startedAt time.Time,
+	finishedAt time.Time,
 	details map[string]any,
 ) {
 	if s.Bus == nil {
 		return
 	}
 
-	now := time.Now().UTC()
-	if s.Now != nil {
-		now = s.Now().UTC()
+	now := finishedAt
+	if now.IsZero() {
+		now = s.now()
 	}
 
 	id := idgen.New("ares")
@@ -132,6 +267,8 @@ func (s *Service) publishResult(
 		Timestamp:     now,
 		Status:        status,
 		Error:         errorMessage,
+		StartedAt:     startedAt,
+		FinishedAt:    now,
 		Details:       details,
 	}
 
@@ -190,7 +327,52 @@ func isEmptyAction(action contract.Action) bool {
 		action.Command == "" &&
 		action.Value == nil &&
 		action.Channel == "" &&
+		len(action.Data) == 0 &&
 		len(action.Residents) == 0
+}
+
+func actionTarget(action contract.Action) string {
+	for _, value := range []string{action.Device, action.Channel, action.Type} {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func actionData(action contract.Action) map[string]any {
+	data := cloneMap(action.Data)
+	if data == nil {
+		data = map[string]any{}
+	}
+	if action.Command != "" {
+		data["command"] = action.Command
+	}
+	if action.Value != nil {
+		data["value"] = action.Value
+	}
+	if len(action.Residents) > 0 {
+		data["residents"] = append([]string(nil), action.Residents...)
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	return data
+}
+
+func isTimeoutError(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
+func cloneMap(source map[string]any) map[string]any {
+	if source == nil {
+		return nil
+	}
+	out := make(map[string]any, len(source))
+	for key, value := range source {
+		out[key] = value
+	}
+	return out
 }
 
 func firstNonEmpty(values ...string) string {

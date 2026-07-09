@@ -72,6 +72,7 @@ func main() {
 	residentsPath := getenv("SYNORA_RESIDENTS", "/etc/synora/residents.yaml")
 	devicePath := getenv("SYNORA_DEVICE", "/etc/synora/devices.yaml")
 	automationPath := getenv("SYNORA_AUTOMATION", "/etc/synora/automations.yaml")
+	securityPath := getenv("SYNORA_SECURITY", "/etc/synora/security.yaml")
 
 	busClient, err := bus.NewClient(busPath, "core")
 	if err != nil {
@@ -157,6 +158,7 @@ func main() {
 		ResidentsPath:  residentsPath,
 		DevicePath:     devicePath,
 		AutomationPath: automationPath,
+		SecurityPath:   securityPath,
 		PublishEvent:   app.publishEvent,
 		UpdateTopology: app.setTopology,
 	})
@@ -264,6 +266,13 @@ func (a *coreApp) processEvent(event *contract.Event) {
 
 	a.eventStore.Add(event)
 
+	if event.Type == contract.EventActionResult {
+		a.storeActionResult(event)
+		a.metrics.record(event.Source, 0)
+		a.triggerSnapshot()
+		return
+	}
+
 	started := time.Now()
 
 	log.Printf(
@@ -301,7 +310,10 @@ func (a *coreApp) processEvent(event *contract.Event) {
 			result.Decision,
 		) {
 
-			if err := a.actionDispatcher.Dispatch(action); err != nil {
+			if err := a.actionDispatcher.Dispatch(action, automation.ActionContext{
+				SourceEventID: event.ID,
+				DecisionID:    result.Decision.ID,
+			}); err != nil {
 				log.Println("core: action dispatch error", err)
 			}
 		}
@@ -328,6 +340,29 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	)
 
 	a.triggerSnapshot()
+}
+
+func (a *coreApp) storeActionResult(event *contract.Event) {
+	if event == nil || event.Payload == nil {
+		return
+	}
+	body, err := json.Marshal(event.Payload)
+	if err != nil {
+		log.Println("core: action result marshal error", err)
+		return
+	}
+	var result contract.ActionResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		log.Println("core: action result decode error", err)
+		return
+	}
+	if result.Timestamp.IsZero() {
+		result.Timestamp = event.Timestamp
+	}
+	if result.Source == "" {
+		result.Source = event.Source
+	}
+	a.state.SetActionResult(&result)
 }
 
 func (a *coreApp) cleanupLoop() {

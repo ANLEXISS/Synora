@@ -26,9 +26,12 @@ func TestEventAutomationDispatchesActionRequest(t *testing.T) {
 		Node:      "entry",
 		MinScore:  0.5,
 		Actions: []contract.Action{{
-			Device:  "siren-1",
-			Command: "on",
-			Value:   true,
+			Type:      "device.command",
+			Device:    "siren-1",
+			Command:   "on",
+			Value:     true,
+			TimeoutMs: 250,
+			Retry:     1,
 		}},
 	})
 	if err != nil {
@@ -55,7 +58,10 @@ func TestEventAutomationDispatchesActionRequest(t *testing.T) {
 		Now:    func() time.Time { return time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC) },
 		NewID:  func() string { return "msg-test" },
 	}
-	if err := dispatcher.Dispatch(actions[0]); err != nil {
+	if err := dispatcher.Dispatch(actions[0], ActionContext{
+		SourceEventID: "evt-1",
+		DecisionID:    "dec-1",
+	}); err != nil {
 		t.Fatalf("dispatch action: %v", err)
 	}
 	if len(sender.messages) != 1 {
@@ -70,7 +76,16 @@ func TestEventAutomationDispatchesActionRequest(t *testing.T) {
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		t.Fatalf("unmarshal action payload: %v", err)
 	}
-	if payload.Action.Device != "siren-1" || payload.Action.Command != "on" || payload.IdempotencyKey == "" {
+	if payload.Type != "device.command" ||
+		payload.Target != "siren-1" ||
+		payload.Data["command"] != "on" ||
+		payload.SourceEventID != "evt-1" ||
+		payload.DecisionID != "dec-1" ||
+		payload.TimeoutMs != 250 ||
+		payload.Retry != 1 ||
+		payload.Action.Device != "siren-1" ||
+		payload.Action.Command != "on" ||
+		payload.IdempotencyKey == "" {
 		t.Fatalf("unexpected action payload: %#v", payload)
 	}
 }

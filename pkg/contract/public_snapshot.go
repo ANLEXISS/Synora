@@ -9,38 +9,42 @@ import (
 )
 
 type PublicSnapshot struct {
-	System      map[string]any   `json:"system"`
-	Devices     []map[string]any `json:"devices"`
-	Residents   []map[string]any `json:"residents"`
-	Nodes       []map[string]any `json:"nodes"`
-	Events      []map[string]any `json:"events"`
-	Automations []map[string]any `json:"automations"`
-	Cameras     []map[string]any `json:"cameras"`
-	Tracks      []map[string]any `json:"tracks"`
-	Clusters    []map[string]any `json:"clusters"`
-	Clips       []map[string]any `json:"clips"`
-	Presence    []map[string]any `json:"presence"`
-	Identities  []map[string]any `json:"identities"`
-	Metrics     map[string]any   `json:"metrics"`
+	System        map[string]any   `json:"system"`
+	Devices       []map[string]any `json:"devices"`
+	Residents     []map[string]any `json:"residents"`
+	Nodes         []map[string]any `json:"nodes"`
+	Events        []map[string]any `json:"events"`
+	Automations   []map[string]any `json:"automations"`
+	Cameras       []map[string]any `json:"cameras"`
+	Tracks        []map[string]any `json:"tracks"`
+	Clusters      []map[string]any `json:"clusters"`
+	Clips         []map[string]any `json:"clips"`
+	Presence      []map[string]any `json:"presence"`
+	Identities    []map[string]any `json:"identities"`
+	Validations   []map[string]any `json:"validations"`
+	ActionResults []map[string]any `json:"action_results"`
+	Metrics       map[string]any   `json:"metrics"`
 }
 
 func PublicSnapshotFromCoreState(state map[string]any) PublicSnapshot {
 	store := mapValue(state["state_store"])
 
 	return PublicSnapshot{
-		System:      mapOrEmpty(normalizeMap(mapValue(state["system"]))),
-		Devices:     collectionFrom(state, store, "devices"),
-		Residents:   collectionFrom(state, store, "residents"),
-		Nodes:       collectionFrom(state, store, "nodes"),
-		Events:      collectionFrom(state, store, "events"),
-		Automations: automationCollection(state["automations"]),
-		Cameras:     collectionFrom(state, store, "cameras"),
-		Tracks:      collectionFrom(state, store, "tracks"),
-		Clusters:    collectionFrom(state, store, "clusters"),
-		Clips:       collectionFrom(state, store, "clips"),
-		Presence:    collectionFrom(state, store, "presence"),
-		Identities:  collectionFrom(state, store, "identities"),
-		Metrics:     publicMetrics(state["metrics"]),
+		System:        mapOrEmpty(normalizeMap(mapValue(state["system"]))),
+		Devices:       collectionFrom(state, store, "devices"),
+		Residents:     collectionFrom(state, store, "residents"),
+		Nodes:         collectionFrom(state, store, "nodes"),
+		Events:        collectionFrom(state, store, "events"),
+		Automations:   automationCollection(state["automations"]),
+		Cameras:       collectionFrom(state, store, "cameras"),
+		Tracks:        collectionFrom(state, store, "tracks"),
+		Clusters:      collectionFrom(state, store, "clusters"),
+		Clips:         collectionFrom(state, store, "clips"),
+		Presence:      collectionFrom(state, store, "presence"),
+		Identities:    collectionFrom(state, store, "identities"),
+		Validations:   collectionFrom(state, store, "validations"),
+		ActionResults: collectionFrom(state, store, "action_results"),
+		Metrics:       publicMetrics(state["metrics"]),
 	}
 }
 
@@ -230,30 +234,38 @@ func toSnakeKey(key string) string {
 	}
 
 	known := map[string]string{
-		"ID":              "id",
-		"NodeID":          "node_id",
-		"DeviceID":        "device_id",
-		"CameraID":        "camera_id",
-		"ResidentID":      "resident_id",
-		"LastEventID":     "last_event_id",
-		"LastClipID":      "last_clip_id",
-		"LastNodeID":      "last_node_id",
-		"LastDeviceID":    "last_device_id",
-		"EventIDs":        "event_ids",
-		"LastSeen":        "last_seen",
-		"CreatedAt":       "created_at",
-		"UpdatedAt":       "updated_at",
-		"ExpiresAt":       "expires_at",
-		"LastState":       "last_state",
-		"LastStateTime":   "last_state_time",
-		"IntrusionActive": "intrusion_active",
-		"IntrusionTime":   "intrusion_time",
-		"ActivityCount":   "activity_count",
-		"MinScore":        "min_score",
-		"ScoreMultiplier": "score_multiplier",
-		"ScoreOffset":     "score_offset",
-		"EventType":       "event_type",
-		"GroupKey":        "group_key",
+		"ID":               "id",
+		"NodeID":           "node_id",
+		"DeviceID":         "device_id",
+		"CameraID":         "camera_id",
+		"ResidentID":       "resident_id",
+		"LastEventID":      "last_event_id",
+		"LastClipID":       "last_clip_id",
+		"LastNodeID":       "last_node_id",
+		"LastDeviceID":     "last_device_id",
+		"EventIDs":         "event_ids",
+		"DecisionID":       "decision_id",
+		"EventID":          "event_id",
+		"SituationID":      "situation_id",
+		"ProposedIdentity": "proposed_identity",
+		"ResolvedAt":       "resolved_at",
+		"ActionID":         "action_id",
+		"StartedAt":        "started_at",
+		"FinishedAt":       "finished_at",
+		"LastSeen":         "last_seen",
+		"CreatedAt":        "created_at",
+		"UpdatedAt":        "updated_at",
+		"ExpiresAt":        "expires_at",
+		"LastState":        "last_state",
+		"LastStateTime":    "last_state_time",
+		"IntrusionActive":  "intrusion_active",
+		"IntrusionTime":    "intrusion_time",
+		"ActivityCount":    "activity_count",
+		"MinScore":         "min_score",
+		"ScoreMultiplier":  "score_multiplier",
+		"ScoreOffset":      "score_offset",
+		"EventType":        "event_type",
+		"GroupKey":         "group_key",
 	}
 	if value, ok := known[key]; ok {
 		return value

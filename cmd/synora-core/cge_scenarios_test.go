@@ -312,6 +312,9 @@ func TestCGEScenarioWeaponDetected(t *testing.T) {
 	if len(actions) != 1 || actions[0].Action.Device != "siren" {
 		t.Fatalf("weapon automation should dispatch critical action: %#v", actions)
 	}
+	if actions[0].SourceEventID != event.ID || actions[0].DecisionID == "" {
+		t.Fatalf("action request should link source event and decision: %#v", actions[0])
+	}
 }
 
 func TestCGEScenarioFallDetected(t *testing.T) {

@@ -2,6 +2,7 @@
 
 DEVICE="cam_01"
 SECRET="a8c1f3b2e7d44921c83f6a4d0c9e2f1b"
+SECRET_HASH=$(printf "%s" "$SECRET" | sha256sum | awk '{print $1}')
 
 FILE="$1"
 
@@ -12,7 +13,7 @@ HASH=$(sha256sum "$FILE" | awk '{print $1}')
 PAYLOAD="${DEVICE}${TS}${HASH}"
 
 SIG=$(printf "%s" "$PAYLOAD" | \
-openssl dgst -sha256 -hmac "$SECRET" | \
+openssl dgst -sha256 -hmac "$SECRET_HASH" | \
 awk '{print $2}')
 
 curl -k https://127.0.0.1:7070/vision \

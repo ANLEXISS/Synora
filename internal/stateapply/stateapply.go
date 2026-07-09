@@ -2,10 +2,12 @@ package stateapply
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"synora/internal/device"
 	"synora/internal/engine"
+	"synora/internal/idgen"
 	"synora/internal/state"
 	"synora/pkg/contract"
 )
@@ -82,6 +84,9 @@ func Apply(store *state.Store, result *engine.Result, callbacks Callbacks) bool 
 			store.SetCameraState(cameraState)
 		}
 	}
+	if validation := buildValidationRequest(result); validation != nil {
+		store.SetValidation(validation)
+	}
 
 	changed := false
 	if result.System != nil {
@@ -99,4 +104,73 @@ func Apply(store *state.Store, result *engine.Result, callbacks Callbacks) bool 
 	}
 
 	return changed
+}
+
+func buildValidationRequest(result *engine.Result) *contract.ValidationRequest {
+	if result == nil || result.Decision == nil || !result.Decision.ValidationRequired {
+		return nil
+	}
+
+	decision := result.Decision
+	now := decision.Timestamp.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+
+	situationID := ""
+	evidence := []string(nil)
+	if len(result.Situations) > 0 {
+		situationID = result.Situations[0].ID
+		evidence = append(evidence, result.Situations[0].Evidence...)
+	}
+	if len(evidence) == 0 && strings.TrimSpace(decision.Reason) != "" {
+		evidence = append(evidence, "reason:"+strings.TrimSpace(decision.Reason))
+	}
+	if len(evidence) == 0 && decision.EventID != "" {
+		evidence = append(evidence, "event:"+decision.EventID)
+	}
+
+	proposedIdentity := ""
+	if result.Identity != nil {
+		proposedIdentity = result.Identity.ID
+	} else if result.Presence != nil {
+		proposedIdentity = result.Presence.ResidentID
+	}
+
+	return &contract.ValidationRequest{
+		ID:               validationID(decision),
+		DecisionID:       decision.ID,
+		EventID:          decision.EventID,
+		SituationID:      situationID,
+		Reason:           firstNonEmpty(decision.ValidationReason, decision.Reason),
+		Evidence:         evidence,
+		ProposedIdentity: proposedIdentity,
+		NodeID:           decision.NodeID,
+		ClipID:           decision.ClipID,
+		Status:           contract.ValidationStatusPending,
+		CreatedAt:        now,
+	}
+}
+
+func validationID(decision *contract.Decision) string {
+	if decision == nil {
+		return idgen.New("validation")
+	}
+	switch {
+	case strings.TrimSpace(decision.ID) != "":
+		return "validation-" + strings.TrimSpace(decision.ID)
+	case strings.TrimSpace(decision.EventID) != "":
+		return "validation-" + strings.TrimSpace(decision.EventID)
+	default:
+		return idgen.New("validation")
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

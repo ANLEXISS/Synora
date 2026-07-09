@@ -1,4 +1,3 @@
-// Package situation is reserved for future CGE situation modeling.
-//
-// It intentionally has no runtime logic in this phase.
+// Package situation models high-level CGE situations derived from CGE events
+// and cognitive decisions.
 package situation

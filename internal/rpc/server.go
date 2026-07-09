@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"synora/internal/device"
 	"synora/internal/event"
 	"synora/internal/idgen"
+	"synora/internal/security"
 	"synora/internal/snapshot"
 	"synora/internal/state"
 	"synora/internal/topology"
@@ -46,9 +48,11 @@ type Server struct {
 	residentsPath  string
 	devicePath     string
 	automationPath string
+	securityPath   string
 
 	publishEvent   func(string, any, int)
 	updateTopology func(*topology.Topology)
+	pairing        *security.PairingService
 
 	handlers map[string]Handler
 }
@@ -65,6 +69,7 @@ type Config struct {
 	ResidentsPath  string
 	DevicePath     string
 	AutomationPath string
+	SecurityPath   string
 	PublishEvent   func(string, any, int)
 	UpdateTopology func(*topology.Topology)
 }
@@ -91,8 +96,10 @@ func NewServer(cfg Config) *Server {
 		residentsPath:  cfg.ResidentsPath,
 		devicePath:     cfg.DevicePath,
 		automationPath: cfg.AutomationPath,
+		securityPath:   cfg.SecurityPath,
 		publishEvent:   cfg.PublishEvent,
 		updateTopology: cfg.UpdateTopology,
+		pairing:        &security.PairingService{Path: cfg.SecurityPath},
 		handlers:       map[string]Handler{},
 	}
 	server.register()
@@ -142,6 +149,8 @@ func (s *Server) register() {
 	s.handlers["device.list"] = s.deviceList
 	s.handlers["device.update"] = s.deviceUpdate
 	s.handlers["device.delete"] = s.deviceDelete
+	s.handlers["devices.pairing.start"] = s.devicePairingStart
+	s.handlers["devices.pairing.complete"] = s.devicePairingComplete
 	s.handlers["residents.list"] = s.residentsList
 	s.handlers["residents.create"] = s.residentsCreate
 	s.handlers["resident.update"] = s.residentUpdate
@@ -149,6 +158,8 @@ func (s *Server) register() {
 	s.handlers["automation.list"] = s.automationList
 	s.handlers["automation.create"] = s.automationCreate
 	s.handlers["automation.delete"] = s.automationDelete
+	s.handlers["validations.list"] = s.validationsList
+	s.handlers["validations.resolve"] = s.validationsResolve
 	s.handlers["topology.snapshot"] = s.topologySnapshot
 	s.handlers["topology.reset"] = s.topologyReset
 	s.handlers["core.snapshot"] = s.legacySnapshot
@@ -311,6 +322,24 @@ func (s *Server) deviceDelete(msg contract.Message) (any, error) {
 	return map[string]any{"ok": true, "id": req.ID}, nil
 }
 
+func (s *Server) devicePairingStart(_ contract.Message) (any, error) {
+	if s.pairing == nil {
+		return nil, errors.New("pairing unavailable")
+	}
+	return s.pairing.Start()
+}
+
+func (s *Server) devicePairingComplete(msg contract.Message) (any, error) {
+	if s.pairing == nil {
+		return nil, errors.New("pairing unavailable")
+	}
+	var req security.PairingCompleteRequest
+	if err := decodePayload(msg.Payload, &req); err != nil {
+		return nil, err
+	}
+	return s.pairing.Complete(req)
+}
+
 func (s *Server) residentsList(_ contract.Message) (any, error) {
 	return s.snapshot.ResidentViews(), nil
 }
@@ -421,6 +450,63 @@ func (s *Server) automationDelete(msg contract.Message) (any, error) {
 		return nil, err
 	}
 	return map[string]any{"ok": true, "id": req.ID}, nil
+}
+
+func (s *Server) validationsList(_ contract.Message) (any, error) {
+	validations := s.state.ValidationsList()
+	sort.Slice(validations, func(i, j int) bool {
+		return validations[i].CreatedAt.Before(validations[j].CreatedAt)
+	})
+	return validations, nil
+}
+
+func (s *Server) validationsResolve(msg contract.Message) (any, error) {
+	var req contract.ValidationResolveRequest
+	if err := decodePayload(msg.Payload, &req); err != nil {
+		return nil, err
+	}
+	req.ID = strings.TrimSpace(req.ID)
+	if req.ID == "" {
+		return nil, errors.New("validation id is required")
+	}
+
+	validation, ok := s.state.Validation(req.ID)
+	if !ok || validation == nil {
+		return nil, errors.New("validation not found")
+	}
+
+	status, proposedIdentity, err := resolveValidationStatus(req)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	validation.Status = status
+	validation.ProposedIdentity = proposedIdentity
+	validation.ResolvedAt = &now
+	s.state.SetValidation(validation)
+
+	return validation, nil
+}
+
+func resolveValidationStatus(req contract.ValidationResolveRequest) (string, string, error) {
+	action := strings.ToLower(strings.TrimSpace(req.Action))
+	proposedIdentity := strings.TrimSpace(req.ProposedIdentity)
+	switch action {
+	case contract.ValidationActionAccept:
+		return contract.ValidationStatusAccepted, proposedIdentity, nil
+	case contract.ValidationActionReject:
+		return contract.ValidationStatusRejected, proposedIdentity, nil
+	case contract.ValidationActionIgnore:
+		return contract.ValidationStatusIgnored, proposedIdentity, nil
+	case contract.ValidationActionAssignIdentity:
+		if proposedIdentity == "" {
+			return "", "", errors.New("proposed_identity is required")
+		}
+		return contract.ValidationStatusAccepted, proposedIdentity, nil
+	default:
+		return "", "", errors.New("unsupported validation action")
+	}
 }
 
 func (s *Server) topologySnapshot(_ contract.Message) (any, error) {

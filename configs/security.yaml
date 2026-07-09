@@ -1,0 +1,8 @@
+api_token: synora-dev-token-change-me
+allowed_origins:
+  - http://localhost:3000
+  - http://127.0.0.1:3000
+device_secrets: {}
+pairing_enabled: true
+public_system_health: false
+max_timestamp_skew_seconds: 30

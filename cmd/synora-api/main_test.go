@@ -5,16 +5,23 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
+	"synora/internal/security"
 	"synora/pkg/contract"
 )
 
 type fakeCore struct {
-	snapshot *contract.PublicSnapshot
-	state    *contract.PublicSnapshot
-	health   *contract.RuntimeHealth
-	err      error
+	snapshot    *contract.PublicSnapshot
+	state       *contract.PublicSnapshot
+	health      *contract.RuntimeHealth
+	validations []contract.ValidationRequest
+	resolved    *contract.ValidationRequest
+	resolveID   string
+	resolveBody string
+	err         error
 }
 
 func (f fakeCore) Snapshot() (*contract.PublicSnapshot, error) {
@@ -36,6 +43,22 @@ func (f fakeCore) SystemHealth() (*contract.RuntimeHealth, error) {
 		return nil, f.err
 	}
 	return f.health, nil
+}
+
+func (f fakeCore) Validations() ([]contract.ValidationRequest, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.validations, nil
+}
+
+func (f *fakeCore) ResolveValidation(id string, body json.RawMessage) (*contract.ValidationRequest, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.resolveID = id
+	f.resolveBody = string(body)
+	return f.resolved, nil
 }
 
 func TestHandleSnapshotReturnsPublicSnapshot(t *testing.T) {
@@ -179,4 +202,114 @@ func TestHandleSystemHealthReturnsCleanRuntimeHealth(t *testing.T) {
 			t.Fatalf("system health missing key %q in %s", key, rec.Body.String())
 		}
 	}
+}
+
+func TestHandleValidationsReturnsList(t *testing.T) {
+	core := &fakeCore{
+		validations: []contract.ValidationRequest{{
+			ID:        "validation-1",
+			EventID:   "evt-1",
+			Status:    contract.ValidationStatusPending,
+			CreatedAt: contractTime(),
+		}},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/validations", nil)
+	rec := httptest.NewRecorder()
+
+	handleValidations(core).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body []contract.ValidationRequest
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if len(body) != 1 || body[0].ID != "validation-1" {
+		t.Fatalf("unexpected validations body: %#v", body)
+	}
+}
+
+func TestHandleValidationResolve(t *testing.T) {
+	core := &fakeCore{
+		resolved: &contract.ValidationRequest{
+			ID:     "validation-1",
+			Status: contract.ValidationStatusRejected,
+		},
+	}
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/validations/validation-1/resolve",
+		strings.NewReader(`{"action":"reject"}`),
+	)
+	rec := httptest.NewRecorder()
+
+	handleValidation(core).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if core.resolveID != "validation-1" || core.resolveBody != `{"action":"reject"}` {
+		t.Fatalf("resolve call mismatch id=%q body=%q", core.resolveID, core.resolveBody)
+	}
+	var body contract.ValidationRequest
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if body.Status != contract.ValidationStatusRejected {
+		t.Fatalf("unexpected resolve body: %#v", body)
+	}
+}
+
+func TestAPIAuthMiddlewareRequiresBearerToken(t *testing.T) {
+	cfg := &security.Config{
+		APITokenHash: security.HashSecret("dev-token"),
+	}
+	handler := apiAuthMiddleware(
+		cfg,
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/state", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/state", nil)
+	req.Header.Set("Authorization", "Bearer dev-token")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAPIAuthMiddlewareAllowsPublicSystemHealthWhenConfigured(t *testing.T) {
+	cfg := &security.Config{
+		APITokenHash:       security.HashSecret("dev-token"),
+		PublicSystemHealth: true,
+	}
+	handler := apiAuthMiddleware(
+		cfg,
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/health", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func contractTime() time.Time {
+	return time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
 }

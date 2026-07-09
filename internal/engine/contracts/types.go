@@ -254,6 +254,28 @@ type Outcome struct {
 	LastValidated time.Time
 }
 
+type Situation struct {
+	ID string
+
+	Type string
+
+	Severity Severity
+
+	NodeID string
+
+	ResidentID string
+
+	DeviceID string
+
+	ClipID string
+
+	Evidence []string
+
+	CreatedAt time.Time
+
+	ExpiresAt *time.Time
+}
+
 type DecisionResult struct {
 	DivergenceScore float64
 	DecisionScore   float64
@@ -276,6 +298,8 @@ type DecisionResult struct {
 	ValidationReason   string
 
 	Outcome *Outcome
+
+	Situations []Situation
 
 	Timestamp time.Time
 }

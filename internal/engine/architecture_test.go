@@ -51,6 +51,7 @@ func TestCoreDoesNotImportGraphMemoryDirectly(t *testing.T) {
 		"synora/internal/engine/graph",
 		"synora/internal/engine/cognitive",
 		"synora/internal/engine/contracts",
+		"synora/internal/engine/situation",
 	}
 
 	assertNoForbiddenImports(t, "../../cmd/synora-core", forbiddenImports)

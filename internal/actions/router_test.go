@@ -48,3 +48,20 @@ func TestRouterSelectsRecorderExecutor(t *testing.T) {
 		t.Fatalf("expected recorder call, got %d", recorder.calls)
 	}
 }
+
+func TestRouterSkipsUnknownActionWithoutFallback(t *testing.T) {
+	router := Router{}
+
+	result, err := router.Execute(context.Background(), contract.ActionRequest{
+		Type: "unknown.action",
+		Action: contract.Action{
+			Type: "unknown.action",
+		},
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if result.Status != StatusSkipped {
+		t.Fatalf("unknown action should be skipped, got %#v", result)
+	}
+}

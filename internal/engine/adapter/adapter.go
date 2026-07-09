@@ -28,6 +28,7 @@ type Result struct {
 	Presence   *state.PresenceState
 	Clip       *state.ClipState
 	System     *state.SystemState
+	Situations []cgecontracts.Situation
 }
 
 func NormalizeEvent(event *contract.Event, registry *device.Registry) time.Time {
@@ -94,8 +95,10 @@ func ToCGEEvent(
 
 	metadata := cloneMetadata(event.Payload)
 	metadata["source"] = event.Source
+	metadata["raw_type"] = event.Type
 	metadata["device_id"] = event.DeviceID
 	metadata["node_id"] = event.NodeID
+	metadata["clip_id"] = event.ClipID
 	metadata["priority"] = event.Priority
 	metadata["hour"] = now.Hour()
 	metadata["weekday"] = int(now.Weekday())
@@ -168,6 +171,7 @@ func BuildResult(
 		Presence:   buildPresence(event, now),
 		Clip:       buildClip(event, now),
 		System:     buildSystemState(store, decisionResult, now),
+		Situations: decisionResult.Situations,
 	}
 }
 

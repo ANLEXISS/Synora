@@ -7,10 +7,15 @@ import (
 )
 
 const (
-	StatusAccepted  = "accepted"
-	StatusDuplicate = "duplicate"
-	StatusFailed    = "failed"
-	StatusIgnored   = "ignored"
+	StatusSuccess = "success"
+	StatusError   = "error"
+	StatusTimeout = "timeout"
+	StatusSkipped = "skipped"
+
+	StatusAccepted  = StatusSuccess
+	StatusDuplicate = StatusSkipped
+	StatusFailed    = StatusError
+	StatusIgnored   = StatusSkipped
 )
 
 type Executor interface {

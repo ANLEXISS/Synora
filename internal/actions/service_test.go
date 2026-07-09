@@ -32,14 +32,27 @@ func (e *recordingExecutor) Execute(_ context.Context, _ contract.ActionRequest)
 	return e.result, e.err
 }
 
+type timeoutExecutor struct {
+	calls int
+}
+
+func (e *timeoutExecutor) Execute(ctx context.Context, _ contract.ActionRequest) (ExecutionResult, error) {
+	e.calls++
+	<-ctx.Done()
+	return ExecutionResult{}, ctx.Err()
+}
+
 func TestServiceExecutesActionRequestAndPublishesResult(t *testing.T) {
 	payload, err := json.Marshal(contract.ActionRequest{
 		ID:             "act-1",
+		Type:           "device.command",
 		RequestID:      "req-1",
 		CorrelationID:  "corr-1",
 		Source:         "core",
-		Target:         "actions",
+		Target:         "siren-1",
 		IdempotencyKey: "idem-1",
+		SourceEventID:  "evt-1",
+		DecisionID:     "dec-1",
 		Action: contract.Action{
 			Device:  "siren-1",
 			Command: "on",
@@ -81,6 +94,9 @@ func TestServiceExecutesActionRequestAndPublishesResult(t *testing.T) {
 	result := decodeOnlyResult(t, bus)
 	if result.Status != StatusAccepted || result.ActionID != "act-1" || result.RequestID != "req-1" {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+	if result.StartedAt.IsZero() || result.FinishedAt.IsZero() {
+		t.Fatalf("expected started_at and finished_at: %#v", result)
 	}
 }
 
@@ -196,6 +212,111 @@ func TestServicePublishesFailedResult(t *testing.T) {
 	result := decodeOnlyResult(t, bus)
 	if result.Status != StatusFailed || result.Error != "boom" {
 		t.Fatalf("unexpected failed result: %#v", result)
+	}
+}
+
+func TestServicePublishesTimeoutResult(t *testing.T) {
+	payload, err := json.Marshal(contract.ActionRequest{
+		ID:        "act-timeout",
+		TimeoutMs: 1,
+		Action: contract.Action{
+			Type: "mqtt.publish",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	bus := &recordingBus{}
+	executor := &timeoutExecutor{}
+	service := &Service{
+		Bus:      bus,
+		Executor: executor,
+		Deduper:  NewDeduper(),
+	}
+
+	service.HandleMessage(context.Background(), contract.Message{
+		ID:      "msg-timeout",
+		Type:    contract.EventActionRequest,
+		Kind:    contract.KindCommand,
+		Source:  "core",
+		Payload: payload,
+	})
+
+	if executor.calls != 1 {
+		t.Fatalf("expected one timeout attempt, got %d", executor.calls)
+	}
+	result := decodeOnlyResult(t, bus)
+	if result.Status != StatusTimeout || result.Error == "" {
+		t.Fatalf("unexpected timeout result: %#v", result)
+	}
+}
+
+func TestServicePublishesSkippedForUnknownActionType(t *testing.T) {
+	payload, err := json.Marshal(contract.ActionRequest{
+		ID:     "act-unknown",
+		Type:   "unknown.action",
+		Target: "unknown",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	bus := &recordingBus{}
+	service := &Service{
+		Bus:      bus,
+		Executor: Router{},
+		Deduper:  NewDeduper(),
+	}
+
+	service.HandleMessage(context.Background(), contract.Message{
+		ID:      "msg-unknown",
+		Type:    contract.EventActionRequest,
+		Kind:    contract.KindCommand,
+		Source:  "core",
+		Payload: payload,
+	})
+
+	result := decodeOnlyResult(t, bus)
+	if result.Status != StatusSkipped || result.Error != "" {
+		t.Fatalf("unexpected unknown action result: %#v", result)
+	}
+}
+
+func TestServiceRetriesFailedAction(t *testing.T) {
+	payload, err := json.Marshal(contract.ActionRequest{
+		ID:    "act-retry",
+		Retry: 2,
+		Action: contract.Action{
+			Type: "mqtt.publish",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	bus := &recordingBus{}
+	executor := &recordingExecutor{err: errors.New("temporary")}
+	service := &Service{
+		Bus:      bus,
+		Executor: executor,
+		Deduper:  NewDeduper(),
+	}
+
+	service.HandleMessage(context.Background(), contract.Message{
+		ID:      "msg-retry",
+		Type:    contract.EventActionRequest,
+		Kind:    contract.KindCommand,
+		Source:  "core",
+		Payload: payload,
+	})
+
+	if executor.calls != 3 {
+		t.Fatalf("expected retry plus initial attempts, got %d", executor.calls)
+	}
+	result := decodeOnlyResult(t, bus)
+	if result.Status != StatusError || result.Details["attempts"] != float64(3) {
+		t.Fatalf("unexpected retry result: %#v", result)
 	}
 }
 

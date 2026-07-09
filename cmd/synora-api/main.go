@@ -11,6 +11,7 @@ import (
 
 	"synora/internal/bus"
 	"synora/internal/coreclient"
+	"synora/internal/security"
 	"synora/pkg/contract"
 )
 
@@ -32,9 +33,27 @@ type systemHealthProvider interface {
 	SystemHealth() (*contract.RuntimeHealth, error)
 }
 
+type validationProvider interface {
+	Validations() ([]contract.ValidationRequest, error)
+	ResolveValidation(string, json.RawMessage) (*contract.ValidationRequest, error)
+}
+
+type pairingProvider interface {
+	StartPairing() (*security.PairingStartResponse, error)
+	CompletePairing(json.RawMessage) (*security.PairingCompleteResponse, error)
+}
+
 func main() {
 
 	addr := ":8080"
+	securityPath := getenv("SYNORA_SECURITY", security.DefaultPath)
+	securityConfig, err := security.Load(securityPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if securityConfig.APITokenHash == "" {
+		log.Fatal("security config requires api_token_hash or api_token")
+	}
 
 	busClient, err := bus.NewClient(
 		getenv("SYNORA_BUS", "/run/synora/bus.sock"),
@@ -51,7 +70,11 @@ func main() {
 
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/api/state", handleState(core))
+	mux.HandleFunc("/api/validations", handleValidations(core))
+	mux.HandleFunc("/api/validations/", handleValidation(core))
 	mux.HandleFunc("/api/devices", handleDevices(core))
+	mux.HandleFunc("/api/devices/pairing/start", handlePairingStart(core))
+	mux.HandleFunc("/api/devices/pairing/complete", handlePairingComplete(core))
 	mux.HandleFunc("/api/devices/", handleDevice(core))
 	mux.HandleFunc("/api/topology", handleTopology(core))
 	mux.HandleFunc("/api/topology/reset", handleTopologyReset(core))
@@ -64,7 +87,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           loggingMiddleware(corsMiddleware(mux)),
+		Handler:           loggingMiddleware(corsMiddleware(securityConfig, apiAuthMiddleware(securityConfig, mux))),
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       30 * time.Second,
@@ -138,17 +161,24 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+func corsMiddleware(cfg *security.Config, next http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(
 		w http.ResponseWriter,
 		r *http.Request,
 	) {
 
-		w.Header().Set(
-			"Access-Control-Allow-Origin",
-			"*",
-		)
+		origin := r.Header.Get("Origin")
+		if cfg != nil && cfg.AllowsOrigin(origin) {
+			if origin == "" {
+				origin = "*"
+			}
+			w.Header().Set(
+				"Access-Control-Allow-Origin",
+				origin,
+			)
+			w.Header().Add("Vary", "Origin")
+		}
 
 		w.Header().Set(
 			"Access-Control-Allow-Headers",
@@ -167,6 +197,39 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func apiAuthMiddleware(cfg *security.Config, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Path == "/api/system/health" && cfg != nil && cfg.PublicSystemHealth {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		token, ok := bearerToken(r.Header.Get("Authorization"))
+		if !ok || cfg == nil || !cfg.VerifyAPIToken(token) {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func bearerToken(header string) (string, bool) {
+	scheme, token, ok := strings.Cut(strings.TrimSpace(header), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return "", false
+	}
+	token = strings.TrimSpace(token)
+	return token, token != ""
 }
 
 func handleSnapshot(
@@ -299,6 +362,109 @@ func handleSystemHealth(
 		}
 
 		writeJSON(w, http.StatusOK, health)
+	}
+}
+
+func handleValidations(
+	core validationProvider,
+) http.HandlerFunc {
+	return func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		if !requireMethod(w, r, http.MethodGet) {
+			return
+		}
+
+		validations, err := core.Validations()
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, validations)
+	}
+}
+
+func handleValidation(
+	core validationProvider,
+) http.HandlerFunc {
+	return func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		path := strings.TrimPrefix(r.URL.Path, "/api/validations/")
+		id, actionPath, ok := strings.Cut(path, "/")
+		id = strings.TrimSpace(id)
+		if id == "" || !ok || actionPath != "resolve" {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "validation route not found"})
+			return
+		}
+		if !requireMethod(w, r, http.MethodPost) {
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		validation, err := core.ResolveValidation(id, json.RawMessage(body))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, validation)
+	}
+}
+
+func handlePairingStart(
+	core pairingProvider,
+) http.HandlerFunc {
+	return func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		if !requireMethod(w, r, http.MethodPost) {
+			return
+		}
+
+		response, err := core.StartPairing()
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, response)
+	}
+}
+
+func handlePairingComplete(
+	core pairingProvider,
+) http.HandlerFunc {
+	return func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		if !requireMethod(w, r, http.MethodPost) {
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		response, err := core.CompletePairing(json.RawMessage(body))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, response)
 	}
 }
 
