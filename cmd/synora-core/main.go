@@ -74,6 +74,7 @@ func main() {
 	devicePath := getenv("SYNORA_DEVICE", "/etc/synora/devices.yaml")
 	automationPath := getenv("SYNORA_AUTOMATION", "/etc/synora/automations.yaml")
 	securityPath := getenv("SYNORA_SECURITY", "/etc/synora/security.yaml")
+	cgeCriticalChainsPath := getenv("SYNORA_CGE_CRITICAL_CHAINS", "/etc/synora/cge_critical_chains.yaml")
 	statePath := getenv("SYNORA_STATE_PATH", "")
 	if statePath == "" {
 		statePath = state.DefaultStatePath()
@@ -108,6 +109,11 @@ func main() {
 	}
 
 	engineInstance := engine.NewEngine(topologyInstance, deviceRegistry, residents)
+	if loadedPath, err := engineInstance.LoadCriticalSeedsFirstExisting(cgeCriticalChainsPath, "configs/cge_critical_chains.yaml"); err != nil {
+		log.Println("cge critical chains load warning:", err)
+	} else if loadedPath != "" {
+		log.Println("cge critical chains loaded:", loadedPath)
+	}
 	stateStore := state.NewStore()
 	eventStore := event.NewStore(200)
 	rateController := event.NewRateController(2*time.Second, 750*time.Millisecond)

@@ -1,0 +1,362 @@
+critical_chains:
+  - id: single_unknown
+    name: Inconnu detecte
+    danger_score: 0.66
+    risk_level: medium
+    expected_state: suspicious
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: vision.unknown
+    proposed_actions:
+      - record_clip
+      - increase_tracking_frequency
+    forbidden_actions:
+      - door.unlock
+      - siren.turn_on_without_policy
+
+  - id: unknown_confirmed
+    name: Inconnu confirme deux fois
+    danger_score: 0.74
+    risk_level: medium_high
+    expected_state: suspicious
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: vision.unknown
+      - event_type: vision.unknown
+    proposed_actions:
+      - record_clip
+      - notify_user
+    forbidden_actions:
+      - door.unlock
+
+  - id: unknown_persistent_entrance
+    name: Inconnu persistant a l'entree
+    description: Inconnu detecte puis mouvement puis inconnu confirme.
+    danger_score: 0.76
+    risk_level: high
+    expected_state: suspicious
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: vision.unknown
+      - event_type: vision.motion
+      - event_type: vision.unknown
+    proposed_actions:
+      - record_clip
+      - turn_on_relevant_lights
+      - notify_user
+    forbidden_actions:
+      - door.unlock
+      - siren.turn_on_without_policy
+
+  - id: unknown_moves_inside
+    name: Inconnu progresse dans le logement
+    danger_score: 0.86
+    risk_level: high
+    expected_state: intrusion
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: vision.unknown
+        zone_role: entrance
+      - event_type: vision.unknown
+        zone_role: hallway
+      - event_type: vision.unknown
+        zone_role: living_area
+    proposed_actions:
+      - record_clip
+      - turn_on_security_lights
+      - notify_user_high_priority
+    forbidden_actions:
+      - door.unlock
+
+  - id: unknown_multiple_private_rooms
+    name: Inconnu atteint plusieurs zones privees
+    danger_score: 0.92
+    risk_level: critical
+    expected_state: intrusion
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: vision.unknown
+        zone_role: entrance
+      - event_type: vision.unknown
+        zone_role: hallway
+      - event_type: vision.unknown
+        zone_role: private_room
+    proposed_actions:
+      - record_clip
+      - notify_user_critical
+      - turn_on_security_lights
+    forbidden_actions:
+      - door.unlock
+      - ignore_event
+
+  - id: unknown_weapon
+    name: Inconnu arme
+    danger_score: 0.95
+    risk_level: critical
+    expected_state: break_in
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: vision.unknown
+      - event_type: vision.weapon
+    proposed_actions:
+      - record_clip
+      - notify_user_critical
+      - turn_on_security_lights
+    forbidden_actions:
+      - door.unlock
+      - ignore_event
+
+  - id: unknown_weapon_motion
+    name: Inconnu arme actif
+    danger_score: 0.98
+    risk_level: critical
+    expected_state: break_in
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: vision.unknown
+      - event_type: vision.weapon
+      - event_type: vision.motion
+    proposed_actions:
+      - record_clip
+      - notify_user_critical
+      - trigger_approved_alarm_policy
+    forbidden_actions:
+      - door.unlock
+      - ignore_event
+
+  - id: door_open_unknown
+    name: Porte ouverte puis inconnu
+    danger_score: 0.80
+    risk_level: high
+    expected_state: intrusion
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: sensor.door.open
+      - event_type: vision.unknown
+    proposed_actions:
+      - record_clip
+      - notify_user_high_priority
+      - turn_on_relevant_lights
+    forbidden_actions:
+      - door.unlock
+
+  - id: unknown_door_open
+    name: Inconnu puis ouverture de porte
+    danger_score: 0.78
+    risk_level: high
+    expected_state: suspicious
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: vision.unknown
+      - event_type: sensor.door.open
+    proposed_actions:
+      - record_clip
+      - notify_user_high_priority
+    forbidden_actions:
+      - door.unlock
+
+  - id: window_open_unknown
+    name: Fenetre ouverte puis inconnu
+    danger_score: 0.82
+    risk_level: high
+    expected_state: intrusion
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: sensor.window.open
+      - event_type: vision.unknown
+    proposed_actions:
+      - record_clip
+      - notify_user_high_priority
+    forbidden_actions:
+      - door.unlock
+
+  - id: glass_break_unknown
+    name: Bris de vitre puis inconnu
+    danger_score: 0.96
+    risk_level: critical
+    expected_state: break_in
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: sensor.glass.break
+      - event_type: vision.unknown
+    proposed_actions:
+      - record_clip
+      - notify_user_critical
+      - turn_on_security_lights
+    forbidden_actions:
+      - door.unlock
+      - ignore_event
+
+  - id: lock_forced_unknown
+    name: Serrure forcee puis presence inconnue
+    danger_score: 0.98
+    risk_level: critical
+    expected_state: break_in
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: sensor.lock.forced
+      - event_type: vision.unknown
+      - event_type: vision.motion
+    proposed_actions:
+      - record_clip
+      - notify_user_critical
+      - trigger_approved_alarm_policy
+    forbidden_actions:
+      - door.unlock
+      - ignore_event
+
+  - id: unknown_camera_offline
+    name: Inconnu puis camera hors ligne
+    danger_score: 0.78
+    risk_level: high
+    expected_state: suspicious
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: vision.unknown
+      - event_type: camera.offline
+    proposed_actions:
+      - record_clip
+      - notify_user_high_priority
+      - mark_security_degraded
+    forbidden_actions:
+      - ignore_event
+
+  - id: unknown_camera_tampered
+    name: Inconnu puis sabotage camera
+    danger_score: 0.86
+    risk_level: high
+    expected_state: intrusion
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: vision.unknown
+      - event_type: camera.tampered
+    proposed_actions:
+      - notify_user_critical
+      - mark_security_degraded
+      - turn_on_security_lights
+    forbidden_actions:
+      - ignore_event
+
+  - id: camera_tamper_entry
+    name: Sabotage camera puis entree probable
+    danger_score: 0.95
+    risk_level: critical
+    expected_state: break_in
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: camera.tampered
+      - event_type: sensor.door.open
+      - event_type: vision.motion
+    proposed_actions:
+      - notify_user_critical
+      - trigger_approved_alarm_policy
+      - mark_security_degraded
+    forbidden_actions:
+      - door.unlock
+      - ignore_event
+
+  - id: unknown_away
+    name: Inconnu quand maison absente
+    danger_score: 0.70
+    risk_level: medium_high
+    expected_state: suspicious
+    requires_validation: true
+    enabled: true
+    context:
+      house_state: away
+    sequence:
+      - event_type: vision.unknown
+    proposed_actions:
+      - record_clip
+      - notify_user
+    forbidden_actions:
+      - door.unlock
+
+  - id: unknown_inside_away
+    name: Inconnu a l'interieur quand maison absente
+    danger_score: 0.84
+    risk_level: high
+    expected_state: intrusion
+    requires_validation: true
+    enabled: true
+    context:
+      house_state: away
+      zone_scope: interior
+    sequence:
+      - event_type: vision.unknown
+    proposed_actions:
+      - record_clip
+      - notify_user_high_priority
+      - turn_on_security_lights
+    forbidden_actions:
+      - door.unlock
+
+  - id: unknown_night_entry
+    name: Ouverture nocturne puis inconnu
+    danger_score: 0.78
+    risk_level: high
+    expected_state: intrusion
+    requires_validation: true
+    enabled: true
+    context:
+      time_window: night
+    sequence:
+      - event_type: sensor.door.open
+      - event_type: vision.unknown
+    proposed_actions:
+      - record_clip
+      - notify_user_high_priority
+      - turn_on_security_lights
+    forbidden_actions:
+      - door.unlock
+
+  - id: fall_no_motion
+    name: Chute suivie d'immobilite
+    danger_score: 0.90
+    risk_level: critical
+    expected_state: emergency
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: vision.fall
+      - event_type: no_motion
+      - event_type: no_response
+    proposed_actions:
+      - notify_user_critical
+      - request_assistance_check
+      - record_clip
+    forbidden_actions:
+      - ignore_event
+
+  - id: scream_unknown
+    name: Cri puis inconnu
+    danger_score: 0.95
+    risk_level: critical
+    expected_state: emergency
+    requires_validation: true
+    enabled: true
+    sequence:
+      - event_type: audio.scream
+      - event_type: vision.unknown
+    proposed_actions:
+      - notify_user_critical
+      - record_clip
+      - turn_on_security_lights
+    forbidden_actions:
+      - ignore_event
+      - door.unlock

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -53,9 +54,12 @@ func (e *Engine) Analyze(
 	now := adapter.NormalizeEvent(event, e.device)
 	cgeEvent := adapter.ToCGEEvent(event, store, now)
 
-	e.graphMemory.LearnEvent(cgeEvent)
+	criticalSeedMatch := e.graphMemory.LearnEvent(cgeEvent)
 	decisionResult := e.cognitive.ProcessEvent(cgeEvent)
 	assessment := danger.AssessEvent(event, e.dangerContext(event, store, decisionResult, now))
+	if criticalSeedMatch != nil {
+		applyCriticalSeedMatch(criticalSeedMatch, &assessment, &decisionResult)
+	}
 	decisionResult = applyDangerAssessment(decisionResult, assessment)
 	decisionResult.Situations = situation.Analyze(cgeEvent, decisionResult, now)
 
@@ -101,6 +105,59 @@ func (e *Engine) CGEDetailInspection() map[string]any {
 		}
 	}
 	return e.graphMemory.Inspection()
+}
+
+func (e *Engine) ApplyCriticalSeeds(seeds []cgecontracts.CriticalSeed) {
+	if e == nil || e.graphMemory == nil {
+		return
+	}
+	e.graphMemory.ApplyCriticalSeeds(seeds)
+}
+
+func (e *Engine) LoadCriticalSeeds(path string) error {
+	if e == nil || e.graphMemory == nil {
+		return nil
+	}
+	seeds, err := graph.LoadCriticalSeeds(path)
+	if err != nil {
+		return err
+	}
+	e.graphMemory.ApplyCriticalSeeds(seeds)
+	return nil
+}
+
+func (e *Engine) LoadCriticalSeedsFirstExisting(paths ...string) (string, error) {
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", err
+		}
+		if err := e.LoadCriticalSeeds(path); err != nil {
+			return path, err
+		}
+		return path, nil
+	}
+	return "", nil
+}
+
+func (e *Engine) CriticalSeeds() []cgecontracts.CriticalSeed {
+	if e == nil || e.graphMemory == nil {
+		return nil
+	}
+	return e.graphMemory.CriticalSeeds()
+}
+
+func (e *Engine) CriticalSeed(id string) (cgecontracts.CriticalSeed, bool) {
+	if e == nil || e.graphMemory == nil {
+		return cgecontracts.CriticalSeed{}, false
+	}
+	return e.graphMemory.CriticalSeed(id)
 }
 
 func (e *Engine) ObserveActionResult(event *contract.Event) {
@@ -175,6 +232,64 @@ func applyDangerAssessment(
 	decision.Reasons = mergeStrings(decision.Reasons, assessment.Reasons)
 	decision.Evidence = mergeStrings(decision.Evidence, assessment.Evidence)
 	return decision
+}
+
+func applyCriticalSeedMatch(
+	match *cgecontracts.CriticalSeedMatch,
+	assessment *contract.DangerAssessment,
+	decision *cgecontracts.DecisionResult,
+) {
+	if match == nil || assessment == nil || decision == nil {
+		return
+	}
+	assessment.Score = maxFloat(assessment.Score, match.ExpectedDangerScore)
+	assessment.Level = maxInt(assessment.Level, levelFromCriticalSeed(match.RiskLevel, match.ExpectedState))
+	assessment.SequenceSignature = match.Signature
+	assessment.ValidationRequired = true
+	if assessment.ValidationReason == "" {
+		assessment.ValidationReason = "critical_seed_match"
+	}
+	assessment.Reasons = mergeStrings(assessment.Reasons, []string{
+		"critical_seed_match",
+		"critical_seed_id=" + match.CriticalSeedID,
+		"expected_state=" + match.ExpectedState,
+	})
+	assessment.Evidence = mergeStrings(assessment.Evidence, []string{
+		"critical_seed=" + match.CriticalSeedID,
+		"critical_seed_signature=" + match.Signature,
+	})
+	decision.DecisionScore = maxFloat(decision.DecisionScore, match.ExpectedDangerScore)
+	decision.ValidationRequired = true
+	if decision.ValidationReason == "" {
+		decision.ValidationReason = "critical_seed_match"
+	}
+	decision.Reasons = mergeStrings(decision.Reasons, []string{
+		"critical_seed_match",
+		"critical_seed_id=" + match.CriticalSeedID,
+	})
+	decision.Evidence = mergeStrings(decision.Evidence, []string{"critical_seed=" + match.CriticalSeedID})
+	decision.SequenceKey = match.Signature
+	decision.GraphUsed = true
+}
+
+func levelFromCriticalSeed(riskLevel string, expectedState string) int {
+	expectedState = strings.ToLower(strings.TrimSpace(expectedState))
+	switch expectedState {
+	case "emergency", "break_in", "intrusion":
+		return 5
+	}
+	switch strings.ToLower(strings.TrimSpace(riskLevel)) {
+	case "critical":
+		return 5
+	case "high":
+		return 4
+	case "medium_high":
+		return 3
+	case "medium":
+		return 2
+	default:
+		return 1
+	}
 }
 
 func severityFromDangerLevel(level int) cgecontracts.Severity {
@@ -286,6 +401,20 @@ func metadataBool(value any) bool {
 	default:
 		return false
 	}
+}
+
+func maxFloat(left float64, right float64) float64 {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+func maxInt(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func firstNonEmpty(values ...string) string {

@@ -26,7 +26,9 @@ type GraphMemory struct {
 	runEvents          map[string][]learnedEvent
 	countedRunKeys     map[string]map[string]bool
 	recentEvents       map[string][]learnedEvent
+	seedRecentEvents   map[string][]learnedEvent
 	lastSequenceByRun  map[string]string
+	criticalSeeds      map[string]contracts.CriticalSeed
 
 	mu sync.RWMutex
 }
@@ -44,6 +46,10 @@ type learnedEvent struct {
 	ScenarioID      string
 	ScenarioStepID  string
 	EventInstanceID string
+	ZoneRole        string
+	ZoneScope       string
+	HouseState      string
+	TimeWindow      string
 }
 
 func NewGraphMemory() *GraphMemory {
@@ -69,7 +75,9 @@ func NewGraphMemory() *GraphMemory {
 		runEvents:          make(map[string][]learnedEvent),
 		countedRunKeys:     make(map[string]map[string]bool),
 		recentEvents:       make(map[string][]learnedEvent),
+		seedRecentEvents:   make(map[string][]learnedEvent),
 		lastSequenceByRun:  make(map[string]string),
+		criticalSeeds:      make(map[string]contracts.CriticalSeed),
 	}
 }
 
@@ -181,9 +189,9 @@ func updateAverageDelta(
 
 func (g *GraphMemory) LearnEvent(
 	event *contracts.Event,
-) {
+) *contracts.CriticalSeedMatch {
 	if event == nil {
-		return
+		return nil
 	}
 
 	g.mu.Lock()
@@ -210,13 +218,19 @@ func (g *GraphMemory) LearnEvent(
 	}
 
 	if learningMode(event) == "disabled" {
-		return
+		return nil
+	}
+
+	current := learnedEventFromCGE(event)
+	var seedMatch *contracts.CriticalSeedMatch
+	if current.EventType != "" {
+		seedMatch = g.observeCriticalSeedLocked(SequenceKey(event), current)
 	}
 
 	g.learnInspectionLocked(event)
 
 	if isSimulated(event) {
-		return
+		return seedMatch
 	}
 
 	sequenceKey :=
@@ -281,7 +295,7 @@ func (g *GraphMemory) LearnEvent(
 				graph.LastUpdate =
 					time.Now()
 
-				return
+				return seedMatch
 			}
 		}
 
@@ -303,7 +317,7 @@ func (g *GraphMemory) LearnEvent(
 		graph.LastUpdate =
 			time.Now()
 
-		return
+		return seedMatch
 	}
 
 	// ---------------------------------------------------------------------
@@ -348,7 +362,7 @@ func (g *GraphMemory) LearnEvent(
 			graph.LastUpdate =
 				time.Now()
 
-			return
+			return seedMatch
 		}
 	}
 
@@ -387,6 +401,7 @@ func (g *GraphMemory) LearnEvent(
 	graph.Version++
 	graph.LastUpdate =
 		time.Now()
+	return seedMatch
 }
 
 func findMatchingRoot(
@@ -440,7 +455,9 @@ func (g *GraphMemory) Clear() {
 	g.runEvents = make(map[string][]learnedEvent)
 	g.countedRunKeys = make(map[string]map[string]bool)
 	g.recentEvents = make(map[string][]learnedEvent)
+	g.seedRecentEvents = make(map[string][]learnedEvent)
 	g.lastSequenceByRun = make(map[string]string)
+	g.criticalSeeds = make(map[string]contracts.CriticalSeed)
 }
 
 func (g *GraphMemory) ObserveActionEvidence(testRunID string, evidence string, simulated bool, at time.Time) {
@@ -670,6 +687,10 @@ func learnedEventFromCGE(event *contracts.Event) learnedEvent {
 		ScenarioID:      metadataString(metadata["scenario_id"]),
 		ScenarioStepID:  metadataString(metadata["scenario_step_id"]),
 		EventInstanceID: metadataString(metadata["event_instance_id"]),
+		ZoneRole:        firstNonEmpty(metadataString(event.Metadata["zone_role"]), metadataString(event.Metadata["device_role"])),
+		ZoneScope:       metadataString(event.Metadata["zone_scope"]),
+		HouseState:      metadataString(event.Metadata["house_state"]),
+		TimeWindow:      timeWindowFromMetadata(event.Metadata),
 	}
 }
 
@@ -852,6 +873,34 @@ func metadataBool(value any) bool {
 	default:
 		return false
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func timeWindowFromMetadata(metadata map[string]any) string {
+	hour := -1
+	switch typed := metadata["hour"].(type) {
+	case int:
+		hour = typed
+	case int64:
+		hour = int(typed)
+	case float64:
+		hour = int(typed)
+	}
+	if hour >= 22 || (hour >= 0 && hour < 6) {
+		return "night"
+	}
+	if hour >= 6 {
+		return "day"
+	}
+	return ""
 }
 
 func shortHash(value string) string {

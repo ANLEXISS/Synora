@@ -8,19 +8,26 @@ import (
 )
 
 type compactSequence struct {
-	ID             string    `json:"id"`
-	Signature      string    `json:"signature"`
-	EventTypes     []string  `json:"event_types"`
-	Count          int       `json:"count"`
-	SimulatedCount int       `json:"simulated_count"`
-	RealCount      int       `json:"real_count"`
-	Confidence     float64   `json:"confidence"`
-	FirstSeen      time.Time `json:"first_seen"`
-	LastSeen       time.Time `json:"last_seen"`
-	AvgDeltaMs     int64     `json:"avg_delta_ms"`
-	LastTestRunID  string    `json:"last_test_run_id,omitempty"`
-	EvidenceCount  int       `json:"evidence_count"`
-	ExampleCount   int       `json:"example_count"`
+	ID                string    `json:"id"`
+	Signature         string    `json:"signature"`
+	EventTypes        []string  `json:"event_types"`
+	Count             int       `json:"count"`
+	Origin            string    `json:"origin,omitempty"`
+	CriticalSeedID    string    `json:"critical_seed_id,omitempty"`
+	DangerScore       float64   `json:"danger_score,omitempty"`
+	RiskLevel         string    `json:"risk_level,omitempty"`
+	ExpectedState     string    `json:"expected_state,omitempty"`
+	SimulatedCount    int       `json:"simulated_count"`
+	RealCount         int       `json:"real_count"`
+	CriticalSeedCount int       `json:"critical_seed_count,omitempty"`
+	EffectiveCount    int       `json:"effective_count,omitempty"`
+	Confidence        float64   `json:"confidence"`
+	FirstSeen         time.Time `json:"first_seen"`
+	LastSeen          time.Time `json:"last_seen"`
+	AvgDeltaMs        int64     `json:"avg_delta_ms"`
+	LastTestRunID     string    `json:"last_test_run_id,omitempty"`
+	EvidenceCount     int       `json:"evidence_count"`
+	ExampleCount      int       `json:"example_count"`
 }
 
 type compactTransition struct {
@@ -43,9 +50,17 @@ type compactBehavior struct {
 	RequiresValidation       bool             `json:"requires_validation"`
 	Count                    int              `json:"count"`
 	Confidence               float64          `json:"confidence"`
+	Origin                   string           `json:"origin,omitempty"`
+	CriticalSeedID           string           `json:"critical_seed_id,omitempty"`
+	DangerScore              float64          `json:"danger_score,omitempty"`
+	RiskLevel                string           `json:"risk_level,omitempty"`
+	ExpectedState            string           `json:"expected_state,omitempty"`
 	SimulatedCount           int              `json:"simulated_count"`
 	RealCount                int              `json:"real_count"`
+	CriticalSeedCount        int              `json:"critical_seed_count,omitempty"`
+	EffectiveCount           int              `json:"effective_count,omitempty"`
 	ProposedActions          []map[string]any `json:"proposed_actions"`
+	ForbiddenActionsCount    int              `json:"forbidden_actions_count"`
 	EvidenceCount            int              `json:"evidence_count"`
 	LastMatchedAt            time.Time        `json:"last_matched_at,omitempty"`
 	LastTriggeredAt          *time.Time       `json:"last_triggered_at,omitempty"`
@@ -147,19 +162,26 @@ func compactSequences(items []contracts.LearnedSequence) []compactSequence {
 	out := make([]compactSequence, 0, len(items))
 	for _, item := range items {
 		out = append(out, compactSequence{
-			ID:             item.ID,
-			Signature:      item.Signature,
-			EventTypes:     append([]string(nil), item.EventTypes...),
-			Count:          item.Count,
-			SimulatedCount: item.SimulatedCount,
-			RealCount:      item.RealCount,
-			Confidence:     item.Confidence,
-			FirstSeen:      item.FirstSeen,
-			LastSeen:       item.LastSeen,
-			AvgDeltaMs:     item.AvgDeltaMs,
-			LastTestRunID:  item.LastTestRunID,
-			EvidenceCount:  len(item.Evidence),
-			ExampleCount:   len(item.Examples),
+			ID:                item.ID,
+			Signature:         item.Signature,
+			EventTypes:        append([]string(nil), item.EventTypes...),
+			Count:             item.Count,
+			Origin:            item.Origin,
+			CriticalSeedID:    item.CriticalSeedID,
+			DangerScore:       item.DangerScore,
+			RiskLevel:         item.RiskLevel,
+			ExpectedState:     item.ExpectedState,
+			SimulatedCount:    item.SimulatedCount,
+			RealCount:         item.RealCount,
+			CriticalSeedCount: item.CriticalSeedCount,
+			EffectiveCount:    item.EffectiveCount,
+			Confidence:        item.Confidence,
+			FirstSeen:         item.FirstSeen,
+			LastSeen:          item.LastSeen,
+			AvgDeltaMs:        item.AvgDeltaMs,
+			LastTestRunID:     item.LastTestRunID,
+			EvidenceCount:     len(item.Evidence),
+			ExampleCount:      len(item.Examples),
 		})
 	}
 	return out
@@ -194,9 +216,17 @@ func compactBehaviors(items []contracts.LearnedBehavior) []compactBehavior {
 			RequiresValidation:       item.RequiresValidation,
 			Count:                    item.Count,
 			Confidence:               item.Confidence,
+			Origin:                   item.Origin,
+			CriticalSeedID:           item.CriticalSeedID,
+			DangerScore:              item.DangerScore,
+			RiskLevel:                item.RiskLevel,
+			ExpectedState:            item.ExpectedState,
 			SimulatedCount:           item.SimulatedCount,
 			RealCount:                item.RealCount,
+			CriticalSeedCount:        item.CriticalSeedCount,
+			EffectiveCount:           item.EffectiveCount,
 			ProposedActions:          compactActions(item.ProposedActions),
+			ForbiddenActionsCount:    len(item.ForbiddenActions),
 			EvidenceCount:            len(item.Evidence),
 			LastMatchedAt:            item.LastMatchedAt,
 			LastTriggeredAt:          item.LastTriggeredAt,
@@ -229,6 +259,7 @@ func compactActions(items []map[string]any) []map[string]any {
 func cgeStats(sequences []contracts.LearnedSequence, transitions []contracts.LearnedTransition, behaviors []contracts.LearnedBehavior) map[string]any {
 	realSequences := 0
 	simulatedSequences := 0
+	criticalSeeds := 0
 	lastUpdated := time.Time{}
 	for _, item := range sequences {
 		if item.RealCount > 0 {
@@ -236,6 +267,9 @@ func cgeStats(sequences []contracts.LearnedSequence, transitions []contracts.Lea
 		}
 		if item.SimulatedCount > 0 {
 			simulatedSequences++
+		}
+		if item.CriticalSeedCount > 0 {
+			criticalSeeds += item.CriticalSeedCount
 		}
 		if item.LastSeen.After(lastUpdated) {
 			lastUpdated = item.LastSeen
@@ -264,6 +298,7 @@ func cgeStats(sequences []contracts.LearnedSequence, transitions []contracts.Lea
 		"learned_behavior_count":   len(behaviors),
 		"real_sequence_count":      realSequences,
 		"simulated_sequence_count": simulatedSequences,
+		"critical_seed_count":      criticalSeeds,
 		"last_updated_at":          last,
 	}
 }

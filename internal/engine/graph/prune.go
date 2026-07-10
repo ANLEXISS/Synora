@@ -11,6 +11,7 @@ func (g *GraphMemory) pruneInspectionLocked() {
 	g.pruneBehaviorsLocked(CGEMaxBehaviors)
 	g.pruneRunTrackingLocked(CGEMaxSequences)
 	g.pruneRecentEventsLocked(CGEMaxSequences)
+	g.pruneSeedRecentEventsLocked(CGEMaxSequences)
 }
 
 func (g *GraphMemory) pruneSequencesLocked(limit int) {
@@ -114,5 +115,32 @@ func (g *GraphMemory) pruneRecentEventsLocked(limit int) {
 	})
 	for _, item := range items[limit:] {
 		delete(g.recentEvents, item.id)
+	}
+}
+
+func (g *GraphMemory) pruneSeedRecentEventsLocked(limit int) {
+	if limit <= 0 || len(g.seedRecentEvents) <= limit {
+		return
+	}
+	type scopeItem struct {
+		id       string
+		lastSeen time.Time
+	}
+	items := make([]scopeItem, 0, len(g.seedRecentEvents))
+	for id, events := range g.seedRecentEvents {
+		lastSeen := time.Time{}
+		if len(events) > 0 {
+			lastSeen = events[len(events)-1].Timestamp
+		}
+		items = append(items, scopeItem{id: id, lastSeen: lastSeen})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].lastSeen.Equal(items[j].lastSeen) {
+			return items[i].lastSeen.After(items[j].lastSeen)
+		}
+		return items[i].id < items[j].id
+	})
+	for _, item := range items[limit:] {
+		delete(g.seedRecentEvents, item.id)
 	}
 }

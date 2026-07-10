@@ -179,25 +179,34 @@ type BehaviorGraph struct {
 }
 
 type LearnedSequence struct {
-	ID             string    `json:"id"`
-	Signature      string    `json:"signature"`
-	Name           string    `json:"name,omitempty"`
-	EventTypes     []string  `json:"event_types"`
-	SourceTypes    []string  `json:"source_types"`
-	Devices        []string  `json:"devices"`
-	Nodes          []string  `json:"nodes"`
-	Identities     []string  `json:"identities"`
-	Count          int       `json:"count"`
-	FirstSeen      time.Time `json:"first_seen"`
-	LastSeen       time.Time `json:"last_seen"`
-	AvgDeltaMs     int64     `json:"avg_delta_ms"`
-	Confidence     float64   `json:"confidence"`
-	SimulatedCount int       `json:"simulated_count"`
-	RealCount      int       `json:"real_count"`
-	LastTestRunID  string    `json:"last_test_run_id,omitempty"`
-	LastScenarioID string    `json:"last_scenario_id,omitempty"`
-	Examples       []string  `json:"examples,omitempty"`
-	Evidence       []string  `json:"evidence,omitempty"`
+	ID                string    `json:"id"`
+	Signature         string    `json:"signature"`
+	Name              string    `json:"name,omitempty"`
+	EventTypes        []string  `json:"event_types"`
+	SourceTypes       []string  `json:"source_types"`
+	Devices           []string  `json:"devices"`
+	Nodes             []string  `json:"nodes"`
+	Identities        []string  `json:"identities"`
+	Count             int       `json:"count"`
+	FirstSeen         time.Time `json:"first_seen"`
+	LastSeen          time.Time `json:"last_seen"`
+	AvgDeltaMs        int64     `json:"avg_delta_ms"`
+	Confidence        float64   `json:"confidence"`
+	Origin            string    `json:"origin,omitempty"`
+	CriticalSeedID    string    `json:"critical_seed_id,omitempty"`
+	DangerScore       float64   `json:"danger_score,omitempty"`
+	RiskLevel         string    `json:"risk_level,omitempty"`
+	ExpectedState     string    `json:"expected_state,omitempty"`
+	SimulatedCount    int       `json:"simulated_count"`
+	RealCount         int       `json:"real_count"`
+	CriticalSeedCount int       `json:"critical_seed_count,omitempty"`
+	SeedCount         int       `json:"seed_count,omitempty"`
+	EffectiveCount    int       `json:"effective_count,omitempty"`
+	ConfidenceBase    float64   `json:"confidence_base,omitempty"`
+	LastTestRunID     string    `json:"last_test_run_id,omitempty"`
+	LastScenarioID    string    `json:"last_scenario_id,omitempty"`
+	Examples          []string  `json:"examples,omitempty"`
+	Evidence          []string  `json:"evidence,omitempty"`
 }
 
 type LearnedTransition struct {
@@ -222,13 +231,55 @@ type LearnedBehavior struct {
 	ProposedActions          []map[string]any `json:"proposed_actions"`
 	Count                    int              `json:"count"`
 	Confidence               float64          `json:"confidence"`
+	Origin                   string           `json:"origin,omitempty"`
+	CriticalSeedID           string           `json:"critical_seed_id,omitempty"`
+	DangerScore              float64          `json:"danger_score,omitempty"`
+	RiskLevel                string           `json:"risk_level,omitempty"`
+	ExpectedState            string           `json:"expected_state,omitempty"`
 	Status                   string           `json:"status"`
 	Evidence                 []string         `json:"evidence,omitempty"`
 	SimulatedCount           int              `json:"simulated_count"`
 	RealCount                int              `json:"real_count"`
+	CriticalSeedCount        int              `json:"critical_seed_count,omitempty"`
+	SeedCount                int              `json:"seed_count,omitempty"`
+	EffectiveCount           int              `json:"effective_count,omitempty"`
+	ConfidenceBase           float64          `json:"confidence_base,omitempty"`
 	LastMatchedAt            time.Time        `json:"last_matched_at,omitempty"`
 	LastTriggeredAt          *time.Time       `json:"last_triggered_at,omitempty"`
 	RequiresValidation       bool             `json:"requires_validation"`
+	ForbiddenActions         []string         `json:"forbidden_actions,omitempty"`
+}
+
+type CriticalSeedStep struct {
+	EventType string `json:"event_type" yaml:"event_type"`
+	ZoneRole  string `json:"zone_role,omitempty" yaml:"zone_role,omitempty"`
+}
+
+type CriticalSeed struct {
+	ID                 string             `json:"id" yaml:"id"`
+	Name               string             `json:"name" yaml:"name"`
+	Description        string             `json:"description,omitempty" yaml:"description,omitempty"`
+	DangerScore        float64            `json:"danger_score" yaml:"danger_score"`
+	RiskLevel          string             `json:"risk_level" yaml:"risk_level"`
+	ExpectedState      string             `json:"expected_state" yaml:"expected_state"`
+	Sequence           []CriticalSeedStep `json:"sequence" yaml:"sequence"`
+	Context            map[string]any     `json:"context,omitempty" yaml:"context,omitempty"`
+	ProposedActions    []string           `json:"proposed_actions,omitempty" yaml:"proposed_actions,omitempty"`
+	ForbiddenActions   []string           `json:"forbidden_actions,omitempty" yaml:"forbidden_actions,omitempty"`
+	RequiresValidation bool               `json:"requires_validation" yaml:"requires_validation"`
+	Enabled            bool               `json:"enabled" yaml:"enabled"`
+}
+
+type CriticalSeedMatch struct {
+	CriticalSeedID      string   `json:"critical_seed_id"`
+	Name                string   `json:"name,omitempty"`
+	Signature           string   `json:"signature"`
+	ExpectedState       string   `json:"expected_state"`
+	ActualState         string   `json:"actual_state,omitempty"`
+	ExpectedDangerScore float64  `json:"expected_danger_score"`
+	RiskLevel           string   `json:"risk_level"`
+	Passed              bool     `json:"passed"`
+	Failures            []string `json:"failures,omitempty"`
 }
 
 type DivergenceResult struct {
