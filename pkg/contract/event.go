@@ -7,6 +7,14 @@ import (
 )
 
 const (
+	EventCategoryAction     = "action"
+	EventCategorySecurity   = "security"
+	EventCategorySimulation = "simulation"
+	EventCategorySystem     = "system"
+	EventCategoryVision     = "vision"
+)
+
+const (
 	PriorityLow      = 25
 	PriorityNormal   = 50
 	PriorityHigh     = 75
@@ -205,6 +213,56 @@ func IsDeviceEvent(eventType string) bool {
 
 func IsSystemEvent(eventType string) bool {
 	return strings.HasPrefix(eventType, "system.")
+}
+
+func EventCategory(eventType string) string {
+	switch NormalizeEventType(eventType) {
+	case EventDiscoveryWorkerStarted,
+		EventDiscoveryWorkerStopped,
+		EventDiscoveryWorkerCrashed,
+		EventDiscoveryCameraOnline,
+		EventDiscoveryCameraOffline,
+		EventDeviceOffline,
+		EventSystemStateChanged,
+		EventSystemPresence:
+		return EventCategorySystem
+	case EventVisionUnknown,
+		EventVisionUncertain,
+		EventVisionWeapon,
+		EventVisionFall,
+		EventVisionFight,
+		EventVisionTamper:
+		return EventCategorySecurity
+	case EventVisionIdentity,
+		EventVisionMotion:
+		return EventCategoryVision
+	case EventActionRequest,
+		EventActionResult,
+		EventAutomationAction:
+		return EventCategoryAction
+	default:
+		if IsSystemEvent(eventType) || strings.HasPrefix(NormalizeEventType(eventType), "discovery.") {
+			return EventCategorySystem
+		}
+		if IsVisionEvent(eventType) {
+			return EventCategoryVision
+		}
+		return EventCategorySystem
+	}
+}
+
+func IsUserValidationCandidate(eventType string) bool {
+	switch NormalizeEventType(eventType) {
+	case EventVisionUnknown,
+		EventVisionUncertain,
+		EventVisionWeapon,
+		EventVisionFall,
+		EventVisionFight,
+		EventVisionTamper:
+		return true
+	default:
+		return false
+	}
 }
 
 /*

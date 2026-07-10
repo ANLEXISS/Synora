@@ -8,21 +8,28 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"synora/pkg/contract"
 )
 
 func NewServer(address string) *Server {
-	return &Server{address: address, clients: make(map[string]*ClientConn)}
+	return &Server{
+		address: address,
+		clients: make(map[string]*ClientConn),
+		debug:   os.Getenv("SYNORA_BUS_DEBUG") == "1",
+	}
 }
 
 func (s *Server) Start() error {
 
-	if err := os.MkdirAll(filepath.Dir(s.address), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.address), 0770); err != nil {
 		return err
 	}
+	configureRunDir(filepath.Dir(s.address))
 
 	if err := os.Remove(s.address); err != nil && !os.IsNotExist(err) {
 		return err
@@ -32,6 +39,7 @@ func (s *Server) Start() error {
 	if err != nil {
 		return err
 	}
+	configureSocket(s.address)
 
 	log.Println("bus listening on", s.address)
 
@@ -69,7 +77,7 @@ func (s *Server) handle(conn net.Conn) {
 
 		if msg.Type == "bus.register" {
 			if err := validateRegistration(msg, service); err != nil {
-				log.Printf("bus: invalid registration from %s: %v", messageActor(service, msg.Source), err)
+				log.Printf("bus service rejected: %s reason=%v", messageActor(service, msg.Source), err)
 				s.disconnect(service, conn, "invalid registration")
 				return
 			}
@@ -79,27 +87,29 @@ func (s *Server) handle(conn net.Conn) {
 		}
 
 		if err := validateMessage(msg, service); err != nil {
-			log.Printf("bus: invalid message from %s: %v", messageActor(service, msg.Source), err)
+			log.Printf("bus invalid message: source=%s target=%s kind=%s type=%s reason=%v", messageActor(service, msg.Source), msg.Target, msg.Kind, msg.Type, err)
 			continue
 		}
 
 		s.touch(service, conn)
+		s.debugf("bus message received: source=%s target=%s kind=%s type=%s", msg.Source, msg.Target, msg.Kind, msg.Type)
 		if msg.Kind == contract.KindEvent && msg.Target == "" {
-			log.Printf("bus broadcast: %s (%s)", msg.Source, msg.Type)
+			s.debugf("bus broadcast: source=%s type=%s", msg.Source, msg.Type)
 			s.broadcast(msg)
 			continue
 		}
 
-		log.Printf("bus route: %s -> %s (%s)", msg.Source, msg.Target, msg.Type)
 		target, ok := s.getClient(msg.Target)
 		if !ok {
-			log.Printf("bus: routing failed, target unavailable: %s for %s from %s", msg.Target, msg.Type, msg.Source)
+			log.Printf("bus route failed: source=%s target=%s type=%s reason=target unavailable", msg.Source, msg.Target, msg.Type)
 			continue
 		}
 		if err := target.send(msg); err != nil {
-			log.Printf("bus: routing failed to %s for %s: %v", msg.Target, msg.Type, err)
+			log.Printf("bus route failed: source=%s target=%s type=%s reason=%v", msg.Source, msg.Target, msg.Type, err)
 			s.disconnect(msg.Target, target.conn, "write failure")
+			continue
 		}
+		s.debugf("bus route ok: source=%s target=%s type=%s", msg.Source, msg.Target, msg.Type)
 	}
 }
 
@@ -113,7 +123,7 @@ func (s *Server) register(service string, conn net.Conn) {
 		log.Printf("bus: service name conflict for %s, replacing connection", service)
 		_ = previous.conn.Close()
 	}
-	log.Println("bus: registered service", service)
+	log.Printf("bus service registered: %s", service)
 }
 
 func (s *Server) disconnect(service string, conn net.Conn, reason string) {
@@ -240,4 +250,59 @@ func messageActor(service string, source string) string {
 		return service
 	}
 	return "unknown"
+}
+
+func (s *Server) debugf(format string, args ...any) {
+	if s.debug {
+		log.Printf(format, args...)
+	}
+}
+
+func configureRunDir(path string) {
+	if filepath.Base(path) != "synora" {
+		return
+	}
+	gid, ok := synoraGroupID()
+	if ok {
+		if err := os.Chown(path, -1, gid); err != nil && !errors.Is(err, os.ErrPermission) {
+			log.Printf("bus: run dir chgrp warning path=%s err=%v", path, err)
+		}
+	}
+	if err := os.Chmod(path, 0770); err != nil {
+		log.Printf("bus: run dir chmod warning path=%s err=%v", path, err)
+	}
+}
+
+func configureSocket(path string) {
+	gid, ok := synoraGroupID()
+	if ok {
+		if err := os.Chown(path, -1, gid); err != nil && !errors.Is(err, os.ErrPermission) {
+			log.Printf("bus: socket chgrp warning path=%s err=%v", path, err)
+		}
+	} else {
+		log.Printf("bus: group synora not found; socket access may be limited")
+	}
+	mode := os.FileMode(0660)
+	if raw := os.Getenv("SYNORA_BUS_SOCKET_MODE"); raw != "" {
+		if parsed, err := strconv.ParseUint(raw, 8, 32); err == nil {
+			mode = os.FileMode(parsed)
+		} else {
+			log.Printf("bus: invalid SYNORA_BUS_SOCKET_MODE=%q", raw)
+		}
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		log.Printf("bus: socket chmod warning path=%s mode=%#o err=%v", path, mode, err)
+	}
+}
+
+func synoraGroupID() (int, bool) {
+	group, err := user.LookupGroup("synora")
+	if err != nil {
+		return 0, false
+	}
+	gid, err := strconv.Atoi(group.Gid)
+	if err != nil {
+		return 0, false
+	}
+	return gid, true
 }

@@ -160,6 +160,12 @@ func (s *Server) register() {
 	s.handlers["automation.delete"] = s.automationDelete
 	s.handlers["validations.list"] = s.validationsList
 	s.handlers["validations.resolve"] = s.validationsResolve
+	s.handlers["cge.summary"] = s.cgeSummary
+	s.handlers["cge.sequences"] = s.cgeSequences
+	s.handlers["cge.transitions"] = s.cgeTransitions
+	s.handlers["cge.learned_behaviors"] = s.cgeLearnedBehaviors
+	s.handlers["cge.sequence"] = s.cgeSequence
+	s.handlers["cge.learned_behavior"] = s.cgeLearnedBehavior
 	s.handlers["topology.snapshot"] = s.topologySnapshot
 	s.handlers["topology.reset"] = s.topologyReset
 	s.handlers["core.snapshot"] = s.legacySnapshot

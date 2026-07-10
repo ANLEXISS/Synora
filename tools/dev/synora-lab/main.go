@@ -18,12 +18,23 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Println("Synora Lab is a development simulator. Do not run in production.")
+	if cfg.Verbose {
+		printVerboseConfig(cfg)
+	}
 
 	client := SnapshotClient{URL: cfg.APIURL, HealthURL: cfg.HealthURL, Token: cfg.Token}
 
 	switch {
 	case cfg.ListScenarios:
 		printScenarios()
+	case cfg.ShowCGE && cfg.SendType == "" && cfg.Scenario == "":
+		if err := showCGE(client, cfg); err != nil {
+			log.Fatal(err)
+		}
+	case cfg.ShowDanger && cfg.SendType == "" && cfg.Scenario == "":
+		if err := showDanger(client, cfg); err != nil {
+			log.Fatal(err)
+		}
 	case cfg.SendType != "":
 		if err := runSingleSend(cfg, client); err != nil {
 			log.Fatal(err)
@@ -56,7 +67,7 @@ func runSingleSend(cfg Config, client SnapshotClient) error {
 	if err != nil {
 		return err
 	}
-	msg, err := sendEvent(sender, optionsFromConfig(cfg, cfg.SendType))
+	msg, observation, err := sendEventObserved(sender, client, cfg, optionsFromConfig(cfg, cfg.SendType))
 	if err != nil {
 		return err
 	}
@@ -64,9 +75,18 @@ func runSingleSend(cfg Config, client SnapshotClient) error {
 	if metadata := payloadMetadata(msg.Payload); metadata != nil {
 		runID = valueString(metadata["test_run_id"])
 	}
-	fmt.Printf("SIMULATION sent %s from %s to core test_run_id=%s dry_run_actions=%v\n", msg.Type, msg.Source, runID, cfg.DryRunActions)
+	fmt.Printf("SIMULATION sent to bus %s from %s to core test_run_id=%s dry_run_actions=%v\n", msg.Type, msg.Source, runID, cfg.DryRunActions)
+	printObservation(observation)
 	if snapshot, err := client.Fetch(); err == nil {
 		fmt.Println(snapshotSummary(snapshot))
+		if cfg.ShowDanger || hasDangerExpectations(cfg) {
+			fmt.Print(renderDanger(snapshot))
+			if err := expectDanger(snapshot, cfg); err != nil {
+				return err
+			}
+		}
+	} else {
+		fmt.Println(err)
 	}
 	return nil
 }
@@ -99,10 +119,53 @@ func runScenarioCommand(cfg Config, client SnapshotClient) error {
 	if err != nil {
 		return err
 	}
-	return runScenario(sender, client, cfg, cfg.Scenario, func(snapshot *contract.PublicSnapshot, status string) {
-		fmt.Println(status)
-		fmt.Println(snapshotSummary(snapshot))
-	})
+	for i := 0; i < cfg.Repeat; i++ {
+		if err := runScenario(sender, client, cfg, cfg.Scenario, func(snapshot *contract.PublicSnapshot, status string) {
+			fmt.Println(status)
+			fmt.Println(snapshotSummary(snapshot))
+		}); err != nil {
+			return err
+		}
+	}
+	if cfg.Repeat > 1 {
+		fmt.Printf("Scenario %s repeated %d times.\n", cfg.Scenario, cfg.Repeat)
+	}
+	if cfg.InspectLearning || cfg.ExpectSequence != "" || cfg.ShowCGE {
+		if err := showCGE(client, cfg); err != nil {
+			return err
+		}
+	}
+	if cfg.ShowDanger || hasDangerExpectations(cfg) {
+		return showDanger(client, cfg)
+	}
+	return nil
+}
+
+func showCGE(client SnapshotClient, cfg Config) error {
+	snapshot, err := client.Fetch()
+	if err != nil {
+		return err
+	}
+	fmt.Print(renderCGE(snapshot))
+	if cfg.ExpectSequence != "" {
+		if err := expectScenarioSequence(snapshot, cfg.ExpectSequence); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func showDanger(client SnapshotClient, cfg Config) error {
+	snapshot, err := client.Fetch()
+	if err != nil {
+		return err
+	}
+	fmt.Print(renderDanger(snapshot))
+	return expectDanger(snapshot, cfg)
+}
+
+func hasDangerExpectations(cfg Config) bool {
+	return cfg.ExpectDangerLevel >= 0 || cfg.ExpectCategory != "" || cfg.ExpectSystemAction != ""
 }
 
 func watch(client SnapshotClient) {
@@ -182,13 +245,27 @@ func runInteractive(cfg Config, client SnapshotClient) error {
 				continue
 			}
 		}
-		msg, err := sendEvent(sender, optionsFromConfig(cfg, eventType))
+		msg, observation, err := sendEventObserved(sender, client, cfg, optionsFromConfig(cfg, eventType))
 		if err != nil {
 			status = err.Error()
 			continue
 		}
-		status = fmt.Sprintf("SIMULATION sent %s from %s", msg.Type, msg.Source)
+		status = fmt.Sprintf("SIMULATION sent to bus %s from %s; %s", msg.Type, msg.Source, observationText(observation))
 	}
+}
+
+func printObservation(observation Observation) {
+	fmt.Println(observationText(observation))
+}
+
+func observationText(observation Observation) string {
+	if observation.Observed {
+		return "observed in snapshot observed_by=" + observation.Reason
+	}
+	if observation.Err != nil {
+		return "WARNING: sent to bus but not observed by Core/PublicSnapshot: " + observation.Err.Error()
+	}
+	return "WARNING: sent to bus but not observed by Core/PublicSnapshot"
 }
 
 func commandEvent(cmd string) (string, bool) {

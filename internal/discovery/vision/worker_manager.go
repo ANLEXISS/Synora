@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	DefaultPythonPath = "/opt/synora/venv/bin/python"
+	DefaultPythonPath = "/usr/bin/python3"
 	DefaultWorkerPath = "/opt/synora/services/vision-worker/worker.py"
 
 	WorkerStatusStopped  = "stopped"
@@ -105,6 +105,7 @@ type WorkerManagerConfig struct {
 	QuickCrashWindow time.Duration
 	BaseBackoff      time.Duration
 	MaxBackoff       time.Duration
+	CrashEventLimit  time.Duration
 	StopTimeout      time.Duration
 
 	Executor ProcessExecutor
@@ -148,8 +149,10 @@ type WorkerManager struct {
 
 	status string
 
-	backoffUntil time.Time
-	nextBackoff  time.Duration
+	backoffUntil    time.Time
+	nextBackoff     time.Duration
+	lastCrashEvent  time.Time
+	crashEventLimit time.Duration
 
 	expectedStop bool
 
@@ -177,7 +180,11 @@ func NewWorkerManager(
 	}
 
 	if cfg.MaxBackoff == 0 {
-		cfg.MaxBackoff = 30 * time.Second
+		cfg.MaxBackoff = 2 * time.Minute
+	}
+
+	if cfg.CrashEventLimit == 0 {
+		cfg.CrashEventLimit = 30 * time.Second
 	}
 
 	if cfg.StopTimeout == 0 {
@@ -207,6 +214,7 @@ func NewWorkerManager(
 		baseBackoff:      cfg.BaseBackoff,
 		maxBackoff:       cfg.MaxBackoff,
 		stopTimeout:      cfg.StopTimeout,
+		crashEventLimit:  cfg.CrashEventLimit,
 		nextBackoff:      cfg.BaseBackoff,
 
 		status: WorkerStatusStopped,
@@ -434,11 +442,23 @@ func (m *WorkerManager) monitor(
 		payload["error"] = err.Error()
 	}
 
-	m.publish(
-		eventType,
-		"",
-		payload,
-	)
+	if eventType != contract.EventDiscoveryWorkerCrashed || m.shouldPublishCrashEvent(now) {
+		m.publish(
+			eventType,
+			"",
+			payload,
+		)
+	}
+}
+
+func (m *WorkerManager) shouldPublishCrashEvent(now time.Time) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.lastCrashEvent.IsZero() && now.Sub(m.lastCrashEvent) < m.crashEventLimit {
+		return false
+	}
+	m.lastCrashEvent = now
+	return true
 }
 
 func (m *WorkerManager) cameraLock(

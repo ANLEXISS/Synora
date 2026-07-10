@@ -324,6 +324,8 @@ func inferSourceType(source string) string {
 	switch source {
 	case "api", "actions", "bus", "core", "discovery", "runtime", "vision":
 		return contract.SourceSystem
+	case "lab", "synora-lab", "simulation":
+		return contract.SourceSimulator
 	default:
 		return contract.SourceDevice
 	}

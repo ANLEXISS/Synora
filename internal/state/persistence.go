@@ -26,6 +26,7 @@ type PersistedState struct {
 	Clips         map[string]ClipState                  `json:"clips,omitempty"`
 	Validations   map[string]contract.ValidationRequest `json:"validations,omitempty"`
 	ActionResults map[string]contract.ActionResult      `json:"action_results,omitempty"`
+	Danger        []*contract.DangerAssessment          `json:"danger_assessments,omitempty"`
 	Events        []*contract.Event                     `json:"events,omitempty"`
 	Identities    map[string]IdentityState              `json:"identities,omitempty"`
 	Presence      map[string]PresenceState              `json:"presence,omitempty"`
@@ -36,6 +37,7 @@ type PersistedSummary struct {
 	Clips         int
 	Validations   int
 	ActionResults int
+	Danger        int
 	Identities    int
 	Presence      int
 }
@@ -148,6 +150,7 @@ func emptyPersistedState() *PersistedState {
 		Clips:         map[string]ClipState{},
 		Validations:   map[string]contract.ValidationRequest{},
 		ActionResults: map[string]contract.ActionResult{},
+		Danger:        []*contract.DangerAssessment{},
 		Events:        []*contract.Event{},
 		Identities:    map[string]IdentityState{},
 		Presence:      map[string]PresenceState{},

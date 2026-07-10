@@ -11,6 +11,7 @@ import (
 	"synora/internal/engine"
 	"synora/internal/event"
 	"synora/internal/ingest"
+	"synora/internal/simulation"
 	snapshotpkg "synora/internal/snapshot"
 	"synora/internal/state"
 	"synora/internal/topology"
@@ -157,6 +158,268 @@ func TestCriticalFlowUnknownProducesDecisionAndSnapshotEvent(t *testing.T) {
 	if eventView["type"] != contract.EventVisionUnknown {
 		t.Fatalf("unexpected snapshot event: %#v", eventView)
 	}
+	assessment := latestDanger(public)
+	if assessment == nil || assessment["level"] != float64(3) || assessment["category"] != contract.DangerCategorySecurity {
+		t.Fatalf("unknown should expose danger assessment: %#v", public.CGE)
+	}
+	if !dangerHasAction(assessment, contract.SystemActionCreateValidation) {
+		t.Fatalf("unknown danger should recommend validation: %#v", assessment)
+	}
+}
+
+func TestCriticalFlowProcessesSimulatedLabEventFromBusMessage(t *testing.T) {
+	app, _ := newTestCoreApp(t)
+	run := simulation.BuildRun("Unknown at entrance", "unknown_at_entrance", simulation.ModeDryRun, simulation.GeneratedBySynoraLab, nil)
+	msg, err := simulation.BuildMessage(simulation.EventBuildOptions{
+		Type:       contract.EventVisionUnknown,
+		Source:     "lab",
+		SourceType: contract.SourceSimulator,
+		DeviceID:   "cam_01",
+		CameraID:   "cam_01",
+		NodeID:     "entry",
+		Run:        &run,
+		ScenarioID: "unknown_at_entrance",
+		StepID:     "unknown_first",
+		DryRun:     true,
+	})
+	if err != nil {
+		t.Fatalf("build simulated message: %v", err)
+	}
+
+	parsed, accepted := app.ingest.Ingest(msg)
+	if !accepted || parsed == nil {
+		t.Fatalf("simulated message was not accepted: parsed=%#v accepted=%v", parsed, accepted)
+	}
+	var event *contract.Event
+	select {
+	case event = <-app.normalQueue:
+	case <-time.After(time.Second):
+		t.Fatal("simulated event was not queued")
+	}
+	app.processEvent(event)
+
+	if event.Source != "lab" || event.DeviceID != "cam_01" {
+		t.Fatalf("transport source and device payload should be distinct: %#v", event)
+	}
+	metadata, _ := event.Payload["metadata"].(map[string]any)
+	if metadata["simulated"] != true || metadata["test_run_id"] != run.ID || metadata["scenario_step_id"] != "unknown_first" {
+		t.Fatalf("simulation metadata missing from event payload: %#v", event.Payload)
+	}
+
+	public := contract.PublicSnapshotFromCoreState(app.snapshotBuilder.CoreState())
+	eventView := findByID(public.Events, event.ID)
+	if eventView == nil {
+		t.Fatalf("simulated event missing from public snapshot: %#v", public.Events)
+	}
+	payload, _ := eventView["payload"].(map[string]any)
+	publicMetadata, _ := payload["metadata"].(map[string]any)
+	if publicMetadata["simulated"] != true || publicMetadata["test_run_id"] != run.ID {
+		t.Fatalf("simulation metadata missing from public snapshot: %#v", eventView)
+	}
+	if metric, _ := public.Metrics["event_processed"].(int64); metric == 0 {
+		t.Fatalf("metrics.event_processed should increase: %#v", public.Metrics)
+	}
+}
+
+func TestCriticalFlowUnknownAtEntranceKeepsAllSimulatedSteps(t *testing.T) {
+	app, _ := newTestCoreApp(t)
+	app.ingest.Rate = event.NewRateController(2*time.Second, 750*time.Millisecond)
+	scenario, ok := simulation.ScenarioByID("unknown_at_entrance")
+	if !ok {
+		t.Fatal("unknown_at_entrance scenario missing")
+	}
+	run := simulation.BuildRun(scenario.Name, scenario.ID, simulation.ModeDryRun, simulation.GeneratedBySynoraLab, nil)
+	messages, err := simulation.BuildEventsForScenario(run, scenario, simulation.EventBuildOptions{
+		DeviceID: "cam_01",
+		CameraID: "cam_01",
+		NodeID:   "zoneA.L0.entree",
+		DryRun:   true,
+		Now:      time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("build scenario messages: %v", err)
+	}
+
+	for i, msg := range messages {
+		msg.Timestamp = time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC).Add(time.Duration(i) * 500 * time.Millisecond)
+		parsed, accepted := app.ingest.Ingest(msg)
+		if !accepted || parsed == nil {
+			t.Fatalf("step %d should be accepted by ingest/rate: parsed=%#v accepted=%v", i, parsed, accepted)
+		}
+		var queued *contract.Event
+		select {
+		case queued = <-app.normalQueue:
+		case <-time.After(time.Second):
+			t.Fatalf("step %d was not queued", i)
+		}
+		app.processEvent(queued)
+	}
+
+	public := contract.PublicSnapshotFromCoreState(app.snapshotBuilder.CoreState())
+	simulated := simulatedEventsForRun(public, run.ID)
+	if len(simulated) != 3 {
+		t.Fatalf("unknown_at_entrance should expose 3 simulated events, got %d events=%#v", len(simulated), public.Events)
+	}
+	if metricInt(public.Metrics["event_processed"]) < 3 {
+		t.Fatalf("event_processed should count accepted core events, metrics=%#v", public.Metrics)
+	}
+
+	unknownGroupKeys := map[string]bool{}
+	for _, item := range simulated {
+		if item["type"] == contract.EventVisionUnknown {
+			unknownGroupKeys[stringValue(item["group_key"])] = true
+		}
+	}
+	if len(unknownGroupKeys) != 2 {
+		t.Fatalf("simulated unknown steps should have distinct group keys: %#v", unknownGroupKeys)
+	}
+	sequences := cgeItems(public, "sequences")
+	if sequence := findCGEItemBySignature(sequences, "vision.unknown > vision.motion > vision.unknown"); sequence == nil || metricInt(sequence["count"]) != 1 || metricInt(sequence["simulated_count"]) != 1 {
+		t.Fatalf("CGE sequence should be visible in PublicSnapshot: %#v", public.CGE)
+	}
+}
+
+func TestCriticalFlowProductionDuplicateIsDedupedBeforeSnapshot(t *testing.T) {
+	app, _ := newTestCoreApp(t)
+	app.ingest.Rate = event.NewRateController(2*time.Second, 750*time.Millisecond)
+	now := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 2; i++ {
+		body, err := json.Marshal(map[string]any{
+			"device_id":  "cam_01",
+			"camera_id":  "cam_01",
+			"node_id":    "entry",
+			"identity":   "unknown",
+			"confidence": 0.72,
+		})
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
+		}
+		_, accepted := app.ingest.Ingest(contract.Message{
+			Type:      contract.EventVisionUnknown,
+			Kind:      contract.KindEvent,
+			Source:    "vision",
+			Target:    "core",
+			Timestamp: now.Add(time.Duration(i) * time.Second),
+			Payload:   body,
+		})
+		if i == 1 {
+			if accepted {
+				t.Fatal("second production duplicate should be deduped")
+			}
+			continue
+		}
+		if !accepted {
+			t.Fatal("first production event should be accepted")
+		}
+		queued := <-app.normalQueue
+		app.processEvent(queued)
+	}
+
+	public := contract.PublicSnapshotFromCoreState(app.snapshotBuilder.CoreState())
+	if len(public.Events) != 1 {
+		t.Fatalf("production duplicate should expose one event, got %#v", public.Events)
+	}
+	if metricInt(public.Metrics["event_processed"]) != 1 {
+		t.Fatalf("event_processed should count accepted events after dedup: %#v", public.Metrics)
+	}
+}
+
+func TestCriticalFlowDiscoveryWorkerCrashedDoesNotCreateUserValidation(t *testing.T) {
+	app, _ := newTestCoreApp(t)
+	app.processEvent(&contract.Event{
+		ID:        "evt-worker-crashed",
+		Type:      contract.EventDiscoveryWorkerCrashed,
+		Source:    "discovery",
+		Timestamp: time.Date(2026, 7, 6, 10, 1, 0, 0, time.UTC),
+		Payload:   map[string]any{"status": "backoff", "error": "missing cv2"},
+	})
+
+	public := contract.PublicSnapshotFromCoreState(app.snapshotBuilder.CoreState())
+	if len(public.Validations) != 0 {
+		t.Fatalf("worker crash should not create user validation: %#v", public.Validations)
+	}
+	eventView := findByID(public.Events, "evt-worker-crashed")
+	if eventView == nil || eventView["validation_required"] == true {
+		t.Fatalf("worker crash should remain visible without validation: %#v", eventView)
+	}
+	assessment := latestDanger(public)
+	if assessment == nil || assessment["category"] != contract.DangerCategorySystemHealth || assessment["validation_required"] == true {
+		t.Fatalf("worker crash should expose system health danger without validation: %#v", public.CGE)
+	}
+	if !dangerHasAction(assessment, contract.SystemActionSuppressNoise) {
+		t.Fatalf("worker crash should recommend suppress_noise: %#v", assessment)
+	}
+}
+
+func simulatedEventsForRun(public contract.PublicSnapshot, runID string) []map[string]any {
+	out := []map[string]any{}
+	for _, item := range public.Events {
+		payload, _ := item["payload"].(map[string]any)
+		metadata, _ := payload["metadata"].(map[string]any)
+		if metadata["test_run_id"] == runID {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func metricInt(value any) int64 {
+	switch typed := value.(type) {
+	case int64:
+		return typed
+	case int:
+		return int64(typed)
+	case float64:
+		return int64(typed)
+	default:
+		return 0
+	}
+}
+
+func stringValue(value any) string {
+	if typed, ok := value.(string); ok {
+		return typed
+	}
+	return ""
+}
+
+func cgeItems(public contract.PublicSnapshot, key string) []map[string]any {
+	raw, _ := public.CGE[key].([]any)
+	out := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		if mapped, ok := item.(map[string]any); ok {
+			out = append(out, mapped)
+		}
+	}
+	return out
+}
+
+func latestDanger(public contract.PublicSnapshot) map[string]any {
+	items := cgeItems(public, "danger_assessments")
+	if len(items) == 0 {
+		return nil
+	}
+	return items[len(items)-1]
+}
+
+func dangerHasAction(assessment map[string]any, actionType string) bool {
+	raw, _ := assessment["recommended_system_actions"].([]any)
+	for _, item := range raw {
+		mapped, _ := item.(map[string]any)
+		if mapped["type"] == actionType {
+			return true
+		}
+	}
+	return false
+}
+
+func findCGEItemBySignature(items []map[string]any, signature string) map[string]any {
+	for _, item := range items {
+		if item["signature"] == signature {
+			return item
+		}
+	}
+	return nil
 }
 
 func TestCriticalFlowStoresActionResultInPublicSnapshot(t *testing.T) {
@@ -279,19 +542,23 @@ func newTestCoreApp(t *testing.T) (*coreApp, *memoryCoreBus) {
 	metrics := &coreMetrics{sourceLastSeen: map[string]time.Time{}}
 
 	app := &coreApp{
-		bus:        bus,
-		engine:     engine.NewEngine(topo, devices, residents),
-		automation: automationEngine,
-		device:     devices,
-		topology:   topo,
-		residents:  residents,
-		state:      store,
-		eventStore: event.NewStore(20),
-		metrics:    metrics,
+		bus:          bus,
+		engine:       engine.NewEngine(topo, devices, residents),
+		automation:   automationEngine,
+		device:       devices,
+		topology:     topo,
+		residents:    residents,
+		state:        store,
+		eventStore:   event.NewStore(20),
+		metrics:      metrics,
+		highPriority: make(chan *contract.Event, 8),
+		normalQueue:  make(chan *contract.Event, 8),
 		ingest: &ingest.Queue{
 			Parser: ingest.Parser{Devices: devices},
 		},
 	}
+	app.ingest.High = app.highPriority
+	app.ingest.Normal = app.normalQueue
 	app.snapshotBuilder = &snapshotpkg.Builder{
 		Mu:         &app.mu,
 		State:      app.state,
@@ -301,6 +568,7 @@ func newTestCoreApp(t *testing.T) (*coreApp, *memoryCoreBus) {
 		Automation: app.automation,
 		Events:     app.eventStore,
 		Metrics:    app.metrics,
+		CGE:        app.engine,
 	}
 	app.snapshotPublisher = snapshotpkg.Publisher{
 		Builder: app.snapshotBuilder,

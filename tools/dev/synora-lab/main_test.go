@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"go/parser"
 	"go/token"
+	"io"
 	"io/fs"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,8 +66,8 @@ func TestBuildMessageTargetsCore(t *testing.T) {
 	if msg.Type != contract.EventVisionMotion ||
 		msg.Kind != contract.KindEvent ||
 		msg.Target != "core" ||
-		msg.Source != "cam_01" ||
-		msg.SourceType != contract.SourceDevice ||
+		msg.Source != "lab" ||
+		msg.SourceType != contract.SourceSimulator ||
 		msg.Priority != contract.EventPriority(contract.EventVisionMotion) {
 		t.Fatalf("unexpected message: %#v", msg)
 	}
@@ -76,6 +78,212 @@ func TestBuildMessageTargetsCore(t *testing.T) {
 	if payload["device_id"] != "cam_01" {
 		t.Fatalf("unexpected payload: %#v", payload)
 	}
+}
+
+func TestParseConfigVerbose(t *testing.T) {
+	cfg, err := parseConfig([]string{"--send", "vision.unknown", "--verbose"})
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	if !cfg.Verbose {
+		t.Fatalf("verbose flag should be enabled: %#v", cfg)
+	}
+}
+
+func TestParseConfigLearningInspectionFlags(t *testing.T) {
+	cfg, err := parseConfig([]string{"--scenario", "unknown_at_entrance", "--repeat", "5", "--inspect-learning", "--expect-sequence", "unknown_at_entrance", "--learning-mode", "simulation"})
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	if cfg.Repeat != 5 || !cfg.InspectLearning || cfg.ExpectSequence != "unknown_at_entrance" || cfg.LearningMode != "simulation" {
+		t.Fatalf("unexpected learning config: %#v", cfg)
+	}
+}
+
+func TestParseConfigDangerFlags(t *testing.T) {
+	cfg, err := parseConfig([]string{"--scenario", "unknown_at_entrance", "--show-danger", "--expect-danger-level", "3", "--expect-category", "security", "--expect-system-action", "create_validation"})
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	if !cfg.ShowDanger || cfg.ExpectDangerLevel != 3 || cfg.ExpectCategory != "security" || cfg.ExpectSystemAction != "create_validation" {
+		t.Fatalf("unexpected danger config: %#v", cfg)
+	}
+}
+
+func TestRenderCGEAndExpectSequence(t *testing.T) {
+	snapshot := &contract.PublicSnapshot{
+		CGE: map[string]any{
+			"sequences": []any{map[string]any{
+				"signature":       "vision.unknown > vision.motion > vision.unknown",
+				"count":           float64(5),
+				"confidence":      float64(0.71),
+				"simulated_count": float64(5),
+				"real_count":      float64(0),
+				"evidence":        []any{"matched vision.unknown > vision.motion > vision.unknown"},
+			}},
+			"transitions": []any{map[string]any{
+				"from_event_type": "vision.unknown",
+				"to_event_type":   "vision.motion",
+				"count":           float64(5),
+				"confidence":      float64(0.71),
+				"simulated_count": float64(5),
+				"real_count":      float64(0),
+			}},
+			"learned_behaviors": []any{map[string]any{
+				"trigger_sequence_signature": "vision.unknown > vision.motion > vision.unknown",
+				"status":                     "observing",
+				"count":                      float64(5),
+				"confidence":                 float64(0.71),
+				"simulated_count":            float64(5),
+				"real_count":                 float64(0),
+				"requires_validation":        true,
+			}},
+		},
+	}
+	text := renderCGE(snapshot)
+	for _, want := range []string{"vision.unknown > vision.motion > vision.unknown", "count: 5", "simulated_count: 5", "status: learned_in_simulation", "status: observing"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rendered CGE missing %q in:\n%s", want, text)
+		}
+	}
+	if err := expectScenarioSequence(snapshot, "unknown_at_entrance"); err != nil {
+		t.Fatalf("expected sequence should be found: %v", err)
+	}
+}
+
+func TestRenderDangerAndExpectations(t *testing.T) {
+	snapshot := &contract.PublicSnapshot{
+		CGE: map[string]any{
+			"danger_assessments": []any{map[string]any{
+				"id":                  "danger-1",
+				"level":               float64(3),
+				"score":               float64(0.62),
+				"category":            "security",
+				"explanation":         "An unknown subject was detected near an access-control area.",
+				"validation_required": true,
+				"recommended_system_actions": []any{map[string]any{
+					"type": "create_validation",
+				}, map[string]any{
+					"type": "store_evidence",
+				}},
+			}},
+		},
+	}
+
+	text := renderDanger(snapshot)
+	for _, want := range []string{"level: 3", "score: 0.62", "category: security", "create_validation"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rendered danger missing %q in:\n%s", want, text)
+		}
+	}
+	cfg := Config{ExpectDangerLevel: 3, ExpectCategory: "security", ExpectSystemAction: "create_validation"}
+	if err := expectDanger(snapshot, cfg); err != nil {
+		t.Fatalf("expected danger should pass: %v", err)
+	}
+}
+
+func TestVerboseMessageTextIncludesTransportAndMetadata(t *testing.T) {
+	msg, err := buildMessage(EventOptions{
+		Type:       contract.EventVisionUnknown,
+		Source:     defaultBusClient,
+		SourceType: contract.SourceSimulator,
+		DeviceID:   "cam_01",
+		StepID:     "unknown_first",
+		Run:        &simulation.SimulationRun{ID: "run-1", CreatedBy: simulation.GeneratedBySynoraLab},
+	})
+	if err != nil {
+		t.Fatalf("build message: %v", err)
+	}
+	text := verboseMessageText(msg)
+	for _, want := range []string{`"source": "lab"`, `"source_type": "simulator"`, `"target": "core"`, `"device_id": "cam_01"`, `"scenario_step_id": "unknown_first"`, `"event_instance_id": "run-1:unknown_first"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("verbose message missing %s in %s", want, text)
+		}
+	}
+}
+
+func TestObserveInSnapshotFindsScenarioStepEvent(t *testing.T) {
+	before := contract.PublicSnapshot{Metrics: map[string]any{"event_processed": float64(0)}}
+	after := contract.PublicSnapshot{
+		Events: []map[string]any{{
+			"id":   "evt-1",
+			"type": contract.EventVisionUnknown,
+			"payload": map[string]any{
+				"metadata": map[string]any{
+					"test_run_id":       "run-1",
+					"scenario_step_id":  "unknown_first",
+					"event_instance_id": "run-1:unknown_first",
+				},
+			},
+		}},
+		Metrics: map[string]any{"event_processed": float64(1)},
+	}
+	msg, err := buildMessage(EventOptions{
+		Type:       contract.EventVisionUnknown,
+		Source:     defaultBusClient,
+		SourceType: contract.SourceSimulator,
+		DeviceID:   "cam_01",
+		StepID:     "unknown_first",
+		Run:        &simulation.SimulationRun{ID: "run-1", CreatedBy: simulation.GeneratedBySynoraLab},
+	})
+	if err != nil {
+		t.Fatalf("build message: %v", err)
+	}
+	responses := []*contract.PublicSnapshot{&before, &after}
+	client := SnapshotClient{
+		URL: "http://synora.test/api/state",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			next := responses[0]
+			if len(responses) > 1 {
+				responses = responses[1:]
+			}
+			body, _ := json.Marshal(next)
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Body:       io.NopCloser(strings.NewReader(string(body))),
+				Header:     make(http.Header),
+			}, nil
+		})},
+	}
+	initial, err := client.Fetch()
+	if err != nil {
+		t.Fatalf("fetch initial: %v", err)
+	}
+	obs := observeInSnapshot(client, initial, msg, time.Second)
+	if !obs.Observed {
+		t.Fatalf("expected observed snapshot, got %#v", obs)
+	}
+	if obs.Reason != "event_instance_id" {
+		t.Fatalf("expected event_instance_id observation, got %#v", obs)
+	}
+	if observationText(obs) != "observed in snapshot observed_by=event_instance_id" {
+		t.Fatalf("unexpected observation text: %s", observationText(obs))
+	}
+}
+
+func TestSnapshotFetchUnauthorizedMessage(t *testing.T) {
+	client := SnapshotClient{
+		URL: "http://synora.test/api/state",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusUnauthorized,
+				Status:     "401 Unauthorized",
+				Body:       io.NopCloser(strings.NewReader("unauthorized")),
+				Header:     make(http.Header),
+			}, nil
+		})},
+	}
+	_, err := client.Fetch()
+	if err == nil || !strings.Contains(err.Error(), "API unauthorized: set SYNORA_API_TOKEN or pass --token") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func TestScenariosResidentEntersHome(t *testing.T) {

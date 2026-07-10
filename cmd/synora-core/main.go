@@ -25,7 +25,8 @@ import (
 )
 
 type coreMetrics struct {
-	mu                 sync.RWMutex
+	mu sync.RWMutex
+	// eventProcessed counts events accepted by Core after ingest validation and rate/dedupe.
 	eventProcessed     int64
 	lastEngineLatency  time.Duration
 	totalEngineLatency time.Duration
@@ -134,6 +135,7 @@ func main() {
 		Automation: app.automation,
 		Events:     app.eventStore,
 		Metrics:    app.metrics,
+		CGE:        app.engine,
 	}
 	app.snapshotPublisher = snapshotpkg.Publisher{
 		Builder: app.snapshotBuilder,
@@ -175,11 +177,12 @@ func main() {
 	}
 	app.eventStore.Load(app.state.RecentEventsList())
 	log.Printf(
-		"state restored events=%d clips=%d validations=%d action_results=%d",
+		"state restored events=%d clips=%d validations=%d action_results=%d danger=%d",
 		summary.Events,
 		summary.Clips,
 		summary.Validations,
 		summary.ActionResults,
+		summary.Danger,
 	)
 	app.publishStateSnapshot()
 	go app.processLoop()
@@ -231,6 +234,7 @@ func (a *coreApp) seedState() {
 	current.LastState = "idle"
 	current.LastStateTime = now
 	current.IntrusionActive = false
+	current.EmergencyActive = false
 	a.state.SetSystemState(current)
 }
 
@@ -285,7 +289,15 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	a.state.SetRecentEvents(a.eventStore.List())
 
 	if event.Type == contract.EventActionResult {
+		a.engine.ObserveActionResult(event)
 		a.storeActionResult(event)
+		a.metrics.record(event.Source, 0)
+		a.triggerSnapshot()
+		return
+	}
+
+	if event.Type == contract.EventSystemStateChanged || event.Type == contract.EventSystemPresence {
+		log.Printf("core: stored lifecycle event=%s type=%s category=%s", event.ID, event.Type, contract.EventCategory(event.Type))
 		a.metrics.record(event.Source, 0)
 		a.triggerSnapshot()
 		return
@@ -303,6 +315,12 @@ func (a *coreApp) processEvent(event *contract.Event) {
 		event,
 		a.state,
 	)
+	if result != nil && result.Decision != nil && result.DangerAssessment == nil && !contract.IsUserValidationCandidate(event.Type) {
+		result.Decision.ValidationRequired = false
+		result.Decision.ValidationReason = ""
+		event.ValidationRequired = false
+		event.ValidationReason = ""
+	}
 
 	if result != nil &&
 		result.Decision != nil {

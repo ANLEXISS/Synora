@@ -105,6 +105,54 @@ func (c *Client) ResolveValidation(
 	return &validation, nil
 }
 
+func (c *Client) CGESummary() (map[string]any, error) {
+	var result map[string]any
+	if err := c.call("cge.summary", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) CGESequences(params map[string]any) ([]map[string]any, error) {
+	var result []map[string]any
+	if err := c.call("cge.sequences", params, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) CGETransitions(params map[string]any) ([]map[string]any, error) {
+	var result []map[string]any
+	if err := c.call("cge.transitions", params, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) CGELearnedBehaviors(params map[string]any) ([]map[string]any, error) {
+	var result []map[string]any
+	if err := c.call("cge.learned_behaviors", params, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) CGESequence(id string) (map[string]any, error) {
+	var result map[string]any
+	if err := c.call("cge.sequence", map[string]any{"id": strings.TrimSpace(id)}, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) CGELearnedBehavior(id string) (map[string]any, error) {
+	var result map[string]any
+	if err := c.call("cge.learned_behavior", map[string]any{"id": strings.TrimSpace(id)}, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (c *Client) UpdateDevice(
 	id string,
 	data json.RawMessage,

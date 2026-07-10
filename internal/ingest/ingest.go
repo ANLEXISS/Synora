@@ -27,6 +27,9 @@ func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
 			return nil, err
 		}
 	}
+	if msg.SourceType != "" {
+		payload["source_type"] = msg.SourceType
+	}
 
 	parsed := &contract.Event{
 		ID:        idgen.New("evt"),
@@ -41,7 +44,8 @@ func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
 	}
 
 	parsed.DeviceID = resolveDeviceIDFromPayload(parsed.Source, payload)
-	if p.Devices != nil {
+	parsed.NodeID = strings.TrimSpace(resolveString(payload, "node_id", "node"))
+	if parsed.NodeID == "" && p.Devices != nil {
 		if dev, ok := p.Devices.Get(parsed.DeviceID); ok && dev != nil {
 			parsed.NodeID = dev.NodeID
 		}
@@ -58,8 +62,41 @@ func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
 		parsed.NodeID,
 		parsed.Identity,
 	}, "|")
+	if suffix := simulatedGroupKeySuffix(payload); suffix != "" {
+		parsed.GroupKey += "|" + suffix
+	}
 
 	return parsed, nil
+}
+
+func simulatedGroupKeySuffix(payload map[string]any) string {
+	metadata, ok := payload["metadata"].(map[string]any)
+	if !ok || !metadataBool(metadata["simulated"]) {
+		return ""
+	}
+	if eventInstanceID := strings.TrimSpace(resolveString(metadata, "event_instance_id")); eventInstanceID != "" {
+		return eventInstanceID
+	}
+	testRunID := strings.TrimSpace(resolveString(metadata, "test_run_id"))
+	stepID := strings.TrimSpace(resolveString(metadata, "scenario_step_id"))
+	if testRunID != "" && stepID != "" {
+		return testRunID + "|" + stepID
+	}
+	if testRunID != "" {
+		return testRunID
+	}
+	return stepID
+}
+
+func metadataBool(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
 }
 
 func (p Parser) resolveTimestamp(messageTS time.Time, raw any) time.Time {

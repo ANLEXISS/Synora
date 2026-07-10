@@ -13,6 +13,7 @@ const (
 	ModeRealActions = "real_actions"
 
 	GeneratedBySynoraLab        = "synora-lab"
+	GeneratedBySynoraAPI        = "synora-api"
 	GeneratedBySimulationEngine = "simulation-engine"
 	GeneratedByFrontendTestMode = "frontend-test-mode"
 )
@@ -59,20 +60,24 @@ type ScenarioStep struct {
 }
 
 type EventBuildOptions struct {
-	Type        string
-	DeviceID    string
-	CameraID    string
-	NodeID      string
-	Identity    string
-	Confidence  float64
-	TrackID     string
-	ClipID      string
-	ClipPath    string
-	Now         time.Time
-	Run         *SimulationRun
-	ScenarioID  string
-	StepID      string
-	DryRun      bool
-	GeneratedBy string
-	Data        map[string]any
+	Type            string
+	Source          string
+	SourceType      string
+	DeviceID        string
+	CameraID        string
+	NodeID          string
+	Identity        string
+	Confidence      float64
+	TrackID         string
+	ClipID          string
+	ClipPath        string
+	Now             time.Time
+	Run             *SimulationRun
+	ScenarioID      string
+	StepID          string
+	EventInstanceID string
+	DryRun          bool
+	GeneratedBy     string
+	LearningMode    string
+	Data            map[string]any
 }

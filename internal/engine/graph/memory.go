@@ -1,6 +1,10 @@
 package graph
 
 import (
+	"fmt"
+	"hash/fnv"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,7 +20,30 @@ type GraphMemory struct {
 
 	lastNodes map[string]*contracts.BehaviorNode
 
+	learnedSequences   map[string]*contracts.LearnedSequence
+	learnedTransitions map[string]*contracts.LearnedTransition
+	learnedBehaviors   map[string]*contracts.LearnedBehavior
+	runEvents          map[string][]learnedEvent
+	countedRunKeys     map[string]map[string]bool
+	recentEvents       map[string][]learnedEvent
+	lastSequenceByRun  map[string]string
+
 	mu sync.RWMutex
+}
+
+type learnedEvent struct {
+	EventType       string
+	SourceType      string
+	DeviceID        string
+	NodeID          string
+	Identity        string
+	Signature       string
+	Timestamp       time.Time
+	Simulated       bool
+	TestRunID       string
+	ScenarioID      string
+	ScenarioStepID  string
+	EventInstanceID string
 }
 
 func NewGraphMemory() *GraphMemory {
@@ -35,9 +62,14 @@ func NewGraphMemory() *GraphMemory {
 			LastUpdate: time.Now(),
 		},
 
-		lastNodes: make(
-			map[string]*contracts.BehaviorNode,
-		),
+		lastNodes:          make(map[string]*contracts.BehaviorNode),
+		learnedSequences:   make(map[string]*contracts.LearnedSequence),
+		learnedTransitions: make(map[string]*contracts.LearnedTransition),
+		learnedBehaviors:   make(map[string]*contracts.LearnedBehavior),
+		runEvents:          make(map[string][]learnedEvent),
+		countedRunKeys:     make(map[string]map[string]bool),
+		recentEvents:       make(map[string][]learnedEvent),
+		lastSequenceByRun:  make(map[string]string),
 	}
 }
 
@@ -175,6 +207,16 @@ func (g *GraphMemory) LearnEvent(
 		}
 
 		g.graph = graph
+	}
+
+	if learningMode(event) == "disabled" {
+		return
+	}
+
+	g.learnInspectionLocked(event)
+
+	if isSimulated(event) {
+		return
 	}
 
 	sequenceKey :=
@@ -391,7 +433,429 @@ func (g *GraphMemory) Clear() {
 	}
 
 	g.lastNodes =
-		make(
-			map[string]*contracts.BehaviorNode,
-		)
+		make(map[string]*contracts.BehaviorNode)
+	g.learnedSequences = make(map[string]*contracts.LearnedSequence)
+	g.learnedTransitions = make(map[string]*contracts.LearnedTransition)
+	g.learnedBehaviors = make(map[string]*contracts.LearnedBehavior)
+	g.runEvents = make(map[string][]learnedEvent)
+	g.countedRunKeys = make(map[string]map[string]bool)
+	g.recentEvents = make(map[string][]learnedEvent)
+	g.lastSequenceByRun = make(map[string]string)
+}
+
+func (g *GraphMemory) ObserveActionEvidence(testRunID string, evidence string, simulated bool, at time.Time) {
+	testRunID = strings.TrimSpace(testRunID)
+	evidence = strings.TrimSpace(evidence)
+	if testRunID == "" || evidence == "" {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	sequenceKey := g.lastSequenceByRun[testRunID]
+	if sequenceKey == "" {
+		return
+	}
+	sequence := g.learnedSequences[sequenceKey]
+	if sequence == nil {
+		return
+	}
+	g.ensureBehaviorLocked(sequence)
+	id := "beh-" + shortHash(sequence.Signature)
+	behavior := g.learnedBehaviors[id]
+	if behavior == nil {
+		return
+	}
+	behavior.Evidence = appendLimited(behavior.Evidence, evidence, CGEMaxEvidencePerBehavior)
+	behavior.LastMatchedAt = at
+	if simulated {
+		behavior.Context["simulation_only"] = true
+	}
+	g.pruneInspectionLocked()
+}
+
+func (g *GraphMemory) Inspection() map[string]any {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	return map[string]any{
+		"stats":             cgeStats(sortedSequences(g.learnedSequences), sortedTransitions(g.learnedTransitions), sortedBehaviors(g.learnedBehaviors)),
+		"sequences":         sortedSequences(g.learnedSequences),
+		"transitions":       sortedTransitions(g.learnedTransitions),
+		"learned_behaviors": sortedBehaviors(g.learnedBehaviors),
+	}
+}
+
+func (g *GraphMemory) learnInspectionLocked(event *contracts.Event) {
+	current := learnedEventFromCGE(event)
+	if current.EventType == "" {
+		return
+	}
+
+	scope := SequenceKey(event)
+	if current.Simulated {
+		runKey := current.TestRunID
+		if runKey == "" {
+			runKey = scope
+		}
+		events := g.runEvents[runKey]
+		if len(events) > 0 {
+			g.recordTransitionLocked(events[len(events)-1], current)
+		}
+		events = append(events, current)
+		g.runEvents[runKey] = events
+		if len(events) >= 2 {
+			g.recordSequenceOncePerRunLocked(runKey, events)
+		}
+		return
+	}
+
+	events := g.recentEvents[scope]
+	if len(events) > 0 {
+		previous := events[len(events)-1]
+		if current.Timestamp.Sub(previous.Timestamp) > SequenceBreakThreshold {
+			events = nil
+		} else {
+			g.recordTransitionLocked(previous, current)
+		}
+	}
+	events = append(events, current)
+	if len(events) > 5 {
+		events = events[len(events)-5:]
+	}
+	g.recentEvents[scope] = events
+	for size := 2; size <= len(events) && size <= 3; size++ {
+		g.recordSequenceLocked(events[len(events)-size:])
+	}
+}
+
+func (g *GraphMemory) recordSequenceOncePerRunLocked(runKey string, events []learnedEvent) {
+	key := sequenceKey(events)
+	counted := g.countedRunKeys[runKey]
+	if counted == nil {
+		counted = map[string]bool{}
+		g.countedRunKeys[runKey] = counted
+	}
+	if counted[key] {
+		return
+	}
+	counted[key] = true
+	g.recordSequenceLocked(events)
+}
+
+func (g *GraphMemory) recordSequenceLocked(events []learnedEvent) {
+	if len(events) < 2 {
+		return
+	}
+	key := sequenceKey(events)
+	sequence := g.learnedSequences[key]
+	if sequence == nil {
+		sequence = &contracts.LearnedSequence{
+			ID:          "seq-" + shortHash(key),
+			Signature:   sequenceSignature(events),
+			EventTypes:  uniqueStrings(eventTypes(events)),
+			SourceTypes: uniqueStrings(sourceTypes(events)),
+			Devices:     uniqueStrings(devices(events)),
+			Nodes:       uniqueStrings(nodes(events)),
+			Identities:  uniqueStrings(identities(events)),
+			Examples:    []string{},
+			Evidence:    []string{},
+		}
+		g.learnedSequences[key] = sequence
+	}
+
+	sequence.Count++
+	if sequence.FirstSeen.IsZero() || events[0].Timestamp.Before(sequence.FirstSeen) {
+		sequence.FirstSeen = events[0].Timestamp
+	}
+	last := events[len(events)-1]
+	sequence.LastSeen = last.Timestamp
+	sequence.AvgDeltaMs = rollingAverage(sequence.AvgDeltaMs, sequenceAverageDelta(events), sequence.Count)
+	sequence.Confidence = confidence(sequence.Count)
+	if allSimulated(events) {
+		sequence.SimulatedCount++
+		sequence.LastTestRunID = last.TestRunID
+		sequence.LastScenarioID = last.ScenarioID
+	} else {
+		sequence.RealCount++
+	}
+	if last.TestRunID != "" {
+		g.lastSequenceByRun[last.TestRunID] = key
+	}
+	sequence.Examples = appendLimited(sequence.Examples, exampleID(events), CGEMaxExamplesPerSequence)
+	sequence.Evidence = appendLimited(sequence.Evidence, fmt.Sprintf("matched %s", sequence.Signature), CGEMaxEvidencePerSequence)
+	g.ensureBehaviorLocked(sequence)
+	g.pruneInspectionLocked()
+}
+
+func (g *GraphMemory) recordTransitionLocked(from learnedEvent, to learnedEvent) {
+	key := from.Signature + ">" + to.Signature
+	transition := g.learnedTransitions[key]
+	if transition == nil {
+		transition = &contracts.LearnedTransition{
+			ID:            "tr-" + shortHash(key),
+			FromEventType: from.EventType,
+			ToEventType:   to.EventType,
+			FromSignature: from.Signature,
+			ToSignature:   to.Signature,
+		}
+		g.learnedTransitions[key] = transition
+	}
+	transition.Count++
+	if transition.FirstSeen.IsZero() || from.Timestamp.Before(transition.FirstSeen) {
+		transition.FirstSeen = from.Timestamp
+	}
+	transition.LastSeen = to.Timestamp
+	transition.AvgDeltaMs = rollingAverage(transition.AvgDeltaMs, to.Timestamp.Sub(from.Timestamp).Milliseconds(), transition.Count)
+	transition.Confidence = confidence(transition.Count)
+	if from.Simulated && to.Simulated {
+		transition.SimulatedCount++
+	} else {
+		transition.RealCount++
+	}
+	g.pruneInspectionLocked()
+}
+
+func (g *GraphMemory) ensureBehaviorLocked(sequence *contracts.LearnedSequence) {
+	if sequence == nil || sequence.Count < 3 {
+		return
+	}
+	id := "beh-" + shortHash(sequence.Signature)
+	behavior := g.learnedBehaviors[id]
+	if behavior == nil {
+		behavior = &contracts.LearnedBehavior{
+			ID:                       id,
+			TriggerSequenceSignature: sequence.Signature,
+			Context:                  map[string]any{"source": "cge.sequence_repetition"},
+			ProposedActions:          []map[string]any{},
+			Status:                   "observing",
+			RequiresValidation:       true,
+			Evidence:                 []string{},
+		}
+		g.learnedBehaviors[id] = behavior
+	}
+	behavior.Count = sequence.Count
+	behavior.Confidence = sequence.Confidence
+	behavior.SimulatedCount = sequence.SimulatedCount
+	behavior.RealCount = sequence.RealCount
+	behavior.LastMatchedAt = sequence.LastSeen
+	behavior.Evidence = appendLimited(behavior.Evidence, fmt.Sprintf("sequence_count=%d", sequence.Count), CGEMaxEvidencePerBehavior)
+	if sequence.RealCount == 0 {
+		behavior.Context["simulation_only"] = true
+	}
+	g.pruneInspectionLocked()
+}
+
+func learnedEventFromCGE(event *contracts.Event) learnedEvent {
+	metadata := nestedMetadata(event.Metadata)
+	eventType := metadataString(event.Metadata["raw_type"])
+	if eventType == "" {
+		eventType = event.Type
+	}
+	deviceID := metadataString(event.Metadata["device_id"])
+	identity := metadataString(event.Metadata["identity"])
+	sourceType := metadataString(event.Metadata["source_type"])
+	if sourceType == "" {
+		sourceType = string(event.SubjectType)
+	}
+	return learnedEvent{
+		EventType:       eventType,
+		SourceType:      sourceType,
+		DeviceID:        deviceID,
+		NodeID:          event.TopologyNode,
+		Identity:        identity,
+		Signature:       eventSignature(eventType, deviceID, event.TopologyNode, identity),
+		Timestamp:       event.Timestamp,
+		Simulated:       metadataBool(metadata["simulated"]),
+		TestRunID:       metadataString(metadata["test_run_id"]),
+		ScenarioID:      metadataString(metadata["scenario_id"]),
+		ScenarioStepID:  metadataString(metadata["scenario_step_id"]),
+		EventInstanceID: metadataString(metadata["event_instance_id"]),
+	}
+}
+
+func isSimulated(event *contracts.Event) bool {
+	return metadataBool(nestedMetadata(event.Metadata)["simulated"])
+}
+
+func learningMode(event *contracts.Event) string {
+	mode := metadataString(nestedMetadata(event.Metadata)["learning_mode"])
+	if mode == "" {
+		return "real"
+	}
+	return strings.ToLower(mode)
+}
+
+func nestedMetadata(metadata map[string]any) map[string]any {
+	nested, _ := metadata["metadata"].(map[string]any)
+	if nested == nil {
+		return map[string]any{}
+	}
+	return nested
+}
+
+func eventSignature(eventType string, deviceID string, nodeID string, identity string) string {
+	parts := []string{eventType}
+	if deviceID != "" {
+		parts = append(parts, "device="+deviceID)
+	}
+	if nodeID != "" {
+		parts = append(parts, "node="+nodeID)
+	}
+	if identity != "" {
+		parts = append(parts, "identity="+identity)
+	}
+	return strings.Join(parts, "|")
+}
+
+func sequenceKey(events []learnedEvent) string {
+	parts := make([]string, 0, len(events))
+	for _, event := range events {
+		parts = append(parts, event.Signature)
+	}
+	return strings.Join(parts, " > ")
+}
+
+func sequenceSignature(events []learnedEvent) string {
+	return strings.Join(eventTypes(events), " > ")
+}
+
+func eventTypes(events []learnedEvent) []string {
+	out := make([]string, 0, len(events))
+	for _, event := range events {
+		out = append(out, event.EventType)
+	}
+	return out
+}
+
+func sourceTypes(events []learnedEvent) []string {
+	out := make([]string, 0, len(events))
+	for _, event := range events {
+		out = append(out, event.SourceType)
+	}
+	return out
+}
+
+func devices(events []learnedEvent) []string {
+	out := make([]string, 0, len(events))
+	for _, event := range events {
+		out = append(out, event.DeviceID)
+	}
+	return out
+}
+
+func nodes(events []learnedEvent) []string {
+	out := make([]string, 0, len(events))
+	for _, event := range events {
+		out = append(out, event.NodeID)
+	}
+	return out
+}
+
+func identities(events []learnedEvent) []string {
+	out := make([]string, 0, len(events))
+	for _, event := range events {
+		out = append(out, event.Identity)
+	}
+	return out
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func allSimulated(events []learnedEvent) bool {
+	for _, event := range events {
+		if !event.Simulated {
+			return false
+		}
+	}
+	return true
+}
+
+func sequenceAverageDelta(events []learnedEvent) int64 {
+	if len(events) < 2 {
+		return 0
+	}
+	var total int64
+	for i := 1; i < len(events); i++ {
+		total += events[i].Timestamp.Sub(events[i-1].Timestamp).Milliseconds()
+	}
+	return total / int64(len(events)-1)
+}
+
+func rollingAverage(previous int64, current int64, count int) int64 {
+	if count <= 1 || previous == 0 {
+		return current
+	}
+	return (previous*int64(count-1) + current) / int64(count)
+}
+
+func confidence(count int) float64 {
+	if count <= 0 {
+		return 0
+	}
+	return float64(count) / float64(count+2)
+}
+
+func exampleID(events []learnedEvent) string {
+	last := events[len(events)-1]
+	if last.EventInstanceID != "" {
+		return last.EventInstanceID
+	}
+	if last.TestRunID != "" {
+		return last.TestRunID
+	}
+	return last.Signature
+}
+
+func appendLimited(values []string, value string, limit int) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	for _, current := range values {
+		if current == value {
+			return values
+		}
+	}
+	values = append(values, value)
+	if len(values) > limit {
+		return values[len(values)-limit:]
+	}
+	return values
+}
+
+func metadataString(value any) string {
+	if typed, ok := value.(string); ok {
+		return strings.TrimSpace(typed)
+	}
+	return ""
+}
+
+func metadataBool(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
+}
+
+func shortHash(value string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(value))
+	return fmt.Sprintf("%08x", h.Sum32())
 }

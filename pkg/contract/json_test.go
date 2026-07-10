@@ -203,6 +203,52 @@ func TestValidationResolveRequestJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDangerAssessmentJSONRoundTrip(t *testing.T) {
+	createdAt := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	assessment := DangerAssessment{
+		ID:          "danger-1",
+		EventID:     "evt-1",
+		Level:       3,
+		Score:       0.62,
+		Category:    DangerCategorySecurity,
+		Title:       "Unknown presence at entrance",
+		Explanation: "An unknown subject was detected near an access-control area.",
+		Reasons:     []string{"unknown_identity", "access_control_zone"},
+		Evidence:    []string{"event:evt-1"},
+		RecommendedSystemActions: []SystemActionRecommendation{{
+			Type:      SystemActionCreateValidation,
+			Priority:  PriorityHigh,
+			Reason:    "unknown_at_access_point",
+			Target:    "entry",
+			DryRun:    true,
+			Simulated: true,
+		}},
+		ValidationRequired: true,
+		ValidationReason:   "unknown_at_access_point",
+		CreatedAt:          createdAt,
+		Simulated:          true,
+	}
+
+	data, err := json.Marshal(assessment)
+	if err != nil {
+		t.Fatalf("marshal danger assessment: %v", err)
+	}
+	for _, field := range []string{"event_id", "sequence_signature", "recommended_system_actions", "validation_required", "validation_reason", "created_at", "simulated"} {
+		if field == "sequence_signature" {
+			continue
+		}
+		assertJSONField(t, data, field)
+	}
+
+	var decoded DangerAssessment
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal danger assessment: %v", err)
+	}
+	if decoded.ID != assessment.ID || decoded.Level != 3 || decoded.Category != DangerCategorySecurity || !decoded.ValidationRequired || len(decoded.RecommendedSystemActions) != 1 || decoded.RecommendedSystemActions[0].Type != SystemActionCreateValidation {
+		t.Fatalf("decoded danger assessment mismatch: %#v", decoded)
+	}
+}
+
 func TestActionContractsJSONRoundTrip(t *testing.T) {
 	request := ActionRequest{
 		ID:             "act-1",
@@ -653,13 +699,17 @@ func TestPublicSnapshotJSONRoundTrip(t *testing.T) {
 		Validations:   []map[string]any{{"id": "validation-1", "status": ValidationStatusPending}},
 		ActionResults: []map[string]any{{"id": "action-result-1", "status": "success"}},
 		Metrics:       map[string]any{"state_size": float64(1)},
+		CGE: map[string]any{
+			"sequences":          []any{map[string]any{"signature": "vision.unknown > vision.motion", "count": float64(2)}},
+			"danger_assessments": []any{map[string]any{"id": "danger-1", "level": float64(3), "category": DangerCategorySecurity}},
+		},
 	}
 
 	data, err := json.Marshal(snapshot)
 	if err != nil {
 		t.Fatalf("marshal public snapshot: %v", err)
 	}
-	for _, field := range []string{"devices", "events", "automations", "validations", "action_results", "metrics"} {
+	for _, field := range []string{"devices", "events", "automations", "validations", "action_results", "metrics", "cge"} {
 		assertJSONField(t, data, field)
 	}
 
@@ -667,7 +717,7 @@ func TestPublicSnapshotJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal public snapshot: %v", err)
 	}
-	if decoded.Devices[0]["id"] != "cam_01" || decoded.Events[0]["type"] != EventVisionIdentity || decoded.Validations[0]["status"] != ValidationStatusPending || decoded.ActionResults[0]["status"] != "success" {
+	if decoded.Devices[0]["id"] != "cam_01" || decoded.Events[0]["type"] != EventVisionIdentity || decoded.Validations[0]["status"] != ValidationStatusPending || decoded.ActionResults[0]["status"] != "success" || decoded.CGE["sequences"] == nil || decoded.CGE["danger_assessments"] == nil {
 		t.Fatalf("decoded public snapshot mismatch: %#v", decoded)
 	}
 }

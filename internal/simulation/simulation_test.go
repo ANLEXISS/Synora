@@ -59,9 +59,15 @@ func TestBuildMessageIncludesSimulationMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build message: %v", err)
 	}
+	if msg.Source != "lab" || msg.SourceType != contract.SourceSimulator || msg.Target != "core" {
+		t.Fatalf("unexpected simulation transport fields: %#v", msg)
+	}
 	var payload map[string]any
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		t.Fatalf("decode payload: %v", err)
+	}
+	if payload["device_id"] != "cam_01" || payload["camera_id"] != "cam_01" {
+		t.Fatalf("camera identity should stay in payload: %#v", payload)
 	}
 	metadata, ok := payload["metadata"].(map[string]any)
 	if !ok {
@@ -69,6 +75,9 @@ func TestBuildMessageIncludesSimulationMetadata(t *testing.T) {
 	}
 	if metadata["simulated"] != true || metadata["test_run_id"] != run.ID || metadata["dry_run"] != true || metadata["generated_by"] != GeneratedBySynoraLab {
 		t.Fatalf("unexpected metadata: %#v", metadata)
+	}
+	if metadata["event_instance_id"] != run.ID {
+		t.Fatalf("single event should expose event_instance_id fallback: %#v", metadata)
 	}
 }
 
@@ -94,8 +103,35 @@ func TestBuildEventsForScenarioPropagatesRunAndScenario(t *testing.T) {
 		if metadata["simulated"] != true ||
 			metadata["test_run_id"] != run.ID ||
 			metadata["scenario_id"] != scenario.ID ||
-			metadata["scenario_step_id"] != scenario.Steps[i].ID {
+			metadata["scenario_step_id"] != scenario.Steps[i].ID ||
+			metadata["event_instance_id"] != run.ID+":"+scenario.Steps[i].ID {
 			t.Fatalf("metadata not propagated for step %d: %#v", i, metadata)
 		}
+	}
+}
+
+func TestBuildMessageCanOverrideEventInstanceID(t *testing.T) {
+	run := BuildRun("single", "unknown_at_entrance", ModeDryRun, GeneratedBySynoraAPI, nil)
+	msg, err := BuildMessage(EventBuildOptions{
+		Type:            contract.EventVisionUnknown,
+		Run:             &run,
+		StepID:          "unknown_first",
+		EventInstanceID: "custom-instance",
+		GeneratedBy:     GeneratedBySynoraAPI,
+		DryRun:          true,
+	})
+	if err != nil {
+		t.Fatalf("build message: %v", err)
+	}
+	if msg.Source != "api" {
+		t.Fatalf("synora-api simulations should use api transport source: %#v", msg)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	metadata := payload["metadata"].(map[string]any)
+	if metadata["scenario_step_id"] != "unknown_first" || metadata["event_instance_id"] != "custom-instance" || metadata["generated_by"] != GeneratedBySynoraAPI {
+		t.Fatalf("metadata override mismatch: %#v", metadata)
 	}
 }

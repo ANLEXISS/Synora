@@ -178,6 +178,59 @@ type BehaviorGraph struct {
 	LastUpdate time.Time
 }
 
+type LearnedSequence struct {
+	ID             string    `json:"id"`
+	Signature      string    `json:"signature"`
+	Name           string    `json:"name,omitempty"`
+	EventTypes     []string  `json:"event_types"`
+	SourceTypes    []string  `json:"source_types"`
+	Devices        []string  `json:"devices"`
+	Nodes          []string  `json:"nodes"`
+	Identities     []string  `json:"identities"`
+	Count          int       `json:"count"`
+	FirstSeen      time.Time `json:"first_seen"`
+	LastSeen       time.Time `json:"last_seen"`
+	AvgDeltaMs     int64     `json:"avg_delta_ms"`
+	Confidence     float64   `json:"confidence"`
+	SimulatedCount int       `json:"simulated_count"`
+	RealCount      int       `json:"real_count"`
+	LastTestRunID  string    `json:"last_test_run_id,omitempty"`
+	LastScenarioID string    `json:"last_scenario_id,omitempty"`
+	Examples       []string  `json:"examples,omitempty"`
+	Evidence       []string  `json:"evidence,omitempty"`
+}
+
+type LearnedTransition struct {
+	ID             string    `json:"id"`
+	FromEventType  string    `json:"from_event_type"`
+	ToEventType    string    `json:"to_event_type"`
+	FromSignature  string    `json:"from_signature"`
+	ToSignature    string    `json:"to_signature"`
+	Count          int       `json:"count"`
+	AvgDeltaMs     int64     `json:"avg_delta_ms"`
+	Confidence     float64   `json:"confidence"`
+	FirstSeen      time.Time `json:"first_seen"`
+	LastSeen       time.Time `json:"last_seen"`
+	SimulatedCount int       `json:"simulated_count"`
+	RealCount      int       `json:"real_count"`
+}
+
+type LearnedBehavior struct {
+	ID                       string           `json:"id"`
+	TriggerSequenceSignature string           `json:"trigger_sequence_signature"`
+	Context                  map[string]any   `json:"context,omitempty"`
+	ProposedActions          []map[string]any `json:"proposed_actions"`
+	Count                    int              `json:"count"`
+	Confidence               float64          `json:"confidence"`
+	Status                   string           `json:"status"`
+	Evidence                 []string         `json:"evidence,omitempty"`
+	SimulatedCount           int              `json:"simulated_count"`
+	RealCount                int              `json:"real_count"`
+	LastMatchedAt            time.Time        `json:"last_matched_at,omitempty"`
+	LastTriggeredAt          *time.Time       `json:"last_triggered_at,omitempty"`
+	RequiresValidation       bool             `json:"requires_validation"`
+}
+
 type DivergenceResult struct {
 	Score float64
 

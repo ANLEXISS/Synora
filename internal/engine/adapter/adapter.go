@@ -22,13 +22,14 @@ const (
 )
 
 type Result struct {
-	Decision   *contract.Decision
-	NodeStates map[string]*state.NodeState
-	Identity   *state.IdentityState
-	Presence   *state.PresenceState
-	Clip       *state.ClipState
-	System     *state.SystemState
-	Situations []cgecontracts.Situation
+	Decision         *contract.Decision
+	NodeStates       map[string]*state.NodeState
+	Identity         *state.IdentityState
+	Presence         *state.PresenceState
+	Clip             *state.ClipState
+	System           *state.SystemState
+	Situations       []cgecontracts.Situation
+	DangerAssessment *contract.DangerAssessment
 }
 
 func NormalizeEvent(event *contract.Event, registry *device.Registry) time.Time {
@@ -160,18 +161,25 @@ func BuildResult(
 	store *state.Store,
 	decisionResult cgecontracts.DecisionResult,
 	now time.Time,
+	assessment *contract.DangerAssessment,
 ) *Result {
 	event.ValidationRequired = decisionResult.ValidationRequired
 	event.ValidationReason = decisionResult.ValidationReason
+	decision := ToSynoraDecision(event, decisionResult, now)
+	if assessment != nil {
+		decision.State = systemStateFromAssessment(decisionResult, assessment)
+		decision.Alert = assessment.Level >= 4
+	}
 
 	return &Result{
-		Decision:   ToSynoraDecision(event, decisionResult, now),
-		NodeStates: buildNodeStates(event, decisionResult, now),
-		Identity:   buildIdentity(event, now),
-		Presence:   buildPresence(event, now),
-		Clip:       buildClip(event, now),
-		System:     buildSystemState(store, decisionResult, now),
-		Situations: decisionResult.Situations,
+		Decision:         decision,
+		NodeStates:       buildNodeStates(event, decisionResult, now),
+		Identity:         buildIdentity(event, now),
+		Presence:         buildPresence(event, now),
+		Clip:             buildClip(event, now),
+		System:           buildSystemState(store, decisionResult, assessment, now),
+		Situations:       decisionResult.Situations,
+		DangerAssessment: assessment,
 	}
 }
 
@@ -267,12 +275,14 @@ func buildClip(event *contract.Event, now time.Time) *state.ClipState {
 func buildSystemState(
 	store *state.Store,
 	result cgecontracts.DecisionResult,
+	assessment *contract.DangerAssessment,
 	now time.Time,
 ) *state.SystemState {
 	current := store.SystemState()
 	next := current
-	next.LastState = systemStateFromDecision(result)
+	next.LastState = systemStateFromAssessment(result, assessment)
 	next.IntrusionActive = next.LastState == "intrusion"
+	next.EmergencyActive = next.LastState == "emergency"
 
 	if next.LastState != current.LastState {
 		next.LastStateTime = now
@@ -283,6 +293,13 @@ func buildSystemState(
 		}
 	} else {
 		next.IntrusionTime = time.Time{}
+	}
+	if next.EmergencyActive {
+		if next.EmergencyTime.IsZero() {
+			next.EmergencyTime = now
+		}
+	} else {
+		next.EmergencyTime = time.Time{}
 	}
 
 	return &next
@@ -360,6 +377,25 @@ func systemStateFromDecision(result cgecontracts.DecisionResult) string {
 	default:
 		return "idle"
 	}
+}
+
+func systemStateFromAssessment(result cgecontracts.DecisionResult, assessment *contract.DangerAssessment) string {
+	if assessment == nil {
+		return systemStateFromDecision(result)
+	}
+	if assessment.Category == contract.DangerCategoryMedicalEmergency && assessment.Level >= 5 {
+		return "emergency"
+	}
+	if assessment.Level >= 5 {
+		return "intrusion"
+	}
+	if assessment.Level >= 3 {
+		return "suspicious"
+	}
+	if assessment.Level >= 1 {
+		return "activity"
+	}
+	return "idle"
 }
 
 func priorityFromSeverity(level cgecontracts.Severity) int {

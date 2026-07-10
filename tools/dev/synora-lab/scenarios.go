@@ -34,24 +34,27 @@ func runScenario(sender EventSender, client SnapshotClient, cfg Config, name str
 			time.Sleep(time.Duration(step.DelayMs) * time.Millisecond)
 		}
 		opts := EventOptions{
-			Type:        step.EventType,
-			DeviceID:    firstNonEmpty(step.DeviceID, cfg.DeviceID),
-			CameraID:    firstNonEmpty(step.CameraID, cfg.CameraID),
-			NodeID:      firstNonEmpty(step.NodeID, cfg.NodeID),
-			Identity:    firstNonEmpty(step.Identity, cfg.Identity),
-			Confidence:  nonZeroFloat(step.Confidence, cfg.Confidence),
-			Run:         &run,
-			ScenarioID:  scenario.ID,
-			StepID:      step.ID,
-			DryRun:      cfg.DryRunActions,
-			GeneratedBy: simulation.GeneratedBySynoraLab,
-			Data:        step.Data,
+			Type:         step.EventType,
+			Source:       defaultBusClient,
+			SourceType:   contract.SourceSimulator,
+			DeviceID:     firstNonEmpty(step.DeviceID, cfg.DeviceID),
+			CameraID:     firstNonEmpty(step.CameraID, cfg.CameraID),
+			NodeID:       firstNonEmpty(step.NodeID, cfg.NodeID),
+			Identity:     firstNonEmpty(step.Identity, cfg.Identity),
+			Confidence:   nonZeroFloat(step.Confidence, cfg.Confidence),
+			Run:          &run,
+			ScenarioID:   scenario.ID,
+			StepID:       step.ID,
+			DryRun:       cfg.DryRunActions,
+			GeneratedBy:  simulation.GeneratedBySynoraLab,
+			LearningMode: cfg.LearningMode,
+			Data:         step.Data,
 		}
-		msg, err := sendEvent(sender, opts)
+		msg, observation, err := sendEventObserved(sender, client, cfg, opts)
 		if err != nil {
 			return err
 		}
-		status := fmt.Sprintf("SIMULATION %s run=%s step=%s %d/%d sent %s from %s", scenario.ID, run.ID, step.ID, i+1, len(scenario.Steps), msg.Type, msg.Source)
+		status := fmt.Sprintf("SIMULATION %s run=%s step=%s %d/%d sent to bus %s from %s; %s", scenario.ID, run.ID, step.ID, i+1, len(scenario.Steps), msg.Type, msg.Source, observationText(observation))
 		snapshot, _ := client.Fetch()
 		if refresh != nil {
 			refresh(snapshot, status)

@@ -18,18 +18,21 @@ func BuildEventsForScenario(run SimulationRun, scenario Scenario, overrides Even
 	out := make([]contract.Message, 0, len(scenario.Steps))
 	for _, step := range scenario.Steps {
 		msg, err := BuildMessage(EventBuildOptions{
-			Type:        step.EventType,
-			DeviceID:    firstNonEmpty(overrides.DeviceID, step.DeviceID),
-			CameraID:    firstNonEmpty(overrides.CameraID, step.CameraID),
-			NodeID:      firstNonEmpty(overrides.NodeID, step.NodeID),
-			Identity:    firstNonEmpty(step.Identity, overrides.Identity),
-			Confidence:  nonZeroFloat(step.Confidence, overrides.Confidence),
-			Run:         &run,
-			ScenarioID:  scenario.ID,
-			StepID:      step.ID,
-			DryRun:      overrides.DryRun || run.Mode == ModeDryRun,
-			GeneratedBy: firstNonEmpty(overrides.GeneratedBy, run.CreatedBy),
-			Data:        step.Data,
+			Type:         step.EventType,
+			Source:       overrides.Source,
+			SourceType:   overrides.SourceType,
+			DeviceID:     firstNonEmpty(overrides.DeviceID, step.DeviceID),
+			CameraID:     firstNonEmpty(overrides.CameraID, step.CameraID),
+			NodeID:       firstNonEmpty(overrides.NodeID, step.NodeID),
+			Identity:     firstNonEmpty(step.Identity, overrides.Identity),
+			Confidence:   nonZeroFloat(step.Confidence, overrides.Confidence),
+			Run:          &run,
+			ScenarioID:   scenario.ID,
+			StepID:       step.ID,
+			DryRun:       overrides.DryRun || run.Mode == ModeDryRun,
+			GeneratedBy:  firstNonEmpty(overrides.GeneratedBy, run.CreatedBy),
+			LearningMode: overrides.LearningMode,
+			Data:         step.Data,
 		})
 		if err != nil {
 			return nil, err
@@ -50,13 +53,14 @@ func BuildMessage(opts EventBuildOptions) (contract.Message, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	deviceID := firstNonEmpty(opts.DeviceID, opts.CameraID, defaultDevice)
+	source := firstNonEmpty(opts.Source, transportSourceForGenerator(opts.GeneratedBy), "lab")
+	sourceType := firstNonEmpty(opts.SourceType, contract.SourceSimulator)
 	return contract.Message{
 		Type:       eventType,
 		Kind:       contract.KindEvent,
-		Source:     deviceID,
+		Source:     source,
 		Target:     "core",
-		SourceType: contract.SourceDevice,
+		SourceType: sourceType,
 		Timestamp:  now,
 		Priority:   contract.EventPriority(eventType),
 		Payload:    body,
@@ -140,13 +144,31 @@ func EventMetadata(opts EventBuildOptions) map[string]any {
 			generatedBy = opts.Run.CreatedBy
 		}
 	}
+	eventInstanceID := firstNonEmpty(opts.EventInstanceID, simulationEventInstanceID(testRunID, opts.StepID))
 	return map[string]any{
-		"simulated":        true,
-		"test_run_id":      testRunID,
-		"scenario_id":      scenarioID,
-		"scenario_step_id": opts.StepID,
-		"dry_run":          opts.DryRun,
-		"generated_by":     generatedBy,
+		"simulated":         true,
+		"test_run_id":       testRunID,
+		"scenario_id":       scenarioID,
+		"scenario_step_id":  opts.StepID,
+		"event_instance_id": eventInstanceID,
+		"dry_run":           opts.DryRun,
+		"generated_by":      generatedBy,
+		"learning_mode":     firstNonEmpty(opts.LearningMode, "simulation"),
+	}
+}
+
+func simulationEventInstanceID(testRunID string, stepID string) string {
+	testRunID = strings.TrimSpace(testRunID)
+	stepID = strings.TrimSpace(stepID)
+	switch {
+	case testRunID != "" && stepID != "":
+		return testRunID + ":" + stepID
+	case testRunID != "":
+		return testRunID
+	case stepID != "":
+		return stepID
+	default:
+		return ""
 	}
 }
 
@@ -175,4 +197,19 @@ func nonZeroFloat(value float64, fallback float64) float64 {
 		return fallback
 	}
 	return value
+}
+
+func transportSourceForGenerator(generatedBy string) string {
+	switch strings.TrimSpace(generatedBy) {
+	case GeneratedBySynoraLab:
+		return "lab"
+	case GeneratedBySynoraAPI:
+		return "api"
+	case GeneratedByFrontendTestMode:
+		return "api"
+	case GeneratedBySimulationEngine:
+		return "simulation"
+	default:
+		return ""
+	}
 }

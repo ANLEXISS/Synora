@@ -99,6 +99,8 @@ type SystemState struct {
 	LastStateTime   time.Time `json:"last_state_time"`
 	IntrusionActive bool      `json:"intrusion_active"`
 	IntrusionTime   time.Time `json:"intrusion_time"`
+	EmergencyActive bool      `json:"emergency_active"`
+	EmergencyTime   time.Time `json:"emergency_time"`
 }
 
 type ExpirationConfig struct {

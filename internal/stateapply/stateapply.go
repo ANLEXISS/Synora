@@ -39,7 +39,7 @@ func TouchDeviceState(store *state.Store, registry *device.Registry, event *cont
 	current.LastSeen = now
 	current.LastEventID = event.ID
 	current.UpdatedAt = now
-	if event.Type == contract.EventDeviceOffline {
+	if event.Type == contract.EventDeviceOffline || event.Type == contract.EventDiscoveryCameraOffline {
 		current.Online = false
 	} else {
 		current.Online = true
@@ -84,6 +84,9 @@ func Apply(store *state.Store, result *engine.Result, callbacks Callbacks) bool 
 			store.SetCameraState(cameraState)
 		}
 	}
+	if result.DangerAssessment != nil {
+		store.AddDangerAssessment(result.DangerAssessment)
+	}
 	if validation := buildValidationRequest(result); validation != nil {
 		store.SetValidation(validation)
 	}
@@ -107,7 +110,13 @@ func Apply(store *state.Store, result *engine.Result, callbacks Callbacks) bool 
 }
 
 func buildValidationRequest(result *engine.Result) *contract.ValidationRequest {
-	if result == nil || result.Decision == nil || !result.Decision.ValidationRequired {
+	if result == nil || result.Decision == nil {
+		return nil
+	}
+	if result.DangerAssessment != nil && !result.DangerAssessment.ValidationRequired {
+		return nil
+	}
+	if result.DangerAssessment == nil && !result.Decision.ValidationRequired {
 		return nil
 	}
 
@@ -119,6 +128,9 @@ func buildValidationRequest(result *engine.Result) *contract.ValidationRequest {
 
 	situationID := ""
 	evidence := []string(nil)
+	if result.DangerAssessment != nil {
+		evidence = append(evidence, result.DangerAssessment.Evidence...)
+	}
 	if len(result.Situations) > 0 {
 		situationID = result.Situations[0].ID
 		evidence = append(evidence, result.Situations[0].Evidence...)
@@ -142,7 +154,7 @@ func buildValidationRequest(result *engine.Result) *contract.ValidationRequest {
 		DecisionID:       decision.ID,
 		EventID:          decision.EventID,
 		SituationID:      situationID,
-		Reason:           firstNonEmpty(decision.ValidationReason, decision.Reason),
+		Reason:           validationReason(result),
 		Evidence:         evidence,
 		ProposedIdentity: proposedIdentity,
 		NodeID:           decision.NodeID,
@@ -150,6 +162,19 @@ func buildValidationRequest(result *engine.Result) *contract.ValidationRequest {
 		Status:           contract.ValidationStatusPending,
 		CreatedAt:        now,
 	}
+}
+
+func validationReason(result *engine.Result) string {
+	if result == nil {
+		return ""
+	}
+	if result.DangerAssessment != nil {
+		return firstNonEmpty(result.DangerAssessment.ValidationReason, result.DangerAssessment.Explanation)
+	}
+	if result.Decision != nil {
+		return firstNonEmpty(result.Decision.ValidationReason, result.Decision.Reason)
+	}
+	return ""
 }
 
 func validationID(decision *contract.Decision) string {

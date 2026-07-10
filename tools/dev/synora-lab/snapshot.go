@@ -36,7 +36,7 @@ func (c SnapshotClient) Fetch() (*contract.PublicSnapshot, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("api unauthorized: set SYNORA_API_TOKEN or pass --token")
+		return nil, fmt.Errorf("API unauthorized: set SYNORA_API_TOKEN or pass --token")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("api returned %s", resp.Status)
@@ -70,7 +70,7 @@ func (c SnapshotClient) FetchHealth() (*contract.RuntimeHealth, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("api unauthorized: set SYNORA_API_TOKEN or pass --token")
+		return nil, fmt.Errorf("API unauthorized: set SYNORA_API_TOKEN or pass --token")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("api returned %s", resp.Status)
@@ -125,6 +125,8 @@ func deviceExists(snapshot *contract.PublicSnapshot, deviceID string) bool {
 
 func valueString(value any) string {
 	switch typed := value.(type) {
+	case nil:
+		return ""
 	case string:
 		return typed
 	default:

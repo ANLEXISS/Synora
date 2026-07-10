@@ -20,6 +20,7 @@ type Store struct {
 	Clips         map[string]*ClipState
 	Validations   map[string]*contract.ValidationRequest
 	ActionResults map[string]*contract.ActionResult
+	Danger        []*contract.DangerAssessment
 	RecentEvents  []*contract.Event
 	EventWindows  map[string]*contract.EventWindow
 	System        *SystemState
@@ -29,6 +30,7 @@ type Store struct {
 
 const (
 	maxActionResults = 200
+	maxDanger        = 100
 	maxRecentEvents  = 200
 )
 
@@ -63,6 +65,7 @@ func NewStore(options ...Option) *Store {
 		Clips:         make(map[string]*ClipState),
 		Validations:   make(map[string]*contract.ValidationRequest),
 		ActionResults: make(map[string]*contract.ActionResult),
+		Danger:        []*contract.DangerAssessment{},
 		RecentEvents:  []*contract.Event{},
 		EventWindows:  make(map[string]*contract.EventWindow),
 		System: &SystemState{
@@ -340,6 +343,30 @@ func (s *Store) SetActionResult(value *contract.ActionResult) {
 	s.SaveNow()
 }
 
+func (s *Store) AddDangerAssessment(value *contract.DangerAssessment) {
+	if value == nil || value.ID == "" {
+		return
+	}
+	s.mu.Lock()
+	s.Danger = append(s.Danger, cloneDangerAssessment(value))
+	s.trimDangerLocked(maxDanger)
+	s.mu.Unlock()
+	s.SaveNow()
+}
+
+func (s *Store) DangerAssessmentsList() []contract.DangerAssessment {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]contract.DangerAssessment, 0, len(s.Danger))
+	for _, value := range s.Danger {
+		if value == nil {
+			continue
+		}
+		out = append(out, *cloneDangerAssessment(value))
+	}
+	return out
+}
+
 func (s *Store) ActionResultsList() []contract.ActionResult {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -511,6 +538,13 @@ func (s *Store) Snapshot(collection string) map[string]interface{} {
 			}
 			out[id] = *cloneActionResult(value)
 		}
+	case "danger", "danger_assessments":
+		for _, value := range s.Danger {
+			if value == nil || value.ID == "" {
+				continue
+			}
+			out[value.ID] = *cloneDangerAssessment(value)
+		}
 	case "events":
 		for _, value := range s.RecentEvents {
 			if value == nil || value.ID == "" {
@@ -577,6 +611,10 @@ func (s *Store) Upsert(collection string, id string, data interface{}) {
 		s.SetActionResult(&value)
 	case *contract.ActionResult:
 		s.SetActionResult(value)
+	case contract.DangerAssessment:
+		s.AddDangerAssessment(&value)
+	case *contract.DangerAssessment:
+		s.AddDangerAssessment(value)
 	case contract.Event:
 		s.SetRecentEvents(append(s.RecentEventsList(), &value))
 	case *contract.Event:
@@ -628,6 +666,8 @@ func (s *Store) Delete(collection string, id string) {
 		delete(s.ActionResults, id)
 		s.mu.Unlock()
 		s.SaveNow()
+	case "danger", "danger_assessments":
+		s.deleteDangerAssessment(id)
 	case "events":
 		s.deleteRecentEvent(id)
 	case "windows":
@@ -777,6 +817,9 @@ func (s *Store) applyPersistedState(persisted *PersistedState) {
 		}
 		s.trimActionResultsLocked(maxActionResults)
 	}
+	if persisted.Danger != nil {
+		s.Danger = cloneDangerAssessments(trimDanger(persisted.Danger, maxDanger))
+	}
 	if persisted.Events != nil {
 		s.RecentEvents = cloneEvents(trimEvents(persisted.Events, maxRecentEvents))
 	}
@@ -823,6 +866,7 @@ func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
 		}
 		persisted.ActionResults[id] = *cloneActionResult(value)
 	}
+	persisted.Danger = cloneDangerAssessments(trimDanger(s.Danger, maxDanger))
 	persisted.Events = cloneEvents(trimEvents(s.RecentEvents, maxRecentEvents))
 	for id, value := range s.Identities {
 		if value == nil {
@@ -848,6 +892,7 @@ func persistedSummary(value *PersistedState) PersistedSummary {
 		Clips:         len(value.Clips),
 		Validations:   len(value.Validations),
 		ActionResults: len(value.ActionResults),
+		Danger:        len(value.Danger),
 		Identities:    len(value.Identities),
 		Presence:      len(value.Presence),
 	}
@@ -863,6 +908,20 @@ func (s *Store) deleteRecentEvent(id string) {
 		out = append(out, value)
 	}
 	s.RecentEvents = out
+	s.mu.Unlock()
+	s.SaveNow()
+}
+
+func (s *Store) deleteDangerAssessment(id string) {
+	s.mu.Lock()
+	out := s.Danger[:0]
+	for _, value := range s.Danger {
+		if value == nil || value.ID == id {
+			continue
+		}
+		out = append(out, value)
+	}
+	s.Danger = out
 	s.mu.Unlock()
 	s.SaveNow()
 }
@@ -941,6 +1000,49 @@ func cloneActionResult(value *contract.ActionResult) *contract.ActionResult {
 	return &cloned
 }
 
+func cloneDangerAssessment(value *contract.DangerAssessment) *contract.DangerAssessment {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	cloned.Reasons = append([]string(nil), value.Reasons...)
+	cloned.Evidence = append([]string(nil), value.Evidence...)
+	cloned.RecommendedSystemActions = make([]contract.SystemActionRecommendation, 0, len(value.RecommendedSystemActions))
+	for _, action := range value.RecommendedSystemActions {
+		actionCopy := action
+		if action.Data != nil {
+			actionCopy.Data = cloneMap(action.Data)
+		}
+		cloned.RecommendedSystemActions = append(cloned.RecommendedSystemActions, actionCopy)
+	}
+	if value.ExpiresAt != nil {
+		expiresAt := *value.ExpiresAt
+		cloned.ExpiresAt = &expiresAt
+	}
+	return &cloned
+}
+
+func cloneDangerAssessments(source []*contract.DangerAssessment) []*contract.DangerAssessment {
+	if source == nil {
+		return nil
+	}
+	out := make([]*contract.DangerAssessment, 0, len(source))
+	for _, value := range source {
+		if value == nil {
+			continue
+		}
+		out = append(out, cloneDangerAssessment(value))
+	}
+	return out
+}
+
+func trimDanger(items []*contract.DangerAssessment, limit int) []*contract.DangerAssessment {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	return items[len(items)-limit:]
+}
+
 func (s *Store) trimActionResultsLocked(limit int) {
 	if limit <= 0 || len(s.ActionResults) <= limit {
 		return
@@ -970,4 +1072,11 @@ func (s *Store) trimActionResultsLocked(limit int) {
 		}
 		delete(s.ActionResults, oldestID)
 	}
+}
+
+func (s *Store) trimDangerLocked(limit int) {
+	if limit <= 0 || len(s.Danger) <= limit {
+		return
+	}
+	s.Danger = s.Danger[len(s.Danger)-limit:]
 }

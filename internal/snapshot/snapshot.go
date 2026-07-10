@@ -18,6 +18,10 @@ type Metrics interface {
 	Snapshot(*state.Store) map[string]any
 }
 
+type CGEInspector interface {
+	CGEInspection() map[string]any
+}
+
 type Builder struct {
 	Mu         *sync.RWMutex
 	State      *state.Store
@@ -27,6 +31,7 @@ type Builder struct {
 	Automation *automation.Engine
 	Events     *event.Store
 	Metrics    Metrics
+	CGE        CGEInspector
 }
 
 func (b *Builder) SetTopology(value *topology.Topology) {
@@ -50,6 +55,8 @@ func (b *Builder) LegacySnapshot() *contract.Snapshot {
 }
 
 func (b *Builder) CoreState() map[string]any {
+	cge := b.cgeInspection()
+	cge["danger_assessments"] = b.State.DangerAssessmentsList()
 	return map[string]any{
 		"nodes":       b.TopologyTreeViews(),
 		"devices":     b.DeviceViews(),
@@ -61,6 +68,7 @@ func (b *Builder) CoreState() map[string]any {
 		"event":       b.eventList(),
 		"system":      b.State.SystemState(),
 		"metrics":     b.metricsSnapshot(),
+		"cge":         cge,
 		"state_store": map[string]any{
 			"devices":        b.State.Snapshot("devices"),
 			"device":         b.State.Snapshot("devices"),
@@ -74,6 +82,7 @@ func (b *Builder) CoreState() map[string]any {
 			"events":         b.State.Snapshot("events"),
 			"validations":    b.State.Snapshot("validations"),
 			"action_results": b.State.Snapshot("action_results"),
+			"danger":         b.State.DangerAssessmentsList(),
 			"system":         b.State.SystemState(),
 		},
 	}
@@ -93,6 +102,7 @@ func (b *Builder) StatePayload() map[string]any {
 		"identities":     b.State.Snapshot("identities"),
 		"validations":    b.State.Snapshot("validations"),
 		"action_results": b.State.Snapshot("action_results"),
+		"danger":         b.State.DangerAssessmentsList(),
 		"topology":       b.TopologyTreeViews(),
 		"residents":      b.ResidentViews(),
 	}
@@ -216,6 +226,18 @@ func (b *Builder) metricsSnapshot() map[string]any {
 		return map[string]any{}
 	}
 	return b.Metrics.Snapshot(b.State)
+}
+
+func (b *Builder) cgeInspection() map[string]any {
+	if b.CGE == nil {
+		return map[string]any{
+			"stats":             map[string]any{},
+			"sequences":         []any{},
+			"transitions":       []any{},
+			"learned_behaviors": []any{},
+		}
+	}
+	return b.CGE.CGEInspection()
 }
 
 func (b *Builder) automationList() []automation.Rule {

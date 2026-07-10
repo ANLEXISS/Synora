@@ -1,590 +1,308 @@
-.PHONY: \
-	build \
-	build-web \
-	install \
-	update \
-	restart \
-	logs \
-	clean \
-	dirs \
-	install-config \
-	install-systemd \
-	install-web \
-	install-bins \
-	install-mediamtx \
-	install-certs \
-	install-python \
-	doctor \
-	user
+SHELL := /usr/bin/env bash
+.SHELLFLAGS := -eu -o pipefail -c
 
-# ------------------------------------------------
-# CONFIG
-# ------------------------------------------------
+.PHONY: build test install update start stop restart doctor delete clean help \
+	check-go install-deps install-dirs install-bins install-config install-models \
+	install-vision-worker install-mediamtx install-systemd enable-services
 
-PYTHON := python3.11
+PREFIX ?= /opt/synora
+BINDIR ?= $(PREFIX)/bin
+SERVICES_DIR ?= $(PREFIX)/services
+VISION_WORKER_DIR ?= $(SERVICES_DIR)/vision-worker
+MEDIAMTX_DIR ?= $(PREFIX)/mediamtx
+MODELS_DIR ?= $(PREFIX)/models
+CONFIG_DIR ?= /etc/synora
+DATA_DIR ?= /var/lib/synora
+SYSTEMD_DIR ?= /etc/systemd/system
+RUN_DIR ?= /run/synora
+BUS_SOCKET ?= $(RUN_DIR)/bus.sock
+SERVICE_USER ?= synora
+GO ?= $(shell if command -v go >/dev/null 2>&1; then command -v go; elif [ -x /usr/local/go/bin/go ]; then printf '%s' /usr/local/go/bin/go; else printf '%s' go; fi)
+PYTHON ?= python3
+GOCACHE ?= /tmp/synora-gocache
 
-SERVICE_USER := synora
+ifeq ($(shell id -u),0)
+SUDO :=
+else
+SUDO := sudo
+endif
 
-PREFIX := /opt/synora
+GO_BINS := \
+	synora-bus:./cmd/synora-bus \
+	synora-core:./cmd/synora-core \
+	synora-actions:./cmd/synora-actions \
+	synora-api:./cmd/synora-api \
+	synora-discovery:./cmd/synora-discovery \
+	synora-runtime-manager:./cmd/synora-runtime-manager
 
-BIN_DIR := $(PREFIX)/bin
-WEB_DIR := $(PREFIX)/web
-MEDIA_DIR := $(PREFIX)/mediamtx
-VENV_DIR := $(PREFIX)/venv
-
-SERVICES_DIR := $(PREFIX)/services
-VISION_WORKER_DIR := $(SERVICES_DIR)/vision-worker
-
-DATA_DIR := /var/lib/synora
-CONFIG_DIR := /etc/synora
-LOG_DIR := /var/log/synora
-RUN_DIR := /run/synora
-
-LOG_FILE := $(LOG_DIR)/events.log
-
-PYTHON_REQUIREMENTS := services/vision-worker/requirements.txt
-
-SERVICES := \
+RUNTIME_SERVICES := \
 	synora-bus \
+	synora-runtime-manager \
 	synora-core \
 	synora-actions \
 	synora-api \
-	synora-discovery \
-	mediamtx
+	synora-discovery
 
-GREEN := \033[0;32m
-RED := \033[0;31m
-YELLOW := \033[0;33m
-NC := \033[0m
+START_ORDER := mediamtx $(RUNTIME_SERVICES)
+STOP_ORDER := synora-discovery synora-api synora-actions synora-core synora-runtime-manager synora-bus mediamtx
+SYSTEMD_UNITS := $(addsuffix .service,$(RUNTIME_SERVICES)) mediamtx.service
 
-# ------------------------------------------------
-# BUILD GO
-# ------------------------------------------------
+help:
+	@printf '%s\n' \
+		'Targets:' \
+		'  make build                 Build Go runtime binaries into ./bin' \
+		'  make test                  Run Go tests and Python compileall' \
+		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
+		'  make update                Rebuild and update deployed runtime without dependency install' \
+		'  make start                 Start runtime services' \
+		'  make stop                  Stop runtime services and remove bus socket' \
+		'  make restart               Stop then start runtime services' \
+		'  make doctor                Check local runtime health without modifying state' \
+		'  make delete CONFIRM=YES    Destructive removal from the proto machine' \
+		'  make clean                 Remove local repo build artifacts'
 
-build:
-	@echo "Building Go binaries..."
-
-	mkdir -p bin
-
-	go build -o bin/synora-core ./cmd/synora-core
-	go build -o bin/synora-actions ./cmd/synora-actions
-	go build -o bin/synora-bus ./cmd/synora-bus
-	go build -o bin/synora-api ./cmd/synora-api
-	go build -o bin/synora-discovery ./cmd/synora-discovery
-	go build -o bin/synora-runtime-manager ./cmd/synora-runtime-manager
-
-# ------------------------------------------------
-# BUILD WEBAPP
-# ------------------------------------------------
-
-build-web:
-	@echo "Building webapp..."
-
-	cd webapp && npm ci
-	cd webapp && npm run build
-
-# ------------------------------------------------
-# USER
-# ------------------------------------------------
-
-user:
-	@echo "Ensuring service user exists..."
-
-	sudo id -u $(SERVICE_USER) >/dev/null 2>&1 || \
-	sudo useradd \
-		--system \
-		--home $(DATA_DIR) \
-		--shell /usr/sbin/nologin \
-		$(SERVICE_USER)
-
-# ------------------------------------------------
-# DIRECTORIES
-# ------------------------------------------------
-
-dirs: user
-
-	@echo "Creating directory structure..."
-
-	sudo mkdir -p \
-		$(PREFIX) \
-		$(BIN_DIR) \
-		$(WEB_DIR) \
-		$(MEDIA_DIR) \
-		$(VENV_DIR) \
-		$(DATA_DIR) \
-		$(CONFIG_DIR) \
-		$(LOG_DIR) \
-		$(SERVICES_DIR) \
-		$(VISION_WORKER_DIR) \
-		$(RUN_DIR) 
-
-	sudo chown -R $(SERVICE_USER):$(SERVICE_USER) \
-		$(PREFIX) \
-		$(DATA_DIR) \
-		$(LOG_DIR) \
-		$(RUN_DIR)
-
-	sudo chmod 755 $(PREFIX)
-	sudo chmod 755 $(BIN_DIR)
-	sudo chmod 755 $(MEDIA_DIR)
-	sudo chmod 755 $(VENV_DIR)
-	sudo chmod 750 $(LOG_DIR)
-
-# ------------------------------------------------
-# CONFIG
-# ------------------------------------------------
-
-install-config:
-
-	@echo "Installing configuration..."
-
-	sudo mkdir -p $(CONFIG_DIR)
-
-	sudo rsync -a configs/ $(CONFIG_DIR)/
-
-	sudo chown -R $(SERVICE_USER):$(SERVICE_USER) \
-		$(CONFIG_DIR)
-
-	sudo chmod 640 $(CONFIG_DIR)/*.yaml 2>/dev/null || true
-
-# ------------------------------------------------
-# TLS CERTIFICATES
-# ------------------------------------------------
-
-install-certs:
-
-	@echo "Installing TLS certificates..."
-
-	sudo mkdir -p $(CONFIG_DIR)/certs
-
-	@if [ ! -f $(CONFIG_DIR)/certs/server.crt ] || [ ! -f $(CONFIG_DIR)/certs/server.key ]; then \
-		echo "Generating self-signed TLS certificate..."; \
-		sudo openssl req \
-			-x509 \
-			-nodes \
-			-days 3650 \
-			-newkey rsa:4096 \
-			-keyout $(CONFIG_DIR)/certs/server.key \
-			-out $(CONFIG_DIR)/certs/server.crt \
-			-subj "/CN=synora.local"; \
-	else \
-		echo "TLS certificates already exist."; \
-	fi
-
-	sudo chown -R $(SERVICE_USER):$(SERVICE_USER) \
-		$(CONFIG_DIR)/certs
-
-	sudo chmod 600 $(CONFIG_DIR)/certs/server.key
-	sudo chmod 644 $(CONFIG_DIR)/certs/server.crt
-# ------------------------------------------------
-# MODELS
-# ------------------------------------------------
-
-MODELS_DIR := /var/lib/synora/models
-
-install-models:
-
-	@echo "Installing AI models..."
-
-	sudo mkdir -p $(MODELS_DIR)
-
-	sudo rsync -a --delete --delete-excluded \
-		--include='*/' \
-		--include='*.rknn' \
-		--exclude='*' \
-		models/ \
-		$(MODELS_DIR)/
-
-	sudo chown -R $(SERVICE_USER):$(SERVICE_USER) \
-		$(MODELS_DIR)
-
-	sudo find $(MODELS_DIR) -type f -exec chmod 644 {} \;
-
-	@echo "Models installed"
-
-
-
-# ------------------------------------------------
-# NETWORK DEPENDENCIES
-# ------------------------------------------------
-
-install-network-deps:
-
-	@echo "Installing network dependencies..."
-
-	@if command -v apt >/dev/null 2>&1; then \
-		echo "Detected APT-based system"; \
-		sudo apt update; \
-		sudo apt install -y \
-			hostapd \
-			dnsmasq \
-			nftables \
-			iproute2 \
-			wireless-tools; \
-	elif command -v dnf >/dev/null 2>&1; then \
-		echo "Detected DNF-based system"; \
-		sudo dnf install -y \
-			hostapd \
-			dnsmasq \
-			nftables \
-			iproute \
-			wireless-tools; \
-	else \
-		echo "Unsupported package manager"; \
+check-go:
+	@if ! command -v "$(GO)" >/dev/null 2>&1 && [ ! -x "$(GO)" ]; then \
+		echo "FAIL: Go not found. Install Go or run make GO=/path/to/go <target>."; \
 		exit 1; \
 	fi
+	@"$(GO)" version
 
-# ------------------------------------------------
-# PYTHON AI ENV
-# ------------------------------------------------
+build: check-go
+	@mkdir -p bin
+	@for item in $(GO_BINS); do \
+		name="$${item%%:*}"; pkg="$${item#*:}"; \
+		echo "Building $$name from $$pkg"; \
+		GOCACHE=$(GOCACHE) "$(GO)" build -o "bin/$$name" "$$pkg"; \
+	done
 
-install-python:
+test: check-go
+	GOCACHE=$(GOCACHE) "$(GO)" test ./...
+	$(PYTHON) -m compileall -q services/vision-worker
 
-	@echo "Installing Python AI environment..."
+install: install-deps build install-dirs install-bins install-config install-models install-mediamtx install-vision-worker install-systemd enable-services
+	@echo "Synora runtime installation complete."
+	@echo "Run 'make start' to start services or 'make doctor' to inspect the install."
 
-	@if command -v apt >/dev/null 2>&1; then \
-		sudo apt install -y \
-			python3 \
-			python3-venv \
-			python3-pip \
-			ffmpeg; \
+update: build install-bins install-models install-mediamtx install-vision-worker install-systemd
+	$(SUDO) systemctl daemon-reload
+	@for service in $(START_ORDER); do \
+		if systemctl list-unit-files "$$service.service" >/dev/null 2>&1; then \
+			echo "Restarting $$service"; \
+			$(SUDO) systemctl restart "$$service.service" || true; \
+		else \
+			echo "Skipping $$service: unit not installed"; \
+		fi; \
+	done
+	@echo "Synora runtime update complete."
+
+install-deps:
+	@if command -v apt-get >/dev/null 2>&1; then \
+		$(SUDO) apt-get update; \
+		$(SUDO) apt-get install -y ca-certificates curl rsync jq python3 python3-opencv python3-numpy python3-scipy python3-venv python3-pip; \
 	elif command -v dnf >/dev/null 2>&1; then \
-		sudo dnf install -y \
-			python3 \
-			python3-pip \
-			ffmpeg; \
-	fi
-
-	sudo rm -rf $(VENV_DIR)
-
-	sudo $(PYTHON) -m venv $(VENV_DIR)
-
-	sudo $(VENV_DIR)/bin/pip install --upgrade \
-		pip \
-		wheel \
-		setuptools
-
-	@if [ -f $(PYTHON_REQUIREMENTS) ]; then \
-		sudo $(VENV_DIR)/bin/pip install \
-			-r $(PYTHON_REQUIREMENTS); \
+		$(SUDO) dnf install -y ca-certificates curl rsync jq python3 python3-pip; \
 	else \
-		echo "No requirements.txt found"; \
+		echo "WARN: no supported package manager found; install ca-certificates curl rsync jq python3 manually."; \
 	fi
 
-	sudo chown -R $(SERVICE_USER):$(SERVICE_USER) \
-		$(VENV_DIR)
+install-dirs:
+	@$(SUDO) getent group $(SERVICE_USER) >/dev/null 2>&1 || \
+		$(SUDO) groupadd --system $(SERVICE_USER)
+	@$(SUDO) id -u $(SERVICE_USER) >/dev/null 2>&1 || \
+		$(SUDO) useradd --system --gid $(SERVICE_USER) --home $(DATA_DIR) --shell /usr/sbin/nologin $(SERVICE_USER)
+	$(SUDO) install -d -m 0755 $(PREFIX) $(BINDIR) $(SERVICES_DIR) $(VISION_WORKER_DIR) $(MEDIAMTX_DIR) $(MODELS_DIR)
+	$(SUDO) install -d -m 0755 $(CONFIG_DIR) $(DATA_DIR) $(DATA_DIR)/state $(DATA_DIR)/clips $(DATA_DIR)/debug $(DATA_DIR)/logs
+	$(SUDO) install -d -m 0770 -o $(SERVICE_USER) -g $(SERVICE_USER) $(RUN_DIR)
+	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(PREFIX) $(DATA_DIR) $(RUN_DIR)
 
-	@echo "Python AI environment ready"
+install-bins: install-dirs
+	@for item in $(GO_BINS); do \
+		name="$${item%%:*}"; \
+		if [ ! -x "bin/$$name" ]; then echo "FAIL: bin/$$name missing; run make build first."; exit 1; fi; \
+		echo "Installing $$name"; \
+		$(SUDO) install -m 0755 "bin/$$name" "$(BINDIR)/$$name"; \
+	done
 
-# ------------------------------------------------
-# INSTALL VISION WORKER
-# ------------------------------------------------
+install-config:
+	$(SUDO) install -d -m 0755 $(CONFIG_DIR)
+	@for src in configs/*.yaml; do \
+		name="$$(basename "$$src")"; dst="$(CONFIG_DIR)/$$name"; \
+		if [ -f "$$dst" ]; then \
+			echo "Keeping existing $$dst"; \
+		else \
+			echo "Installing $$dst"; \
+			$(SUDO) install -m 0640 "$$src" "$$dst"; \
+		fi; \
+	done
+	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(CONFIG_DIR)
 
-install-vision-worker:
+install-models: install-dirs
+	@if [ -d models ]; then \
+		echo "Installing RKNN models only"; \
+		$(SUDO) rsync -a --delete --prune-empty-dirs \
+			--include='*/' \
+			--include='*.rknn' \
+			--exclude='*' \
+			models/ $(MODELS_DIR)/; \
+		$(SUDO) find $(MODELS_DIR) -type f \( -name '*.onnx' -o -name '*.pt' -o -name '*.torchscript' -o -name '*.engine' \) -delete; \
+		$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(MODELS_DIR); \
+		$(SUDO) find $(MODELS_DIR) -type f -exec chmod 0644 {} \;; \
+	else \
+		echo "WARN: models directory missing; no RKNN models installed."; \
+	fi
 
-	@echo "Installing vision worker..."
-
-	sudo mkdir -p $(VISION_WORKER_DIR)
-
-	sudo rsync -a --delete \
+install-vision-worker: install-dirs
+	$(PYTHON) -m compileall -q services/vision-worker
+	$(SUDO) rsync -a --delete \
 		--exclude='__pycache__/' \
 		--exclude='*.pyc' \
+		--exclude='.pytest_cache/' \
+		--exclude='.venv/' \
 		--exclude='venv/' \
-		--exclude='tests/' \
-		services/vision-worker/ \
-		$(VISION_WORKER_DIR)/
-
-	sudo chmod +x \
-		$(VISION_WORKER_DIR)/worker.py
-
-	sudo chown -R $(SERVICE_USER):$(SERVICE_USER) \
-		$(VISION_WORKER_DIR)
-
-	sudo $(VENV_DIR)/bin/pip install \
-		-r $(PYTHON_REQUIREMENTS)
-
-	@echo "Vision worker installed"
-
-
-
-# ------------------------------------------------
-# SYSTEMD
-# ------------------------------------------------
-
-install-systemd:
-
-	@echo "Installing systemd services..."
-
-	sudo rm -f /etc/systemd/system/synora-*.service
-	sudo rm -f /etc/systemd/system/mediamtx.service
-
-	sudo install -m 0644 \
-		deployments/systemd/*.service \
-		/etc/systemd/system/
-
-	@echo "Installing tmpfiles config..."
-
-	echo "d $(RUN_DIR) 0755 $(SERVICE_USER) $(SERVICE_USER) -" | \
-		sudo tee /etc/tmpfiles.d/synora.conf
-
-	sudo systemd-tmpfiles --create
-
-	sudo systemctl daemon-reload
-
-# ------------------------------------------------
-# INSTALL BINARIES
-# ------------------------------------------------
-
-install-bins:
-
-	@echo "Installing binaries..."
-
-	sudo install -m 0755 \
-		bin/synora-core \
-		$(BIN_DIR)/
-
-	sudo install -m 0755 \
-		bin/synora-actions \
-		$(BIN_DIR)/
-
-	sudo install -m 0755 \
-		bin/synora-bus \
-		$(BIN_DIR)/
-
-	sudo install -m 0755 \
-		bin/synora-api \
-		$(BIN_DIR)/
-
-	sudo install -m 0755 \
-		bin/synora-discovery \
-		$(BIN_DIR)/
-
-	sudo install -m 0755 \
-		bin/synora-runtime-manager \
-		$(BIN_DIR)/
-
-# ------------------------------------------------
-# INSTALL WEB
-# ------------------------------------------------
-
-install-web:
-
-	@echo "Installing webapp..."
-
-	sudo mkdir -p $(WEB_DIR)
-
-	sudo rsync -a --delete \
-		webapp/dist/ \
-		$(WEB_DIR)/
-
-	sudo chown -R $(SERVICE_USER):$(SERVICE_USER) \
-		$(WEB_DIR)
-
-# ------------------------------------------------
-# INSTALL MEDIAMTX
-# ------------------------------------------------
-
-install-mediamtx:
-
-	@echo "Installing MediaMTX..."
-
-	sudo mkdir -p $(MEDIA_DIR)
-
-	sudo rsync -a --delete \
-		tools/mediamtx/ \
-		$(MEDIA_DIR)/
-
-	sudo chown -R $(SERVICE_USER):$(SERVICE_USER) \
-		$(MEDIA_DIR)
-
-	sudo chmod +x $(MEDIA_DIR)/mediamtx
-
-# ------------------------------------------------
-# INSTALL
-# ------------------------------------------------
-
-install: \
-	build \
-	build-web \
-	dirs \
-	install-network-deps \
-	install-models \
-	install-python \
-	install-config \
-	install-certs \
-	install-bins \
-	install-web \
-	install-mediamtx \
-	install-vision-worker \
-	install-systemd
-
-	@echo "Stopping services..."
-
-	@for s in $(SERVICES); do \
-		sudo systemctl stop $$s 2>/dev/null || true; \
-	done
-
-	@echo "Preparing logs..."
-
-	sudo mkdir -p $(LOG_DIR)
-
-	sudo touch $(LOG_FILE)
-
-	sudo chown $(SERVICE_USER):$(SERVICE_USER) \
-		$(LOG_FILE)
-
-	sudo chmod 640 $(LOG_FILE)
-
-	@echo "Enabling services..."
-
-	@for s in $(SERVICES); do \
-		sudo systemctl enable $$s; \
-	done
-
-	@echo "Starting services..."
-
-	@for s in $(SERVICES); do \
-		sudo systemctl restart $$s; \
-	done
-
-	@echo ""
-	@echo "================================="
-	@echo "   Synora installation complete"
-	@echo "================================="
-
-# ------------------------------------------------
-# UPDATE
-# ------------------------------------------------
-
-update: \
-	build \
-	install-bins \
-	install-mediamtx \
-	install-vision-worker
-
-	@echo "Restarting services..."
-
-	sudo systemctl daemon-reload
-
-	@for s in $(SERVICES); do \
-		sudo systemctl restart $$s; \
-	done
-
-	@echo ""
-	@echo "Update complete."
-
-# ------------------------------------------------
-# MANAGEMENT
-# ------------------------------------------------
-
-restart:
-	@for s in $(SERVICES); do \
-		sudo systemctl restart $$s; \
-	done
-
-logs:
-	journalctl -u synora-* -u mediamtx -f
-
-# ------------------------------------------------
-# CLEAN
-# ------------------------------------------------
-
-clean:
-	@echo "Cleaning build artifacts..."
-
-	rm -rf bin
-	rm -rf webapp/dist
-
-# ------------------------------------------------
-# DOCTOR
-# ------------------------------------------------
-
-doctor:
-
-	@echo ""
-	@echo "==============================="
-	@echo "        SYNORA DOCTOR"
-	@echo "==============================="
-	@echo ""
-
-	@echo "[1] Checking user..."
-
-	@if id $(SERVICE_USER) >/dev/null 2>&1; then \
-		echo "$(GREEN)OK user exists$(NC)"; \
+		services/vision-worker/ $(VISION_WORKER_DIR)/
+	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(VISION_WORKER_DIR)
+	@if [ -f "$(VISION_WORKER_DIR)/worker.py" ]; then $(SUDO) chmod 0755 "$(VISION_WORKER_DIR)/worker.py"; fi
+
+install-mediamtx: install-dirs
+	@if [ -d tools/mediamtx ]; then \
+		$(SUDO) rsync -a --delete tools/mediamtx/ $(MEDIAMTX_DIR)/; \
+		$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(MEDIAMTX_DIR); \
+		if [ -f "$(MEDIAMTX_DIR)/mediamtx" ]; then $(SUDO) chmod 0755 "$(MEDIAMTX_DIR)/mediamtx"; fi; \
 	else \
-		echo "$(RED)FAIL user missing$(NC)"; \
+		echo "WARN: tools/mediamtx missing; mediamtx unit may not start."; \
 	fi
 
-	@echo ""
-	@echo "[2] Checking binaries..."
-
-	@for b in \
-		synora-core \
-		synora-actions \
-		synora-bus \
-		synora-api \
-		synora-discovery \
-		synora-runtime-manager; do \
-		if [ -x $(BIN_DIR)/$$b ]; then \
-			echo "$(GREEN)OK $$b$(NC)"; \
+install-systemd:
+	$(SUDO) install -d -m 0755 $(SYSTEMD_DIR)
+	@for unit in $(SYSTEMD_UNITS); do \
+		if [ -f "deployments/systemd/$$unit" ]; then \
+			echo "Installing $$unit"; \
+			$(SUDO) install -m 0644 "deployments/systemd/$$unit" "$(SYSTEMD_DIR)/$$unit"; \
 		else \
-			echo "$(RED)FAIL $$b$(NC)"; \
+			echo "WARN: deployments/systemd/$$unit missing"; \
+		fi; \
+	done
+	@printf 'd %s 0770 %s %s -\n' "$(RUN_DIR)" "$(SERVICE_USER)" "$(SERVICE_USER)" | $(SUDO) tee /etc/tmpfiles.d/synora.conf >/dev/null
+	-$(SUDO) systemd-tmpfiles --create /etc/tmpfiles.d/synora.conf
+	$(SUDO) systemctl daemon-reload
+
+enable-services:
+	@for service in $(START_ORDER); do \
+		if systemctl list-unit-files "$$service.service" >/dev/null 2>&1; then \
+			echo "Enabling $$service"; \
+			$(SUDO) systemctl enable "$$service.service" || true; \
+		else \
+			echo "Skipping enable for $$service: unit not installed"; \
 		fi; \
 	done
 
-	@echo ""
-	@echo "[3] Checking Python AI env..."
-
-	@if [ -x $(VENV_DIR)/bin/python ]; then \
-		echo "$(GREEN)OK python venv$(NC)"; \
-	else \
-		echo "$(RED)FAIL python venv missing$(NC)"; \
-	fi
-
-	@echo ""
-	@echo "[4] Checking MediaMTX..."
-
-	@if [ -x $(MEDIA_DIR)/mediamtx ]; then \
-		echo "$(GREEN)OK mediamtx binary$(NC)"; \
-	else \
-		echo "$(RED)FAIL mediamtx missing$(NC)"; \
-	fi
-
-	@echo ""
-	@echo "[5] Checking services..."
-
-	@for s in $(SERVICES); do \
-		systemctl is-active $$s >/dev/null 2>&1 && \
-		echo "$(GREEN)OK $$s running$(NC)" || \
-		echo "$(RED)WARN $$s stopped$(NC)"; \
+start:
+	@for service in $(START_ORDER); do \
+		if systemctl list-unit-files "$$service.service" >/dev/null 2>&1; then \
+			echo "Starting $$service"; \
+			$(SUDO) systemctl start "$$service.service" || true; \
+		else \
+			echo "Skipping $$service: unit not installed"; \
+		fi; \
 	done
 
-	@echo ""
-	@echo "[6] Checking socket..."
+stop:
+	@for service in $(STOP_ORDER); do \
+		if systemctl list-unit-files "$$service.service" >/dev/null 2>&1; then \
+			echo "Stopping $$service"; \
+			$(SUDO) systemctl stop "$$service.service" || true; \
+		else \
+			echo "Skipping $$service: unit not installed"; \
+		fi; \
+	done
+	$(SUDO) rm -f $(BUS_SOCKET)
 
-	@if [ -S $(RUN_DIR)/bus.sock ]; then \
-		echo "$(GREEN)OK bus.sock exists$(NC)"; \
+restart: stop start
+
+doctor: check-go
+	@echo "== Synora Doctor =="
+	@fail=0; warn=0; \
+	ok() { echo "OK   $$*"; }; \
+	warnf() { echo "WARN $$*"; warn=$$((warn+1)); }; \
+	failf() { echo "FAIL $$*"; fail=$$((fail+1)); }; \
+	command -v $(PYTHON) >/dev/null 2>&1 && ok "Python: $$($(PYTHON) --version 2>&1)" || failf "Python missing"; \
+	command -v jq >/dev/null 2>&1 && ok "jq: $$(jq --version)" || warnf "jq missing"; \
+	for bin in synora-bus synora-core synora-actions synora-api synora-discovery synora-runtime-manager; do \
+		[ -x "$(BINDIR)/$$bin" ] && ok "binary $(BINDIR)/$$bin" || failf "binary missing $(BINDIR)/$$bin"; \
+	done; \
+	for service in $(START_ORDER); do \
+		if systemctl list-unit-files "$$service.service" >/dev/null 2>&1; then \
+			status="$$(systemctl is-active "$$service.service" 2>/dev/null || true)"; \
+			ok "unit $$service.service known ($$status)"; \
+			systemctl --no-pager --lines=0 status "$$service.service" >/dev/null 2>&1 || true; \
+		else \
+			[ "$$service" = "mediamtx" ] && warnf "unit $$service.service missing" || failf "unit $$service.service missing"; \
+		fi; \
+	done; \
+	if systemctl is-active synora-bus.service >/dev/null 2>&1; then \
+		if [ -S "$(BUS_SOCKET)" ]; then \
+			ok "bus socket $(BUS_SOCKET)"; \
+			[ -r "$(BUS_SOCKET)" ] && [ -w "$(BUS_SOCKET)" ] && ok "bus socket accessible by current user" || warnf "bus socket not accessible by current user; add user to group $(SERVICE_USER)"; \
+		else \
+			failf "bus socket missing"; \
+		fi; \
 	else \
-		echo "$(RED)FAIL bus.sock missing$(NC)"; \
-	fi
-
-	@echo ""
-	@echo "[7] Checking MediaMTX API..."
-
-	@curl -s http://localhost:9997/v3/paths/list >/dev/null 2>&1 && \
-		echo "$(GREEN)OK mediamtx API$(NC)" || \
-		echo "$(RED)FAIL mediamtx API unavailable$(NC)"
-
-	@echo ""
-	@echo "[8] Checking webapp..."
-
-	@if [ -f $(WEB_DIR)/index.html ]; then \
-		echo "$(GREEN)OK webapp installed$(NC)"; \
+		warnf "synora-bus inactive; skipping active socket requirement"; \
+	fi; \
+	getent group $(SERVICE_USER) >/dev/null 2>&1 && ok "group $(SERVICE_USER) exists" || failf "group $(SERVICE_USER) missing"; \
+	id -nG "$$(id -un)" | grep -qw "$(SERVICE_USER)" && ok "current user is in group $(SERVICE_USER)" || warnf "current user is not in group $(SERVICE_USER); run: sudo usermod -aG $(SERVICE_USER) $$(id -un)"; \
+	$(PYTHON) -c 'import importlib.util,sys; missing=[m for m in ("cv2","numpy","scipy") if importlib.util.find_spec(m) is None]; rk=importlib.util.find_spec("rknnlite"); print("missing="+",".join(missing)); print("rknnlite="+("present" if rk else "missing")); sys.exit(1 if missing else 0)' >/tmp/synora-python-deps.log 2>&1 && ok "vision Python deps import" || { warnf "vision Python deps missing"; cat /tmp/synora-python-deps.log; }; \
+	[ -d "$(CONFIG_DIR)" ] && ok "$(CONFIG_DIR) exists" || failf "$(CONFIG_DIR) missing"; \
+	[ -d "$(DATA_DIR)" ] && ok "$(DATA_DIR) exists" || failf "$(DATA_DIR) missing"; \
+	[ -d "$(DATA_DIR)/state" ] && ok "$(DATA_DIR)/state exists" || failf "$(DATA_DIR)/state missing"; \
+	if [ -d "$(MODELS_DIR)" ]; then \
+		find "$(MODELS_DIR)" -type f -name '*.rknn' | grep -q . && ok "RKNN models present" || warnf "no RKNN models found"; \
+		find "$(MODELS_DIR)" -type f \( -name '*.onnx' -o -name '*.pt' -o -name '*.torchscript' -o -name '*.engine' \) | grep -q . && failf "forbidden model files installed" || ok "no forbidden model files"; \
 	else \
-		echo "$(RED)FAIL webapp missing$(NC)"; \
-	fi
+		warnf "$(MODELS_DIR) missing"; \
+	fi; \
+	code="$$(curl -s -o /tmp/synora-health.json -w '%{http_code}' http://127.0.0.1:8080/api/system/health || true)"; \
+	if [ "$$code" = "200" ]; then ok "API health 200"; elif [ "$$code" = "401" ]; then warnf "API protected, provide token"; else warnf "API health unavailable ($$code)"; fi; \
+	if [ -n "$${SYNORA_API_TOKEN:-}" ]; then \
+		code="$$(curl -s -o /tmp/synora-state.json -w '%{http_code}' -H "Authorization: Bearer $$SYNORA_API_TOKEN" http://127.0.0.1:8080/api/state || true)"; \
+		[ "$$code" = "200" ] && ok "API state 200" || warnf "API state returned $$code"; \
+	fi; \
+	find . -name '*_test.go' | grep -q . && ok "Go tests present" || failf "no Go tests found"; \
+	GOCACHE=$(GOCACHE) "$(GO)" test ./... >/tmp/synora-go-test.log 2>&1 && ok "go test ./..." || { failf "go test ./... failed"; tail -n 40 /tmp/synora-go-test.log; }; \
+	$(PYTHON) -m compileall -q services/vision-worker >/tmp/synora-compileall.log 2>&1 && ok "vision worker compileall" || { failf "vision worker compileall failed"; cat /tmp/synora-compileall.log; }; \
+	echo "Summary: $$fail fail(s), $$warn warning(s)"; \
+	[ "$$fail" -eq 0 ]
 
-	@echo ""
-	@echo "==============================="
-	@echo "        DOCTOR COMPLETE"
-	@echo "==============================="
+delete:
+	@if [ "$(CONFIRM)" != "YES" ]; then \
+		echo "Refusing destructive delete. Run: make delete CONFIRM=YES"; \
+		exit 1; \
+	fi
+	$(MAKE) stop
+	@stamp="$$(date +%Y%m%d-%H%M%S)"; \
+	backup_dir="$(DATA_DIR)/backups"; \
+	if [ ! -d "$(DATA_DIR)" ]; then backup_dir="/tmp"; fi; \
+	$(SUDO) mkdir -p "$$backup_dir"; \
+	if [ -d "$(CONFIG_DIR)" ] || [ -d "$(DATA_DIR)" ]; then \
+		echo "Creating backup $$backup_dir/pre-delete-$$stamp.tar.gz"; \
+		$(SUDO) tar -czf "$$backup_dir/pre-delete-$$stamp.tar.gz" --ignore-failed-read $(CONFIG_DIR) $(DATA_DIR) 2>/dev/null || true; \
+	fi
+	$(SUDO) rm -rf $(PREFIX) $(CONFIG_DIR) $(DATA_DIR) $(RUN_DIR)
+	$(SUDO) rm -f \
+		$(SYSTEMD_DIR)/synora-bus.service \
+		$(SYSTEMD_DIR)/synora-core.service \
+		$(SYSTEMD_DIR)/synora-actions.service \
+		$(SYSTEMD_DIR)/synora-api.service \
+		$(SYSTEMD_DIR)/synora-discovery.service \
+		$(SYSTEMD_DIR)/synora-runtime-manager.service \
+		$(SYSTEMD_DIR)/mediamtx.service \
+		$(SYSTEMD_DIR)/synora-{web,vision,action}.service \
+		$(SYSTEMD_DIR)/mqtt"_bridge".service
+	$(SUDO) rm -f /etc/tmpfiles.d/synora.conf
+	$(SUDO) systemctl daemon-reload
+	@echo "Synora runtime files removed."
+
+clean:
+	rm -rf bin
+	rm -rf /tmp/synora-go-test.log /tmp/synora-compileall.log /tmp/synora-health.json /tmp/synora-state.json

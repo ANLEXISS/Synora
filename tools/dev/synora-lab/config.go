@@ -10,13 +10,17 @@ import (
 
 func parseConfig(args []string) (Config, error) {
 	cfg := Config{
-		BusPath:    defaultBusPath,
-		APIURL:     defaultAPIURL,
-		Token:      os.Getenv("SYNORA_API_TOKEN"),
-		DeviceID:   defaultDevice,
-		CameraID:   defaultDevice,
-		Identity:   defaultIdentity,
-		Confidence: defaultConfidence,
+		BusPath:           defaultBusPath,
+		APIURL:            defaultAPIURL,
+		Token:             os.Getenv("SYNORA_API_TOKEN"),
+		DeviceID:          defaultDevice,
+		CameraID:          defaultDevice,
+		Identity:          defaultIdentity,
+		Confidence:        defaultConfidence,
+		ExpectDangerLevel: -1,
+		ExpectMinDangerLevel: -1,
+		LearningMode:      "simulation",
+		Repeat:            1,
 	}
 
 	fs := flag.NewFlagSet("synora-lab", flag.ContinueOnError)
@@ -34,6 +38,21 @@ func parseConfig(args []string) (Config, error) {
 	fs.BoolVar(&cfg.NoTUI, "no-tui", false, "disable interactive terminal UI")
 	fs.BoolVar(&cfg.ListScenarios, "list-scenarios", false, "list available simulation scenarios")
 	fs.BoolVar(&cfg.DryRunActions, "dry-run-actions", false, "mark simulated events so resulting actions are dry-run")
+	fs.BoolVar(&cfg.Verbose, "verbose", false, "print bus/API settings and full event messages")
+	fs.BoolVar(&cfg.ShowCGE, "show-cge", false, "print CGE learned sequences and transitions from PublicSnapshot")
+	fs.BoolVar(&cfg.ShowDanger, "show-danger", false, "print CGE danger assessments from PublicSnapshot")
+	fs.BoolVar(&cfg.ShowDangerAll, "show-danger-all", false, "print all recent CGE danger assessments instead of only the current run")
+	fs.BoolVar(&cfg.InspectLearning, "inspect-learning", false, "print CGE learning after scenario execution")
+	fs.StringVar(&cfg.ExpectSequence, "expect-sequence", "", "fail unless the named scenario sequence appears in CGE learning")
+	fs.IntVar(&cfg.ExpectDangerLevel, "expect-danger-level", cfg.ExpectDangerLevel, "fail unless the latest danger assessment has this level")
+	fs.IntVar(&cfg.ExpectMinDangerLevel, "expect-min-danger-level", cfg.ExpectMinDangerLevel, "fail unless the max selected danger assessment level is at least this level")
+	fs.StringVar(&cfg.ExpectCategory, "expect-category", "", "fail unless the latest danger assessment has this category")
+	fs.StringVar(&cfg.ExpectSystemAction, "expect-system-action", "", "fail unless the latest danger assessment recommends this system action")
+	fs.StringVar(&cfg.ExpectSystemState, "expect-system-state", "", "fail unless the system reaches this state")
+	fs.BoolVar(&cfg.ExpectEmergencyActive, "expect-emergency-active", false, "fail unless emergency_active becomes true")
+	fs.BoolVar(&cfg.ExpectIntrusionActive, "expect-intrusion-active", false, "fail unless intrusion_active becomes true")
+	fs.StringVar(&cfg.LearningMode, "learning-mode", cfg.LearningMode, "learning mode for simulated events: simulation or disabled")
+	fs.IntVar(&cfg.Repeat, "repeat", cfg.Repeat, "number of times to run a scenario")
 
 	cfg.identityExplicit = flagWasSet(args, "identity")
 	if err := fs.Parse(args); err != nil {
@@ -49,6 +68,20 @@ func parseConfig(args []string) (Config, error) {
 	}
 	cfg.SendType = strings.TrimSpace(cfg.SendType)
 	cfg.Scenario = strings.TrimSpace(cfg.Scenario)
+	cfg.ExpectSequence = strings.TrimSpace(cfg.ExpectSequence)
+	cfg.ExpectCategory = strings.TrimSpace(cfg.ExpectCategory)
+	cfg.ExpectSystemAction = strings.TrimSpace(cfg.ExpectSystemAction)
+	cfg.ExpectSystemState = strings.TrimSpace(cfg.ExpectSystemState)
+	cfg.LearningMode = strings.ToLower(strings.TrimSpace(cfg.LearningMode))
+	if cfg.LearningMode == "" {
+		cfg.LearningMode = "simulation"
+	}
+	if cfg.LearningMode != "simulation" && cfg.LearningMode != "disabled" {
+		return cfg, flag.ErrHelp
+	}
+	if cfg.Repeat < 1 {
+		cfg.Repeat = 1
+	}
 	if cfg.SendType == "" && cfg.Scenario == "" && !cfg.Watch && !cfg.NoTUI && !cfg.ListScenarios && cfg.identityExplicit {
 		cfg.SendType = contract.EventVisionIdentity
 	}

@@ -32,6 +32,12 @@ echo "Checking sockets..."
 
 if [ -S /run/synora/bus.sock ]; then
     echo "✅ UNIX bus socket exists"
+    if [ -r /run/synora/bus.sock ] && [ -w /run/synora/bus.sock ]; then
+        echo "✅ UNIX bus socket accessible"
+    else
+        echo "❌ UNIX bus socket not accessible by current user; add the user to group synora"
+        exit 1
+    fi
 else
     echo "❌ UNIX bus socket missing"
     exit 1
@@ -58,10 +64,10 @@ check_port 8888
 echo
 echo "Checking python vision dependencies..."
 
-if [ -x /opt/synora/venv/bin/python ]; then
-    echo "✅ python venv exists"
+if command -v python3 >/dev/null 2>&1; then
+    echo "✅ python3 exists"
 else
-    echo "❌ python venv missing"
+    echo "❌ python3 missing"
     exit 1
 fi
 
@@ -72,7 +78,7 @@ else
     exit 1
 fi
 
-sudo -u synora /opt/synora/venv/bin/python - <<EOF
+sudo -u synora python3 - <<EOF
 import cv2
 import numpy
 import scipy

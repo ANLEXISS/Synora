@@ -36,6 +36,7 @@ type ClientConn struct {
 
 type Server struct {
 	address string
+	debug   bool
 
 	mu      sync.RWMutex
 	clients map[string]*ClientConn

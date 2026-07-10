@@ -256,6 +256,46 @@ func TestWorkerManagerBacksOffAfterQuickCrash(t *testing.T) {
 	)
 }
 
+func TestWorkerManagerRateLimitsCrashEvents(t *testing.T) {
+	publisher := &fakePublisher{}
+	executor := &fakeExecutor{}
+	current := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+
+	manager := NewWorkerManager(
+		publisher,
+		WorkerManagerConfig{
+			Executor:         executor,
+			Now:              func() time.Time { return current },
+			QuickCrashWindow: time.Minute,
+			BaseBackoff:      time.Millisecond,
+			CrashEventLimit:  time.Minute,
+		},
+	)
+
+	if err := manager.Start("cam_01"); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	executor.lastProcess().waitCh <- errors.New("boom one")
+	waitForStatus(t, manager, WorkerStatusBackoff)
+
+	current = current.Add(2 * time.Millisecond)
+	if err := manager.Start("cam_01"); err != nil {
+		t.Fatalf("second Start() error = %v", err)
+	}
+	executor.lastProcess().waitCh <- errors.New("boom two")
+	waitForStatus(t, manager, WorkerStatusBackoff)
+
+	count := 0
+	for _, eventType := range publisher.types() {
+		if eventType == contract.EventDiscoveryWorkerCrashed {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("crash events=%d, want 1, published=%v", count, publisher.types())
+	}
+}
+
 func TestWorkerManagerSerializesSameCamera(t *testing.T) {
 	executor := &fakeExecutor{}
 

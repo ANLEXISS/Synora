@@ -65,11 +65,23 @@ func main() {
 	}
 
 	core := coreclient.New(busClient)
+	wsHub := newWebSocketHub(core)
+	go wsHub.observeBus(busClient)
+	simulationRunner := newSimulationRunner(busClient, wsHub)
 
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", handleHealth)
+	mux.Handle("/api/ws", wsHub)
 	mux.HandleFunc("/api/state", handleState(core))
+	mux.HandleFunc("/api/simulation/scenarios", handleSimulationScenarios())
+	mux.HandleFunc("/api/simulation/run", handleSimulationRun(simulationRunner))
+	mux.HandleFunc("/api/simulation/runs/", handleSimulationRunStatus(simulationRunner))
+	mux.HandleFunc("/api/cge/summary", handleCGESummary(core))
+	mux.HandleFunc("/api/cge/sequences", handleCGESequences(core))
+	mux.HandleFunc("/api/cge/transitions", handleCGETransitions(core))
+	mux.HandleFunc("/api/cge/learned-behaviors", handleCGELearnedBehaviors(core))
+	mux.HandleFunc("/api/cge/", handleCGEDetail(core))
 	mux.HandleFunc("/api/validations", handleValidations(core))
 	mux.HandleFunc("/api/validations/", handleValidation(core))
 	mux.HandleFunc("/api/devices", handleDevices(core))
@@ -214,6 +226,10 @@ func apiAuthMiddleware(cfg *security.Config, next http.Handler) http.Handler {
 		}
 
 		token, ok := bearerToken(r.Header.Get("Authorization"))
+		if !ok && r.URL.Path == "/api/ws" {
+			token = strings.TrimSpace(r.URL.Query().Get("token"))
+			ok = token != ""
+		}
 		if !ok || cfg == nil || !cfg.VerifyAPIToken(token) {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 			return
