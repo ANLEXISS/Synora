@@ -47,9 +47,14 @@ type compactBehavior struct {
 	ID                       string           `json:"id"`
 	TriggerSequenceSignature string           `json:"trigger_sequence_signature"`
 	Status                   string           `json:"status"`
+	Enabled                  bool             `json:"enabled"`
+	Forgotten                bool             `json:"forgotten,omitempty"`
 	RequiresValidation       bool             `json:"requires_validation"`
 	Count                    int              `json:"count"`
 	Confidence               float64          `json:"confidence"`
+	EffectiveConfidence      float64          `json:"effective_confidence"`
+	ConfidenceOverride       *float64         `json:"confidence_override,omitempty"`
+	RiskOverride             *float64         `json:"risk_override,omitempty"`
 	Origin                   string           `json:"origin,omitempty"`
 	CriticalSeedID           string           `json:"critical_seed_id,omitempty"`
 	DangerScore              float64          `json:"danger_score,omitempty"`
@@ -213,9 +218,14 @@ func compactBehaviors(items []contracts.LearnedBehavior) []compactBehavior {
 			ID:                       item.ID,
 			TriggerSequenceSignature: item.TriggerSequenceSignature,
 			Status:                   item.Status,
+			Enabled:                  item.Enabled,
+			Forgotten:                item.Forgotten,
 			RequiresValidation:       item.RequiresValidation,
 			Count:                    item.Count,
 			Confidence:               item.Confidence,
+			EffectiveConfidence:      effectiveBehaviorConfidence(item),
+			ConfidenceOverride:       item.ConfidenceOverride,
+			RiskOverride:             item.RiskOverride,
 			Origin:                   item.Origin,
 			CriticalSeedID:           item.CriticalSeedID,
 			DangerScore:              item.DangerScore,

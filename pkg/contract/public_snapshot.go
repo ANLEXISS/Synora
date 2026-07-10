@@ -161,9 +161,30 @@ func normalizeMap(in map[string]any) map[string]any {
 	}
 	out := make(map[string]any, len(in))
 	for key, value := range in {
-		out[toSnakeKey(key)] = normalizeValue(value)
+		publicKey := toSnakeKey(key)
+		if isSensitivePublicKey(publicKey) {
+			continue
+		}
+		out[publicKey] = normalizeValue(value)
 	}
 	return out
+}
+
+func isSensitivePublicKey(key string) bool {
+	key = strings.ToLower(strings.TrimSpace(key))
+	switch key {
+	case "api_token", "api_token_hash", "token", "access_token", "refresh_token",
+		"secret", "secret_hash", "password", "passphrase", "authorization",
+		"credential", "credentials", "private_key", "security", "security_yaml",
+		"path", "clip_path", "file_path", "filesystem_path":
+		return true
+	}
+	for _, suffix := range []string{"_secret", "_password", "_token", "_private_key"} {
+		if strings.HasSuffix(key, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeValue(value any) any {

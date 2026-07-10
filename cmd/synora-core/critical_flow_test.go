@@ -159,11 +159,8 @@ func TestCriticalFlowUnknownProducesDecisionAndSnapshotEvent(t *testing.T) {
 		t.Fatalf("unexpected snapshot event: %#v", eventView)
 	}
 	assessment := latestDanger(public)
-	if assessment == nil || assessment["level"] != float64(3) || assessment["category"] != contract.DangerCategorySecurity {
-		t.Fatalf("unknown should expose danger assessment: %#v", public.CGE)
-	}
-	if !dangerHasAction(assessment, contract.SystemActionCreateValidation) {
-		t.Fatalf("unknown danger should recommend validation: %#v", assessment)
+	if assessment != nil {
+		t.Fatalf("danger below 0.65 must not be persisted: %#v", public.CGE)
 	}
 }
 
@@ -343,11 +340,8 @@ func TestCriticalFlowDiscoveryWorkerCrashedDoesNotCreateUserValidation(t *testin
 		t.Fatalf("worker crash should remain visible without validation: %#v", eventView)
 	}
 	assessment := latestDanger(public)
-	if assessment == nil || assessment["category"] != contract.DangerCategorySystemHealth || assessment["validation_required"] == true {
-		t.Fatalf("worker crash should expose system health danger without validation: %#v", public.CGE)
-	}
-	if !dangerHasAction(assessment, contract.SystemActionSuppressNoise) {
-		t.Fatalf("worker crash should recommend suppress_noise: %#v", assessment)
+	if assessment != nil {
+		t.Fatalf("discovery.worker.* must be excluded from danger history: %#v", public.CGE)
 	}
 }
 

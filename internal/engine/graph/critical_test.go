@@ -51,6 +51,89 @@ func TestCriticalSeedMatchesUnknownPersistentEntrance(t *testing.T) {
 	}
 }
 
+func TestReplaceCriticalSeedsRemovesOldActiveSetAndPreservesRealCounters(t *testing.T) {
+	memory := NewGraphMemory()
+	seed := contracts.CriticalSeed{
+		ID:                 "replace-test",
+		Name:               "Replace test",
+		DangerScore:        0.72,
+		RiskLevel:          "high",
+		ExpectedState:      "suspicious",
+		Sequence:           []contracts.CriticalSeedStep{{EventType: "vision.unknown"}},
+		RequiresValidation: true,
+		Enabled:            true,
+	}
+	if err := memory.ReplaceCriticalSeeds([]contracts.CriticalSeed{seed}, false); err != nil {
+		t.Fatal(err)
+	}
+	event := realCGEEvent("vision.unknown", time.Now().UTC())
+	if match := memory.LearnEvent(event); match == nil || match.CriticalSeedID != seed.ID {
+		t.Fatalf("seed should match before replacement: %#v", match)
+	}
+
+	seed.DangerScore = 0.88
+	if err := memory.ReplaceCriticalSeeds([]contracts.CriticalSeed{seed}, false); err != nil {
+		t.Fatal(err)
+	}
+	behavior := criticalBehaviorBySeedID(t, memory, seed.ID)
+	if behavior.RealCount != 1 || behavior.DangerScore != 0.88 {
+		t.Fatalf("replace should retain real counters and refresh config: %#v", behavior)
+	}
+
+	if err := memory.ReplaceCriticalSeeds(nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if match := memory.LearnEvent(realCGEEvent("vision.unknown", time.Now().UTC().Add(time.Second))); match != nil {
+		t.Fatalf("removed seed remained active: %#v", match)
+	}
+	behavior, ok := memory.LearnedBehavior(behavior.ID)
+	if !ok || behavior.Enabled || behavior.Status != contracts.LearnedBehaviorDisabled || behavior.RealCount != 1 {
+		t.Fatalf("removed seed behavior should remain inspectable and disabled: %#v", behavior)
+	}
+}
+
+func TestCriticalSeedValidationRejectsDuplicateLowScoreAndUnsafeActions(t *testing.T) {
+	base := contracts.CriticalSeed{
+		ID:                 "validation-test",
+		Name:               "Validation test",
+		DangerScore:        0.70,
+		RiskLevel:          "high",
+		ExpectedState:      "intrusion",
+		Sequence:           []contracts.CriticalSeedStep{{EventType: "vision.unknown"}},
+		RequiresValidation: true,
+		Enabled:            true,
+	}
+	if _, err := NormalizeCriticalSeeds([]contracts.CriticalSeed{base, base}, false); err == nil {
+		t.Fatal("duplicate critical seed should be rejected")
+	}
+	low := base
+	low.ID = "low"
+	low.DangerScore = 0.64
+	if _, err := NormalizeCriticalSeeds([]contracts.CriticalSeed{low}, false); err == nil {
+		t.Fatal("low danger score should require explicit opt-in")
+	}
+	if _, err := NormalizeCriticalSeeds([]contracts.CriticalSeed{low}, true); err != nil {
+		t.Fatalf("explicit low score should be accepted: %v", err)
+	}
+	unsafe := base
+	unsafe.ID = "unsafe"
+	unsafe.ProposedActions = []string{"door.unlock"}
+	if _, err := NormalizeCriticalSeeds([]contracts.CriticalSeed{unsafe}, false); err == nil {
+		t.Fatal("unsafe critical seed action should be rejected")
+	}
+}
+
+func criticalBehaviorBySeedID(t *testing.T, memory *GraphMemory, seedID string) contracts.LearnedBehavior {
+	t.Helper()
+	for _, behavior := range memory.LearnedBehaviors() {
+		if behavior.CriticalSeedID == seedID {
+			return behavior
+		}
+	}
+	t.Fatalf("critical behavior for seed %q missing", seedID)
+	return contracts.LearnedBehavior{}
+}
+
 func loadTestCriticalSeeds(t *testing.T) []contracts.CriticalSeed {
 	t.Helper()
 	path := testCriticalSeedsPath(t)

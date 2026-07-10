@@ -24,6 +24,11 @@ import (
 	"synora/pkg/contract"
 )
 
+const (
+	defaultCGECriticalChainsPath     = "/etc/synora/cge_critical_chains.yaml"
+	developmentCGECriticalChainsPath = "configs/cge_critical_chains.yaml"
+)
+
 type coreMetrics struct {
 	mu sync.RWMutex
 	// eventProcessed counts events accepted by Core after ingest validation and rate/dedupe.
@@ -74,7 +79,6 @@ func main() {
 	devicePath := getenv("SYNORA_DEVICE", "/etc/synora/devices.yaml")
 	automationPath := getenv("SYNORA_AUTOMATION", "/etc/synora/automations.yaml")
 	securityPath := getenv("SYNORA_SECURITY", "/etc/synora/security.yaml")
-	cgeCriticalChainsPath := getenv("SYNORA_CGE_CRITICAL_CHAINS", "/etc/synora/cge_critical_chains.yaml")
 	statePath := getenv("SYNORA_STATE_PATH", "")
 	if statePath == "" {
 		statePath = state.DefaultStatePath()
@@ -109,9 +113,11 @@ func main() {
 	}
 
 	engineInstance := engine.NewEngine(topologyInstance, deviceRegistry, residents)
-	if loadedPath, err := engineInstance.LoadCriticalSeedsFirstExisting(cgeCriticalChainsPath, "configs/cge_critical_chains.yaml"); err != nil {
+	if loadedPath, err := loadCGECriticalChains(engineInstance); err != nil {
 		log.Println("cge critical chains load warning:", err)
-	} else if loadedPath != "" {
+	} else if loadedPath == "" {
+		log.Println("cge critical chains load warning: no configuration file found")
+	} else {
 		log.Println("cge critical chains loaded:", loadedPath)
 	}
 	stateStore := state.NewStore()
@@ -173,6 +179,8 @@ func main() {
 		SecurityPath:   securityPath,
 		PublishEvent:   app.publishEvent,
 		UpdateTopology: app.setTopology,
+		CGE:            app.engine,
+		NotifyMutation: app.notifyConfigMutation,
 	})
 
 	app.seedState()
@@ -182,6 +190,9 @@ func main() {
 		log.Println("state persistence load warning:", err)
 	}
 	app.eventStore.Load(app.state.RecentEventsList())
+	if err := app.rpc.RestoreLearnedBehaviorOverrides(); err != nil {
+		log.Println("cge learned behavior overrides restore warning:", err)
+	}
 	log.Printf(
 		"state restored events=%d clips=%d validations=%d action_results=%d danger=%d",
 		summary.Events,
@@ -444,6 +455,14 @@ func (a *coreApp) publishStateSnapshot() {
 	a.snapshotPublisher.PublishStateSnapshot()
 }
 
+func (a *coreApp) notifyConfigMutation(kind string, id string) {
+	if strings.TrimSpace(kind) == "" {
+		kind = "config.updated"
+	}
+	a.publishEvent(kind, map[string]any{"id": id}, contract.PriorityNormal)
+	a.triggerSnapshot()
+}
+
 func (a *coreApp) triggerSnapshot() {
 
 	if a.snapshotPending.Swap(true) {
@@ -552,4 +571,15 @@ func getenv(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func loadCGECriticalChains(engineInstance *engine.Engine) (string, error) {
+	return engineInstance.LoadCriticalSeedsFirstExisting(
+		cgeCriticalChainsPath(),
+		developmentCGECriticalChainsPath,
+	)
+}
+
+func cgeCriticalChainsPath() string {
+	return getenv("SYNORA_CGE_CRITICAL_CHAINS", defaultCGECriticalChainsPath)
 }

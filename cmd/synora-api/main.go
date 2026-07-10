@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -81,15 +80,23 @@ func main() {
 	mux.HandleFunc("/api/cge/sequences", handleCGESequences(core))
 	mux.HandleFunc("/api/cge/transitions", handleCGETransitions(core))
 	mux.HandleFunc("/api/cge/learned-behaviors", handleCGELearnedBehaviors(core))
+	mux.HandleFunc("/api/cge/critical-seeds", handleCGECriticalSeeds(core))
+	mux.HandleFunc("/api/cge/critical-seeds/", handleCGECriticalSeed(core))
+	mux.HandleFunc("/api/cge/danger-assessments", handleCGEDangerAssessments(core))
+	mux.HandleFunc("/api/cge/danger-assessments/", handleCGEDangerAssessment(core))
 	mux.HandleFunc("/api/cge/", handleCGEDetail(core))
-	mux.HandleFunc("/api/validations", handleValidations(core))
-	mux.HandleFunc("/api/validations/", handleValidation(core))
-	mux.HandleFunc("/api/devices", handleDevices(core))
+	mux.HandleFunc("/api/validations", handleValidationCollection(core))
+	mux.HandleFunc("/api/validations/", handleValidationItem(core))
+	mux.HandleFunc("/api/devices", handleDeviceCollection(core))
 	mux.HandleFunc("/api/devices/pairing/start", handlePairingStart(core))
 	mux.HandleFunc("/api/devices/pairing/complete", handlePairingComplete(core))
-	mux.HandleFunc("/api/devices/", handleDevice(core))
-	mux.HandleFunc("/api/topology", handleTopology(core))
-	mux.HandleFunc("/api/topology/reset", handleTopologyReset(core))
+	mux.HandleFunc("/api/devices/", handleDeviceItem(core))
+	mux.HandleFunc("/api/residents", handleResidentCollection(core))
+	mux.HandleFunc("/api/residents/", handleResidentItem(core))
+	mux.HandleFunc("/api/automations", handleAutomationCollection(core))
+	mux.HandleFunc("/api/automations/", handleAutomationItem(core))
+	mux.HandleFunc("/api/topology", handleTopologyConfiguration(core))
+	mux.HandleFunc("/api/topology/", handleTopologySubroute())
 	mux.HandleFunc("/api/system/health", handleSystemHealth(core))
 	mux.HandleFunc(
 		"/api/snapshot",
@@ -114,6 +121,10 @@ func main() {
 }
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		writeRouteNotFound(w, "API")
+		return
+	}
 
 	response := map[string]any{
 		"service": "synora-api",
@@ -199,7 +210,7 @@ func corsMiddleware(cfg *security.Config, next http.Handler) http.Handler {
 
 		w.Header().Set(
 			"Access-Control-Allow-Methods",
-			"GET, POST, PUT, DELETE, OPTIONS",
+			"GET, POST, PATCH, PUT, DELETE, OPTIONS",
 		)
 
 		if r.Method == http.MethodOptions {
@@ -420,13 +431,12 @@ func handleValidation(
 			return
 		}
 
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			writeError(w, err)
+		body, ok := readJSONObject(w, r, true)
+		if !ok {
 			return
 		}
 
-		validation, err := core.ResolveValidation(id, json.RawMessage(body))
+		validation, err := core.ResolveValidation(id, body)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -468,13 +478,12 @@ func handlePairingComplete(
 			return
 		}
 
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			writeError(w, err)
+		body, ok := readJSONObject(w, r, true)
+		if !ok {
 			return
 		}
 
-		response, err := core.CompletePairing(json.RawMessage(body))
+		response, err := core.CompletePairing(body)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -502,13 +511,12 @@ func handleDevice(
 
 		switch r.Method {
 		case http.MethodPatch:
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				writeError(w, err)
+			body, ok := readJSONObject(w, r, true)
+			if !ok {
 				return
 			}
 
-			devices, err := core.UpdateDevice(id, json.RawMessage(body))
+			devices, err := core.UpdateDevice(id, body)
 			if err != nil {
 				writeError(w, err)
 				return
@@ -544,13 +552,12 @@ func handleTopologyReset(
 			return
 		}
 
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			writeError(w, err)
+		body, ok := readJSONObject(w, r, false)
+		if !ok {
 			return
 		}
 
-		topology, err := core.ResetTopology(json.RawMessage(body))
+		topology, err := core.ResetTopology(body)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -570,7 +577,7 @@ func requireMethod(
 		return true
 	}
 
-	w.WriteHeader(http.StatusMethodNotAllowed)
+	writeMethodNotAllowed(w, method)
 	return false
 }
 
@@ -578,12 +585,33 @@ func writeError(
 	w http.ResponseWriter,
 	err error,
 ) {
+	if err == nil {
+		err = contract.NewAPIError(contract.ErrorInternal, "internal server error")
+	}
+	code := contract.APIErrorCode(err)
+	message := err.Error()
+	if code == contract.ErrorInternal {
+		message = "internal server error"
+	}
+	writeJSON(w, apiErrorStatus(code), map[string]any{
+		"error":   code,
+		"message": message,
+	})
+}
 
-	writeJSON(
-		w,
-		http.StatusInternalServerError,
-		map[string]any{
-			"error": err.Error(),
-		},
-	)
+func apiErrorStatus(code string) int {
+	switch code {
+	case contract.ErrorInvalidJSON:
+		return http.StatusBadRequest
+	case contract.ErrorNotFound:
+		return http.StatusNotFound
+	case contract.ErrorDuplicateID, contract.ErrorTopologyRequired:
+		return http.StatusConflict
+	case contract.ErrorValidationFailed, contract.ErrorUnsafeAutomation:
+		return http.StatusUnprocessableEntity
+	case contract.ErrorForbiddenAction:
+		return http.StatusForbidden
+	default:
+		return http.StatusInternalServerError
+	}
 }

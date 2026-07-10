@@ -1,6 +1,9 @@
 package contracts
 
 import (
+	"encoding/json"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -224,6 +227,21 @@ type LearnedTransition struct {
 	RealCount      int       `json:"real_count"`
 }
 
+const (
+	LearnedBehaviorObserving = "observing"
+	LearnedBehaviorSuggested = "suggested"
+	LearnedBehaviorApproved  = "approved"
+	LearnedBehaviorRejected  = "rejected"
+	LearnedBehaviorDisabled  = "disabled"
+)
+
+const (
+	FeedbackPositive      = "positive"
+	FeedbackNegative      = "negative"
+	FeedbackFalsePositive = "false_positive"
+	FeedbackFalseNegative = "false_negative"
+)
+
 type LearnedBehavior struct {
 	ID                       string           `json:"id"`
 	TriggerSequenceSignature string           `json:"trigger_sequence_signature"`
@@ -248,6 +266,91 @@ type LearnedBehavior struct {
 	LastTriggeredAt          *time.Time       `json:"last_triggered_at,omitempty"`
 	RequiresValidation       bool             `json:"requires_validation"`
 	ForbiddenActions         []string         `json:"forbidden_actions,omitempty"`
+	Enabled                  bool             `json:"enabled"`
+	Forgotten                bool             `json:"forgotten,omitempty"`
+	UserNotes                string           `json:"user_notes,omitempty"`
+	ConfidenceOverride       *float64         `json:"confidence_override,omitempty"`
+	RiskOverride             *float64         `json:"risk_override,omitempty"`
+	UserFeedback             UserFeedback     `json:"user_feedback,omitempty"`
+	CreatedAt                time.Time        `json:"created_at,omitempty"`
+	UpdatedAt                time.Time        `json:"updated_at,omitempty"`
+}
+
+type UserFeedback struct {
+	PositiveCount      int       `json:"positive_count,omitempty"`
+	NegativeCount      int       `json:"negative_count,omitempty"`
+	FalsePositiveCount int       `json:"false_positive_count,omitempty"`
+	FalseNegativeCount int       `json:"false_negative_count,omitempty"`
+	LastType           string    `json:"last_type,omitempty"`
+	UpdatedAt          time.Time `json:"updated_at,omitempty"`
+	ValidationIDs      []string  `json:"validation_ids,omitempty"`
+}
+
+// LearnedBehaviorPatch contains only user-controlled guidance. Raw learning
+// counters and calculated confidence are intentionally absent. Its custom JSON
+// decoder rejects both protected counters and unknown fields so callers cannot
+// accidentally turn a partial update into learned evidence.
+type LearnedBehaviorPatch struct {
+	Status             *string           `json:"status,omitempty"`
+	RequiresValidation *bool             `json:"requires_validation,omitempty"`
+	ProposedActions    *[]map[string]any `json:"proposed_actions,omitempty"`
+	ForbiddenActions   *[]string         `json:"forbidden_actions,omitempty"`
+	UserNotes          *string           `json:"user_notes,omitempty"`
+	ConfidenceOverride *float64          `json:"confidence_override,omitempty"`
+	RiskOverride       *float64          `json:"risk_override,omitempty"`
+	Enabled            *bool             `json:"enabled,omitempty"`
+}
+
+func (p *LearnedBehaviorPatch) UnmarshalJSON(data []byte) error {
+	type alias LearnedBehaviorPatch
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	allowed := map[string]bool{
+		"status": true, "requires_validation": true,
+		"proposed_actions": true, "forbidden_actions": true,
+		"user_notes": true, "confidence_override": true,
+		"risk_override": true, "enabled": true,
+	}
+	protected := map[string]bool{
+		"count": true, "real_count": true, "simulated_count": true,
+		"critical_seed_count": true, "seed_count": true,
+		"effective_count": true, "confidence": true,
+		"confidence_base": true, "danger_score": true,
+	}
+	for key := range fields {
+		key = strings.TrimSpace(key)
+		switch {
+		case protected[key]:
+			return fmt.Errorf("learned behavior field %q is read-only", key)
+		case !allowed[key]:
+			return fmt.Errorf("unknown learned behavior field %q", key)
+		}
+	}
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*p = LearnedBehaviorPatch(decoded)
+	return nil
+}
+
+// LearnedBehaviorOverride is the durable, user-authored layer applied over a
+// behavior learned from raw events. It deliberately contains no raw counters.
+type LearnedBehaviorOverride struct {
+	BehaviorID         string            `json:"behavior_id"`
+	Status             *string           `json:"status,omitempty"`
+	RequiresValidation *bool             `json:"requires_validation,omitempty"`
+	ProposedActions    *[]map[string]any `json:"proposed_actions,omitempty"`
+	ForbiddenActions   *[]string         `json:"forbidden_actions,omitempty"`
+	UserNotes          *string           `json:"user_notes,omitempty"`
+	ConfidenceOverride *float64          `json:"confidence_override,omitempty"`
+	RiskOverride       *float64          `json:"risk_override,omitempty"`
+	Enabled            *bool             `json:"enabled,omitempty"`
+	Forgotten          bool              `json:"forgotten,omitempty"`
+	UserFeedback       UserFeedback      `json:"user_feedback,omitempty"`
+	UpdatedAt          time.Time         `json:"updated_at,omitempty"`
 }
 
 type CriticalSeedStep struct {
@@ -260,6 +363,7 @@ type CriticalSeed struct {
 	Name               string             `json:"name" yaml:"name"`
 	Description        string             `json:"description,omitempty" yaml:"description,omitempty"`
 	DangerScore        float64            `json:"danger_score" yaml:"danger_score"`
+	AllowLowScore      bool               `json:"allow_low_score,omitempty" yaml:"allow_low_score,omitempty"`
 	RiskLevel          string             `json:"risk_level" yaml:"risk_level"`
 	ExpectedState      string             `json:"expected_state" yaml:"expected_state"`
 	Sequence           []CriticalSeedStep `json:"sequence" yaml:"sequence"`
@@ -268,6 +372,22 @@ type CriticalSeed struct {
 	ForbiddenActions   []string           `json:"forbidden_actions,omitempty" yaml:"forbidden_actions,omitempty"`
 	RequiresValidation bool               `json:"requires_validation" yaml:"requires_validation"`
 	Enabled            bool               `json:"enabled" yaml:"enabled"`
+	Version            int                `json:"version" yaml:"version,omitempty"`
+	CreatedAt          time.Time          `json:"created_at,omitempty" yaml:"created_at,omitempty"`
+	UpdatedAt          time.Time          `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
+	DeletedAt          *time.Time         `json:"deleted_at,omitempty" yaml:"deleted_at,omitempty"`
+}
+
+type CriticalSeedPatch struct {
+	Name               *string   `json:"name,omitempty"`
+	Enabled            *bool     `json:"enabled,omitempty"`
+	DangerScore        *float64  `json:"danger_score,omitempty"`
+	RiskLevel          *string   `json:"risk_level,omitempty"`
+	ExpectedState      *string   `json:"expected_state,omitempty"`
+	ProposedActions    *[]string `json:"proposed_actions,omitempty"`
+	ForbiddenActions   *[]string `json:"forbidden_actions,omitempty"`
+	RequiresValidation *bool     `json:"requires_validation,omitempty"`
+	AllowLowScore      bool      `json:"allow_low_score,omitempty"`
 }
 
 type CriticalSeedMatch struct {
@@ -400,6 +520,9 @@ type DecisionResult struct {
 
 	ValidationRequired bool
 	ValidationReason   string
+	LearnedBehaviorID  string
+	ProposedActions    []map[string]any
+	ForbiddenActions   []string
 
 	Outcome *Outcome
 

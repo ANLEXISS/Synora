@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -10,20 +11,21 @@ import (
 type Store struct {
 	mu sync.RWMutex
 
-	DeviceStates  map[string]*DeviceState
-	CameraStates  map[string]*CameraState
-	NodeStates    map[string]*NodeState
-	Tracks        map[string]*Track
-	Clusters      map[string]*Cluster
-	Identities    map[string]*IdentityState
-	Presence      map[string]*PresenceState
-	Clips         map[string]*ClipState
-	Validations   map[string]*contract.ValidationRequest
-	ActionResults map[string]*contract.ActionResult
-	Danger        []*contract.DangerAssessment
-	RecentEvents  []*contract.Event
-	EventWindows  map[string]*contract.EventWindow
-	System        *SystemState
+	DeviceStates      map[string]*DeviceState
+	CameraStates      map[string]*CameraState
+	NodeStates        map[string]*NodeState
+	Tracks            map[string]*Track
+	Clusters          map[string]*Cluster
+	Identities        map[string]*IdentityState
+	Presence          map[string]*PresenceState
+	Clips             map[string]*ClipState
+	Validations       map[string]*contract.ValidationRequest
+	BehaviorOverrides map[string]json.RawMessage
+	ActionResults     map[string]*contract.ActionResult
+	Danger            []*contract.DangerAssessment
+	RecentEvents      []*contract.Event
+	EventWindows      map[string]*contract.EventWindow
+	System            *SystemState
 
 	persistence Persistence
 }
@@ -55,19 +57,20 @@ func (s *Store) SetPersistence(persistence Persistence) {
 func NewStore(options ...Option) *Store {
 	now := time.Now().UTC()
 	store := &Store{
-		DeviceStates:  make(map[string]*DeviceState),
-		CameraStates:  make(map[string]*CameraState),
-		NodeStates:    make(map[string]*NodeState),
-		Tracks:        make(map[string]*Track),
-		Clusters:      make(map[string]*Cluster),
-		Identities:    make(map[string]*IdentityState),
-		Presence:      make(map[string]*PresenceState),
-		Clips:         make(map[string]*ClipState),
-		Validations:   make(map[string]*contract.ValidationRequest),
-		ActionResults: make(map[string]*contract.ActionResult),
-		Danger:        []*contract.DangerAssessment{},
-		RecentEvents:  []*contract.Event{},
-		EventWindows:  make(map[string]*contract.EventWindow),
+		DeviceStates:      make(map[string]*DeviceState),
+		CameraStates:      make(map[string]*CameraState),
+		NodeStates:        make(map[string]*NodeState),
+		Tracks:            make(map[string]*Track),
+		Clusters:          make(map[string]*Cluster),
+		Identities:        make(map[string]*IdentityState),
+		Presence:          make(map[string]*PresenceState),
+		Clips:             make(map[string]*ClipState),
+		Validations:       make(map[string]*contract.ValidationRequest),
+		BehaviorOverrides: make(map[string]json.RawMessage),
+		ActionResults:     make(map[string]*contract.ActionResult),
+		Danger:            []*contract.DangerAssessment{},
+		RecentEvents:      []*contract.Event{},
+		EventWindows:      make(map[string]*contract.EventWindow),
 		System: &SystemState{
 			LastState:     "idle",
 			LastStateTime: now,
@@ -320,6 +323,96 @@ func (s *Store) ValidationsList() []contract.ValidationRequest {
 	return out
 }
 
+// SaveValidation persists a user-authored validation transactionally. Runtime
+// generated validation requests may continue to use SetValidation.
+func (s *Store) SaveValidation(value *contract.ValidationRequest) error {
+	if value == nil || value.ID == "" {
+		return contract.NewAPIError(contract.ErrorValidationFailed, "validation id is required")
+	}
+	if err := s.BackupNow(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	previous, existed := s.Validations[value.ID]
+	s.Validations[value.ID] = cloneValidation(value)
+	s.mu.Unlock()
+	if err := s.SaveNow(); err != nil {
+		s.mu.Lock()
+		if existed {
+			s.Validations[value.ID] = previous
+		} else {
+			delete(s.Validations, value.ID)
+		}
+		s.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+func (s *Store) BehaviorOverride(id string) (json.RawMessage, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.BehaviorOverrides[id]
+	if !ok {
+		return nil, false
+	}
+	return append(json.RawMessage(nil), value...), true
+}
+
+func (s *Store) BehaviorOverridesList() map[string]json.RawMessage {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]json.RawMessage, len(s.BehaviorOverrides))
+	for id, value := range s.BehaviorOverrides {
+		out[id] = append(json.RawMessage(nil), value...)
+	}
+	return out
+}
+
+func (s *Store) SaveBehaviorOverride(id string, value json.RawMessage) error {
+	if id == "" || !json.Valid(value) {
+		return contract.NewAPIError(contract.ErrorValidationFailed, "valid behavior override is required")
+	}
+	if err := s.BackupNow(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	previous, existed := s.BehaviorOverrides[id]
+	s.BehaviorOverrides[id] = append(json.RawMessage(nil), value...)
+	s.mu.Unlock()
+	if err := s.SaveNow(); err != nil {
+		s.mu.Lock()
+		if existed {
+			s.BehaviorOverrides[id] = previous
+		} else {
+			delete(s.BehaviorOverrides, id)
+		}
+		s.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+func (s *Store) DeleteBehaviorOverride(id string) error {
+	if err := s.BackupNow(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	previous, existed := s.BehaviorOverrides[id]
+	delete(s.BehaviorOverrides, id)
+	s.mu.Unlock()
+	if !existed {
+		return nil
+	}
+	if err := s.SaveNow(); err != nil {
+		s.mu.Lock()
+		s.BehaviorOverrides[id] = previous
+		s.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
 func (s *Store) SetActionResult(value *contract.ActionResult) {
 	if value == nil {
 		return
@@ -344,7 +437,7 @@ func (s *Store) SetActionResult(value *contract.ActionResult) {
 }
 
 func (s *Store) AddDangerAssessment(value *contract.DangerAssessment) {
-	if value == nil || value.ID == "" {
+	if !contract.IsPersistableDangerAssessment(value) {
 		return
 	}
 	s.mu.Lock()
@@ -530,6 +623,13 @@ func (s *Store) Snapshot(collection string) map[string]interface{} {
 				continue
 			}
 			out[id] = *cloneValidation(value)
+		}
+	case "behavior_overrides":
+		for id, value := range s.BehaviorOverrides {
+			var decoded any
+			if json.Unmarshal(value, &decoded) == nil {
+				out[id] = decoded
+			}
 		}
 	case "action_results":
 		for id, value := range s.ActionResults {
@@ -770,6 +870,16 @@ func (s *Store) SaveNow() error {
 	return s.persistence.Save(persisted)
 }
 
+func (s *Store) BackupNow() error {
+	if s.persistence == nil {
+		return nil
+	}
+	if persistence, ok := s.persistence.(BackupPersistence); ok {
+		return persistence.Backup()
+	}
+	return nil
+}
+
 func (s *Store) Close() error {
 	if s.persistence == nil {
 		return nil
@@ -804,6 +914,12 @@ func (s *Store) applyPersistedState(persisted *PersistedState) {
 				cloned.ID = id
 			}
 			s.Validations[id] = cloned
+		}
+	}
+	if persisted.BehaviorOverrides != nil {
+		s.BehaviorOverrides = make(map[string]json.RawMessage, len(persisted.BehaviorOverrides))
+		for id, value := range persisted.BehaviorOverrides {
+			s.BehaviorOverrides[id] = append(json.RawMessage(nil), value...)
 		}
 	}
 	if persisted.ActionResults != nil {
@@ -859,6 +975,9 @@ func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
 			continue
 		}
 		persisted.Validations[id] = *cloneValidation(value)
+	}
+	for id, value := range s.BehaviorOverrides {
+		persisted.BehaviorOverrides[id] = append(json.RawMessage(nil), value...)
 	}
 	for id, value := range s.ActionResults {
 		if value == nil {
@@ -979,6 +1098,11 @@ func cloneValidation(value *contract.ValidationRequest) *contract.ValidationRequ
 	}
 	cloned := *value
 	cloned.Evidence = append([]string(nil), value.Evidence...)
+	cloned.Correction = cloneMap(value.Correction)
+	if value.DeletedAt != nil {
+		deletedAt := *value.DeletedAt
+		cloned.DeletedAt = &deletedAt
+	}
 	if value.ResolvedAt != nil {
 		resolvedAt := *value.ResolvedAt
 		cloned.ResolvedAt = &resolvedAt
@@ -1028,7 +1152,7 @@ func cloneDangerAssessments(source []*contract.DangerAssessment) []*contract.Dan
 	}
 	out := make([]*contract.DangerAssessment, 0, len(source))
 	for _, value := range source {
-		if value == nil {
+		if !contract.IsPersistableDangerAssessment(value) {
 			continue
 		}
 		out = append(out, cloneDangerAssessment(value))

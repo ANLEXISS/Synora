@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"synora/pkg/contract"
 )
 
 const apiCGELimitMax = 100
@@ -75,13 +77,18 @@ func handleCGELearnedBehaviors(core cgeProvider) http.HandlerFunc {
 
 func handleCGEDetail(core cgeProvider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !requireMethod(w, r, http.MethodGet) {
-			return
-		}
 		path := strings.TrimPrefix(r.URL.Path, "/api/cge/")
 		switch {
 		case strings.HasPrefix(path, "sequences/"):
+			if r.Method != http.MethodGet {
+				writeMethodNotAllowed(w, http.MethodGet)
+				return
+			}
 			id := strings.TrimSpace(strings.TrimPrefix(path, "sequences/"))
+			if id == "" || strings.Contains(id, "/") {
+				writeRouteNotFound(w, "CGE sequence")
+				return
+			}
 			item, err := core.CGESequence(id)
 			if err != nil {
 				writeError(w, err)
@@ -89,16 +96,95 @@ func handleCGEDetail(core cgeProvider) http.HandlerFunc {
 			}
 			writeJSON(w, http.StatusOK, item)
 		case strings.HasPrefix(path, "learned-behaviors/"):
-			id := strings.TrimSpace(strings.TrimPrefix(path, "learned-behaviors/"))
+			handleCGELearnedBehaviorDetail(core, w, r, strings.TrimPrefix(path, "learned-behaviors/"))
+		default:
+			writeRouteNotFound(w, "CGE")
+		}
+	}
+}
+
+func handleCGELearnedBehaviorDetail(core cgeProvider, w http.ResponseWriter, r *http.Request, path string) {
+	parts := strings.Split(strings.TrimSpace(path), "/")
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+		writeRouteNotFound(w, "learned behavior")
+		return
+	}
+	id := strings.TrimSpace(parts[0])
+
+	if len(parts) == 1 {
+		switch r.Method {
+		case http.MethodGet:
 			item, err := core.CGELearnedBehavior(id)
 			if err != nil {
 				writeError(w, err)
 				return
 			}
 			writeJSON(w, http.StatusOK, item)
+		case http.MethodPatch:
+			mutator, ok := core.(cgeLearnedBehaviorMutationProvider)
+			if !ok {
+				writeError(w, contract.NewAPIError(contract.ErrorInternal, "learned behavior mutation unavailable"))
+				return
+			}
+			body, valid := readJSONObject(w, r, true)
+			if !valid {
+				return
+			}
+			item, err := mutator.UpdateCGELearnedBehavior(id, body)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, item)
+		case http.MethodDelete:
+			mutator, ok := core.(cgeLearnedBehaviorMutationProvider)
+			if !ok {
+				writeError(w, contract.NewAPIError(contract.ErrorInternal, "learned behavior mutation unavailable"))
+				return
+			}
+			item, err := mutator.DeleteCGELearnedBehavior(id)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, item)
 		default:
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": "cge route not found"})
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodPatch, http.MethodDelete)
 		}
+		return
+	}
+
+	if len(parts) != 2 || !isLearnedBehaviorAction(parts[1]) {
+		writeRouteNotFound(w, "learned behavior")
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w, http.MethodPost)
+		return
+	}
+	mutator, ok := core.(cgeLearnedBehaviorMutationProvider)
+	if !ok {
+		writeError(w, contract.NewAPIError(contract.ErrorInternal, "learned behavior mutation unavailable"))
+		return
+	}
+	body, valid := readJSONObject(w, r, false)
+	if !valid {
+		return
+	}
+	item, err := mutator.ActOnCGELearnedBehavior(id, parts[1], body)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func isLearnedBehaviorAction(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "approve", "reject", "disable", "reset":
+		return true
+	default:
+		return false
 	}
 }
 

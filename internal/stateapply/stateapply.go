@@ -160,7 +160,9 @@ func buildValidationRequest(result *engine.Result) *contract.ValidationRequest {
 		NodeID:           decision.NodeID,
 		ClipID:           decision.ClipID,
 		Status:           contract.ValidationStatusPending,
+		Enabled:          true,
 		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 }
 

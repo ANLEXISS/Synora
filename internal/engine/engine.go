@@ -1,9 +1,11 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"synora/internal/device"
@@ -24,6 +26,9 @@ type Engine struct {
 
 	graphMemory *graph.GraphMemory
 	cognitive   *cognitive.Engine
+
+	cgeConfigMu      sync.Mutex
+	criticalSeedPath string
 }
 
 func NewEngine(
@@ -56,14 +61,25 @@ func (e *Engine) Analyze(
 
 	criticalSeedMatch := e.graphMemory.LearnEvent(cgeEvent)
 	decisionResult := e.cognitive.ProcessEvent(cgeEvent)
+	approvedBehavior := e.graphMemory.MatchApprovedBehavior(cgeEvent)
+	if approvedBehavior != nil {
+		decisionResult = applyLearnedBehaviorGuidance(decisionResult, approvedBehavior)
+	}
 	assessment := danger.AssessEvent(event, e.dangerContext(event, store, decisionResult, now))
 	if criticalSeedMatch != nil {
 		applyCriticalSeedMatch(criticalSeedMatch, &assessment, &decisionResult)
 	}
 	decisionResult = applyDangerAssessment(decisionResult, assessment)
+	if approvedBehavior != nil {
+		decisionResult = applyLearnedBehaviorGuidance(decisionResult, approvedBehavior)
+	}
 	decisionResult.Situations = situation.Analyze(cgeEvent, decisionResult, now)
 
 	return adapter.BuildResult(event, store, decisionResult, now, &assessment)
+}
+
+func ShouldPersistDangerAssessment(assessment *contract.DangerAssessment) bool {
+	return contract.IsPersistableDangerAssessment(assessment)
 }
 
 func (e *Engine) Process(
@@ -111,22 +127,43 @@ func (e *Engine) ApplyCriticalSeeds(seeds []cgecontracts.CriticalSeed) {
 	if e == nil || e.graphMemory == nil {
 		return
 	}
-	e.graphMemory.ApplyCriticalSeeds(seeds)
+	_ = e.graphMemory.ReplaceCriticalSeeds(seeds, false)
 }
 
 func (e *Engine) LoadCriticalSeeds(path string) error {
 	if e == nil || e.graphMemory == nil {
 		return nil
 	}
+	path = strings.TrimSpace(path)
 	seeds, err := graph.LoadCriticalSeeds(path)
 	if err != nil {
 		return err
 	}
-	e.graphMemory.ApplyCriticalSeeds(seeds)
+	if err := e.graphMemory.ReplaceCriticalSeeds(seeds, false); err != nil {
+		return err
+	}
+	e.cgeConfigMu.Lock()
+	e.criticalSeedPath = path
+	e.cgeConfigMu.Unlock()
 	return nil
 }
 
+func (e *Engine) SetCriticalSeedPath(path string) {
+	if e == nil {
+		return
+	}
+	e.cgeConfigMu.Lock()
+	e.criticalSeedPath = strings.TrimSpace(path)
+	e.cgeConfigMu.Unlock()
+}
+
 func (e *Engine) LoadCriticalSeedsFirstExisting(paths ...string) (string, error) {
+	for _, candidate := range paths {
+		if path := strings.TrimSpace(candidate); path != "" {
+			e.SetCriticalSeedPath(path)
+			break
+		}
+	}
 	for _, path := range paths {
 		path = strings.TrimSpace(path)
 		if path == "" {
@@ -158,6 +195,353 @@ func (e *Engine) CriticalSeed(id string) (cgecontracts.CriticalSeed, bool) {
 		return cgecontracts.CriticalSeed{}, false
 	}
 	return e.graphMemory.CriticalSeed(id)
+}
+
+func (e *Engine) CreateCriticalSeed(seed cgecontracts.CriticalSeed, allowLowScore bool) (cgecontracts.CriticalSeed, error) {
+	if e == nil || e.graphMemory == nil {
+		return cgecontracts.CriticalSeed{}, errors.New("cge unavailable")
+	}
+	e.cgeConfigMu.Lock()
+	defer e.cgeConfigMu.Unlock()
+
+	seed.ID = strings.TrimSpace(seed.ID)
+	for _, current := range e.graphMemory.CriticalSeeds() {
+		if current.ID == seed.ID {
+			return cgecontracts.CriticalSeed{}, fmt.Errorf("duplicate critical seed id %q", seed.ID)
+		}
+	}
+	now := time.Now().UTC()
+	seed.Version = graph.CriticalSeedVersion
+	seed.AllowLowScore = allowLowScore
+	seed.CreatedAt = now
+	seed.UpdatedAt = now
+	seed.DeletedAt = nil
+	normalized, err := graph.NormalizeCriticalSeeds([]cgecontracts.CriticalSeed{seed}, allowLowScore)
+	if err != nil {
+		return cgecontracts.CriticalSeed{}, err
+	}
+	seed = normalized[0]
+	candidate := append(e.graphMemory.CriticalSeeds(), seed)
+	if err := e.persistAndReplaceCriticalSeedsLocked(candidate); err != nil {
+		return cgecontracts.CriticalSeed{}, err
+	}
+	return e.mustCriticalSeed(seed.ID)
+}
+
+func (e *Engine) PatchCriticalSeed(id string, patch cgecontracts.CriticalSeedPatch) (cgecontracts.CriticalSeed, error) {
+	if e == nil || e.graphMemory == nil {
+		return cgecontracts.CriticalSeed{}, errors.New("cge unavailable")
+	}
+	e.cgeConfigMu.Lock()
+	defer e.cgeConfigMu.Unlock()
+
+	id = strings.TrimSpace(id)
+	candidate := e.graphMemory.CriticalSeeds()
+	index := -1
+	for i := range candidate {
+		if candidate[i].ID == id {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return cgecontracts.CriticalSeed{}, errors.New("critical seed not found")
+	}
+	seed := candidate[index]
+	if patch.Name != nil {
+		seed.Name = strings.TrimSpace(*patch.Name)
+	}
+	if patch.Enabled != nil {
+		seed.Enabled = *patch.Enabled
+		if seed.Enabled {
+			seed.DeletedAt = nil
+		}
+	}
+	if patch.DangerScore != nil {
+		seed.DangerScore = *patch.DangerScore
+	}
+	if patch.AllowLowScore {
+		seed.AllowLowScore = true
+	}
+	if patch.RiskLevel != nil {
+		seed.RiskLevel = strings.TrimSpace(*patch.RiskLevel)
+	}
+	if patch.ExpectedState != nil {
+		seed.ExpectedState = strings.TrimSpace(*patch.ExpectedState)
+	}
+	if patch.ProposedActions != nil {
+		seed.ProposedActions = append([]string(nil), (*patch.ProposedActions)...)
+	}
+	if patch.ForbiddenActions != nil {
+		seed.ForbiddenActions = append([]string(nil), (*patch.ForbiddenActions)...)
+	}
+	if patch.RequiresValidation != nil {
+		seed.RequiresValidation = *patch.RequiresValidation
+	}
+	seed.Version++
+	if seed.Version <= graph.CriticalSeedVersion {
+		seed.Version = graph.CriticalSeedVersion + 1
+	}
+	seed.UpdatedAt = time.Now().UTC()
+	normalized, err := graph.NormalizeCriticalSeeds([]cgecontracts.CriticalSeed{seed}, patch.AllowLowScore)
+	if err != nil {
+		return cgecontracts.CriticalSeed{}, err
+	}
+	candidate[index] = normalized[0]
+	if err := e.persistAndReplaceCriticalSeedsLocked(candidate); err != nil {
+		return cgecontracts.CriticalSeed{}, err
+	}
+	return e.mustCriticalSeed(id)
+}
+
+func (e *Engine) DeleteCriticalSeed(id string) (cgecontracts.CriticalSeed, error) {
+	if e == nil || e.graphMemory == nil {
+		return cgecontracts.CriticalSeed{}, errors.New("cge unavailable")
+	}
+	e.cgeConfigMu.Lock()
+	defer e.cgeConfigMu.Unlock()
+
+	id = strings.TrimSpace(id)
+	candidate := e.graphMemory.CriticalSeeds()
+	index := -1
+	for i := range candidate {
+		if candidate[i].ID == id {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return cgecontracts.CriticalSeed{}, errors.New("critical seed not found")
+	}
+	now := time.Now().UTC()
+	candidate[index].Enabled = false
+	candidate[index].DeletedAt = &now
+	candidate[index].UpdatedAt = now
+	candidate[index].Version++
+	if err := e.persistAndReplaceCriticalSeedsLocked(candidate); err != nil {
+		return cgecontracts.CriticalSeed{}, err
+	}
+	return e.mustCriticalSeed(id)
+}
+
+func (e *Engine) persistAndReplaceCriticalSeedsLocked(seeds []cgecontracts.CriticalSeed) error {
+	if strings.TrimSpace(e.criticalSeedPath) == "" {
+		return errors.New("critical seed persistence path is not configured")
+	}
+	normalized, err := graph.NormalizeCriticalSeeds(seeds, true)
+	if err != nil {
+		return err
+	}
+	// Memory is intentionally left untouched until the durable write commits.
+	// Therefore any write/backup error is an automatic in-memory rollback.
+	if err := graph.SaveCriticalSeeds(e.criticalSeedPath, normalized); err != nil {
+		return err
+	}
+	return e.graphMemory.ReplaceCriticalSeeds(normalized, true)
+}
+
+func (e *Engine) mustCriticalSeed(id string) (cgecontracts.CriticalSeed, error) {
+	seed, ok := e.graphMemory.CriticalSeed(id)
+	if !ok {
+		return cgecontracts.CriticalSeed{}, errors.New("critical seed not found after update")
+	}
+	return seed, nil
+}
+
+func (e *Engine) LearnedBehaviors() []cgecontracts.LearnedBehavior {
+	if e == nil || e.graphMemory == nil {
+		return nil
+	}
+	return e.graphMemory.LearnedBehaviors()
+}
+
+func (e *Engine) LearnedBehavior(id string) (cgecontracts.LearnedBehavior, bool) {
+	if e == nil || e.graphMemory == nil {
+		return cgecontracts.LearnedBehavior{}, false
+	}
+	return e.graphMemory.LearnedBehavior(id)
+}
+
+func (e *Engine) PatchLearnedBehavior(id string, patch cgecontracts.LearnedBehaviorPatch) (cgecontracts.LearnedBehavior, error) {
+	if e == nil || e.graphMemory == nil {
+		return cgecontracts.LearnedBehavior{}, errors.New("cge unavailable")
+	}
+	return e.graphMemory.PatchLearnedBehavior(id, patch)
+}
+
+func (e *Engine) ApproveLearnedBehavior(id string, requiresValidation *bool) (cgecontracts.LearnedBehavior, error) {
+	if e == nil || e.graphMemory == nil {
+		return cgecontracts.LearnedBehavior{}, errors.New("cge unavailable")
+	}
+	return e.graphMemory.ApproveLearnedBehavior(id, requiresValidation)
+}
+
+func (e *Engine) RejectLearnedBehavior(id string) (cgecontracts.LearnedBehavior, error) {
+	if e == nil || e.graphMemory == nil {
+		return cgecontracts.LearnedBehavior{}, errors.New("cge unavailable")
+	}
+	return e.graphMemory.RejectLearnedBehavior(id)
+}
+
+func (e *Engine) DisableLearnedBehavior(id string) (cgecontracts.LearnedBehavior, error) {
+	if e == nil || e.graphMemory == nil {
+		return cgecontracts.LearnedBehavior{}, errors.New("cge unavailable")
+	}
+	return e.graphMemory.DisableLearnedBehavior(id)
+}
+
+func (e *Engine) ResetLearnedBehavior(id string) (cgecontracts.LearnedBehavior, error) {
+	if e == nil || e.graphMemory == nil {
+		return cgecontracts.LearnedBehavior{}, errors.New("cge unavailable")
+	}
+	return e.graphMemory.ResetLearnedBehavior(id)
+}
+
+func (e *Engine) ForgetLearnedBehavior(id string) (cgecontracts.LearnedBehavior, error) {
+	if e == nil || e.graphMemory == nil {
+		return cgecontracts.LearnedBehavior{}, errors.New("cge unavailable")
+	}
+	return e.graphMemory.ForgetLearnedBehavior(id)
+}
+
+func (e *Engine) ApplyLearnedBehaviorFeedback(id string, feedbackType string) (cgecontracts.LearnedBehavior, error) {
+	if e == nil || e.graphMemory == nil {
+		return cgecontracts.LearnedBehavior{}, errors.New("cge unavailable")
+	}
+	return e.graphMemory.ApplyLearnedBehaviorFeedback(id, feedbackType)
+}
+
+func (e *Engine) ExportLearnedBehaviorOverrides() []cgecontracts.LearnedBehaviorOverride {
+	if e == nil || e.graphMemory == nil {
+		return nil
+	}
+	return e.graphMemory.ExportLearnedBehaviorOverrides()
+}
+
+func (e *Engine) ApplyLearnedBehaviorOverrides(overrides []cgecontracts.LearnedBehaviorOverride) error {
+	if e == nil || e.graphMemory == nil {
+		return errors.New("cge unavailable")
+	}
+	return e.graphMemory.ApplyLearnedBehaviorOverrides(overrides)
+}
+
+// ApplyUserValidation translates durable user feedback into the separate CGE
+// override layer. It never rewrites raw learned counters or source events.
+func (e *Engine) ApplyUserValidation(validation contract.ValidationRequest) error {
+	if e == nil || e.graphMemory == nil {
+		return errors.New("cge unavailable")
+	}
+	if validation.DeletedAt != nil || !validation.Enabled {
+		return nil
+	}
+	status := strings.ToLower(strings.TrimSpace(validation.Status))
+	if status == contract.ValidationStatusPending || status == contract.ValidationStatusIgnored || status == "" {
+		return nil
+	}
+	behaviorID := strings.TrimSpace(validation.BehaviorID)
+	switch strings.ToLower(strings.TrimSpace(validation.Type)) {
+	case contract.ValidationTypeBehaviorApproval:
+		if behaviorID == "" {
+			return errors.New("behavior_id is required for behavior approval")
+		}
+		switch status {
+		case contract.ValidationStatusAccepted, contract.ValidationStatusApproved, contract.ValidationStatusCorrected:
+			_, err := e.ApproveLearnedBehavior(behaviorID, validationRequiresValidation(validation.Correction))
+			return err
+		case contract.ValidationStatusRejected:
+			_, err := e.RejectLearnedBehavior(behaviorID)
+			return err
+		}
+	case contract.ValidationTypeFalsePositive:
+		if behaviorID == "" {
+			return nil
+		}
+		if !affirmativeValidationStatus(status) {
+			return nil
+		}
+		_, err := e.graphMemory.ApplyLearnedBehaviorFeedbackFromValidation(behaviorID, cgecontracts.FeedbackFalsePositive, validation.ID)
+		return err
+	case contract.ValidationTypeFalseNegative:
+		if behaviorID == "" {
+			return nil
+		}
+		if !affirmativeValidationStatus(status) {
+			return nil
+		}
+		_, err := e.graphMemory.ApplyLearnedBehaviorFeedbackFromValidation(behaviorID, cgecontracts.FeedbackFalseNegative, validation.ID)
+		return err
+	case contract.ValidationTypeActionFeedback:
+		if behaviorID == "" {
+			return errors.New("behavior_id is required for action feedback")
+		}
+		forbidden := validationForbiddenActions(validation.Correction)
+		if len(forbidden) == 0 {
+			return nil
+		}
+		behavior, ok := e.LearnedBehavior(behaviorID)
+		if !ok {
+			return graph.ErrLearnedBehaviorNotFound
+		}
+		forbidden = mergeStrings(behavior.ForbiddenActions, forbidden)
+		patch := cgecontracts.LearnedBehaviorPatch{ForbiddenActions: &forbidden}
+		if behavior.Status == cgecontracts.LearnedBehaviorApproved {
+			// A newly forbidden action must take effect immediately. Disable the
+			// behavior in the same patch so an approved conflict is never active.
+			status := cgecontracts.LearnedBehaviorDisabled
+			enabled := false
+			patch.Status = &status
+			patch.Enabled = &enabled
+		}
+		_, err := e.PatchLearnedBehavior(behaviorID, patch)
+		return err
+	}
+	return nil
+}
+
+func validationRequiresValidation(correction map[string]any) *bool {
+	if correction == nil {
+		return nil
+	}
+	value, ok := correction["requires_validation"].(bool)
+	if !ok {
+		return nil
+	}
+	return &value
+}
+
+func affirmativeValidationStatus(status string) bool {
+	switch status {
+	case contract.ValidationStatusAccepted, contract.ValidationStatusApproved, contract.ValidationStatusCorrected:
+		return true
+	default:
+		return false
+	}
+}
+
+func validationForbiddenActions(correction map[string]any) []string {
+	if correction == nil {
+		return nil
+	}
+	out := []string{}
+	if value, ok := correction["forbidden_action"].(string); ok {
+		out = append(out, value)
+	}
+	switch values := correction["forbidden_actions"].(type) {
+	case []string:
+		out = append(out, values...)
+	case []any:
+		for _, value := range values {
+			if text, ok := value.(string); ok {
+				out = append(out, text)
+			}
+		}
+	}
+	if forbidden, ok := correction["forbidden"].(bool); ok && forbidden {
+		if value, ok := correction["action"].(string); ok {
+			out = append(out, value)
+		}
+	}
+	return mergeStrings(nil, out)
 }
 
 func (e *Engine) ObserveActionResult(event *contract.Event) {
@@ -234,6 +618,78 @@ func applyDangerAssessment(
 	return decision
 }
 
+func applyLearnedBehaviorGuidance(
+	decision cgecontracts.DecisionResult,
+	behavior *cgecontracts.LearnedBehavior,
+) cgecontracts.DecisionResult {
+	if behavior == nil || behavior.Status != cgecontracts.LearnedBehaviorApproved || !behavior.Enabled || behavior.Forgotten {
+		return decision
+	}
+	decision.GraphUsed = true
+	decision.LearnedBehaviorID = behavior.ID
+	decision.ProposedActions = cloneActionGuidance(behavior.ProposedActions)
+	decision.ForbiddenActions = append([]string(nil), behavior.ForbiddenActions...)
+	decision.Reasons = mergeStrings(decision.Reasons, []string{"approved_learned_behavior"})
+	decision.Evidence = mergeStrings(decision.Evidence, []string{"learned_behavior=" + behavior.ID})
+	if behavior.ConfidenceOverride != nil {
+		decision.Evidence = mergeStrings(decision.Evidence, []string{fmt.Sprintf("behavior_confidence_override=%.2f", *behavior.ConfidenceOverride)})
+	}
+	if behavior.RiskOverride != nil {
+		// A user override may raise the safety floor, but never lower risk already
+		// established by deterministic danger rules.
+		decision.DecisionScore = maxFloat(decision.DecisionScore, *behavior.RiskOverride)
+		decision.Level = maxSeverity(decision.Level, severityFromDangerScore(*behavior.RiskOverride))
+	}
+	if behavior.RequiresValidation {
+		decision.ValidationRequired = true
+		if decision.ValidationReason == "" {
+			decision.ValidationReason = "approved_behavior_requires_validation"
+		}
+	}
+	return decision
+}
+
+func cloneActionGuidance(actions []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(actions))
+	for _, action := range actions {
+		cloned := make(map[string]any, len(action))
+		for key, value := range action {
+			cloned[key] = value
+		}
+		out = append(out, cloned)
+	}
+	return out
+}
+
+func severityFromDangerScore(score float64) cgecontracts.Severity {
+	switch {
+	case score >= 0.80:
+		return cgecontracts.SeverityCritical
+	case score >= 0.60:
+		return cgecontracts.SeverityHigh
+	case score >= 0.40:
+		return cgecontracts.SeverityMedium
+	case score >= 0.20:
+		return cgecontracts.SeverityLow
+	default:
+		return cgecontracts.SeverityInfo
+	}
+}
+
+func maxSeverity(left cgecontracts.Severity, right cgecontracts.Severity) cgecontracts.Severity {
+	order := map[cgecontracts.Severity]int{
+		cgecontracts.SeverityInfo:     0,
+		cgecontracts.SeverityLow:      1,
+		cgecontracts.SeverityMedium:   2,
+		cgecontracts.SeverityHigh:     3,
+		cgecontracts.SeverityCritical: 4,
+	}
+	if order[right] > order[left] {
+		return right
+	}
+	return left
+}
+
 func applyCriticalSeedMatch(
 	match *cgecontracts.CriticalSeedMatch,
 	assessment *contract.DangerAssessment,
@@ -245,6 +701,9 @@ func applyCriticalSeedMatch(
 	assessment.Score = maxFloat(assessment.Score, match.ExpectedDangerScore)
 	assessment.Level = maxInt(assessment.Level, levelFromCriticalSeed(match.RiskLevel, match.ExpectedState))
 	assessment.SequenceSignature = match.Signature
+	assessment.MatchedSeedID = match.CriticalSeedID
+	assessment.RiskLevel = match.RiskLevel
+	assessment.ExpectedState = match.ExpectedState
 	assessment.ValidationRequired = true
 	if assessment.ValidationReason == "" {
 		assessment.ValidationReason = "critical_seed_match"

@@ -107,6 +107,25 @@ func TestSimulatedAssessmentMarked(t *testing.T) {
 	}
 }
 
+func TestDangerAssessmentCarriesPersistenceMetadata(t *testing.T) {
+	assessment := AssessEvent(testEvent(contract.EventVisionWeapon, "entry", 0.90), Context{Now: testTime(12)})
+	if assessment.RiskLevel == "" || assessment.ExpectedState == "" || assessment.LastSeen.IsZero() {
+		t.Fatalf("danger persistence metadata missing: %#v", assessment)
+	}
+	if !contract.IsPersistableDangerAssessment(&assessment) {
+		t.Fatalf("critical danger should be persistable: %#v", assessment)
+	}
+
+	low := AssessEvent(testEvent(contract.EventVisionIdentity, "entry", 0.95), Context{Now: testTime(12)})
+	if contract.IsPersistableDangerAssessment(&low) {
+		t.Fatalf("low danger should not be persisted: %#v", low)
+	}
+	worker := AssessEvent(testEvent(contract.EventDiscoveryWorkerCrashed, "", 0), Context{Now: testTime(12)})
+	if contract.IsPersistableDangerAssessment(&worker) {
+		t.Fatalf("discovery worker health must not be persisted as danger: %#v", worker)
+	}
+}
+
 func testEvent(eventType string, nodeID string, confidence float64) *contract.Event {
 	return &contract.Event{
 		ID:         "evt-" + eventType,

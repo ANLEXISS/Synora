@@ -63,6 +63,9 @@ func TestPersistentStoreSavesAndReloadsDurableState(t *testing.T) {
 		DeviceID:  "cam-1",
 		Payload:   map[string]any{"motion": true},
 	}})
+	if err := first.SaveBehaviorOverride("behavior-1", json.RawMessage(`{"id":"behavior-1","status":"approved"}`)); err != nil {
+		t.Fatalf("save behavior override: %v", err)
+	}
 
 	second := NewStore(WithPersistencePath(path))
 	summary, err := second.LoadPersisted()
@@ -83,6 +86,23 @@ func TestPersistentStoreSavesAndReloadsDurableState(t *testing.T) {
 	}
 	if events := second.RecentEventsList(); len(events) != 1 || events[0].Payload["motion"] != true {
 		t.Fatalf("events should reload defensively: %#v", events)
+	}
+	if override, ok := second.BehaviorOverride("behavior-1"); !ok || !json.Valid(override) {
+		t.Fatalf("behavior override should reload: %s ok=%v", override, ok)
+	}
+}
+
+func TestUserConfigurationMutationCreatesStateBackup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	store := NewStore(WithPersistencePath(path))
+	store.SetValidation(&contract.ValidationRequest{ID: "existing", Status: contract.ValidationStatusPending})
+	if err := store.SaveValidation(&contract.ValidationRequest{ID: "user", Status: contract.ValidationStatusApproved, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	backups, err := filepath.Glob(filepath.Join(dir, "backups", "state.*.json"))
+	if err != nil || len(backups) == 0 {
+		t.Fatalf("state backup missing: %v err=%v", backups, err)
 	}
 }
 

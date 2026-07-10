@@ -162,8 +162,8 @@ func TestCGEScenarioKnownResidentDetected(t *testing.T) {
 	}
 	assertEventVisible(t, public, event.ID, contract.EventVisionIdentity)
 	assessment := latestDanger(public)
-	if assessment == nil || assessment["level"] != float64(1) || assessment["category"] != contract.DangerCategoryActivity {
-		t.Fatalf("known resident should be level 1 activity: %#v", public.CGE)
+	if assessment != nil {
+		t.Fatalf("low-score activity must not be persisted as danger: %#v", public.CGE)
 	}
 }
 
@@ -336,7 +336,7 @@ func TestCGEScenarioFallDetected(t *testing.T) {
 		t.Fatalf("fall should be medical emergency, not intrusion decision=%#v system=%#v", decision, core.app.state.SystemState())
 	}
 	assessment := latestDanger(public)
-	if assessment == nil || assessment["category"] != contract.DangerCategoryMedicalEmergency || assessment["level"] != float64(5) {
+	if assessment == nil || assessment["danger_score"].(float64) < 0.9 || assessment["risk_level"] != "critical" {
 		t.Fatalf("fall should expose medical emergency danger assessment: %#v", public.CGE)
 	}
 }

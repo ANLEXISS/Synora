@@ -1,20 +1,26 @@
 package graph
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"synora/internal/configfile"
 	"synora/internal/engine/contracts"
 )
 
 const (
-	OriginReal         = "real"
-	OriginCriticalSeed = "critical_seed"
-	OriginSimulation   = "simulation"
+	OriginReal                     = "real"
+	OriginCriticalSeed             = "critical_seed"
+	OriginSimulation               = "simulation"
+	CriticalSeedVersion            = 1
+	MinimumCriticalSeedDangerScore = 0.65
 )
 
 type criticalSeedFile struct {
@@ -27,27 +33,41 @@ func LoadCriticalSeeds(path string) ([]contracts.CriticalSeed, error) {
 		return nil, err
 	}
 	var file criticalSeedFile
-	if err := yaml.Unmarshal(data, &file); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&file); err != nil {
 		return nil, err
 	}
-	seeds := make([]contracts.CriticalSeed, 0, len(file.CriticalChains))
-	for _, seed := range file.CriticalChains {
-		normalized, err := normalizeCriticalSeed(seed)
-		if err != nil {
-			return nil, err
-		}
-		seeds = append(seeds, normalized)
-	}
-	return seeds, nil
+	return NormalizeCriticalSeeds(file.CriticalChains, false)
 }
 
 func normalizeCriticalSeed(seed contracts.CriticalSeed) (contracts.CriticalSeed, error) {
+	return normalizeCriticalSeedWithOptions(seed, false, time.Now().UTC())
+}
+
+func normalizeCriticalSeedWithOptions(seed contracts.CriticalSeed, allowLowScore bool, now time.Time) (contracts.CriticalSeed, error) {
 	seed.ID = strings.TrimSpace(seed.ID)
 	seed.Name = strings.TrimSpace(seed.Name)
+	seed.Description = strings.TrimSpace(seed.Description)
 	seed.RiskLevel = strings.TrimSpace(seed.RiskLevel)
 	seed.ExpectedState = strings.TrimSpace(seed.ExpectedState)
 	if seed.ID == "" {
 		return seed, errors.New("critical seed id is required")
+	}
+	if seed.Name == "" {
+		return seed, errors.New("critical seed name is required")
+	}
+	if math.IsNaN(seed.DangerScore) || math.IsInf(seed.DangerScore, 0) || seed.DangerScore < 0 || seed.DangerScore > 1 {
+		return seed, errors.New("critical seed danger_score must be between 0 and 1")
+	}
+	if seed.DangerScore < MinimumCriticalSeedDangerScore && !allowLowScore && !seed.AllowLowScore {
+		return seed, fmt.Errorf("critical seed danger_score must be at least %.2f", MinimumCriticalSeedDangerScore)
+	}
+	if !validRiskLevel(seed.RiskLevel) {
+		return seed, fmt.Errorf("invalid critical seed risk_level %q", seed.RiskLevel)
+	}
+	if !validExpectedState(seed.ExpectedState) {
+		return seed, fmt.Errorf("invalid critical seed expected_state %q", seed.ExpectedState)
 	}
 	if len(seed.Sequence) == 0 {
 		return seed, errors.New("critical seed sequence is required")
@@ -61,27 +81,90 @@ func normalizeCriticalSeed(seed contracts.CriticalSeed) (contracts.CriticalSeed,
 	}
 	seed.ProposedActions = uniqueStrings(seed.ProposedActions)
 	seed.ForbiddenActions = uniqueStrings(seed.ForbiddenActions)
+	if err := validateSeedActions(seed); err != nil {
+		return seed, err
+	}
 	if seed.Context == nil {
 		seed.Context = map[string]any{}
+	}
+	if seed.Version <= 0 {
+		seed.Version = CriticalSeedVersion
+	}
+	if seed.CreatedAt.IsZero() {
+		seed.CreatedAt = now
+	}
+	if seed.UpdatedAt.IsZero() {
+		seed.UpdatedAt = seed.CreatedAt
+	}
+	if seed.DeletedAt != nil {
+		deletedAt := seed.DeletedAt.UTC()
+		seed.DeletedAt = &deletedAt
+		seed.Enabled = false
 	}
 	return seed, nil
 }
 
+func NormalizeCriticalSeeds(seeds []contracts.CriticalSeed, allowLowScore bool) ([]contracts.CriticalSeed, error) {
+	now := time.Now().UTC()
+	out := make([]contracts.CriticalSeed, 0, len(seeds))
+	seen := make(map[string]bool, len(seeds))
+	for _, seed := range seeds {
+		normalized, err := normalizeCriticalSeedWithOptions(seed, allowLowScore, now)
+		if err != nil {
+			return nil, err
+		}
+		if seen[normalized.ID] {
+			return nil, fmt.Errorf("duplicate critical seed id %q", normalized.ID)
+		}
+		seen[normalized.ID] = true
+		out = append(out, normalized)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+func SaveCriticalSeeds(path string, seeds []contracts.CriticalSeed) error {
+	normalized, err := NormalizeCriticalSeeds(seeds, false)
+	if err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(criticalSeedFile{CriticalChains: normalized})
+	if err != nil {
+		return err
+	}
+	return configfile.WriteAtomicWithBackup(path, data, 0o640)
+}
+
 func (g *GraphMemory) ApplyCriticalSeeds(seeds []contracts.CriticalSeed) {
+	_ = g.ReplaceCriticalSeeds(seeds, false)
+}
+
+func (g *GraphMemory) ReplaceCriticalSeeds(seeds []contracts.CriticalSeed, allowLowScore bool) error {
+	normalizedSeeds, err := NormalizeCriticalSeeds(seeds, allowLowScore)
+	if err != nil {
+		return err
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.criticalSeeds == nil {
-		g.criticalSeeds = make(map[string]contracts.CriticalSeed)
+	oldIDs := make(map[string]bool, len(g.criticalSeeds))
+	for id := range g.criticalSeeds {
+		oldIDs[id] = true
 	}
-	for _, seed := range seeds {
-		normalized, err := normalizeCriticalSeed(seed)
-		if err != nil || !normalized.Enabled {
-			continue
+	g.criticalSeeds = make(map[string]contracts.CriticalSeed, len(normalizedSeeds))
+	for _, seed := range normalizedSeeds {
+		g.criticalSeeds[seed.ID] = cloneCriticalSeed(seed)
+		delete(oldIDs, seed.ID)
+		if seed.Enabled && seed.DeletedAt == nil {
+			g.upsertCriticalSeedLocked(seed)
+		} else {
+			g.deactivateCriticalSeedLocked(seed.ID, false)
 		}
-		g.criticalSeeds[normalized.ID] = normalized
-		g.upsertCriticalSeedLocked(normalized)
+	}
+	for id := range oldIDs {
+		g.deactivateCriticalSeedLocked(id, true)
 	}
 	g.pruneInspectionLocked()
+	return nil
 }
 
 func (g *GraphMemory) CriticalSeeds() []contracts.CriticalSeed {
@@ -89,7 +172,7 @@ func (g *GraphMemory) CriticalSeeds() []contracts.CriticalSeed {
 	defer g.mu.RUnlock()
 	out := make([]contracts.CriticalSeed, 0, len(g.criticalSeeds))
 	for _, seed := range g.criticalSeeds {
-		out = append(out, seed)
+		out = append(out, cloneCriticalSeed(seed))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].ID < out[j].ID
@@ -101,13 +184,16 @@ func (g *GraphMemory) CriticalSeed(id string) (contracts.CriticalSeed, bool) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	seed, ok := g.criticalSeeds[strings.TrimSpace(id)]
-	return seed, ok
+	return cloneCriticalSeed(seed), ok
 }
 
 func (g *GraphMemory) upsertCriticalSeedLocked(seed contracts.CriticalSeed) {
 	signature := seedSignature(seed)
 	key := "critical_seed:" + seed.ID
-	now := time.Now().UTC()
+	now := seed.UpdatedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
 	sequence := g.learnedSequences[key]
 	if sequence == nil {
 		sequence = &contracts.LearnedSequence{
@@ -126,14 +212,17 @@ func (g *GraphMemory) upsertCriticalSeedLocked(seed contracts.CriticalSeed) {
 	sequence.SeedCount = 1
 	sequence.EffectiveCount = sequence.Count
 	sequence.ConfidenceBase = seed.DangerScore
-	sequence.Confidence = maxFloat(sequence.Confidence, seed.DangerScore)
+	sequence.Confidence = maxFloat(seed.DangerScore, confidence(sequence.EffectiveCount))
 	sequence.Origin = OriginCriticalSeed
 	sequence.CriticalSeedID = seed.ID
 	sequence.DangerScore = seed.DangerScore
 	sequence.RiskLevel = seed.RiskLevel
 	sequence.ExpectedState = seed.ExpectedState
 	if sequence.FirstSeen.IsZero() {
-		sequence.FirstSeen = now
+		sequence.FirstSeen = seed.CreatedAt
+		if sequence.FirstSeen.IsZero() {
+			sequence.FirstSeen = now
+		}
 	}
 	if sequence.LastSeen.IsZero() {
 		sequence.LastSeen = now
@@ -148,6 +237,7 @@ func (g *GraphMemory) upsertCriticalSeedLocked(seed contracts.CriticalSeed) {
 			TriggerSequenceSignature: signature,
 			Context:                  map[string]any{"origin": OriginCriticalSeed, "critical_seed_id": seed.ID},
 			Evidence:                 []string{},
+			CreatedAt:                seed.CreatedAt,
 		}
 		g.learnedBehaviors[behaviorID] = behavior
 	}
@@ -156,7 +246,7 @@ func (g *GraphMemory) upsertCriticalSeedLocked(seed contracts.CriticalSeed) {
 	behavior.SeedCount = 1
 	behavior.EffectiveCount = sequence.EffectiveCount
 	behavior.ConfidenceBase = seed.DangerScore
-	behavior.Confidence = maxFloat(behavior.Confidence, seed.DangerScore)
+	behavior.Confidence = maxFloat(seed.DangerScore, confidence(behavior.EffectiveCount))
 	behavior.Origin = OriginCriticalSeed
 	behavior.CriticalSeedID = seed.ID
 	behavior.DangerScore = seed.DangerScore
@@ -166,7 +256,44 @@ func (g *GraphMemory) upsertCriticalSeedLocked(seed contracts.CriticalSeed) {
 	behavior.RequiresValidation = seed.RequiresValidation
 	behavior.ProposedActions = proposedActionMaps(seed.ProposedActions, seed.ForbiddenActions)
 	behavior.ForbiddenActions = append([]string(nil), seed.ForbiddenActions...)
+	behavior.Enabled = true
+	behavior.Forgotten = false
+	behavior.UserNotes = ""
+	behavior.ConfidenceOverride = nil
+	behavior.RiskOverride = nil
+	behavior.UserFeedback = contracts.UserFeedback{}
+	behavior.UpdatedAt = now
+	if behavior.CreatedAt.IsZero() {
+		behavior.CreatedAt = seed.CreatedAt
+		if behavior.CreatedAt.IsZero() {
+			behavior.CreatedAt = now
+		}
+	}
+	if behavior.Context == nil {
+		behavior.Context = map[string]any{}
+	}
+	behavior.Context["origin"] = OriginCriticalSeed
+	behavior.Context["critical_seed_id"] = seed.ID
+	delete(behavior.Context, "seed_disabled")
 	behavior.Evidence = appendLimited(behavior.Evidence, "critical_seed:"+seed.ID, CGEMaxEvidencePerBehavior)
+	g.applyBehaviorOverrideLocked(behavior)
+}
+
+func (g *GraphMemory) deactivateCriticalSeedLocked(seedID string, removed bool) {
+	behavior := g.learnedBehaviors["beh-seed-"+shortHash(seedID)]
+	if behavior == nil {
+		return
+	}
+	behavior.Enabled = false
+	behavior.Status = "disabled"
+	behavior.UpdatedAt = time.Now().UTC()
+	if behavior.Context == nil {
+		behavior.Context = map[string]any{}
+	}
+	behavior.Context["seed_disabled"] = true
+	if removed {
+		behavior.Context["critical_seed_removed"] = true
+	}
 }
 
 func (g *GraphMemory) observeCriticalSeedLocked(scope string, current learnedEvent) *contracts.CriticalSeedMatch {
@@ -332,6 +459,59 @@ func proposedActionMaps(proposed []string, forbidden []string) []map[string]any 
 		out = append(out, map[string]any{"action": action})
 	}
 	return out
+}
+
+func validRiskLevel(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "low", "medium", "medium_high", "high", "critical":
+		return true
+	default:
+		return false
+	}
+}
+
+func validExpectedState(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "idle", "activity", "suspicious", "intrusion", "break_in", "emergency":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateSeedActions(seed contracts.CriticalSeed) error {
+	forbidden := make(map[string]bool, len(seed.ForbiddenActions))
+	for _, action := range seed.ForbiddenActions {
+		forbidden[canonicalActionName(action)] = true
+	}
+	for _, action := range seed.ProposedActions {
+		canonical := canonicalActionName(action)
+		if canonical == "" {
+			continue
+		}
+		if forbidden[canonical] {
+			return fmt.Errorf("%w: proposed action %q is forbidden by critical seed", ErrForbiddenAction, canonical)
+		}
+		if isAlwaysForbiddenAutomaticAction(canonical) {
+			return fmt.Errorf("%w: automatic action %q is forbidden", ErrForbiddenAction, canonical)
+		}
+		if canonical == "siren.turn_on" && !seed.RequiresValidation {
+			return fmt.Errorf("%w: siren.turn_on requires validation", ErrForbiddenAction)
+		}
+	}
+	return nil
+}
+
+func cloneCriticalSeed(seed contracts.CriticalSeed) contracts.CriticalSeed {
+	seed.Sequence = append([]contracts.CriticalSeedStep(nil), seed.Sequence...)
+	seed.ProposedActions = append([]string(nil), seed.ProposedActions...)
+	seed.ForbiddenActions = append([]string(nil), seed.ForbiddenActions...)
+	seed.Context = cloneAnyMap(seed.Context)
+	if seed.DeletedAt != nil {
+		deletedAt := *seed.DeletedAt
+		seed.DeletedAt = &deletedAt
+	}
+	return seed
 }
 
 func maxFloat(left float64, right float64) float64 {

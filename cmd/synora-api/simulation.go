@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -85,17 +84,14 @@ func handleSimulationRun(runner *simulationRunner) http.HandlerFunc {
 			return
 		}
 
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			writeError(w, err)
+		body, ok := readJSONObject(w, r, false)
+		if !ok {
 			return
 		}
 		var req simulationRunRequest
-		if len(body) > 0 {
-			if err := json.Unmarshal(body, &req); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
-				return
-			}
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeError(w, contract.NewAPIError(contract.ErrorInvalidJSON, "invalid JSON body"))
+			return
 		}
 
 		response, err := runner.Start(req)

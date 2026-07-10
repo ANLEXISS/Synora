@@ -2,9 +2,11 @@ package automation
 
 import (
 	"os"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"synora/internal/configfile"
 	"synora/pkg/contract"
 )
 
@@ -210,9 +212,21 @@ func isCurrentFormat(rules []Rule) bool {
 }
 
 func SaveToFile(path string, rules []Rule) error {
-
+	cloned := make([]Rule, len(rules))
+	seen := make(map[string]struct{}, len(rules))
+	for i := range rules {
+		cloned[i] = normalizeRule(cloneRule(rules[i]))
+		if _, duplicate := seen[cloned[i].ID]; duplicate {
+			return contract.NewAPIError(contract.ErrorDuplicateID, "duplicate automation id %q", cloned[i].ID)
+		}
+		seen[cloned[i].ID] = struct{}{}
+		if err := validateStoredRule(cloned[i]); err != nil {
+			return err
+		}
+	}
+	sort.Slice(cloned, func(i, j int) bool { return cloned[i].ID < cloned[j].ID })
 	y := yamlAutomations{
-		Automations: rules,
+		Automations: cloned,
 	}
 
 	data, err := yaml.Marshal(&y)
@@ -220,5 +234,5 @@ func SaveToFile(path string, rules []Rule) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return configfile.WriteAtomicWithBackup(path, data, 0o640)
 }

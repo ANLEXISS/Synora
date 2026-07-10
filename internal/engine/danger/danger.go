@@ -87,6 +87,8 @@ func AssessEvent(event *contract.Event, context Context) contract.DangerAssessme
 		EventInstanceID:          metadataString(metadata, "event_instance_id"),
 		Level:                    result.level,
 		Score:                    roundScore(result.score),
+		RiskLevel:                riskLevel(result.level, result.score),
+		ExpectedState:            expectedState(result.level, result.category),
 		Category:                 result.category,
 		Title:                    result.title,
 		Explanation:              result.explanation,
@@ -96,6 +98,7 @@ func AssessEvent(event *contract.Event, context Context) contract.DangerAssessme
 		ValidationRequired:       result.validation,
 		ValidationReason:         result.validationReason,
 		CreatedAt:                now.UTC(),
+		LastSeen:                 now.UTC(),
 		Simulated:                context.Simulated,
 	}
 }
@@ -599,4 +602,41 @@ func maxInt(a int, b int) int {
 		return a
 	}
 	return b
+}
+
+func riskLevel(level int, score float64) string {
+	switch {
+	case level >= 5 || score >= 0.90:
+		return "critical"
+	case level >= 4 || score >= 0.75:
+		return "high"
+	case level >= 3 || score >= 0.60:
+		return "medium_high"
+	case level >= 2 || score >= 0.40:
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+func expectedState(level int, category string) string {
+	if category == contract.DangerCategoryMedicalEmergency && level >= 5 {
+		return "emergency"
+	}
+	if category == contract.DangerCategorySystemHealth || category == contract.DangerCategoryDeviceHealth {
+		if level >= 2 {
+			return "degraded"
+		}
+		return "observing"
+	}
+	switch {
+	case level >= 5:
+		return "intrusion"
+	case level >= 3:
+		return "suspicious"
+	case level >= 1:
+		return "activity"
+	default:
+		return "idle"
+	}
 }

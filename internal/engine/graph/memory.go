@@ -23,6 +23,7 @@ type GraphMemory struct {
 	learnedSequences   map[string]*contracts.LearnedSequence
 	learnedTransitions map[string]*contracts.LearnedTransition
 	learnedBehaviors   map[string]*contracts.LearnedBehavior
+	behaviorOverrides  map[string]contracts.LearnedBehaviorOverride
 	runEvents          map[string][]learnedEvent
 	countedRunKeys     map[string]map[string]bool
 	recentEvents       map[string][]learnedEvent
@@ -72,6 +73,7 @@ func NewGraphMemory() *GraphMemory {
 		learnedSequences:   make(map[string]*contracts.LearnedSequence),
 		learnedTransitions: make(map[string]*contracts.LearnedTransition),
 		learnedBehaviors:   make(map[string]*contracts.LearnedBehavior),
+		behaviorOverrides:  make(map[string]contracts.LearnedBehaviorOverride),
 		runEvents:          make(map[string][]learnedEvent),
 		countedRunKeys:     make(map[string]map[string]bool),
 		recentEvents:       make(map[string][]learnedEvent),
@@ -452,6 +454,7 @@ func (g *GraphMemory) Clear() {
 	g.learnedSequences = make(map[string]*contracts.LearnedSequence)
 	g.learnedTransitions = make(map[string]*contracts.LearnedTransition)
 	g.learnedBehaviors = make(map[string]*contracts.LearnedBehavior)
+	g.behaviorOverrides = make(map[string]contracts.LearnedBehaviorOverride)
 	g.runEvents = make(map[string][]learnedEvent)
 	g.countedRunKeys = make(map[string]map[string]bool)
 	g.recentEvents = make(map[string][]learnedEvent)
@@ -646,7 +649,9 @@ func (g *GraphMemory) ensureBehaviorLocked(sequence *contracts.LearnedSequence) 
 			ProposedActions:          []map[string]any{},
 			Status:                   "observing",
 			RequiresValidation:       true,
+			Enabled:                  true,
 			Evidence:                 []string{},
+			CreatedAt:                sequence.LastSeen,
 		}
 		g.learnedBehaviors[id] = behavior
 	}
@@ -655,10 +660,12 @@ func (g *GraphMemory) ensureBehaviorLocked(sequence *contracts.LearnedSequence) 
 	behavior.SimulatedCount = sequence.SimulatedCount
 	behavior.RealCount = sequence.RealCount
 	behavior.LastMatchedAt = sequence.LastSeen
+	behavior.UpdatedAt = sequence.LastSeen
 	behavior.Evidence = appendLimited(behavior.Evidence, fmt.Sprintf("sequence_count=%d", sequence.Count), CGEMaxEvidencePerBehavior)
 	if sequence.RealCount == 0 {
 		behavior.Context["simulation_only"] = true
 	}
+	g.applyBehaviorOverrideLocked(behavior)
 	g.pruneInspectionLocked()
 }
 

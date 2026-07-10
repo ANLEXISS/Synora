@@ -1,6 +1,9 @@
 package contract
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 const (
 	DangerCategoryActivity         = "activity"
@@ -55,6 +58,9 @@ type DangerAssessment struct {
 	EventInstanceID   string   `json:"event_instance_id,omitempty"`
 	Level             int      `json:"level"`
 	Score             float64  `json:"score"`
+	RiskLevel         string   `json:"risk_level,omitempty"`
+	ExpectedState     string   `json:"expected_state,omitempty"`
+	MatchedSeedID     string   `json:"matched_seed_id,omitempty"`
 	Category          string   `json:"category"`
 	Title             string   `json:"title"`
 	Explanation       string   `json:"explanation"`
@@ -67,6 +73,21 @@ type DangerAssessment struct {
 	ValidationReason   string `json:"validation_reason,omitempty"`
 
 	CreatedAt time.Time  `json:"created_at"`
+	LastSeen  time.Time  `json:"last_seen,omitempty"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	Simulated bool       `json:"simulated"`
+}
+
+func IsPersistableDangerAssessment(value *DangerAssessment) bool {
+	if value == nil || strings.TrimSpace(value.ID) == "" {
+		return false
+	}
+	eventType := strings.ToLower(strings.TrimSpace(value.EventType))
+	if strings.HasPrefix(eventType, "discovery.worker.") {
+		return false
+	}
+	if value.Score < 0.65 || value.Level <= 0 {
+		return false
+	}
+	return strings.TrimSpace(value.RiskLevel) != ""
 }

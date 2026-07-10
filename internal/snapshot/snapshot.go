@@ -56,7 +56,7 @@ func (b *Builder) LegacySnapshot() *contract.Snapshot {
 
 func (b *Builder) CoreState() map[string]any {
 	cge := b.cgeInspection()
-	cge["danger_assessments"] = b.State.DangerAssessmentsList()
+	cge["danger_assessments"] = b.DangerAssessmentViews()
 	return map[string]any{
 		"nodes":       b.TopologyTreeViews(),
 		"devices":     b.DeviceViews(),
@@ -82,7 +82,7 @@ func (b *Builder) CoreState() map[string]any {
 			"events":         b.State.Snapshot("events"),
 			"validations":    b.State.Snapshot("validations"),
 			"action_results": b.State.Snapshot("action_results"),
-			"danger":         b.State.DangerAssessmentsList(),
+			"danger":         b.DangerAssessmentViews(),
 			"system":         b.State.SystemState(),
 		},
 	}
@@ -102,16 +102,121 @@ func (b *Builder) StatePayload() map[string]any {
 		"identities":     b.State.Snapshot("identities"),
 		"validations":    b.State.Snapshot("validations"),
 		"action_results": b.State.Snapshot("action_results"),
-		"danger":         b.State.DangerAssessmentsList(),
+		"danger":         b.DangerAssessmentViews(),
 		"topology":       b.TopologyTreeViews(),
 		"residents":      b.ResidentViews(),
 	}
+}
+
+func (b *Builder) DangerAssessmentViews() []map[string]any {
+	if b == nil || b.State == nil {
+		return []map[string]any{}
+	}
+	items := b.State.DangerAssessmentsList()
+	out := make([]map[string]any, 0, len(items))
+	for i := len(items) - 1; i >= 0; i-- {
+		out = append(out, compactDangerAssessment(items[i]))
+	}
+	return out
+}
+
+func (b *Builder) DangerAssessmentView(id string) (map[string]any, bool) {
+	if b == nil || b.State == nil {
+		return nil, false
+	}
+	for _, item := range b.State.DangerAssessmentsList() {
+		if item.ID != id {
+			continue
+		}
+		view := compactDangerAssessment(item)
+		view["title"] = item.Title
+		view["explanation"] = item.Explanation
+		view["reasons"] = limitedStrings(item.Reasons, 20)
+		view["evidence"] = limitedStrings(item.Evidence, 20)
+		view["recommended_actions"] = compactDangerActions(item.RecommendedSystemActions, 10)
+		return view, true
+	}
+	return nil, false
+}
+
+func compactDangerAssessment(item contract.DangerAssessment) map[string]any {
+	lastSeen := item.LastSeen
+	if lastSeen.IsZero() {
+		lastSeen = item.CreatedAt
+	}
+	return map[string]any{
+		"id":                       item.ID,
+		"event_type":               item.EventType,
+		"danger_score":             item.Score,
+		"risk_level":               dangerRiskLevel(item),
+		"expected_state":           dangerExpectedState(item),
+		"created_at":               item.CreatedAt,
+		"last_seen":                lastSeen,
+		"evidence_count":           len(item.Evidence),
+		"recommended_action_count": len(item.RecommendedSystemActions),
+		"matched_seed_id":          item.MatchedSeedID,
+		"requires_validation":      item.ValidationRequired,
+	}
+}
+
+func dangerRiskLevel(item contract.DangerAssessment) string {
+	if item.RiskLevel != "" {
+		return item.RiskLevel
+	}
+	switch {
+	case item.Level >= 5:
+		return "critical"
+	case item.Level >= 4:
+		return "high"
+	case item.Level >= 3:
+		return "medium_high"
+	case item.Level >= 2:
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+func dangerExpectedState(item contract.DangerAssessment) string {
+	if item.ExpectedState != "" {
+		return item.ExpectedState
+	}
+	switch {
+	case item.Level >= 5:
+		return "intrusion"
+	case item.Level >= 3:
+		return "suspicious"
+	default:
+		return "activity"
+	}
+}
+
+func limitedStrings(items []string, limit int) []string {
+	if limit > 0 && len(items) > limit {
+		items = items[len(items)-limit:]
+	}
+	return append([]string(nil), items...)
+}
+
+func compactDangerActions(items []contract.SystemActionRecommendation, limit int) []map[string]any {
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, map[string]any{
+			"type": item.Type, "priority": item.Priority, "reason": item.Reason,
+			"target": item.Target, "dry_run": item.DryRun, "simulated": item.Simulated,
+		})
+	}
+	return out
 }
 
 func (b *Builder) DeviceViews() []map[string]any {
 	items := b.Devices.Ordered()
 	out := make([]map[string]any, 0, len(items))
 	for _, item := range items {
+		view := item.PublicView()
 		current, _ := b.State.DeviceState(item.ID)
 		lastSeen := time.Time{}
 		online := false
@@ -120,13 +225,23 @@ func (b *Builder) DeviceViews() []map[string]any {
 			online = current.Online
 		}
 		out = append(out, map[string]any{
-			"ID":       item.ID,
-			"Type":     item.Type,
-			"Role":     item.Role,
-			"Room":     item.Room,
-			"NodeID":   item.NodeID,
-			"Online":   online,
-			"LastSeen": lastSeen,
+			"id":           view.ID,
+			"name":         view.Name,
+			"type":         view.Type,
+			"role":         view.Role,
+			"node_id":      view.NodeID,
+			"zone_role":    view.ZoneRole,
+			"room_name":    view.RoomName,
+			"enabled":      view.Enabled,
+			"trusted":      view.Trusted,
+			"capabilities": view.Capabilities,
+			"config":       view.Config,
+			"metadata":     view.Metadata,
+			"created_at":   view.CreatedAt,
+			"updated_at":   view.UpdatedAt,
+			"deleted_at":   view.DeletedAt,
+			"online":       online,
+			"last_seen":    lastSeen,
 		})
 	}
 	return out
@@ -146,6 +261,10 @@ func (b *Builder) ResidentViews() []map[string]any {
 	out := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
 		resident := b.Residents[id]
+		if resident == nil {
+			continue
+		}
+		view := resident.PublicView()
 		presence, _ := b.State.PresenceState(id)
 		identity, _ := b.State.Identity(id)
 		stateValue := engine.StateAbsent
@@ -164,14 +283,21 @@ func (b *Builder) ResidentViews() []map[string]any {
 			confidence = identity.Confidence
 		}
 		out = append(out, map[string]any{
-			"id":         resident.ID,
-			"name":       resident.Name,
-			"role":       resident.Role,
-			"admin":      resident.Admin,
-			"node_id":    nodeID,
-			"last_seen":  lastSeen,
-			"state":      stateValue,
-			"confidence": confidence,
+			"id":           view.ID,
+			"name":         view.Name,
+			"display_name": view.DisplayName,
+			"role":         view.Role,
+			"admin":        view.Admin,
+			"enabled":      view.Enabled,
+			"trusted":      view.Trusted,
+			"metadata":     view.Metadata,
+			"created_at":   view.CreatedAt,
+			"updated_at":   view.UpdatedAt,
+			"deleted_at":   view.DeletedAt,
+			"node_id":      nodeID,
+			"last_seen":    lastSeen,
+			"state":        stateValue,
+			"confidence":   confidence,
 		})
 	}
 	return out

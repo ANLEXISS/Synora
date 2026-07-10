@@ -84,7 +84,7 @@ install: install-deps build install-dirs install-bins install-config install-mod
 	@echo "Synora runtime installation complete."
 	@echo "Run 'make start' to start services or 'make doctor' to inspect the install."
 
-update: build install-bins install-models install-mediamtx install-vision-worker install-systemd
+update: build install-bins install-config install-models install-mediamtx install-vision-worker install-systemd
 	$(SUDO) systemctl daemon-reload
 	@for service in $(START_ORDER); do \
 		if systemctl list-unit-files "$$service.service" >/dev/null 2>&1; then \
@@ -125,17 +125,16 @@ install-bins: install-dirs
 	done
 
 install-config:
-	$(SUDO) install -d -m 0755 $(CONFIG_DIR)
+	$(SUDO) install -d -m 0755 -o $(SERVICE_USER) -g $(SERVICE_USER) $(CONFIG_DIR)
 	@for src in configs/*.yaml; do \
 		name="$$(basename "$$src")"; dst="$(CONFIG_DIR)/$$name"; \
-		if [ -f "$$dst" ]; then \
+		if [ -e "$$dst" ] || [ -L "$$dst" ]; then \
 			echo "Keeping existing $$dst"; \
 		else \
 			echo "Installing $$dst"; \
-			$(SUDO) install -m 0640 "$$src" "$$dst"; \
+			$(SUDO) install -m 0640 -o $(SERVICE_USER) -g $(SERVICE_USER) "$$src" "$$dst"; \
 		fi; \
 	done
-	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(CONFIG_DIR)
 
 install-models: install-dirs
 	@if [ -d models ]; then \
@@ -254,6 +253,7 @@ doctor: check-go
 	id -nG "$$(id -un)" | grep -qw "$(SERVICE_USER)" && ok "current user is in group $(SERVICE_USER)" || warnf "current user is not in group $(SERVICE_USER); run: sudo usermod -aG $(SERVICE_USER) $$(id -un)"; \
 	$(PYTHON) -c 'import importlib.util,sys; missing=[m for m in ("cv2","numpy","scipy") if importlib.util.find_spec(m) is None]; rk=importlib.util.find_spec("rknnlite"); print("missing="+",".join(missing)); print("rknnlite="+("present" if rk else "missing")); sys.exit(1 if missing else 0)' >/tmp/synora-python-deps.log 2>&1 && ok "vision Python deps import" || { warnf "vision Python deps missing"; cat /tmp/synora-python-deps.log; }; \
 	[ -d "$(CONFIG_DIR)" ] && ok "$(CONFIG_DIR) exists" || failf "$(CONFIG_DIR) missing"; \
+	[ -f "$(CONFIG_DIR)/cge_critical_chains.yaml" ] && ok "CGE critical chains config present" || failf "CGE critical chains config missing"; \
 	[ -d "$(DATA_DIR)" ] && ok "$(DATA_DIR) exists" || failf "$(DATA_DIR) missing"; \
 	[ -d "$(DATA_DIR)/state" ] && ok "$(DATA_DIR)/state exists" || failf "$(DATA_DIR)/state missing"; \
 	if [ -d "$(MODELS_DIR)" ]; then \

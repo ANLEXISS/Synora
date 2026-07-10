@@ -12,6 +12,7 @@ import (
 type Condition = contract.Condition
 type AutomationAction = contract.AutomationAction
 type Trigger = contract.AutomationTrigger
+type AutomationPatch = contract.AutomationPatch
 
 type Rule struct {
 	ID          string `json:"id" yaml:"id"`
@@ -31,12 +32,21 @@ type Rule struct {
 	ScoreMultiplier float64 `json:"score_multiplier" yaml:"score_multiplier"`
 	ScoreOffset     float64 `json:"score_offset" yaml:"score_offset"`
 
-	Conditions []Condition        `json:"conditions,omitempty" yaml:"conditions,omitempty"`
-	Actions    []AutomationAction `json:"actions,omitempty" yaml:"actions,omitempty"`
-	CooldownMs int                `json:"cooldown_ms,omitempty" yaml:"cooldown_ms,omitempty"`
-	Schedule   *Schedule          `json:"schedule,omitempty" yaml:"schedule,omitempty"`
-	CreatedAt  time.Time          `json:"created_at,omitempty" yaml:"created_at,omitempty"`
-	UpdatedAt  time.Time          `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
+	Conditions         []Condition        `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+	Actions            []AutomationAction `json:"actions,omitempty" yaml:"actions,omitempty"`
+	CooldownMs         int                `json:"cooldown_ms,omitempty" yaml:"cooldown_ms,omitempty"`
+	TimeoutMs          int                `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
+	RetryCount         int                `json:"retry_count,omitempty" yaml:"retry_count,omitempty"`
+	DryRun             bool               `json:"dry_run,omitempty" yaml:"dry_run,omitempty"`
+	RequiresValidation bool               `json:"requires_validation,omitempty" yaml:"requires_validation,omitempty"`
+	Status             string             `json:"status,omitempty" yaml:"status,omitempty"`
+	ConfigError        string             `json:"config_error,omitempty" yaml:"config_error,omitempty"`
+	Schedule           *Schedule          `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	CreatedAt          time.Time          `json:"created_at,omitempty" yaml:"created_at,omitempty"`
+	UpdatedAt          time.Time          `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
+	DeletedAt          *time.Time         `json:"deleted_at,omitempty" yaml:"deleted_at,omitempty"`
+
+	enabledSet bool
 }
 
 type Schedule struct {
@@ -64,12 +74,13 @@ func (r *Rule) UnmarshalYAML(value *yaml.Node) error {
 		}
 	}
 	if !hasEnabled {
-		raw.Enabled = true
+		raw.Enabled = !containsSensitiveAction(raw.Actions)
 	}
 	if raw.ConditionLogic == "" {
 		raw.ConditionLogic = "all"
 	}
 	*r = Rule(raw)
+	r.enabledSet = hasEnabled
 	return nil
 }
 
@@ -80,14 +91,17 @@ func (r *Rule) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var fields map[string]json.RawMessage
+	hasEnabled := false
 	if err := json.Unmarshal(data, &fields); err == nil {
-		if _, ok := fields["enabled"]; !ok {
-			raw.Enabled = true
+		_, hasEnabled = fields["enabled"]
+		if !hasEnabled {
+			raw.Enabled = !containsSensitiveAction(raw.Actions)
 		}
 	}
 	if raw.ConditionLogic == "" {
 		raw.ConditionLogic = "all"
 	}
 	*r = Rule(raw)
+	r.enabledSet = hasEnabled
 	return nil
 }

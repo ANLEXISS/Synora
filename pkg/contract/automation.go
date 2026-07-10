@@ -2,42 +2,88 @@ package contract
 
 import (
 	"encoding/json"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	AutomationStatusObserving = "observing"
+	AutomationStatusSuggested = "suggested"
+	AutomationStatusApproved  = "approved"
+	AutomationStatusRejected  = "rejected"
+	AutomationStatusDisabled  = "disabled"
+)
+
 type Automation struct {
-	ID             string             `json:"id" yaml:"id"`
-	Name           string             `json:"name,omitempty" yaml:"name,omitempty"`
-	Enabled        bool               `json:"enabled" yaml:"enabled"`
-	Description    string             `json:"description,omitempty" yaml:"description,omitempty"`
-	Priority       int                `json:"priority,omitempty" yaml:"priority,omitempty"`
-	Trigger        AutomationTrigger  `json:"trigger,omitempty" yaml:"trigger,omitempty"`
-	Conditions     []Condition        `json:"conditions,omitempty" yaml:"conditions,omitempty"`
-	ConditionLogic string             `json:"condition_logic,omitempty" yaml:"condition_logic,omitempty"`
-	Actions        []AutomationAction `json:"actions,omitempty" yaml:"actions,omitempty"`
-	CooldownMs     int                `json:"cooldown_ms,omitempty" yaml:"cooldown_ms,omitempty"`
-	Schedule       any                `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	ID                 string             `json:"id" yaml:"id"`
+	Name               string             `json:"name,omitempty" yaml:"name,omitempty"`
+	Enabled            bool               `json:"enabled" yaml:"enabled"`
+	Description        string             `json:"description,omitempty" yaml:"description,omitempty"`
+	Priority           int                `json:"priority,omitempty" yaml:"priority,omitempty"`
+	Trigger            AutomationTrigger  `json:"trigger,omitempty" yaml:"trigger,omitempty"`
+	Conditions         []Condition        `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+	ConditionLogic     string             `json:"condition_logic,omitempty" yaml:"condition_logic,omitempty"`
+	Actions            []AutomationAction `json:"actions,omitempty" yaml:"actions,omitempty"`
+	CooldownMs         int                `json:"cooldown_ms,omitempty" yaml:"cooldown_ms,omitempty"`
+	TimeoutMs          int                `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
+	RetryCount         int                `json:"retry_count,omitempty" yaml:"retry_count,omitempty"`
+	DryRun             bool               `json:"dry_run,omitempty" yaml:"dry_run,omitempty"`
+	RequiresValidation bool               `json:"requires_validation,omitempty" yaml:"requires_validation,omitempty"`
+	Status             string             `json:"status,omitempty" yaml:"status,omitempty"`
+	ConfigError        string             `json:"config_error,omitempty" yaml:"config_error,omitempty"`
+	Schedule           any                `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	CreatedAt          time.Time          `json:"created_at,omitempty" yaml:"created_at,omitempty"`
+	UpdatedAt          time.Time          `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
+	DeletedAt          *time.Time         `json:"deleted_at,omitempty" yaml:"deleted_at,omitempty"`
 }
 
 type AutomationView struct {
-	ID             string             `json:"id" yaml:"id"`
-	Name           string             `json:"name,omitempty" yaml:"name,omitempty"`
-	Enabled        bool               `json:"enabled" yaml:"enabled"`
-	Description    string             `json:"description,omitempty" yaml:"description,omitempty"`
-	Priority       int                `json:"priority,omitempty" yaml:"priority,omitempty"`
-	Trigger        AutomationTrigger  `json:"trigger,omitempty" yaml:"trigger,omitempty"`
-	Conditions     []Condition        `json:"conditions,omitempty" yaml:"conditions,omitempty"`
-	ConditionLogic string             `json:"condition_logic,omitempty" yaml:"condition_logic,omitempty"`
-	Actions        []AutomationAction `json:"actions,omitempty" yaml:"actions,omitempty"`
-	CooldownMs     int                `json:"cooldown_ms,omitempty" yaml:"cooldown_ms,omitempty"`
-	Schedule       any                `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	ID                 string             `json:"id" yaml:"id"`
+	Name               string             `json:"name,omitempty" yaml:"name,omitempty"`
+	Enabled            bool               `json:"enabled" yaml:"enabled"`
+	Description        string             `json:"description,omitempty" yaml:"description,omitempty"`
+	Priority           int                `json:"priority,omitempty" yaml:"priority,omitempty"`
+	Trigger            AutomationTrigger  `json:"trigger,omitempty" yaml:"trigger,omitempty"`
+	Conditions         []Condition        `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+	ConditionLogic     string             `json:"condition_logic,omitempty" yaml:"condition_logic,omitempty"`
+	Actions            []AutomationAction `json:"actions,omitempty" yaml:"actions,omitempty"`
+	CooldownMs         int                `json:"cooldown_ms,omitempty" yaml:"cooldown_ms,omitempty"`
+	TimeoutMs          int                `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
+	RetryCount         int                `json:"retry_count,omitempty" yaml:"retry_count,omitempty"`
+	DryRun             bool               `json:"dry_run,omitempty" yaml:"dry_run,omitempty"`
+	RequiresValidation bool               `json:"requires_validation,omitempty" yaml:"requires_validation,omitempty"`
+	Status             string             `json:"status,omitempty" yaml:"status,omitempty"`
+	ConfigError        string             `json:"config_error,omitempty" yaml:"config_error,omitempty"`
+	Schedule           any                `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	CreatedAt          time.Time          `json:"created_at,omitempty" yaml:"created_at,omitempty"`
+	UpdatedAt          time.Time          `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
+	DeletedAt          *time.Time         `json:"deleted_at,omitempty" yaml:"deleted_at,omitempty"`
 }
 
 type AutomationTrigger struct {
-	EventType     string `json:"event_type,omitempty" yaml:"event_type,omitempty"`
-	State         string `json:"state,omitempty" yaml:"state,omitempty"`
-	SituationType string `json:"situation_type,omitempty" yaml:"situation_type,omitempty"`
+	EventType     string  `json:"event_type,omitempty" yaml:"event_type,omitempty"`
+	DeviceID      string  `json:"device_id,omitempty" yaml:"device_id,omitempty"`
+	NodeID        string  `json:"node_id,omitempty" yaml:"node_id,omitempty"`
+	ResidentID    string  `json:"resident_id,omitempty" yaml:"resident_id,omitempty"`
+	MinScore      float64 `json:"min_score,omitempty" yaml:"min_score,omitempty"`
+	State         string  `json:"state,omitempty" yaml:"state,omitempty"`
+	SituationType string  `json:"situation_type,omitempty" yaml:"situation_type,omitempty"`
+}
+
+type AutomationPatch struct {
+	Name               *string             `json:"name,omitempty"`
+	Enabled            *bool               `json:"enabled,omitempty"`
+	Trigger            *AutomationTrigger  `json:"trigger,omitempty"`
+	Conditions         *[]Condition        `json:"conditions,omitempty"`
+	ConditionLogic     *string             `json:"condition_logic,omitempty"`
+	Actions            *[]AutomationAction `json:"actions,omitempty"`
+	CooldownMs         *int                `json:"cooldown_ms,omitempty"`
+	TimeoutMs          *int                `json:"timeout_ms,omitempty"`
+	RetryCount         *int                `json:"retry_count,omitempty"`
+	DryRun             *bool               `json:"dry_run,omitempty"`
+	RequiresValidation *bool               `json:"requires_validation,omitempty"`
+	Status             *string             `json:"status,omitempty"`
 }
 
 type Condition struct {

@@ -1,18 +1,18 @@
 package rpc
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
-	"os"
-	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"synora/internal/automation"
 	"synora/internal/device"
 	"synora/internal/event"
-	"synora/internal/idgen"
 	"synora/internal/security"
 	"synora/internal/snapshot"
 	"synora/internal/state"
@@ -53,6 +53,9 @@ type Server struct {
 	publishEvent   func(string, any, int)
 	updateTopology func(*topology.Topology)
 	pairing        *security.PairingService
+	cge            any
+	notify         func(string, string)
+	configMu       sync.Mutex
 
 	handlers map[string]Handler
 }
@@ -72,6 +75,8 @@ type Config struct {
 	SecurityPath   string
 	PublishEvent   func(string, any, int)
 	UpdateTopology func(*topology.Topology)
+	CGE            any
+	NotifyMutation func(string, string)
 }
 
 type MutationPayload struct {
@@ -100,7 +105,12 @@ func NewServer(cfg Config) *Server {
 		publishEvent:   cfg.PublishEvent,
 		updateTopology: cfg.UpdateTopology,
 		pairing:        &security.PairingService{Path: cfg.SecurityPath},
+		cge:            cfg.CGE,
+		notify:         cfg.NotifyMutation,
 		handlers:       map[string]Handler{},
+	}
+	if server.devices != nil && strings.TrimSpace(server.devicePath) != "" {
+		server.devices.SetPersistencePath(server.devicePath)
 	}
 	server.register()
 	return server
@@ -121,7 +131,16 @@ func (s *Server) Handle(msg contract.Message) {
 		Timestamp: time.Now().UTC(),
 	}
 	if err != nil {
-		payload, _ := json.Marshal(map[string]any{"error": err.Error()})
+		code := contract.APIErrorCode(err)
+		message := err.Error()
+		if code == contract.ErrorInternal {
+			log.Printf("core: rpc %s failed: %v", msg.Type, err)
+			message = "internal error"
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"error":   code,
+			"message": message,
+		})
 		response.Payload = payload
 	} else if result != nil {
 		payload, marshalErr := json.Marshal(result)
@@ -146,19 +165,28 @@ func (s *Server) register() {
 	s.handlers["event.list"] = s.eventList
 	s.handlers["system.health"] = s.systemHealth
 	s.handlers["system.reset_intrusion"] = s.systemResetIntrusion
-	s.handlers["device.list"] = s.deviceList
-	s.handlers["device.update"] = s.deviceUpdate
-	s.handlers["device.delete"] = s.deviceDelete
+	s.handlers["device.list"] = s.deviceConfigList
+	s.handlers["device.get"] = s.deviceConfigGet
+	s.handlers["device.create"] = s.deviceConfigCreate
+	s.handlers["device.update"] = s.deviceConfigUpdate
+	s.handlers["device.delete"] = s.deviceConfigDelete
 	s.handlers["devices.pairing.start"] = s.devicePairingStart
 	s.handlers["devices.pairing.complete"] = s.devicePairingComplete
-	s.handlers["residents.list"] = s.residentsList
-	s.handlers["residents.create"] = s.residentsCreate
-	s.handlers["resident.update"] = s.residentUpdate
-	s.handlers["resident.delete"] = s.residentDelete
-	s.handlers["automation.list"] = s.automationList
-	s.handlers["automation.create"] = s.automationCreate
-	s.handlers["automation.delete"] = s.automationDelete
+	s.handlers["residents.list"] = s.residentConfigList
+	s.handlers["resident.get"] = s.residentConfigGet
+	s.handlers["residents.create"] = s.residentConfigCreate
+	s.handlers["resident.update"] = s.residentConfigUpdate
+	s.handlers["resident.delete"] = s.residentConfigDelete
+	s.handlers["automation.list"] = s.automationConfigList
+	s.handlers["automation.get"] = s.automationConfigGet
+	s.handlers["automation.create"] = s.automationConfigCreate
+	s.handlers["automation.update"] = s.automationConfigUpdate
+	s.handlers["automation.delete"] = s.automationConfigDelete
 	s.handlers["validations.list"] = s.validationsList
+	s.handlers["validations.get"] = s.validationGet
+	s.handlers["validations.create"] = s.validationCreate
+	s.handlers["validations.update"] = s.validationUpdate
+	s.handlers["validations.delete"] = s.validationDelete
 	s.handlers["validations.resolve"] = s.validationsResolve
 	s.handlers["cge.summary"] = s.cgeSummary
 	s.handlers["cge.sequences"] = s.cgeSequences
@@ -166,10 +194,28 @@ func (s *Server) register() {
 	s.handlers["cge.learned_behaviors"] = s.cgeLearnedBehaviors
 	s.handlers["cge.sequence"] = s.cgeSequence
 	s.handlers["cge.learned_behavior"] = s.cgeLearnedBehavior
-	s.handlers["topology.snapshot"] = s.topologySnapshot
-	s.handlers["topology.reset"] = s.topologyReset
+	s.handlers["cge.critical_seeds"] = s.cgeCriticalSeeds
+	s.handlers["cge.critical_seed"] = s.cgeCriticalSeed
+	s.handlers["cge.critical_seed.create"] = s.cgeCriticalSeedCreate
+	s.handlers["cge.critical_seed.update"] = s.cgeCriticalSeedUpdate
+	s.handlers["cge.critical_seed.delete"] = s.cgeCriticalSeedDelete
+	s.handlers["cge.learned_behavior.update"] = s.cgeLearnedBehaviorUpdate
+	s.handlers["cge.learned_behavior.delete"] = s.cgeLearnedBehaviorDelete
+	s.handlers["cge.learned_behavior.action"] = s.cgeLearnedBehaviorAction
+	s.handlers["cge.danger_assessments"] = s.dangerAssessments
+	s.handlers["cge.danger_assessment"] = s.dangerAssessment
+	s.handlers["topology.snapshot"] = s.topologyConfigSnapshot
+	s.handlers["topology.replace"] = s.topologyConfigReplace
+	s.handlers["topology.delete"] = s.topologyConfigDelete
+	s.handlers["topology.reset"] = s.topologyConfigReplace
 	s.handlers["core.snapshot"] = s.legacySnapshot
 	s.handlers["core.snapshot.apply"] = s.applySnapshot
+}
+
+func (s *Server) notifyMutation(kind string, id string) {
+	if s != nil && s.notify != nil {
+		s.notify(kind, id)
+	}
 }
 
 func (s *Server) coreState(_ contract.Message) (any, error) {
@@ -238,96 +284,6 @@ func (s *Server) systemResetIntrusion(_ contract.Message) (any, error) {
 	return map[string]any{"status": "ok"}, nil
 }
 
-func (s *Server) deviceList(_ contract.Message) (any, error) {
-	return s.snapshot.DeviceViews(), nil
-}
-
-func (s *Server) deviceUpdate(msg contract.Message) (any, error) {
-	var req MutationPayload
-	if err := decodePayload(msg.Payload, &req); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(req.ID) == "" {
-		return nil, errors.New("id is required")
-	}
-	dev, ok := s.devices.Get(req.ID)
-	if !ok || dev == nil {
-		return nil, errors.New("device not found")
-	}
-	var patch map[string]any
-	if err := decodePayload(req.Data, &patch); err != nil {
-		return nil, err
-	}
-	if room, ok := patch["room"].(string); ok && strings.TrimSpace(room) != "" {
-		dev.Room = strings.TrimSpace(room)
-		dev.NodeID = dev.Room
-	}
-	if role, ok := patch["role"].(string); ok {
-		dev.Role = strings.TrimSpace(role)
-	}
-
-	items := s.devices.Ordered()
-	for i := range items {
-		if items[i].ID == dev.ID {
-			items[i] = *dev
-		}
-	}
-	if err := device.Save(s.devicePath, items); err != nil {
-		return nil, err
-	}
-	s.devices.Replace(items)
-	now := time.Now().UTC()
-	current, _ := s.state.DeviceState(dev.ID)
-	if current == nil {
-		current = &state.DeviceState{ID: dev.ID, CreatedAt: now}
-	}
-	current.Type = dev.Type
-	current.Role = dev.Role
-	current.Room = dev.Room
-	current.NodeID = dev.NodeID
-	current.UpdatedAt = now
-	s.state.SetDeviceState(current)
-	if dev.Type == "camera" {
-		cameraState, _ := s.state.CameraState(dev.ID)
-		if cameraState == nil {
-			cameraState = &state.CameraState{ID: dev.ID, CreatedAt: now}
-		}
-		cameraState.NodeID = dev.NodeID
-		cameraState.UpdatedAt = now
-		s.state.SetCameraState(cameraState)
-	} else {
-		s.state.Delete("cameras", dev.ID)
-	}
-	return s.snapshot.DeviceViews(), nil
-}
-
-func (s *Server) deviceDelete(msg contract.Message) (any, error) {
-	var req DeletePayload
-	if err := decodePayload(msg.Payload, &req); err != nil {
-		return nil, err
-	}
-	if req.ID == "" {
-		return nil, errors.New("id is required")
-	}
-	items := s.devices.Ordered()
-	filtered := make([]device.DeviceConfig, 0, len(items))
-	for _, item := range items {
-		if item.ID != req.ID {
-			filtered = append(filtered, item)
-		}
-	}
-	if len(filtered) == len(items) {
-		return nil, errors.New("device not found")
-	}
-	if err := device.Save(s.devicePath, filtered); err != nil {
-		return nil, err
-	}
-	s.devices.Replace(filtered)
-	s.state.Delete("devices", req.ID)
-	s.state.Delete("cameras", req.ID)
-	return map[string]any{"ok": true, "id": req.ID}, nil
-}
-
 func (s *Server) devicePairingStart(_ contract.Message) (any, error) {
 	if s.pairing == nil {
 		return nil, errors.New("pairing unavailable")
@@ -346,124 +302,8 @@ func (s *Server) devicePairingComplete(msg contract.Message) (any, error) {
 	return s.pairing.Complete(req)
 }
 
-func (s *Server) residentsList(_ contract.Message) (any, error) {
-	return s.snapshot.ResidentViews(), nil
-}
-
-func (s *Server) residentsCreate(msg contract.Message) (any, error) {
-	var resident topology.Resident
-	if err := decodePayload(msg.Payload, &resident); err != nil {
-		return nil, err
-	}
-	resident.ID = strings.TrimSpace(resident.ID)
-	if resident.ID == "" {
-		return nil, errors.New("resident id is required")
-	}
-	s.snapshot.Mu.Lock()
-	if _, exists := s.snapshot.Residents[resident.ID]; exists {
-		s.snapshot.Mu.Unlock()
-		return nil, errors.New("resident already exists")
-	}
-	s.snapshot.Residents[resident.ID] = &resident
-	err := topology.SaveResidents(s.residentsPath, s.snapshot.Residents)
-	s.snapshot.Mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	return s.snapshot.ResidentViews(), nil
-}
-
-func (s *Server) residentUpdate(msg contract.Message) (any, error) {
-	var req MutationPayload
-	if err := decodePayload(msg.Payload, &req); err != nil {
-		return nil, err
-	}
-	var patch map[string]any
-	if err := decodePayload(req.Data, &patch); err != nil {
-		return nil, err
-	}
-	s.snapshot.Mu.Lock()
-	resident, ok := s.snapshot.Residents[req.ID]
-	if !ok || resident == nil {
-		s.snapshot.Mu.Unlock()
-		return nil, errors.New("resident not found")
-	}
-	if name, ok := patch["name"].(string); ok {
-		resident.Name = strings.TrimSpace(name)
-	}
-	if role, ok := patch["role"].(string); ok {
-		resident.Role = strings.TrimSpace(role)
-	}
-	if admin, ok := patch["admin"].(bool); ok {
-		resident.Admin = admin
-	}
-	err := topology.SaveResidents(s.residentsPath, s.snapshot.Residents)
-	s.snapshot.Mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	return s.snapshot.ResidentViews(), nil
-}
-
-func (s *Server) residentDelete(msg contract.Message) (any, error) {
-	var req DeletePayload
-	if err := decodePayload(msg.Payload, &req); err != nil {
-		return nil, err
-	}
-	s.snapshot.Mu.Lock()
-	if _, ok := s.snapshot.Residents[req.ID]; !ok {
-		s.snapshot.Mu.Unlock()
-		return nil, errors.New("resident not found")
-	}
-	delete(s.snapshot.Residents, req.ID)
-	err := topology.SaveResidents(s.residentsPath, s.snapshot.Residents)
-	s.snapshot.Mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	s.state.Delete("presence", req.ID)
-	s.state.Delete("identities", req.ID)
-	return map[string]any{"ok": true, "id": req.ID}, nil
-}
-
-func (s *Server) automationList(_ contract.Message) (any, error) {
-	return s.automation.List(), nil
-}
-
-func (s *Server) automationCreate(msg contract.Message) (any, error) {
-	var rule automation.Rule
-	if err := decodePayload(msg.Payload, &rule); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(rule.ID) == "" {
-		rule.ID = idgen.New("automation")
-	}
-	if err := s.automation.Add(rule); err != nil {
-		return nil, err
-	}
-	return s.automation.List(), nil
-}
-
-func (s *Server) automationDelete(msg contract.Message) (any, error) {
-	var req DeletePayload
-	if err := decodePayload(msg.Payload, &req); err != nil {
-		return nil, err
-	}
-	if req.ID == "" {
-		return nil, errors.New("id is required")
-	}
-	if err := s.automation.Remove(req.ID); err != nil {
-		return nil, err
-	}
-	return map[string]any{"ok": true, "id": req.ID}, nil
-}
-
 func (s *Server) validationsList(_ contract.Message) (any, error) {
-	validations := s.state.ValidationsList()
-	sort.Slice(validations, func(i, j int) bool {
-		return validations[i].CreatedAt.Before(validations[j].CreatedAt)
-	})
-	return validations, nil
+	return sortedValidations(s.state.ValidationsList()), nil
 }
 
 func (s *Server) validationsResolve(msg contract.Message) (any, error) {
@@ -490,7 +330,15 @@ func (s *Server) validationsResolve(msg contract.Message) (any, error) {
 	validation.Status = status
 	validation.ProposedIdentity = proposedIdentity
 	validation.ResolvedAt = &now
-	s.state.SetValidation(validation)
+	validation.UpdatedAt = now
+	if err := s.applyValidationGuidance(validation); err != nil {
+		return nil, err
+	}
+	s.applyValidationStateCorrection(validation)
+	if err := s.state.SaveValidation(validation); err != nil {
+		return nil, err
+	}
+	s.notifyMutation("validation.updated", validation.ID)
 
 	return validation, nil
 }
@@ -515,27 +363,6 @@ func resolveValidationStatus(req contract.ValidationResolveRequest) (string, str
 	}
 }
 
-func (s *Server) topologySnapshot(_ contract.Message) (any, error) {
-	return s.snapshot.TopologyTreeViews(), nil
-}
-
-func (s *Server) topologyReset(msg contract.Message) (any, error) {
-	if len(msg.Payload) > 0 && string(msg.Payload) != "null" && string(msg.Payload) != "{}" {
-		if err := os.WriteFile(s.topologyPath, msg.Payload, 0644); err != nil {
-			return nil, err
-		}
-	}
-	loaded := &topology.Topology{Nodes: map[string]*topology.Node{}}
-	if err := topology.Load(s.topologyPath, loaded); err != nil {
-		return nil, err
-	}
-	s.snapshot.SetTopology(loaded)
-	if s.updateTopology != nil {
-		s.updateTopology(loaded)
-	}
-	return s.snapshot.TopologyTreeViews(), nil
-}
-
 func (s *Server) legacySnapshot(_ contract.Message) (any, error) {
 	return s.snapshot.LegacySnapshot(), nil
 }
@@ -546,10 +373,16 @@ func (s *Server) applySnapshot(_ contract.Message) (any, error) {
 
 func decodePayload(raw []byte, out interface{}) error {
 	if len(raw) == 0 {
-		return errors.New("payload is required")
+		return contract.NewAPIError(contract.ErrorInvalidJSON, "payload is required")
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return err
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(out); err != nil {
+		return contract.NewAPIError(contract.ErrorInvalidJSON, "invalid JSON: %v", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return contract.NewAPIError(contract.ErrorInvalidJSON, "JSON body must contain one value")
 	}
 	return nil
 }

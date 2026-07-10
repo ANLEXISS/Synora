@@ -9,10 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"synora/internal/configfile"
 	"synora/pkg/contract"
 )
 
-const PersistedStateVersion = 1
+const PersistedStateVersion = 2
 
 type Persistence interface {
 	Load() (*PersistedState, error)
@@ -20,16 +21,21 @@ type Persistence interface {
 	Close() error
 }
 
+type BackupPersistence interface {
+	Backup() error
+}
+
 type PersistedState struct {
-	Version       int                                   `json:"version"`
-	SavedAt       time.Time                             `json:"saved_at"`
-	Clips         map[string]ClipState                  `json:"clips,omitempty"`
-	Validations   map[string]contract.ValidationRequest `json:"validations,omitempty"`
-	ActionResults map[string]contract.ActionResult      `json:"action_results,omitempty"`
-	Danger        []*contract.DangerAssessment          `json:"danger_assessments,omitempty"`
-	Events        []*contract.Event                     `json:"events,omitempty"`
-	Identities    map[string]IdentityState              `json:"identities,omitempty"`
-	Presence      map[string]PresenceState              `json:"presence,omitempty"`
+	Version           int                                   `json:"version"`
+	SavedAt           time.Time                             `json:"saved_at"`
+	Clips             map[string]ClipState                  `json:"clips,omitempty"`
+	Validations       map[string]contract.ValidationRequest `json:"validations,omitempty"`
+	BehaviorOverrides map[string]json.RawMessage            `json:"learned_behavior_overrides,omitempty"`
+	ActionResults     map[string]contract.ActionResult      `json:"action_results,omitempty"`
+	Danger            []*contract.DangerAssessment          `json:"danger_assessments,omitempty"`
+	Events            []*contract.Event                     `json:"events,omitempty"`
+	Identities        map[string]IdentityState              `json:"identities,omitempty"`
+	Presence          map[string]PresenceState              `json:"presence,omitempty"`
 }
 
 type PersistedSummary struct {
@@ -132,12 +138,25 @@ func (p *FilePersistence) Close() error {
 	return nil
 }
 
+func (p *FilePersistence) Backup() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, err := configfile.BackupExisting(p.path, 0o640)
+	return err
+}
+
 func migratePersistedState(state *PersistedState) error {
 	if state == nil {
 		return nil
 	}
 	switch state.Version {
 	case PersistedStateVersion:
+		return nil
+	case 1:
+		state.Version = PersistedStateVersion
+		if state.BehaviorOverrides == nil {
+			state.BehaviorOverrides = map[string]json.RawMessage{}
+		}
 		return nil
 	default:
 		return fmt.Errorf("unsupported persisted state version %d", state.Version)
@@ -146,14 +165,15 @@ func migratePersistedState(state *PersistedState) error {
 
 func emptyPersistedState() *PersistedState {
 	return &PersistedState{
-		Version:       PersistedStateVersion,
-		Clips:         map[string]ClipState{},
-		Validations:   map[string]contract.ValidationRequest{},
-		ActionResults: map[string]contract.ActionResult{},
-		Danger:        []*contract.DangerAssessment{},
-		Events:        []*contract.Event{},
-		Identities:    map[string]IdentityState{},
-		Presence:      map[string]PresenceState{},
+		Version:           PersistedStateVersion,
+		Clips:             map[string]ClipState{},
+		Validations:       map[string]contract.ValidationRequest{},
+		BehaviorOverrides: map[string]json.RawMessage{},
+		ActionResults:     map[string]contract.ActionResult{},
+		Danger:            []*contract.DangerAssessment{},
+		Events:            []*contract.Event{},
+		Identities:        map[string]IdentityState{},
+		Presence:          map[string]PresenceState{},
 	}
 }
 

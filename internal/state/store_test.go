@@ -71,12 +71,13 @@ func TestDangerAssessmentsHistoryIsBoundedAndPersisted(t *testing.T) {
 	store := NewStore()
 	for i := 0; i < 105; i++ {
 		store.AddDangerAssessment(&contract.DangerAssessment{
-			ID:       fmt.Sprintf("danger-%03d", i),
-			EventID:  fmt.Sprintf("evt-%03d", i),
-			Level:    3,
-			Score:    0.62,
-			Category: contract.DangerCategorySecurity,
-			Title:    "Unknown presence",
+			ID:        fmt.Sprintf("danger-%03d", i),
+			EventID:   fmt.Sprintf("evt-%03d", i),
+			Level:     3,
+			Score:     0.72,
+			RiskLevel: "medium_high",
+			Category:  contract.DangerCategorySecurity,
+			Title:     "Unknown presence",
 		})
 	}
 
@@ -87,6 +88,24 @@ func TestDangerAssessmentsHistoryIsBoundedAndPersisted(t *testing.T) {
 	persisted := store.PersistedState()
 	if len(persisted.Danger) != maxDanger {
 		t.Fatalf("persisted danger should keep latest 100, got %d", len(persisted.Danger))
+	}
+}
+
+func TestDangerAssessmentsRejectNoiseAndLowScores(t *testing.T) {
+	store := NewStore()
+	store.AddDangerAssessment(&contract.DangerAssessment{
+		ID: "worker", EventType: "discovery.worker.crashed", Level: 5, Score: 0.99,
+		Category: contract.DangerCategorySystemHealth,
+	})
+	store.AddDangerAssessment(&contract.DangerAssessment{
+		ID: "low", EventType: contract.EventVisionUnknown, Level: 3, Score: 0.64,
+		Category: contract.DangerCategorySecurity,
+	})
+	store.AddDangerAssessment(&contract.DangerAssessment{
+		ID: "null-risk", EventType: contract.EventVisionUnknown, Level: 0, Score: 0.9,
+	})
+	if got := store.DangerAssessmentsList(); len(got) != 0 {
+		t.Fatalf("ineligible danger assessments persisted: %#v", got)
 	}
 }
 
