@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -31,6 +32,31 @@ type Config struct {
 	PairingEnabled          bool              `yaml:"pairing_enabled"`
 	PublicSystemHealth      bool              `yaml:"public_system_health,omitempty"`
 	MaxTimestampSkewSeconds int               `yaml:"max_timestamp_skew_seconds,omitempty"`
+	Server                  ServerConfig      `yaml:"server,omitempty"`
+	Vision                  VisionConfig      `yaml:"vision,omitempty"`
+}
+
+type VisionConfig struct {
+	FaceDataRoot string `yaml:"face_data_root,omitempty"`
+}
+
+type ServerConfig struct {
+	HTTPAddr            string `yaml:"http_addr,omitempty"`
+	HTTPSEnabled        bool   `yaml:"https_enabled,omitempty"`
+	HTTPSAddr           string `yaml:"https_addr,omitempty"`
+	TLSCertFile         string `yaml:"tls_cert_file,omitempty"`
+	TLSKeyFile          string `yaml:"tls_key_file,omitempty"`
+	RedirectHTTPToHTTPS bool   `yaml:"redirect_http_to_https,omitempty"`
+}
+
+func DefaultServerConfig() ServerConfig {
+	return ServerConfig{
+		HTTPAddr:            ":8080",
+		HTTPSAddr:           ":8443",
+		TLSCertFile:         "/etc/synora/tls/synora.crt",
+		TLSKeyFile:          "/etc/synora/tls/synora.key",
+		RedirectHTTPToHTTPS: false,
+	}
 }
 
 func Load(path string) (*Config, error) {
@@ -80,7 +106,82 @@ func Save(path string, cfg *Config) error {
 	return os.Chmod(path, 0600)
 }
 
+// RotateAPIToken replaces both the bootstrap token and its verification hash
+// using an atomic write. The caller is responsible for backing up the config
+// and restarting synora-api so persisted web sessions are invalidated.
+func RotateAPIToken(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		path = DefaultPath
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		return "", err
+	}
+	token, err := RandomHex(defaultSecretByteCount)
+	if err != nil {
+		return "", err
+	}
+	cfg.APIToken = token
+	cfg.APITokenHash = HashSecret(token)
+	cfg.Normalize()
+
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".security-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		if err := os.Chown(tmpName, int(stat.Uid), int(stat.Gid)); err != nil {
+			_ = tmp.Close()
+			return "", err
+		}
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
 func (c *Config) Normalize() {
+	defaults := DefaultServerConfig()
+	if strings.TrimSpace(c.Server.HTTPAddr) == "" {
+		c.Server.HTTPAddr = defaults.HTTPAddr
+	}
+	if strings.TrimSpace(c.Server.HTTPSAddr) == "" {
+		c.Server.HTTPSAddr = defaults.HTTPSAddr
+	}
+	if strings.TrimSpace(c.Server.TLSCertFile) == "" {
+		c.Server.TLSCertFile = defaults.TLSCertFile
+	}
+	if strings.TrimSpace(c.Server.TLSKeyFile) == "" {
+		c.Server.TLSKeyFile = defaults.TLSKeyFile
+	}
 	if c.DeviceSecrets == nil {
 		c.DeviceSecrets = map[string]string{}
 	}

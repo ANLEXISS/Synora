@@ -189,6 +189,19 @@ func main() {
 	if err != nil {
 		log.Println("state persistence load warning:", err)
 	}
+	// Reconcile persisted runtime presence before publishing the first
+	// snapshot. Expiration is evaluated against wall-clock time after a
+	// restart, while Cleanup preserves each resident's last_seen value.
+	if expired := app.state.Cleanup(time.Now().UTC(), state.DefaultExpirationConfig()); len(expired.Deleted) > 0 {
+		for _, residentID := range expired.Deleted["presence"] {
+			app.clearResidentPresence(residentID)
+		}
+	}
+	for residentID := range app.residents {
+		if presence, ok := app.state.PresenceState(residentID); ok && presence != nil && presence.State == engine.StatePresent {
+			app.syncResidentPresence(presence)
+		}
+	}
 	app.eventStore.Load(app.state.RecentEventsList())
 	if err := app.rpc.RestoreLearnedBehaviorOverrides(); err != nil {
 		log.Println("cge learned behavior overrides restore warning:", err)
@@ -354,6 +367,9 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	stateChanged := stateapply.Apply(a.state, result, stateapply.Callbacks{
 		SyncPresence: a.syncResidentPresence,
 	})
+	if presence := stateapply.ApplyVisionIdentity(a.state, event); presence != nil {
+		a.syncResidentPresence(presence)
+	}
 
 	if result != nil &&
 		result.Decision != nil {
@@ -428,6 +444,7 @@ func (a *coreApp) cleanupLoop() {
 			a.clearResidentPresence(residentID)
 		}
 		a.publishEvent("system.lifecycle.cleaned", result, contract.PriorityLow)
+		a.triggerSnapshot()
 	}
 }
 
@@ -502,9 +519,21 @@ func (a *coreApp) clearResidentPresence(residentID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	resident, ok := a.residents[residentID]
-	if ok && resident != nil {
-		resident.Presence = nil
+	if !ok || resident == nil {
+		return
 	}
+	if presence, exists := a.state.PresenceState(residentID); exists && presence != nil {
+		// Keep the config-side convenience projection aligned with the runtime
+		// record. In particular, an absent resident still has a last_seen.
+		resident.Presence = &topology.Presence{
+			ResidentID: presence.ResidentID,
+			Location:   presence.Location,
+			LastSeen:   presence.LastSeen.UnixMilli(),
+			Confidence: presence.Confidence,
+		}
+		return
+	}
+	resident.Presence = nil
 }
 
 func (a *coreApp) setTopology(value *topology.Topology) {

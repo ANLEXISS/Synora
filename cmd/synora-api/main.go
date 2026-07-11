@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	webapi "synora/internal/api"
@@ -24,8 +29,11 @@ type healthResponse struct {
 
 type systemHealthResponse struct {
 	*contract.RuntimeHealth
-	Web webapi.WebHealth `json:"web"`
+	Web    webapi.WebHealth    `json:"web"`
+	Server webapi.ServerHealth `json:"server"`
 }
+
+type authPrincipalContextKey struct{}
 
 type snapshotProvider interface {
 	Snapshot() (*contract.PublicSnapshot, error)
@@ -51,8 +59,8 @@ type pairingProvider interface {
 
 func main() {
 
-	addr := ":8080"
 	securityPath := getenv("SYNORA_SECURITY", security.DefaultPath)
+	authPath := getenv("SYNORA_AUTH", webapi.DefaultAuthConfigPath)
 	securityConfig, err := security.Load(securityPath)
 	if err != nil {
 		log.Fatal(err)
@@ -60,6 +68,33 @@ func main() {
 	if securityConfig.APITokenHash == "" {
 		log.Fatal("security config requires api_token_hash or api_token")
 	}
+	serverConfig := securityConfig.Server
+	httpAddr := getenv("SYNORA_HTTP_ADDR", serverConfig.HTTPAddr)
+	httpsEnabled := getenvBool("SYNORA_HTTPS_ENABLED", serverConfig.HTTPSEnabled)
+	httpsAddr := getenv("SYNORA_HTTPS_ADDR", serverConfig.HTTPSAddr)
+	tlsCertFile := getenv("SYNORA_TLS_CERT_FILE", serverConfig.TLSCertFile)
+	tlsKeyFile := getenv("SYNORA_TLS_KEY_FILE", serverConfig.TLSKeyFile)
+
+	sessionTTL := getenvDuration("SYNORA_SESSION_TTL", webapi.DefaultSessionTTL)
+	sessions, err := webapi.NewSessionStore(
+		getenv("SYNORA_SESSION_STORE", webapi.DefaultSessionPath),
+		sessionTTL,
+		security.HashSecret(securityConfig.APITokenHash),
+	)
+	if err != nil {
+		log.Fatal("web auth session store: ", err)
+	}
+	auth := webapi.NewAuthService(sessions, securityConfig.VerifyAPIToken)
+	authUsers, err := webapi.LoadUserDirectory(authPath)
+	if err != nil {
+		log.Printf("auth users load warning path=%s err=%v", authPath, err)
+		authUsers = webapi.NewUserDirectory()
+	}
+	auth.Users = authUsers
+	auth.CookieOriginAllowed = func(r *http.Request) bool {
+		return sameOriginRequest(r, securityConfig)
+	}
+	log.Printf("auth users loaded=%d path=%s", authUsers.Count(), authPath)
 
 	busClient, err := bus.NewClient(
 		getenv("SYNORA_BUS", "/run/synora/bus.sock"),
@@ -80,6 +115,11 @@ func main() {
 		WebEnabled: webEnabled,
 		WebRoot:    webRoot,
 	}
+	faceRoot := strings.TrimSpace(getenv("SYNORA_FACE_DATA_ROOT", ""))
+	if faceRoot == "" {
+		faceRoot = strings.TrimSpace(securityConfig.Vision.FaceDataRoot)
+	}
+	faceFiles := newFaceStore(faceRoot)
 	webHealth := webServer.Health()
 	log.Printf(
 		"web enabled=%t root=%s index_present=%t",
@@ -108,30 +148,92 @@ func main() {
 	apiMux.HandleFunc("/api/devices/pairing/start", handlePairingStart(core))
 	apiMux.HandleFunc("/api/devices/pairing/complete", handlePairingComplete(core))
 	apiMux.HandleFunc("/api/devices/", handleDeviceItem(core))
-	apiMux.HandleFunc("/api/residents", handleResidentCollection(core))
-	apiMux.HandleFunc("/api/residents/", handleResidentItem(core))
+	registerResidentRoutes(apiMux, core, faceFiles)
 	apiMux.HandleFunc("/api/automations", handleAutomationCollection(core))
 	apiMux.HandleFunc("/api/automations/catalog", handleAutomationCatalog(core))
 	apiMux.HandleFunc("/api/automations/", handleAutomationItem(core))
 	apiMux.HandleFunc("/api/topology", handleTopologyConfiguration(core))
 	apiMux.HandleFunc("/api/topology/", handleTopologySubroute())
-	apiMux.HandleFunc("/api/system/health", handleSystemHealth(core, webServer))
+	serverHealth := webapi.ServerHealth{
+		HTTPAddr:       httpAddr,
+		HTTPSEnabled:   httpsEnabled,
+		HTTPSAddr:      httpsAddr,
+		TLSCertPresent: regularFile(tlsCertFile),
+		TLSKeyPresent:  regularFile(tlsKeyFile),
+	}
+	apiMux.HandleFunc("/api/system/health", handleSystemHealth(core, webServer, serverHealth))
 	apiMux.HandleFunc("/api/snapshot", handleSnapshot(core))
 
-	server := &http.Server{
-		Addr:              addr,
-		Handler:           buildServerHandler(securityConfig, apiMux, wsHub, webEnabled, webServer),
+	handler := buildServerHandlerWithAuth(
+		securityConfig,
+		apiMux,
+		wsHub,
+		webEnabled,
+		webServer,
+		auth,
+		getenvBool("SYNORA_WS_QUERY_TOKEN", false),
+	)
+	httpServer := &http.Server{
+		Addr:              httpAddr,
+		Handler:           handler,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       30 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	log.Println("synora-api listening on", addr)
-
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatal(err)
+	log.Printf("synora-api http listening addr=%s", httpAddr)
+	log.Printf(
+		"synora-api https enabled=%t addr=%s cert=%s key=%s",
+		httpsEnabled,
+		httpsAddr,
+		tlsCertFile,
+		tlsKeyFile,
+	)
+	var httpsServer *http.Server
+	if httpsEnabled {
+		httpsServer = &http.Server{
+			Addr:              httpsAddr,
+			Handler:           handler,
+			ReadTimeout:       10 * time.Second,
+			WriteTimeout:      10 * time.Second,
+			IdleTimeout:       30 * time.Second,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
 	}
+
+	errCh := make(chan error, 2)
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- fmt.Errorf("http server: %w", err)
+		}
+	}()
+	if httpsServer != nil {
+		go func() {
+			if err := httpsServer.ListenAndServeTLS(tlsCertFile, tlsKeyFile); err != nil && err != http.ErrServerClosed {
+				errCh <- fmt.Errorf("https server: %w", err)
+			}
+		}()
+	}
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	select {
+	case err := <-errCh:
+		log.Fatal(err)
+	case <-stop:
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = httpServer.Shutdown(shutdownCtx)
+		if httpsServer != nil {
+			_ = httpsServer.Shutdown(shutdownCtx)
+		}
+	}
+}
+
+func regularFile(path string) bool {
+	info, err := os.Stat(strings.TrimSpace(path))
+	return err == nil && info.Mode().IsRegular()
 }
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -215,6 +317,7 @@ func corsMiddleware(cfg *security.Config, next http.Handler) http.Handler {
 				origin,
 			)
 			w.Header().Add("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 
 		w.Header().Set(
@@ -237,6 +340,15 @@ func corsMiddleware(cfg *security.Config, next http.Handler) http.Handler {
 }
 
 func apiAuthMiddleware(cfg *security.Config, next http.Handler) http.Handler {
+	return apiAuthMiddlewareWithAuth(cfg, nil, true, next)
+}
+
+func apiAuthMiddlewareWithAuth(
+	cfg *security.Config,
+	auth *webapi.AuthService,
+	allowQueryToken bool,
+	next http.Handler,
+) http.Handler {
 	return http.HandlerFunc(func(
 		w http.ResponseWriter,
 		r *http.Request,
@@ -246,18 +358,90 @@ func apiAuthMiddleware(cfg *security.Config, next http.Handler) http.Handler {
 			return
 		}
 
-		token, ok := bearerToken(r.Header.Get("Authorization"))
-		if !ok && (r.URL.Path == "/api/ws" || r.URL.Path == "/ws") {
+		token, bearerProvided := bearerToken(r.Header.Get("Authorization"))
+		bearerOK := bearerProvided && cfg != nil && cfg.VerifyAPIToken(token)
+		if !bearerProvided && allowQueryToken && (r.URL.Path == "/api/ws" || r.URL.Path == "/ws") {
 			token = strings.TrimSpace(r.URL.Query().Get("token"))
-			ok = token != ""
+			bearerProvided = token != ""
+			bearerOK = bearerProvided && cfg != nil && cfg.VerifyAPIToken(token)
 		}
-		if !ok || cfg == nil || !cfg.VerifyAPIToken(token) {
+
+		session, sessionOK := authSession(auth, r)
+		if !bearerOK && !sessionOK {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+			return
+		}
+		if !bearerOK && sessionOK && isMutatingMethod(r.Method) && !sameOriginRequest(r, cfg) {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		principal := session.User
+		if bearerOK {
+			principal = webapi.AdminAuthUser()
+		}
+		permission := requiredAPIPermission(r)
+		if permission != "" && !principal.HasPermission(permission) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
+			return
+		}
+
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authPrincipalContextKey{}, principal)))
 	})
+}
+
+func authPrincipalFromRequest(r *http.Request) (webapi.AuthUser, bool) {
+	if r == nil {
+		return webapi.AuthUser{}, false
+	}
+	principal, ok := r.Context().Value(authPrincipalContextKey{}).(webapi.AuthUser)
+	return principal, ok
+}
+
+func isAdminRequest(r *http.Request) bool {
+	principal, ok := authPrincipalFromRequest(r)
+	return ok && principal.Role == webapi.RoleAdmin
+}
+
+func authSession(auth *webapi.AuthService, r *http.Request) (webapi.AuthSession, bool) {
+	if auth == nil {
+		return webapi.AuthSession{}, false
+	}
+	return auth.SessionFromRequest(r)
+}
+
+func isMutatingMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func sameOriginRequest(r *http.Request, cfg *security.Config) bool {
+	if r == nil {
+		return false
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" {
+			if parsed, err := url.Parse(referer); err == nil {
+				origin = parsed.Scheme + "://" + parsed.Host
+			}
+		}
+	}
+	if origin == "" || strings.EqualFold(origin, "null") {
+		return false
+	}
+	if cfg != nil && cfg.AllowsOrigin(origin) {
+		return true
+	}
+	scheme := "http"
+	if webapi.RequestIsHTTPS(r) {
+		scheme = "https"
+	}
+	return strings.EqualFold(origin, scheme+"://"+r.Host)
 }
 
 func buildServerHandler(
@@ -267,11 +451,29 @@ func buildServerHandler(
 	webEnabled bool,
 	webServer *webapi.Server,
 ) http.Handler {
+	return buildServerHandlerWithAuth(cfg, apiMux, wsHub, webEnabled, webServer, nil, true)
+}
+
+func buildServerHandlerWithAuth(
+	cfg *security.Config,
+	apiMux http.Handler,
+	wsHub http.Handler,
+	webEnabled bool,
+	webServer *webapi.Server,
+	auth *webapi.AuthService,
+	allowQueryToken bool,
+) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/api/", apiAuthMiddleware(cfg, apiMux))
+	if auth != nil {
+		mux.HandleFunc("/api/auth/login", auth.LoginHandler)
+		mux.HandleFunc("/api/auth/me", auth.MeHandler)
+		mux.HandleFunc("/api/auth/logout", auth.LogoutHandler)
+		mux.HandleFunc("/api/auth/refresh", auth.RefreshHandler)
+	}
+	mux.Handle("/api/", apiAuthMiddlewareWithAuth(cfg, auth, allowQueryToken, apiMux))
 	if wsHub != nil {
-		mux.Handle("/api/ws", apiAuthMiddleware(cfg, wsHub))
-		mux.Handle("/ws", apiAuthMiddleware(cfg, wsHub))
+		mux.Handle("/api/ws", apiAuthMiddlewareWithAuth(cfg, auth, allowQueryToken, wsHub))
+		mux.Handle("/ws", apiAuthMiddlewareWithAuth(cfg, auth, allowQueryToken, wsHub))
 	}
 	mux.HandleFunc("/health", handleHealth)
 	if webEnabled && webServer != nil {
@@ -279,7 +481,80 @@ func buildServerHandler(
 	} else {
 		mux.HandleFunc("/", handleIndex)
 	}
-	return loggingMiddleware(corsMiddleware(cfg, mux))
+	// Keep this wrapper outside the router, auth middleware, CORS and logging
+	// layers so every API response receives the same anti-cache policy,
+	// regardless of route declaration order or router implementation.
+	return withAPINoStore(loggingMiddleware(corsMiddleware(cfg, mux)))
+}
+
+func requiredAPIPermission(r *http.Request) string {
+	if r == nil {
+		return webapi.PermissionSecurityAdmin
+	}
+	path := r.URL.Path
+	method := r.Method
+	readOnly := method == http.MethodGet || method == http.MethodHead
+
+	switch {
+	case path == "/api/state" || path == "/api/snapshot" || path == "/api/ws" || path == "/ws":
+		return webapi.PermissionStateRead
+	case path == "/api/system/health":
+		return webapi.PermissionSettingsRead
+	case strings.HasPrefix(path, "/api/devices"):
+		if readOnly {
+			return webapi.PermissionDevicesRead
+		}
+		return webapi.PermissionDevicesWrite
+	case strings.HasPrefix(path, "/api/residents"):
+		residentPath := strings.TrimPrefix(path, "/api/residents/")
+		if strings.Contains(residentPath, "/face") {
+			return webapi.PermissionResidentsWrite
+		}
+		if readOnly {
+			return webapi.PermissionResidentsRead
+		}
+		return webapi.PermissionResidentsWrite
+	case strings.HasPrefix(path, "/api/topology"):
+		if readOnly {
+			return webapi.PermissionTopologyRead
+		}
+		return webapi.PermissionTopologyWrite
+	case strings.HasPrefix(path, "/api/automations"):
+		if readOnly {
+			return webapi.PermissionAutomationsRead
+		}
+		return webapi.PermissionAutomationsWrite
+	case strings.HasPrefix(path, "/api/simulation"):
+		return webapi.PermissionSimulationRun
+	case strings.HasPrefix(path, "/api/cge"):
+		if readOnly {
+			return webapi.PermissionCGERead
+		}
+		return webapi.PermissionCGEWrite
+	case strings.HasPrefix(path, "/api/validations"):
+		if readOnly {
+			return webapi.PermissionSettingsRead
+		}
+		return webapi.PermissionSettingsWrite
+	case strings.HasPrefix(path, "/api/"):
+		return webapi.PermissionSecurityAdmin
+	default:
+		return ""
+	}
+}
+
+// withAPINoStore prevents browsers and intermediary proxies from reusing
+// stale runtime snapshots. Static assets are served outside this path and
+// retain their immutable cache policy.
+func withAPINoStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func bearerToken(header string) (string, bool) {
@@ -364,6 +639,18 @@ func getenvBool(key string, fallback bool) bool {
 	return parsed
 }
 
+func getenvDuration(key string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return fallback
+	}
+	return duration
+}
+
 func handleDevices(
 	core *coreclient.Client,
 ) http.HandlerFunc {
@@ -415,6 +702,7 @@ func handleTopology(
 func handleSystemHealth(
 	core systemHealthProvider,
 	webServer *webapi.Server,
+	serverHealth ...webapi.ServerHealth,
 ) http.HandlerFunc {
 
 	return func(
@@ -437,9 +725,14 @@ func handleSystemHealth(
 		if webServer != nil {
 			webHealth = webServer.Health()
 		}
+		transportHealth := webapi.ServerHealth{}
+		if len(serverHealth) > 0 {
+			transportHealth = serverHealth[0]
+		}
 		writeJSON(w, http.StatusOK, systemHealthResponse{
 			RuntimeHealth: health,
 			Web:           webHealth,
+			Server:        transportHealth,
 		})
 	}
 }

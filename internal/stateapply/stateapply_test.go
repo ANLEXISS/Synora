@@ -15,6 +15,31 @@ import (
 	"synora/pkg/contract"
 )
 
+func TestVisionIdentitySetsLastSeen(t *testing.T) {
+	store := state.NewStore()
+	seenAt := time.Date(2026, 7, 11, 17, 3, 56, 742582666, time.UTC)
+	event := &contract.Event{
+		Type:       contract.EventVisionIdentity,
+		Identity:   "alexis",
+		NodeID:     "zoneA.L1.chambre_enfant",
+		Confidence: 0.9,
+		Timestamp:  seenAt,
+	}
+
+	presence := stateapply.ApplyVisionIdentity(store, event)
+	if presence == nil {
+		t.Fatal("vision.identity should create runtime presence")
+	}
+	if presence.State != "present" || presence.Location != event.NodeID || presence.Confidence != 0.9 || !presence.LastSeen.Equal(seenAt) {
+		t.Fatalf("unexpected runtime presence: %#v", presence)
+	}
+
+	stored, ok := store.PresenceState("alexis")
+	if !ok || stored == nil || !stored.LastSeen.Equal(seenAt) {
+		t.Fatalf("last_seen was not stored: %#v", stored)
+	}
+}
+
 func TestEventAnalyzeThenStateApply(t *testing.T) {
 	devices := device.NewRegistry()
 	devices.Register([]device.DeviceConfig{{
@@ -61,6 +86,7 @@ func TestEventAnalyzeThenStateApply(t *testing.T) {
 		t.Fatalf("expected engine result with decision, got %#v", result)
 	}
 	stateapply.Apply(store, result, stateapply.Callbacks{})
+	stateapply.ApplyVisionIdentity(store, event)
 
 	identity, ok := store.Identity("alexis")
 	if !ok || identity == nil {
@@ -68,6 +94,13 @@ func TestEventAnalyzeThenStateApply(t *testing.T) {
 	}
 	if identity.LastDeviceID != "camera-1" || identity.LastNodeID != "entry" {
 		t.Fatalf("unexpected identity state: %#v", identity)
+	}
+	presence, ok := store.PresenceState("alexis")
+	if !ok || presence == nil {
+		t.Fatal("expected runtime resident presence to be applied")
+	}
+	if presence.State != "present" || presence.Location != "entry" || presence.Confidence != 0.91 || !presence.LastSeen.Equal(event.Timestamp) {
+		t.Fatalf("unexpected runtime resident presence: %#v", presence)
 	}
 	clip, ok := store.Clip(result.Clip.ID)
 	if !ok || clip == nil || clip.CameraID != "camera-1" {

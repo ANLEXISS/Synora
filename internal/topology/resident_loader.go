@@ -81,6 +81,9 @@ func GetResident(residents map[string]*Resident, id string) (*Resident, bool) {
 // caller owns synchronization for the shared map (Core currently uses its
 // snapshot mutex); a failed durable write leaves that map untouched.
 func CreateResident(path string, residents map[string]*Resident, value Resident) (*Resident, error) {
+	if strings.TrimSpace(value.FirstName) == "" && strings.TrimSpace(value.DisplayName) == "" && strings.TrimSpace(value.Name) == "" {
+		return nil, contract.NewAPIError(contract.ErrorValidationFailed, "first_name or display_name is required")
+	}
 	normalizeResident(&value)
 	if err := ValidateResident(value); err != nil {
 		return nil, err

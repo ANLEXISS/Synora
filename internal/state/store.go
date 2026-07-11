@@ -238,6 +238,11 @@ func (s *Store) SetPresence(value *PresenceState) {
 	}
 	s.mu.Lock()
 	cloned := *value
+	if current := s.Presence[value.ID]; current != nil && cloned.LastSeen.IsZero() {
+		// LastSeen is historical runtime data. An absent/cleared update may
+		// reset the current state, but it must never erase the last observation.
+		cloned.LastSeen = current.LastSeen
+	}
 	s.Presence[value.ID] = &cloned
 	s.mu.Unlock()
 	s.SaveNow()
@@ -779,7 +784,6 @@ func (s *Store) Cleanup(now time.Time, cfg ExpirationConfig) CleanupResult {
 	result := CleanupResult{Deleted: map[string][]string{}}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	for id, value := range s.Tracks {
 		if value == nil || (!value.ExpiresAt.IsZero() && !value.ExpiresAt.After(now)) {
@@ -800,8 +804,20 @@ func (s *Store) Cleanup(now time.Time, cfg ExpirationConfig) CleanupResult {
 		}
 	}
 	for id, value := range s.Presence {
-		if value == nil || (!value.ExpiresAt.IsZero() && !value.ExpiresAt.After(now)) {
+		if value == nil {
 			delete(s.Presence, id)
+			result.Deleted["presence"] = append(result.Deleted["presence"], id)
+			continue
+		}
+		if !value.ExpiresAt.IsZero() && !value.ExpiresAt.After(now) {
+			// Preserve the last observation while making the runtime state
+			// explicitly absent. The core will clear only the config-side
+			// convenience projection and publish a fresh snapshot.
+			value.State = "absent"
+			value.Location = ""
+			value.Confidence = 0
+			value.UpdatedAt = now
+			value.ExpiresAt = time.Time{}
 			result.Deleted["presence"] = append(result.Deleted["presence"], id)
 		}
 	}
@@ -818,6 +834,10 @@ func (s *Store) Cleanup(now time.Time, cfg ExpirationConfig) CleanupResult {
 		}
 	}
 
+	s.mu.Unlock()
+	if len(result.Deleted) > 0 {
+		_ = s.SaveNow()
+	}
 	return result
 }
 

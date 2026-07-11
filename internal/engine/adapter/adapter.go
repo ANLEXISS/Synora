@@ -216,7 +216,7 @@ func buildIdentity(event *contract.Event, now time.Time) *state.IdentityState {
 		CreatedAt:    now,
 		UpdatedAt:    now,
 		LastSeen:     now,
-		ExpiresAt:    now.Add(45 * time.Second),
+		ExpiresAt:    now.Add(state.DefaultPresenceTTL),
 	}
 }
 
@@ -234,7 +234,7 @@ func buildPresence(event *contract.Event, now time.Time) *state.PresenceState {
 		CreatedAt:  now,
 		UpdatedAt:  now,
 		LastSeen:   now,
-		ExpiresAt:  now.Add(45 * time.Second),
+		ExpiresAt:  now.Add(state.DefaultPresenceTTL),
 	}
 }
 

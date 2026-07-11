@@ -119,6 +119,43 @@ func TestCriticalFlowIdentityUpdatesStateSnapshotAndDispatchesAction(t *testing.
 	}
 }
 
+func TestCriticalFlowResidentEntersHomeSimulationUpdatesRuntimePresence(t *testing.T) {
+	app, _ := newTestCoreApp(t)
+	scenario, ok := simulation.ScenarioByID("resident_enters_home")
+	if !ok {
+		t.Fatal("resident_enters_home scenario should exist")
+	}
+	run := simulation.BuildRun(scenario.Name, scenario.ID, simulation.ModeDryRun, simulation.GeneratedBySynoraLab, nil)
+	messages, err := simulation.BuildEventsForScenario(run, scenario, simulation.EventBuildOptions{
+		Source:       "simulation",
+		SourceType:   contract.SourceSimulator,
+		LearningMode: "simulation",
+	})
+	if err != nil {
+		t.Fatalf("build resident simulation events: %v", err)
+	}
+	for _, message := range messages {
+		event, err := app.ingest.Parser.Parse(message)
+		if err != nil {
+			t.Fatalf("parse resident simulation event: %v", err)
+		}
+		app.processEvent(event)
+	}
+
+	presence, ok := app.state.PresenceState("alexis")
+	if !ok || presence == nil {
+		t.Fatal("resident_enters_home should create alexis runtime presence")
+	}
+	if presence.State != "present" || presence.Location == "" || presence.Confidence <= 0 || presence.LastSeen.IsZero() {
+		t.Fatalf("unexpected simulated resident presence: %#v", presence)
+	}
+	public := contract.PublicSnapshotFromCoreState(app.snapshotBuilder.CoreState())
+	resident := findByID(public.Residents, "alexis")
+	if resident == nil || resident["state"] != "present" || resident["node_id"] == "" || resident["last_seen"] == nil {
+		t.Fatalf("simulation resident missing from public snapshot: %#v", resident)
+	}
+}
+
 func TestCriticalFlowUnknownProducesDecisionAndSnapshotEvent(t *testing.T) {
 	app, bus := newTestCoreApp(t)
 

@@ -16,6 +16,7 @@ import type { PageId } from "../app/App";
 
 type SidebarProps = {
   page: PageId;
+  can: (permission: string) => boolean;
   setPage: (page: PageId) => void;
   mobileOpen: boolean;
   toggleMobile: () => void;
@@ -39,6 +40,7 @@ const items: {
 
 export function Sidebar({
   page,
+  can,
   setPage,
   mobileOpen,
   toggleMobile,
@@ -62,7 +64,7 @@ export function Sidebar({
       </button>
 
       <nav className="nav">
-        {items.map((item) => {
+        {items.filter((item) => can(permissionForPage(item.id))).map((item) => {
           const Icon = item.icon;
 
           return (
@@ -90,4 +92,26 @@ export function Sidebar({
       </div>
     </aside>
   );
+}
+
+function permissionForPage(page: PageId) {
+  switch (page) {
+    case "dashboard":
+    case "live":
+      return "state:read";
+    case "home":
+      return "topology:read";
+    case "devices":
+      return "devices:read";
+    case "residents":
+      return "residents:read";
+    case "automations":
+      return "automations:read";
+    case "cge":
+      return "cge:read";
+    case "lab":
+      return "simulation:run";
+    case "settings":
+      return "settings:read";
+  }
 }

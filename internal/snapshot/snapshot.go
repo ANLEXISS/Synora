@@ -276,11 +276,17 @@ func (b *Builder) ResidentViews() []map[string]any {
 			nodeID = presence.Location
 			lastSeen = presence.LastSeen
 			confidence = presence.Confidence
+			if lastSeen.IsZero() && identity != nil {
+				lastSeen = identity.LastSeen
+			}
 		} else if identity != nil {
 			stateValue = identity.State
 			nodeID = identity.LastNodeID
 			lastSeen = identity.LastSeen
 			confidence = identity.Confidence
+		}
+		if lastSeen.IsZero() && resident.Presence != nil && resident.Presence.LastSeen != 0 {
+			lastSeen = time.UnixMilli(resident.Presence.LastSeen).UTC()
 		}
 		out = append(out, map[string]any{
 			"id":           view.ID,

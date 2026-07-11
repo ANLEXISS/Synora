@@ -54,6 +54,44 @@ type fakeResidentAutomationConfiguration struct {
 	value map[string]any
 }
 
+type fakeHTTPResidentConfiguration struct {
+	value map[string]any
+}
+
+func (f *fakeHTTPResidentConfiguration) Residents() ([]map[string]any, error) {
+	return []map[string]any{f.value}, nil
+}
+
+func (f *fakeHTTPResidentConfiguration) Resident(string) (map[string]any, error) {
+	return f.value, nil
+}
+
+func (f *fakeHTTPResidentConfiguration) CreateResident(body json.RawMessage) (map[string]any, error) {
+	var patch map[string]any
+	if err := json.Unmarshal(body, &patch); err != nil {
+		return nil, err
+	}
+	for key, value := range patch {
+		f.value[key] = value
+	}
+	return f.value, nil
+}
+
+func (f *fakeHTTPResidentConfiguration) UpdateResident(_ string, body json.RawMessage) (map[string]any, error) {
+	var patch map[string]any
+	if err := json.Unmarshal(body, &patch); err != nil {
+		return nil, err
+	}
+	for key, value := range patch {
+		f.value[key] = value
+	}
+	return f.value, nil
+}
+
+func (f *fakeHTTPResidentConfiguration) DeleteResident(string) (map[string]any, error) {
+	return f.value, nil
+}
+
 func (f *fakeResidentAutomationConfiguration) Residents() ([]map[string]any, error) {
 	return []map[string]any{f.value}, nil
 }
@@ -260,6 +298,87 @@ func TestResidentAndAutomationHandlersExposeCRUDMethods(t *testing.T) {
 				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestResidentHandlerRejectsFaceProfileMutation(t *testing.T) {
+	core := &fakeResidentAutomationConfiguration{value: map[string]any{"id": "alexis"}}
+	req := httptest.NewRequest(http.MethodPatch, "/api/residents/alexis", strings.NewReader(`{"face_profile":{"status":"ready"}}`))
+	rec := httptest.NewRecorder()
+	handleResidentItem(core).ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "managed through the face endpoints") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPatchResidentHTTPAcceptsAccountID(t *testing.T) {
+	core := &fakeHTTPResidentConfiguration{value: map[string]any{"id": "alexis", "account_id": "old"}}
+	req := httptest.NewRequest(http.MethodPatch, "/api/residents/alexis", strings.NewReader(`{"account_id":"user_alexis"}`))
+	rec := httptest.NewRecorder()
+	handleResidentItem(core).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"account_id":"user_alexis"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPatchResidentHTTPCanClearAccountID(t *testing.T) {
+	core := &fakeHTTPResidentConfiguration{value: map[string]any{"id": "alexis", "account_id": "user_alexis"}}
+	req := httptest.NewRequest(http.MethodPatch, "/api/residents/alexis", strings.NewReader(`{"account_id":""}`))
+	rec := httptest.NewRecorder()
+	handleResidentItem(core).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"account_id":""`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPatchResidentHTTPAbsentAccountIDKeepsExisting(t *testing.T) {
+	core := &fakeHTTPResidentConfiguration{value: map[string]any{"id": "alexis", "account_id": "user_alexis"}}
+	req := httptest.NewRequest(http.MethodPatch, "/api/residents/alexis", strings.NewReader(`{"display_name":"Alexis 2"}`))
+	rec := httptest.NewRecorder()
+	handleResidentItem(core).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"account_id":"user_alexis"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestResidentRouterUsesProductionPatchRoute(t *testing.T) {
+	core := &fakeHTTPResidentConfiguration{value: map[string]any{"id": "alexis", "account_id": "old"}}
+	mux := http.NewServeMux()
+	registerResidentRoutes(mux, core, nil)
+
+	body := `{"first_name":"Alexis","last_name":"Kratz","display_name":"Alexis","role":"resident","admin":true,"trusted":true,"reference_node_id":"zoneA.L1.chambre_enfant","account_id":"user_alexis"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/residents/alexis", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"first_name":"Alexis"`) || !strings.Contains(rec.Body.String(), `"account_id":"user_alexis"`) {
+		t.Fatalf("production route status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	core.value["account_id"] = "user_alexis"
+	req = httptest.NewRequest(http.MethodPatch, "/api/residents/alexis", strings.NewReader(`{"display_name":"Alexis 2"}`))
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"account_id":"user_alexis"`) {
+		t.Fatalf("account preservation status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/residents/alexis", strings.NewReader(`{"face_profile":{}}`))
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "face_profile is managed through the face endpoints") {
+		t.Fatalf("face profile status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestResidentRouterPostAcceptsFirstNameAndAccountID(t *testing.T) {
+	core := &fakeHTTPResidentConfiguration{value: map[string]any{"id": "new-resident"}}
+	mux := http.NewServeMux()
+	registerResidentRoutes(mux, core, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/residents", strings.NewReader(`{"id":"new-resident","first_name":"New","account_id":"user_new"}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"account_id":"user_new"`) {
+		t.Fatalf("production POST status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { buildWsUrl } from "../lib/config";
+import { SynoraApiError } from "./api";
 import { getState } from "../lib/synora-api";
 import type { SynoraSnapshot, SynoraWsMessage } from "../lib/synora-types";
 
@@ -12,6 +13,7 @@ type UseSynoraSnapshotResult = {
   connection: SynoraConnectionState;
   lastMessageAt: Date | null;
   refresh: () => Promise<void>;
+  apiStatus: "connected" | "unauthenticated" | "unavailable";
 };
 
 function extractSnapshot(message: SynoraWsMessage): SynoraSnapshot | null {
@@ -42,6 +44,10 @@ function extractSnapshot(message: SynoraWsMessage): SynoraSnapshot | null {
     }
   }
 
+  if (message.data && typeof message.data === "object" && !Array.isArray(message.data)) {
+    return message.data as SynoraSnapshot;
+  }
+
   if (
     message.type === "snapshot.initial" ||
     message.type === "snapshot.updated" ||
@@ -60,6 +66,7 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
   const [connection, setConnection] =
     useState<SynoraConnectionState>("connecting");
   const [lastMessageAt, setLastMessageAt] = useState<Date | null>(null);
+  const [apiStatus, setApiStatus] = useState<UseSynoraSnapshotResult["apiStatus"]>("unavailable");
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -76,11 +83,13 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
 
       setSnapshot(state);
       setLoading(false);
+      setApiStatus("connected");
     } catch (err) {
       if (controller.signal.aborted) return;
 
       setError(err instanceof Error ? err.message : "Erreur API inconnue");
       setLoading(false);
+      setApiStatus(err instanceof SynoraApiError && err.status === 401 ? "unauthenticated" : "unavailable");
     }
   }
 
@@ -96,6 +105,7 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
     let ws: WebSocket | null = null;
     let closedByComponent = false;
     let reconnectTimer: number | null = null;
+    let reconnectDelay = 1000;
 
     function connect() {
       setConnection("connecting");
@@ -105,6 +115,7 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
       ws.onopen = () => {
         setConnection("connected");
         setError(null);
+        reconnectDelay = 1000;
       };
 
       ws.onmessage = (event) => {
@@ -117,6 +128,8 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
           if (nextSnapshot) {
             setSnapshot(nextSnapshot);
             setLoading(false);
+            setError(null);
+            setApiStatus("connected");
           }
         } catch (err) {
           console.warn("Invalid Synora WS message", err);
@@ -131,10 +144,12 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
         if (closedByComponent) return;
 
         setConnection("disconnected");
+        void refresh();
 
         reconnectTimer = window.setTimeout(() => {
           connect();
-        }, 1500);
+        }, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
       };
     }
 
@@ -158,5 +173,6 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
     connection,
     lastMessageAt,
     refresh,
+    apiStatus,
   };
 }

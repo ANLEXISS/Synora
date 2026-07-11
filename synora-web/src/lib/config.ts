@@ -1,17 +1,6 @@
 export function getApiBaseUrl() {
+  if (!import.meta.env.DEV) return "";
   return import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
-}
-
-export function getApiToken() {
-  const stored = localStorage.getItem("synora_api_token");
-
-  if (stored) return stored;
-
-  if (import.meta.env.DEV) {
-    return import.meta.env.VITE_API_TOKEN ?? "";
-  }
-
-  return "";
 }
 
 export function buildApiUrl(path: string) {
@@ -30,12 +19,6 @@ export function buildWsUrl(path = "/api/ws") {
       : new URL(path, window.location.origin);
 
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-
-  const token = getApiToken();
-
-  if (token) {
-    url.searchParams.set("token", token);
-  }
 
   return url.toString();
 }

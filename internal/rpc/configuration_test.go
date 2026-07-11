@@ -27,7 +27,7 @@ func TestDeviceConfigurationCRUDIsDurableAndPublic(t *testing.T) {
 	}
 	server := NewServer(Config{
 		State: store, Devices: registry, Snapshot: builder,
-		DevicePath: filepath.Join(t.TempDir(), "devices.yaml"),
+		DevicePath:     filepath.Join(t.TempDir(), "devices.yaml"),
 		NotifyMutation: func(kind string, id string) { notifications = append(notifications, kind+":"+id) },
 	})
 
@@ -246,13 +246,13 @@ func TestResidentConfigurationCRUDPreservesRuntimeIdentity(t *testing.T) {
 	}
 
 	updatedAny, err := server.Handler("resident.update")(mutationMessage("guest_1", `{
-		"name":"Guest updated","contact":{"phone":"+33123456789"},"enabled":false
+		"name":"Guest updated","first_name":"Guest","account_id":"user_guest","contact":{"phone":"+33123456789"},"enabled":false
 	}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	updated := updatedAny.(contract.ResidentView)
-	if updated.Name != "Guest updated" || updated.Contact.Phone == "" || updated.Enabled {
+	if updated.Name != "Guest updated" || updated.FirstName != "Guest" || updated.AccountID != "user_guest" || updated.Contact.Phone == "" || updated.Enabled {
 		t.Fatalf("unexpected resident update: %#v", updated)
 	}
 

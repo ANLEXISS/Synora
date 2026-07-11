@@ -1,9 +1,20 @@
 residents:
 
   - id: alexis
+    first_name: Alexis
+    last_name: ""
     name: Alexis
+    display_name: Alexis
     role: resident
     admin: true
+    trusted: true
+    reference_node_id: zoneA.L0.salon
+    account_id: user_alexis
+    face_profile:
+      status: empty
+      base_photos: []
+      auto_count: 0
+      review_count: 0
 
     contact:
       whatsapp: "+33612345678"
@@ -18,9 +29,20 @@ residents:
         cuisine: 0.1
 
   - id: carole
+    first_name: Carole
+    last_name: ""
     name: Carole
+    display_name: Carole
     role: resident
     admin: false
+    trusted: true
+    reference_node_id: zoneA.L1.chambre_parentale
+    account_id: user_carole
+    face_profile:
+      status: empty
+      base_photos: []
+      auto_count: 0
+      review_count: 0
 
     contact:
       whatsapp: "+33699999999"

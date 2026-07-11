@@ -11,6 +11,9 @@ Group=synora
 
 Environment=SYNORA_WEB_ENABLED=true
 Environment=SYNORA_WEB_ROOT=/var/lib/synora/web
+Environment=SYNORA_AUTH=/etc/synora/auth.yaml
+Environment=SYNORA_WS_QUERY_TOKEN=false
+Environment=SYNORA_FACE_DATA_ROOT=/var/lib/synora/vision/face
 
 ExecStart=/opt/synora/bin/synora-api
 

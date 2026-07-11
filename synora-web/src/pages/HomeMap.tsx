@@ -19,6 +19,7 @@ import {
   useState,
 } from "react";
 import { Panel } from "../components/Panel";
+import { useSynoraData } from "../hooks/useSynoraData";
 import {
   demoApiTopology,
   demoTopologyDevices,
@@ -26,6 +27,7 @@ import {
   type ApiTopologyNode,
   type TopologyDevice,
 } from "../data/demo";
+import { normalizeTopologyDevices } from "../lib/topology";
 
 const MIN_ROOM_W = 155;
 const MAX_ROOM_W = 260;
@@ -102,17 +104,17 @@ function statusTone(status: TopologyDevice["status"]): Tone {
   return "danger";
 }
 
-function devicesForRoom(roomId: string) {
-  return demoTopologyDevices.filter((device) => device.node_id === roomId);
+function devicesForRoom(roomId: string, devices: TopologyDevice[]) {
+  return devices.filter((device) => device.node_id === roomId);
 }
 
-function roomTone(room: RoomNode): Tone {
-  const devices = devicesForRoom(room.id);
+function roomTone(room: RoomNode, devices: TopologyDevice[]): Tone {
+  const roomDevices = devicesForRoom(room.id, devices);
 
-  if (room.dynamic_score >= 0.75) return "danger";
-  if (room.dynamic_score >= 0.35) return "warning";
-  if (devices.some((device) => device.status === "offline")) return "danger";
-  if (devices.some((device) => device.status === "degraded")) return "warning";
+  if ((room.dynamic_score ?? 0) >= 0.75) return "danger";
+  if ((room.dynamic_score ?? 0) >= 0.35) return "warning";
+  if (roomDevices.some((device) => device.status === "offline")) return "danger";
+  if (roomDevices.some((device) => device.status === "degraded")) return "warning";
 
   return "success";
 }
@@ -468,10 +470,20 @@ function computeMetrics(
 }
 
 export function HomeMap() {
+  const data = useSynoraData();
+  const fallbackDemo =
+    data.apiStatus !== "unauthenticated" &&
+    ["empty", "unavailable"].includes(data.topologySource);
+  const topology = fallbackDemo ? demoApiTopology : data.topology;
+  const devices: TopologyDevice[] = fallbackDemo
+    ? demoTopologyDevices
+    : normalizeTopologyDevices(data.devices, topology);
   const { ref: boardRef, width: boardWidth } =
     useElementWidth<HTMLDivElement>();
 
-  const zones = getZones(demoApiTopology);
+  const zones = getZones(topology);
+  const allFloors = zones.flatMap((zone) => getFloorsForZone(zone));
+  const allRooms = zones.flatMap((zone) => getRoomsForZone(zone));
 
   const initialZoneId = zones[0]?.id ?? "";
   const initialFloorId = zones[0]
@@ -542,7 +554,7 @@ export function HomeMap() {
     0
   );
 
-  const unlocatedDevices = demoTopologyDevices.filter(
+  const unlocatedDevices = devices.filter(
     (device) => !device.node_id || device.node_id === "unlocated"
   );
 
@@ -552,8 +564,16 @@ export function HomeMap() {
         <Panel title="Maison — vue du dessus" className="home-topdown-main">
           <div className="empty-state">
             <ShieldCheck size={24} />
-            <strong>Aucune topologie</strong>
-            <span>Aucune zone ou étage disponible.</span>
+            <strong>
+              {data.apiStatus === "unauthenticated"
+                ? "API non authentifiée"
+                : data.topologySource === "unrecognized"
+                  ? "Format topologie non reconnu"
+                  : data.topologySource === "unavailable"
+                    ? "API indisponible"
+                    : "Topologie vide côté backend"}
+            </strong>
+            <span>{fallbackDemo ? "Fallback démo disponible après chargement." : "Aucune zone ou étage disponible."}</span>
           </div>
         </Panel>
       </div>
@@ -568,7 +588,7 @@ export function HomeMap() {
         action={
           <span className="badge success">
             <Lock size={12} />
-            locked
+            {fallbackDemo ? "fallback démo" : sourceLabel(data.apiStatus, data.topologySource)}
           </span>
         }
       >
@@ -582,9 +602,25 @@ export function HomeMap() {
           </div>
 
           <div className="topology-metric">
+            <Cpu size={18} />
+            <div>
+              <strong>{devices.filter((device) => device.node_id !== null).length}</strong>
+              <span>devices placés</span>
+            </div>
+          </div>
+
+          <div className="topology-metric">
+            <Radar size={18} />
+            <div>
+              <strong>{unlocatedDevices.length}</strong>
+              <span>non placés</span>
+            </div>
+          </div>
+
+          <div className="topology-metric">
             <MapIcon size={18} />
             <div>
-              <strong>{floors.length}</strong>
+              <strong>{allFloors.length}</strong>
               <span>étages</span>
             </div>
           </div>
@@ -592,7 +628,7 @@ export function HomeMap() {
           <div className="topology-metric">
             <ShieldCheck size={18} />
             <div>
-              <strong>{zoneRooms.length}</strong>
+              <strong>{allRooms.length}</strong>
               <span>pièces</span>
             </div>
           </div>
@@ -679,8 +715,8 @@ export function HomeMap() {
             </svg>
 
             {positionedRooms.map((room) => {
-              const tone = roomTone(room);
-              const devices = devicesForRoom(room.id);
+              const tone = roomTone(room, devices);
+              const roomDevices = devicesForRoom(room.id, devices);
               const crossFloorConnections = getCrossFloorConnections(room);
 
               return (
@@ -708,10 +744,10 @@ export function HomeMap() {
                   </div>
 
                   <div className="toy-device-list">
-                    {devices.length === 0 ? (
+                    {roomDevices.length === 0 ? (
                       <span className="room-empty">Aucun périphérique</span>
                     ) : (
-                      devices.map((device) => {
+                      roomDevices.map((device) => {
                         const Icon = deviceIcon(device.type);
                         const tone = statusTone(device.status);
 
@@ -806,4 +842,17 @@ export function HomeMap() {
       </Panel>
     </div>
   );
+}
+
+function sourceLabel(
+  apiStatus: "connected" | "unauthenticated" | "unavailable",
+  topologySource: string
+) {
+  if (apiStatus === "unauthenticated") return "non authentifiée";
+  if (topologySource === "api") return "API réelle";
+  if (topologySource === "snapshot") return "snapshot";
+  if (topologySource === "empty") return "topologie vide";
+  if (topologySource === "unrecognized") return "format non reconnu";
+  if (topologySource === "unavailable") return "API indisponible";
+  return "chargement";
 }

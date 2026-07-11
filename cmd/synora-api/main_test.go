@@ -185,7 +185,13 @@ func TestHandleSystemHealthReturnsCleanRuntimeHealth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/system/health", nil)
 	rec := httptest.NewRecorder()
 
-	handleSystemHealth(core, &webapi.Server{WebEnabled: false, WebRoot: t.TempDir()}).ServeHTTP(rec, req)
+	handleSystemHealth(core, &webapi.Server{WebEnabled: false, WebRoot: t.TempDir()}, webapi.ServerHealth{
+		HTTPAddr:       ":8080",
+		HTTPSEnabled:   true,
+		HTTPSAddr:      ":8443",
+		TLSCertPresent: true,
+		TLSKeyPresent:  true,
+	}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
@@ -204,6 +210,10 @@ func TestHandleSystemHealthReturnsCleanRuntimeHealth(t *testing.T) {
 		if _, ok := body[key]; !ok {
 			t.Fatalf("system health missing key %q in %s", key, rec.Body.String())
 		}
+	}
+	server, ok := body["server"].(map[string]any)
+	if !ok || server["https_enabled"] != true || server["tls_cert_present"] != true || server["tls_key_present"] != true {
+		t.Fatalf("system health missing TLS server state: %#v", body["server"])
 	}
 }
 
@@ -359,20 +369,22 @@ func TestServerHandlerServesWebStaticWithoutAuthAndProtectsAPI(t *testing.T) {
 	)
 
 	for _, tc := range []struct {
-		name       string
-		method     string
-		path       string
-		token      string
-		wantStatus int
-		wantBody   string
-		wantCache  string
+		name        string
+		method      string
+		path        string
+		token       string
+		wantStatus  int
+		wantBody    string
+		wantCache   string
+		wantPragma  string
+		wantExpires string
 	}{
 		{name: "index", method: http.MethodGet, path: "/", wantStatus: http.StatusOK, wantBody: "<html>synora</html>"},
 		{name: "spa", method: http.MethodGet, path: "/automations", wantStatus: http.StatusOK, wantBody: "<html>synora</html>"},
 		{name: "asset", method: http.MethodGet, path: "/assets/app.js", wantStatus: http.StatusOK, wantBody: "console.log('ok')", wantCache: "public, max-age=31536000, immutable"},
-		{name: "api-state", method: http.MethodGet, path: "/api/state", wantStatus: http.StatusUnauthorized},
-		{name: "catalog-unauth", method: http.MethodGet, path: "/api/automations/catalog", wantStatus: http.StatusUnauthorized},
-		{name: "catalog-auth", method: http.MethodGet, path: "/api/automations/catalog", token: "dev-token", wantStatus: http.StatusOK, wantBody: `"condition_kinds":[]`},
+		{name: "api-state", method: http.MethodGet, path: "/api/state", wantStatus: http.StatusUnauthorized, wantCache: "no-store", wantPragma: "no-cache", wantExpires: "0"},
+		{name: "catalog-unauth", method: http.MethodGet, path: "/api/automations/catalog", wantStatus: http.StatusUnauthorized, wantCache: "no-store", wantPragma: "no-cache", wantExpires: "0"},
+		{name: "catalog-auth", method: http.MethodGet, path: "/api/automations/catalog", token: "dev-token", wantStatus: http.StatusOK, wantBody: `"condition_kinds":[]`, wantCache: "no-store", wantPragma: "no-cache", wantExpires: "0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(tc.method, tc.path, nil)
@@ -389,6 +401,234 @@ func TestServerHandlerServesWebStaticWithoutAuthAndProtectsAPI(t *testing.T) {
 			}
 			if tc.wantCache != "" && rec.Header().Get("Cache-Control") != tc.wantCache {
 				t.Fatalf("cache-control=%q", rec.Header().Get("Cache-Control"))
+			}
+			if tc.wantPragma != "" && rec.Header().Get("Pragma") != tc.wantPragma {
+				t.Fatalf("pragma=%q", rec.Header().Get("Pragma"))
+			}
+			if tc.wantExpires != "" && rec.Header().Get("Expires") != tc.wantExpires {
+				t.Fatalf("expires=%q", rec.Header().Get("Expires"))
+			}
+		})
+	}
+}
+
+func TestServerHandlerAcceptsCookieSessionForAPI(t *testing.T) {
+	store, err := webapi.NewSessionStore(
+		filepath.Join(t.TempDir(), "auth", "sessions.json"),
+		time.Hour,
+		security.HashSecret("fingerprint"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := webapi.NewAuthService(store, func(token string) bool { return token == "dev-token" })
+	apiMux := http.NewServeMux()
+	apiMux.HandleFunc("/api/state", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	apiMux.HandleFunc("/api/mutate", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := buildServerHandlerWithAuth(
+		&security.Config{APITokenHash: security.HashSecret("dev-token")},
+		apiMux,
+		nil,
+		true,
+		&webapi.Server{WebEnabled: false},
+		auth,
+		false,
+	)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"token":"dev-token"}`))
+	loginRec := httptest.NewRecorder()
+	handler.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login status=%d body=%s", loginRec.Code, loginRec.Body.String())
+	}
+	cookies := loginRec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected session cookie, got %q", loginRec.Header().Get("Set-Cookie"))
+	}
+
+	stateReq := httptest.NewRequest(http.MethodGet, "/api/state", nil)
+	stateReq.AddCookie(cookies[0])
+	stateRec := httptest.NewRecorder()
+	handler.ServeHTTP(stateRec, stateReq)
+	if stateRec.Code != http.StatusNoContent {
+		t.Fatalf("cookie state status=%d body=%s", stateRec.Code, stateRec.Body.String())
+	}
+
+	mutateReq := httptest.NewRequest(http.MethodPost, "/api/mutate", nil)
+	mutateReq.AddCookie(cookies[0])
+	mutateRec := httptest.NewRecorder()
+	handler.ServeHTTP(mutateRec, mutateReq)
+	if mutateRec.Code != http.StatusUnauthorized {
+		t.Fatalf("cross-site mutation without origin status=%d body=%s", mutateRec.Code, mutateRec.Body.String())
+	}
+
+	mutateReq = httptest.NewRequest(http.MethodPost, "/api/mutate", nil)
+	mutateReq.AddCookie(cookies[0])
+	mutateReq.Header.Set("Origin", "http://example.com")
+	mutateRec = httptest.NewRecorder()
+	handler.ServeHTTP(mutateRec, mutateReq)
+	if mutateRec.Code != http.StatusNoContent {
+		t.Fatalf("same-origin mutation status=%d body=%s", mutateRec.Code, mutateRec.Body.String())
+	}
+}
+
+func TestServerHandlerEnforcesResidentRBACAndKeepsBearerAdmin(t *testing.T) {
+	hash, err := webapi.HashPassword("resident-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authPath := filepath.Join(t.TempDir(), "auth.yaml")
+	if err := os.WriteFile(authPath, []byte("users:\n  - id: user-carole\n    login: carole\n    resident_id: carole\n    role: resident\n    enabled: true\n    password_hash: "+hash+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	users, err := webapi.LoadUserDirectory(authPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := webapi.NewSessionStore(filepath.Join(t.TempDir(), "sessions.json"), time.Hour, security.HashSecret("fingerprint"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := webapi.NewAuthService(store, func(token string) bool { return token == "dev-token" })
+	auth.Users = users
+
+	apiMux := http.NewServeMux()
+	for _, path := range []string{"/api/state", "/api/devices", "/api/residents/alexis/face", "/api/simulation/run"} {
+		path := path
+		apiMux.HandleFunc(path, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}
+	handler := buildServerHandlerWithAuth(
+		&security.Config{APITokenHash: security.HashSecret("dev-token")},
+		apiMux,
+		nil,
+		true,
+		&webapi.Server{WebEnabled: false},
+		auth,
+		false,
+	)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"login":"carole","password":"resident-password"}`))
+	loginRec := httptest.NewRecorder()
+	handler.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login status=%d body=%s", loginRec.Code, loginRec.Body.String())
+	}
+	cookie := loginRec.Result().Cookies()[0]
+
+	for _, path := range []string{"/api/state", "/api/devices"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("resident read %s status=%d body=%s", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	for _, path := range []string{"/api/devices", "/api/residents", "/api/residents/alexis/face", "/api/simulation/run"} {
+		method := http.MethodPost
+		if path == "/api/residents/alexis/face" {
+			method = http.MethodGet
+		}
+		req := httptest.NewRequest(method, path, nil)
+		req.Host = "example.com"
+		req.Header.Set("Origin", "http://example.com")
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden || rec.Body.String() != "{\"error\":\"forbidden\"}\n" {
+			t.Fatalf("resident write %s status=%d body=%s", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/devices", nil)
+	req.Header.Set("Authorization", "Bearer dev-token")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("bearer admin write status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestServerHandlerNoStoreCoversEveryAPIRoute(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html>synora</html>"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "assets"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "assets", "test.js"), []byte("ok"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	apiMux := http.NewServeMux()
+	for _, path := range []string{"/api/state", "/api/system/health", "/api/topology", "/api/automations/catalog"} {
+		path := path
+		apiMux.HandleFunc(path, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}
+	store, err := webapi.NewSessionStore(
+		filepath.Join(t.TempDir(), "auth", "sessions.json"),
+		time.Hour,
+		security.HashSecret("fingerprint"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := webapi.NewAuthService(store, func(token string) bool { return token == "dev-token" })
+	handler := buildServerHandlerWithAuth(
+		&security.Config{APITokenHash: security.HashSecret("dev-token")},
+		apiMux,
+		nil,
+		true,
+		&webapi.Server{WebEnabled: true, WebRoot: root},
+		auth,
+		false,
+	)
+
+	for _, tc := range []struct {
+		name       string
+		path       string
+		token      string
+		wantStatus int
+		wantCache  string
+	}{
+		{name: "state", path: "/api/state", token: "dev-token", wantStatus: http.StatusNoContent, wantCache: "no-store"},
+		{name: "health", path: "/api/system/health", token: "dev-token", wantStatus: http.StatusNoContent, wantCache: "no-store"},
+		{name: "topology", path: "/api/topology", token: "dev-token", wantStatus: http.StatusNoContent, wantCache: "no-store"},
+		{name: "catalog", path: "/api/automations/catalog", token: "dev-token", wantStatus: http.StatusNoContent, wantCache: "no-store"},
+		{name: "auth-me", path: "/api/auth/me", wantStatus: http.StatusUnauthorized, wantCache: "no-store"},
+		{name: "index", path: "/", wantStatus: http.StatusOK, wantCache: "no-cache"},
+		{name: "asset", path: "/assets/test.js", wantStatus: http.StatusOK, wantCache: "public, max-age=31536000, immutable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			if tc.token != "" {
+				req.Header.Set("Authorization", "Bearer "+tc.token)
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("Cache-Control"); got != tc.wantCache {
+				t.Fatalf("cache-control=%q, want %q", got, tc.wantCache)
+			}
+			if strings.HasPrefix(tc.path, "/api/") {
+				if got := rec.Header().Get("Pragma"); got != "no-cache" {
+					t.Fatalf("pragma=%q", got)
+				}
+				if got := rec.Header().Get("Expires"); got != "0" {
+					t.Fatalf("expires=%q", got)
+				}
 			}
 		})
 	}

@@ -16,6 +16,57 @@ type Callbacks struct {
 	SyncPresence func(*state.PresenceState)
 }
 
+const MinResidentIdentityConfidence = 0.50
+
+// ApplyVisionIdentity is the runtime presence boundary for known vision
+// identities. It deliberately does not touch the residents configuration map.
+func ApplyVisionIdentity(store *state.Store, event *contract.Event) *state.PresenceState {
+	if store == nil || event == nil || contract.NormalizeEventType(event.Type) != contract.EventVisionIdentity {
+		return nil
+	}
+	identity := strings.TrimSpace(event.Identity)
+	if identity == "" || strings.EqualFold(identity, "unknown") || strings.EqualFold(identity, "uncertain") || event.Confidence < MinResidentIdentityConfidence {
+		return nil
+	}
+	now := event.Timestamp.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	createdAt := now
+	if current, ok := store.PresenceState(identity); ok && current != nil && !current.CreatedAt.IsZero() {
+		createdAt = current.CreatedAt
+	}
+	presence := &state.PresenceState{
+		ID:         identity,
+		ResidentID: identity,
+		Location:   strings.TrimSpace(event.NodeID),
+		Confidence: event.Confidence,
+		State:      "present",
+		CreatedAt:  createdAt,
+		UpdatedAt:  now,
+		LastSeen:   now,
+		ExpiresAt:  now.Add(state.DefaultPresenceTTL),
+	}
+	store.SetPresence(presence)
+
+	identityCreatedAt := now
+	if current, ok := store.Identity(identity); ok && current != nil && !current.CreatedAt.IsZero() {
+		identityCreatedAt = current.CreatedAt
+	}
+	store.SetIdentity(&state.IdentityState{
+		ID:           identity,
+		LastNodeID:   strings.TrimSpace(event.NodeID),
+		LastDeviceID: strings.TrimSpace(event.DeviceID),
+		Confidence:   event.Confidence,
+		State:        "present",
+		CreatedAt:    identityCreatedAt,
+		UpdatedAt:    now,
+		LastSeen:     now,
+		ExpiresAt:    now.Add(state.DefaultPresenceTTL),
+	})
+	return presence
+}
+
 func TouchDeviceState(store *state.Store, registry *device.Registry, event *contract.Event) {
 	if store == nil || registry == nil || event == nil || event.DeviceID == "" {
 		return

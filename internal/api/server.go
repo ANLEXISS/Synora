@@ -7,3 +7,11 @@ type Server struct {
 	WebEnabled bool
 	WebRoot    string
 }
+
+type ServerHealth struct {
+	HTTPAddr       string `json:"http_addr"`
+	HTTPSEnabled   bool   `json:"https_enabled"`
+	HTTPSAddr      string `json:"https_addr"`
+	TLSCertPresent bool   `json:"tls_cert_present"`
+	TLSKeyPresent  bool   `json:"tls_key_present"`
+}

@@ -101,3 +101,39 @@ func TestResidentWriteFailureLeavesMapUntouched(t *testing.T) {
 		t.Fatalf("failed write changed residents: %#v", residents)
 	}
 }
+
+func TestResidentIdentityFieldsAndFaceProfileLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "residents.yaml")
+	residents := map[string]*Resident{}
+	created, err := CreateResident(path, residents, Resident{
+		ID:        "alexis",
+		FirstName: "Alexis",
+		LastName:  "Martin",
+		Role:      contract.ResidentRoleResident,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Name != "Alexis Martin" || created.DisplayName != "Alexis Martin" {
+		t.Fatalf("unexpected identity fallback: %#v", created)
+	}
+
+	photos := make([]contract.FacePhoto, 5)
+	for index := range photos {
+		filename := "face-" + string(rune('1'+index)) + ".jpg"
+		photos[index] = contract.FacePhoto{ID: filename[:len(filename)-4], Filename: filename, Path: filepath.Join("services/vision-worker/data/face/alexis/base", filename)}
+	}
+	_, err = CreateResident(filepath.Join(t.TempDir(), "residents.yaml"), map[string]*Resident{}, Resident{
+		ID: "alexis2", Name: "Alexis 2", Role: contract.ResidentRoleResident,
+		FaceProfile: contract.FaceProfile{BasePhotos: photos},
+	})
+	if contract.APIErrorCode(err) != contract.ErrorValidationFailed {
+		t.Fatalf("expected max face photo validation, err=%v", err)
+	}
+
+	if _, err := CreateResident(filepath.Join(t.TempDir(), "residents.yaml"), map[string]*Resident{}, Resident{
+		ID: "Alexis", Name: "Invalid", Role: contract.ResidentRoleResident,
+	}); contract.APIErrorCode(err) != contract.ErrorValidationFailed {
+		t.Fatalf("expected lowercase id validation, err=%v", err)
+	}
+}

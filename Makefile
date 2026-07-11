@@ -3,7 +3,7 @@ SHELL := /usr/bin/env bash
 
 .PHONY: build test install update start stop restart doctor delete clean help \
 	check-go install-deps install-dirs install-bins install-config install-models \
-	build-web install-web restart-web web-status install-mediamtx install-systemd enable-services
+	build-web install-web restart-web web-status rotate-api-token generate-local-cert install-mediamtx install-vision-worker install-face-data install-systemd enable-services
 
 PREFIX ?= /opt/synora
 BINDIR ?= $(PREFIX)/bin
@@ -13,8 +13,14 @@ MEDIAMTX_DIR ?= $(PREFIX)/mediamtx
 MODELS_DIR ?= $(PREFIX)/models
 CONFIG_DIR ?= /etc/synora
 DATA_DIR ?= /var/lib/synora
+FACE_DATA_DIR ?= $(DATA_DIR)/vision/face
 WEBAPP_DIR ?= synora-web
 WEB_DIR ?= /var/lib/synora/web
+TLS_DIR ?= /etc/synora/tls
+TLS_IP ?= 100.80.170.47
+TLS_DNS ?= rock-5-itx
+SYNORA_SECURITY ?= $(CONFIG_DIR)/security.yaml
+SESSION_STORE ?= $(DATA_DIR)/auth/sessions.json
 SYSTEMD_DIR ?= /etc/systemd/system
 RUN_DIR ?= /run/synora
 BUS_SOCKET ?= $(RUN_DIR)/bus.sock
@@ -57,7 +63,11 @@ help:
 		'  make test                  Run Go tests and Python compileall' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
 		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
+		'  persistent face data     Keep resident face files in $(FACE_DATA_DIR)' \
 		'  make web-status            Show static webapp files and API reachability' \
+		'  make rotate-api-token      Rotate security.yaml token and restart synora-api' \
+		'  make generate-local-cert  Generate a local self-signed TLS certificate' \
+		'  make hash-password PASSWORD=... Generate a bcrypt hash for auth.yaml' \
 		'  make update                Rebuild and update deployed runtime without dependency install' \
 		'  make start                 Start runtime services' \
 		'  make stop                  Stop runtime services and remove bus socket' \
@@ -79,13 +89,17 @@ build: check-go
 		name="$${item%%:*}"; pkg="$${item#*:}"; \
 		echo "Building $$name from $$pkg"; \
 		GOCACHE=$(GOCACHE) "$(GO)" build -o "bin/$$name" "$$pkg"; \
-	done
+		done
+
+hash-password: check-go
+	@if [ -z "$(PASSWORD)" ]; then echo "FAIL: PASSWORD is required" >&2; exit 1; fi
+	@GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-auth-tool hash-password "$(PASSWORD)"
 
 test: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./...
 	$(PYTHON) -m compileall -q services/vision-worker
 
-install: install-deps build install-dirs install-bins install-config install-models install-web install-mediamtx install-vision-worker install-systemd enable-services
+install: install-deps build install-dirs install-bins install-config install-models install-web install-mediamtx install-vision-worker install-face-data install-systemd enable-services
 	@echo "Synora runtime installation complete."
 	@echo "Run 'make start' to start services or 'make doctor' to inspect the install."
 
@@ -118,6 +132,8 @@ install-dirs:
 		$(SUDO) useradd --system --gid $(SERVICE_USER) --home $(DATA_DIR) --shell /usr/sbin/nologin $(SERVICE_USER)
 	$(SUDO) install -d -m 0755 $(PREFIX) $(BINDIR) $(SERVICES_DIR) $(VISION_WORKER_DIR) $(MEDIAMTX_DIR) $(MODELS_DIR)
 	$(SUDO) install -d -m 0755 $(CONFIG_DIR) $(DATA_DIR) $(DATA_DIR)/state $(DATA_DIR)/clips $(DATA_DIR)/debug $(DATA_DIR)/logs
+	$(SUDO) install -d -m 0750 -o $(SERVICE_USER) -g $(SERVICE_USER) $(DATA_DIR)/vision $(FACE_DATA_DIR)
+	$(SUDO) install -d -m 0700 -o $(SERVICE_USER) -g $(SERVICE_USER) $(DATA_DIR)/auth
 	$(SUDO) install -d -m 0770 -o $(SERVICE_USER) -g $(SERVICE_USER) $(RUN_DIR)
 	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(PREFIX) $(DATA_DIR) $(RUN_DIR)
 
@@ -167,6 +183,12 @@ install-vision-worker: install-dirs
 		services/vision-worker/ $(VISION_WORKER_DIR)/
 	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(VISION_WORKER_DIR)
 	@if [ -f "$(VISION_WORKER_DIR)/worker.py" ]; then $(SUDO) chmod 0755 "$(VISION_WORKER_DIR)/worker.py"; fi
+
+install-face-data: install-dirs
+	@echo "Keeping persistent face data in $(FACE_DATA_DIR)"
+	$(SUDO) install -d -m 0750 -o $(SERVICE_USER) -g $(SERVICE_USER) $(FACE_DATA_DIR)
+	$(SUDO) chmod 0750 $(FACE_DATA_DIR)
+	$(SUDO) chown $(SERVICE_USER):$(SERVICE_USER) $(FACE_DATA_DIR)
 
 build-web:
 	@if [ -f "$(WEBAPP_DIR)/package.json" ]; then \
@@ -224,8 +246,38 @@ web-status:
 	@if systemctl is-active --quiet synora-api 2>/dev/null; then \
 		curl -I http://127.0.0.1:8080/; \
 	else \
-		echo "synora-api is not active; skipping HTTP check"; \
+		 echo "synora-api is not active; skipping HTTP check"; \
 	fi
+
+rotate-api-token: check-go
+	@if [ ! -f "$(SYNORA_SECURITY)" ]; then \
+		echo "FAIL: $(SYNORA_SECURITY) not found"; \
+		exit 1; \
+	fi
+	@backup="$(SYNORA_SECURITY).bak.$$(date +%Y%m%d-%H%M%S)"; \
+	echo "Backing up $(SYNORA_SECURITY) to $$backup"; \
+	$(SUDO) cp -a "$(SYNORA_SECURITY)" "$$backup"
+	$(SUDO) "$(GO)" run ./cmd/synora-token-rotate -path "$(SYNORA_SECURITY)"
+	$(SUDO) systemctl restart synora-api
+
+generate-local-cert:
+	@if ! command -v openssl >/dev/null 2>&1; then echo "FAIL: openssl is required" >&2; exit 1; fi
+	@if [ -e "$(TLS_DIR)/synora.crt" ] || [ -e "$(TLS_DIR)/synora.key" ]; then \
+		echo "FAIL: TLS files already exist in $(TLS_DIR); refusing to overwrite them." >&2; \
+		exit 1; \
+	fi
+	$(SUDO) install -d -m 0750 -o root -g $(SERVICE_USER) $(TLS_DIR)
+	@san="IP:127.0.0.1,DNS:localhost,DNS:$(TLS_DNS),DNS:synora.local"; \
+	if [ -n "$(TLS_IP)" ]; then san="IP:127.0.0.1,IP:$(TLS_IP),DNS:localhost,DNS:$(TLS_DNS),DNS:synora.local"; fi; \
+	$(SUDO) openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+		-keyout "$(TLS_DIR)/synora.key" \
+		-out "$(TLS_DIR)/synora.crt" \
+		-subj "/CN=$(TLS_DNS)" \
+		-addext "subjectAltName=$$san"
+	$(SUDO) chown root:$(SERVICE_USER) "$(TLS_DIR)/synora.crt" "$(TLS_DIR)/synora.key"
+	$(SUDO) chmod 0644 "$(TLS_DIR)/synora.crt"
+	$(SUDO) chmod 0640 "$(TLS_DIR)/synora.key"
+	@echo "Generated $(TLS_DIR)/synora.crt and $(TLS_DIR)/synora.key"
 
 install-mediamtx: install-dirs
 	@if [ -d tools/mediamtx ]; then \

@@ -31,8 +31,8 @@ func TestWebHandlerServesIndexAndSPAPaths(t *testing.T) {
 		wantBody   string
 		wantCache  string
 	}{
-		{name: "index", method: http.MethodGet, path: "/", wantStatus: http.StatusOK, wantBody: "<html>synora</html>"},
-		{name: "spa fallback", method: http.MethodGet, path: "/automations", wantStatus: http.StatusOK, wantBody: "<html>synora</html>"},
+		{name: "index", method: http.MethodGet, path: "/", wantStatus: http.StatusOK, wantBody: "<html>synora</html>", wantCache: "no-cache"},
+		{name: "spa fallback", method: http.MethodGet, path: "/automations", wantStatus: http.StatusOK, wantBody: "<html>synora</html>", wantCache: "no-cache"},
 		{name: "asset", method: http.MethodGet, path: "/assets/app.js", wantStatus: http.StatusOK, wantBody: "console.log('ok')", wantCache: "public, max-age=31536000, immutable"},
 	}
 

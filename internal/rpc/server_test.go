@@ -145,6 +145,54 @@ func TestRPCStateAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestPublicSnapshotAbsentResidentKeepsLastSeen(t *testing.T) {
+	store := state.NewStore()
+	lastSeen := time.Date(2026, 7, 11, 17, 3, 56, 742582666, time.UTC)
+	store.SetPresence(&state.PresenceState{
+		ID:         "alexis",
+		ResidentID: "alexis",
+		State:      "absent",
+		Confidence: 0,
+		Location:   "",
+		LastSeen:   lastSeen,
+	})
+
+	builder := &snapshot.Builder{
+		Mu:        &sync.RWMutex{},
+		State:     store,
+		Devices:   device.NewRegistry(),
+		Topology:  &topology.Topology{Nodes: map[string]*topology.Node{}},
+		Residents: map[string]*topology.Resident{"alexis": {ID: "alexis", Name: "Alexis"}},
+		Events:    event.NewStore(10),
+	}
+
+	public := contract.PublicSnapshotFromCoreState(builder.CoreState())
+	if len(public.Residents) != 1 {
+		t.Fatalf("expected one resident in public snapshot: %#v", public.Residents)
+	}
+	resident := public.Residents[0]
+	if resident["state"] != "absent" || resident["confidence"] != float64(0) {
+		t.Fatalf("unexpected absent resident projection: %#v", resident)
+	}
+	if value, ok := resident["last_seen"].(time.Time); !ok || !value.Equal(lastSeen) {
+		t.Fatalf("runtime last_seen missing from public snapshot: %#v", resident)
+	}
+
+	body, err := json.Marshal(public)
+	if err != nil {
+		t.Fatalf("marshal public snapshot: %v", err)
+	}
+	var decoded struct {
+		Residents []map[string]any `json:"residents"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("decode public snapshot: %v", err)
+	}
+	if value, ok := decoded.Residents[0]["last_seen"].(string); !ok || value != "2026-07-11T17:03:56.742582666Z" {
+		t.Fatalf("JSON public snapshot lost last_seen: %#v", decoded.Residents[0])
+	}
+}
+
 func TestSystemHealthUsesRuntimeManager(t *testing.T) {
 	store := state.NewStore()
 	runtimeHealth := contract.RuntimeHealth{

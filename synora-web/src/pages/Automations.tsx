@@ -20,8 +20,15 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Panel } from "../components/Panel";
+import { useSynoraData } from "../hooks/useSynoraData";
+import { useAuth } from "../hooks/useAuth";
+import {
+  createAutomation,
+  deleteAutomation,
+  updateAutomation,
+} from "../lib/synora-api";
 import {
   automationActionCommandCatalog,
   automationActionTypeCatalog,
@@ -47,6 +54,13 @@ import {
 type AutomationFilter = "all" | "enabled" | "disabled";
 type StateFilter = "all" | DemoAutomation["state"];
 type JoinOperator = "AND" | "OR";
+
+function normalizeAutomationState(value: string | undefined): DemoAutomation["state"] {
+  return value === "idle" || value === "activity" || value === "suspicious" ||
+    value === "intrusion" || value === "break-in"
+    ? value
+    : "";
+}
 
 type BuilderCondition = DemoAutomationCondition & {
   id: string;
@@ -282,13 +296,36 @@ function createAction(kind: AutomationActionKind = "notify"): BuilderAction {
 }
 
 export function Automations() {
+  const data = useSynoraData();
+  const auth = useAuth();
   const conditionCatalog = useMemo(() => buildConditionCatalog(), []);
 
   const [automations, setAutomations] =
     useState<DemoAutomation[]>(demoAutomations);
 
+  useEffect(() => {
+    if (data.automations.length === 0) return;
+    setAutomations(
+      data.automations.map((automation) => ({
+        id: automation.id,
+        name: String(automation["name"] ?? automation.id),
+        description: String(automation["description"] ?? "Automatisation Synora"),
+        enabled: automation.enabled !== false,
+        state: normalizeAutomationState(automation.state),
+        event_type: automation.event_type,
+        node_id: automation.node_id,
+        min_score: typeof automation["min_score"] === "number" ? automation["min_score"] : 0,
+        schedule: "always",
+        conditions: [],
+        actions: [],
+        last_triggered: null,
+      }))
+    );
+  }, [data.automations]);
+
   const [builderOpen, setBuilderOpen] = useState(false);
   const [editingAutomationId, setEditingAutomationId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [automationFilter, setAutomationFilter] =
@@ -465,7 +502,7 @@ function openEditBuilder(automation: DemoAutomation) {
   setBuilderOpen(true);
 }
 
-function createAutomationFromBuilder() {
+async function createAutomationFromBuilder() {
   const safeName = ruleName.trim() || "Nouvelle règle";
   const safeId = safeName
     .toLowerCase()
@@ -519,6 +556,31 @@ function createAutomationFromBuilder() {
         ?.last_triggered ?? null,
   };
 
+  const payload = {
+    id: saved.id,
+    name: saved.name,
+    description: saved.description,
+    enabled: saved.enabled,
+    event_type: saved.event_type,
+    node_id: saved.node_id,
+    min_score: saved.min_score,
+    schedule: saved.schedule,
+    conditions: saved.conditions,
+    actions: saved.actions,
+  };
+
+  try {
+    if (editingAutomationId) {
+      await updateAutomation(editingAutomationId, payload);
+    } else {
+      await createAutomation(payload);
+    }
+    await data.refresh();
+  } catch {
+    setNotice("Action non disponible côté backend : automatisation non sauvegardée.");
+    return;
+  }
+
   setAutomations((items) => {
     if (!editingAutomationId) {
       return [saved, ...items];
@@ -531,6 +593,18 @@ function createAutomationFromBuilder() {
 
   setBuilderOpen(false);
   setEditingAutomationId(null);
+  setNotice(editingAutomationId ? "Automatisation mise à jour côté API." : "Automatisation créée côté API.");
+}
+
+async function handleDeleteAutomation(id: string) {
+  try {
+    await deleteAutomation(id);
+    await data.refresh();
+    setAutomations((items) => items.filter((item) => item.id !== id));
+    setNotice("Automatisation supprimée côté API.");
+  } catch {
+    setNotice("Action non disponible côté backend : automatisation conservée.");
+  }
 }
 
   return (
@@ -588,7 +662,7 @@ function createAutomationFromBuilder() {
       <Panel
         title="Automatisations"
         className="automations-main-panel"
-        action={
+        action={auth.can("automations:write") ? (
           <button
             className="primary-button automations-add-button"
             onClick={openCreateBuilder}
@@ -596,8 +670,9 @@ function createAutomationFromBuilder() {
             <Plus size={16} />
             Nouvelle règle
           </button>
-        }
+        ) : undefined}
       >
+        {notice && <div className="auth-error">{notice}</div>}
         <div className="automations-toolbar">
           <label className="automation-search">
             <Search size={16} />
@@ -767,16 +842,16 @@ function createAutomationFromBuilder() {
                     {automation.last_triggered ?? "Jamais déclenchée"}
                   </span>
 
-                  <div className="automation-actions">
-                    <button
-                      title="Modifier"
-                      onClick={() => openEditBuilder(automation)}>
-                      <Pencil size={15} />
-                    </button>
-                    <button title="Supprimer">
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
+                  {auth.can("automations:write") && (
+                    <div className="automation-actions">
+                      <button title="Modifier" onClick={() => openEditBuilder(automation)}>
+                        <Pencil size={15} />
+                      </button>
+                      <button title="Supprimer" onClick={() => void handleDeleteAutomation(automation.id)}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </article>
             );

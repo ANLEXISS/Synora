@@ -112,6 +112,10 @@ type ExpirationConfig struct {
 	Windows    time.Duration
 }
 
+// DefaultPresenceTTL keeps a resident present long enough for normal camera
+// gaps while retaining last_seen after expiration.
+const DefaultPresenceTTL = 15 * time.Minute
+
 type CleanupResult struct {
 	Deleted map[string][]string `json:"deleted"`
 }
@@ -121,7 +125,7 @@ func DefaultExpirationConfig() ExpirationConfig {
 		Tracks:     20 * time.Second,
 		Clusters:   15 * time.Second,
 		Identities: 45 * time.Second,
-		Presence:   45 * time.Second,
+		Presence:   DefaultPresenceTTL,
 		Clips:      5 * time.Minute,
 		Windows:    20 * time.Second,
 	}

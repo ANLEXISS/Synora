@@ -2,6 +2,7 @@ package topology
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -11,7 +12,7 @@ import (
 	"synora/pkg/contract"
 )
 
-var residentIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+var residentIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,127}$`)
 
 type Presence struct {
 	ResidentID string  `json:"resident_id"`
@@ -21,13 +22,18 @@ type Presence struct {
 }
 
 type Resident struct {
-	ID          string `json:"id" yaml:"id"`
-	Name        string `json:"name" yaml:"name"`
-	DisplayName string `json:"display_name,omitempty" yaml:"display_name,omitempty"`
-	Role        string `json:"role" yaml:"role"`
-	Admin       bool   `json:"admin" yaml:"admin"`
-	Enabled     bool   `json:"enabled" yaml:"enabled"`
-	Trusted     bool   `json:"trusted" yaml:"trusted"`
+	ID              string               `json:"id" yaml:"id"`
+	Name            string               `json:"name" yaml:"name"`
+	FirstName       string               `json:"first_name,omitempty" yaml:"first_name,omitempty"`
+	LastName        string               `json:"last_name,omitempty" yaml:"last_name,omitempty"`
+	DisplayName     string               `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Role            string               `json:"role" yaml:"role"`
+	Admin           bool                 `json:"admin" yaml:"admin"`
+	Enabled         bool                 `json:"enabled" yaml:"enabled"`
+	Trusted         bool                 `json:"trusted" yaml:"trusted"`
+	ReferenceNodeID string               `json:"reference_node_id,omitempty" yaml:"reference_node_id,omitempty"`
+	AccountID       string               `json:"account_id,omitempty" yaml:"account_id,omitempty"`
+	FaceProfile     contract.FaceProfile `json:"face_profile,omitempty" yaml:"face_profile,omitempty"`
 
 	Contact         contract.Contact         `json:"contact,omitempty" yaml:"contact,omitempty"`
 	Baseline        contract.Baseline        `json:"baseline,omitempty" yaml:"baseline,omitempty"`
@@ -79,8 +85,9 @@ func (r *Resident) UnmarshalJSON(data []byte) error {
 func (r Resident) ConfigView() contract.ResidentView {
 	value := cloneResident(r)
 	return contract.Resident{
-		ID: value.ID, Name: value.Name, DisplayName: value.DisplayName,
+		ID: value.ID, Name: value.Name, FirstName: value.FirstName, LastName: value.LastName, DisplayName: value.DisplayName,
 		Role: value.Role, Admin: value.Admin, Enabled: value.Enabled, Trusted: value.Trusted,
+		ReferenceNodeID: value.ReferenceNodeID, AccountID: value.AccountID, FaceProfile: cloneFaceProfile(value.FaceProfile),
 		Contact: value.Contact, Baseline: value.Baseline,
 		PresenceProfile: cloneAnyMap(value.PresenceProfile), IdentityProfile: value.IdentityProfile,
 		Permissions: cloneAnyMap(value.Permissions), Metadata: sanitizeResidentMap(value.Metadata),
@@ -110,6 +117,14 @@ func ValidateResident(value Resident) error {
 	default:
 		return contract.NewAPIError(contract.ErrorValidationFailed, "unsupported resident role %q", value.Role)
 	}
+	if len(value.FaceProfile.BasePhotos) > 4 {
+		return contract.NewAPIError(contract.ErrorValidationFailed, "a resident may have at most 4 base face photos")
+	}
+	for _, photo := range value.FaceProfile.BasePhotos {
+		if !safeFaceMetadataPart(photo.ID) || !safeFaceMetadataPart(photo.Filename) || photo.Path == "" || filepath.Base(photo.Path) != photo.Filename {
+			return contract.NewAPIError(contract.ErrorValidationFailed, "invalid face photo metadata")
+		}
+	}
 	return nil
 }
 
@@ -119,13 +134,25 @@ func normalizeResident(value *Resident) {
 	}
 	value.ID = strings.TrimSpace(value.ID)
 	value.Name = strings.TrimSpace(value.Name)
+	value.FirstName = strings.TrimSpace(value.FirstName)
+	value.LastName = strings.TrimSpace(value.LastName)
 	value.DisplayName = strings.TrimSpace(value.DisplayName)
+	value.ReferenceNodeID = strings.TrimSpace(value.ReferenceNodeID)
+	value.AccountID = strings.TrimSpace(value.AccountID)
 	value.Role = strings.ToLower(strings.TrimSpace(value.Role))
 	if value.Name == "" {
-		value.Name = value.ID
+		value.Name = strings.TrimSpace(strings.Join([]string{value.FirstName, value.LastName}, " "))
+		if value.Name == "" {
+			value.Name = value.ID
+		}
 	}
 	if value.DisplayName == "" {
-		value.DisplayName = value.Name
+		fullName := strings.TrimSpace(strings.Join([]string{value.FirstName, value.LastName}, " "))
+		if fullName != "" {
+			value.DisplayName = fullName
+		} else {
+			value.DisplayName = value.Name
+		}
 	}
 	if value.Role == "" {
 		value.Role = contract.ResidentRoleResident
@@ -139,11 +166,18 @@ func normalizeResident(value *Resident) {
 	value.IdentityProfile.FaceIDs = normalizeStrings(value.IdentityProfile.FaceIDs)
 	value.IdentityProfile.VoiceIDs = normalizeStrings(value.IdentityProfile.VoiceIDs)
 	value.IdentityProfile.Aliases = normalizeStrings(value.IdentityProfile.Aliases)
+	normalizeFaceProfile(&value.FaceProfile)
 }
 
 func applyResidentPatch(value *Resident, patch contract.ResidentPatch) {
 	if patch.Name != nil {
 		value.Name = *patch.Name
+	}
+	if patch.FirstName != nil {
+		value.FirstName = *patch.FirstName
+	}
+	if patch.LastName != nil {
+		value.LastName = *patch.LastName
 	}
 	if patch.DisplayName != nil {
 		value.DisplayName = *patch.DisplayName
@@ -164,6 +198,15 @@ func applyResidentPatch(value *Resident, patch contract.ResidentPatch) {
 	if patch.Trusted != nil {
 		value.Trusted = *patch.Trusted
 		value.trustedSet = true
+	}
+	if patch.ReferenceNodeID != nil {
+		value.ReferenceNodeID = *patch.ReferenceNodeID
+	}
+	if patch.AccountID != nil {
+		value.AccountID = *patch.AccountID
+	}
+	if patch.FaceProfile != nil {
+		value.FaceProfile = cloneFaceProfile(*patch.FaceProfile)
 	}
 	// Identity data is replaced only when the field is explicitly present.
 	if patch.Contact != nil {
@@ -191,6 +234,7 @@ func cloneResident(value Resident) Resident {
 	value.Baseline = cloneBaseline(value.Baseline)
 	value.PresenceProfile = cloneAnyMap(value.PresenceProfile)
 	value.IdentityProfile = cloneIdentityProfile(value.IdentityProfile)
+	value.FaceProfile = cloneFaceProfile(value.FaceProfile)
 	value.Permissions = cloneAnyMap(value.Permissions)
 	value.Metadata = cloneAnyMap(value.Metadata)
 	value.Extra = cloneAnyMap(value.Extra)
@@ -200,6 +244,43 @@ func cloneResident(value Resident) Resident {
 		value.Presence = &presence
 	}
 	return value
+}
+
+func cloneFaceProfile(value contract.FaceProfile) contract.FaceProfile {
+	value.BasePhotos = append([]contract.FacePhoto(nil), value.BasePhotos...)
+	return value
+}
+
+func normalizeFaceProfile(value *contract.FaceProfile) {
+	if value == nil {
+		return
+	}
+	switch value.Status {
+	case "empty", "ready", "needs_rebuild", "error":
+	default:
+		value.Status = "empty"
+	}
+	if len(value.BasePhotos) == 0 && value.Status == "ready" {
+		value.Status = "empty"
+	}
+	if len(value.BasePhotos) > 0 && value.Status == "empty" {
+		value.Status = "needs_rebuild"
+	}
+	if value.PendingCount < 0 {
+		value.PendingCount = 0
+	}
+	if value.AutoCount < 0 {
+		value.AutoCount = 0
+	}
+	if value.ReviewCount < 0 {
+		value.ReviewCount = 0
+	}
+	value.PendingCount = value.ReviewCount
+}
+
+func safeFaceMetadataPart(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && value != "." && value != ".." && filepath.Base(value) == value && !strings.ContainsAny(value, `/\\`)
 }
 
 func cloneIdentityProfile(value contract.IdentityProfile) contract.IdentityProfile {

@@ -16,6 +16,10 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Panel } from "../components/Panel";
+import { useSynoraData } from "../hooks/useSynoraData";
+import { useAuth } from "../hooks/useAuth";
+import { deleteDevice } from "../lib/synora-api";
+import { normalizeTopologyDevices } from "../lib/topology";
 import {
   demoApiTopology,
   demoTopologyDevices,
@@ -78,10 +82,10 @@ function flattenRooms(topology: ApiTopologyNode[]) {
   );
 }
 
-function getRoomLabel(roomId: string | null | undefined) {
+function getRoomLabel(roomId: string | null | undefined, topology: ApiTopologyNode[]) {
   if (!roomId || roomId === "unlocated") return "Non placé";
 
-  const room = flattenRooms(demoApiTopology).find((item) => item.id === roomId);
+  const room = flattenRooms(topology).find((item) => item.id === roomId);
 
   if (!room) return roomId;
 
@@ -111,19 +115,27 @@ export function Devices() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<DeviceFilter>("all");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const devices = demoTopologyDevices;
+  const data = useSynoraData();
+  const auth = useAuth();
+  const demoFallback = data.devices.length === 0 || Boolean(data.error);
+  const topology = data.topology.length > 0 ? data.topology : demoApiTopology;
+  const devices: TopologyDevice[] = demoFallback
+    ? demoTopologyDevices
+    : normalizeTopologyDevices(data.devices, topology);
+  const visibleDevices = devices;
 
   const filteredDevices = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    return devices.filter((device) => {
+    return visibleDevices.filter((device) => {
       const matchSearch =
         query.length === 0 ||
         device.id.toLowerCase().includes(query) ||
         device.name.toLowerCase().includes(query) ||
         device.type.toLowerCase().includes(query) ||
-        getRoomLabel(device.node_id).toLowerCase().includes(query);
+        getRoomLabel(device.node_id, topology).toLowerCase().includes(query);
 
       const matchStatus =
         statusFilter === "all" ||
@@ -134,12 +146,30 @@ export function Devices() {
 
       return matchSearch && matchStatus && matchType;
     });
-  }, [devices, search, statusFilter, typeFilter]);
+  }, [visibleDevices, search, statusFilter, typeFilter, topology]);
 
-  const online = devices.filter((device) => device.status === "online").length;
-  const degraded = devices.filter((device) => device.status === "degraded").length;
-  const offline = devices.filter((device) => device.status === "offline").length;
-  const unlocated = devices.filter(isUnlocated).length;
+  const online = visibleDevices.filter((device) => device.status === "online").length;
+  const degraded = visibleDevices.filter((device) => device.status === "degraded").length;
+  const offline = visibleDevices.filter((device) => device.status === "offline").length;
+  const unlocated = visibleDevices.filter(isUnlocated).length;
+
+  async function handleDelete(id: string) {
+    if (!auth.can("devices:write")) {
+      setNotice("Accès refusé : action réservée administrateur.");
+      return;
+    }
+    if (demoFallback) {
+      setNotice("Suppression indisponible : affichage en fallback démo.");
+      return;
+    }
+    try {
+      await deleteDevice(id);
+      await data.refresh();
+      setNotice("Périphérique supprimé côté API.");
+    } catch {
+      setNotice("Action non disponible côté backend.");
+    }
+  }
 
   return (
     <div className="devices-layout">
@@ -196,13 +226,14 @@ export function Devices() {
       <Panel
         title="Périphériques"
         className="devices-main-panel"
-        action={
-          <button className="primary-button devices-add-button">
+        action={auth.can("devices:write") ? (
+          <button className="primary-button devices-add-button" onClick={() => setNotice("Création disponible côté API, mais aucun formulaire web n’est encore fourni.")}>
             <Plus size={16} />
             Ajouter
           </button>
-        }
+        ) : undefined}
       >
+        {notice && <div className="auth-error">{notice}</div>}
         <div className="devices-toolbar">
           <label className="device-search">
             <Search size={16} />
@@ -292,7 +323,7 @@ export function Devices() {
 
                   <div>
                     <span>Pièce</span>
-                    <strong>{getRoomLabel(device.node_id)}</strong>
+                    <strong>{getRoomLabel(device.node_id, topology)}</strong>
                   </div>
                 </div>
 
@@ -320,12 +351,16 @@ export function Devices() {
                   )}
 
                   <div className="device-actions">
-                    <button title="Modifier">
-                      <Pencil size={15} />
-                    </button>
-                    <button title="Supprimer">
-                      <Trash2 size={15} />
-                    </button>
+                    {auth.can("devices:write") && (
+                      <>
+                        <button title="Modifier" onClick={() => setNotice("Modification non disponible dans cette vue.")}>
+                          <Pencil size={15} />
+                        </button>
+                        <button title="Supprimer" onClick={() => void handleDelete(device.id)}>
+                          <Trash2 size={15} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </article>

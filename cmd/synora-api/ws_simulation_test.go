@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	webapi "synora/internal/api"
 	"synora/internal/security"
 	"synora/internal/simulation"
 	"synora/pkg/contract"
@@ -151,6 +152,40 @@ func TestWebSocketWithBearerReceivesInitialSnapshot(t *testing.T) {
 		t.Fatalf("unexpected initial snapshot data: %#v", data)
 	}
 	assertCompactCGEEnvelope(t, data["cge"])
+}
+
+func TestWebSocketWithCookieSessionReceivesInitialSnapshot(t *testing.T) {
+	core := &dynamicStateCore{state: emptyPublicSnapshot()}
+	hub := newWebSocketHub(core)
+	defer hub.Close()
+	store, err := webapi.NewSessionStore(t.TempDir()+"/sessions.json", time.Hour, "fingerprint")
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := webapi.NewAuthService(store, func(token string) bool { return token == "dev-token" })
+	sessionID, _, err := store.Create(webapi.AuthUser{Role: "admin", Source: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &security.Config{APITokenHash: security.HashSecret("dev-token")}
+	server := newIPv4TestServer(t, apiAuthMiddlewareWithAuth(cfg, auth, false, hub))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Cookie", webapi.SessionCookieName+"="+sessionID)
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL(server.URL)+"/api/ws", header)
+	if err != nil {
+		t.Fatalf("websocket cookie dial: %v", err)
+	}
+	defer conn.Close()
+
+	var envelope wsEnvelope
+	if err := conn.ReadJSON(&envelope); err != nil {
+		t.Fatalf("read initial snapshot: %v", err)
+	}
+	if envelope.Type != "snapshot.initial" {
+		t.Fatalf("unexpected websocket envelope: %#v", envelope)
+	}
 }
 
 func TestWebSocketAcceptsQueryTokenForBrowserTests(t *testing.T) {

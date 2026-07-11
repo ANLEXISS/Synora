@@ -92,6 +92,102 @@ func TestPersistentStoreSavesAndReloadsDurableState(t *testing.T) {
 	}
 }
 
+func TestPersistentStoreSavesAndReloadsRuntimePresence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	now := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	first := NewStore(WithPersistencePath(path))
+	first.SetPresence(&PresenceState{
+		ID:         "alexis",
+		ResidentID: "alexis",
+		Location:   "zoneA.L0.entree",
+		Confidence: 0.92,
+		State:      "present",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		LastSeen:   now,
+		ExpiresAt:  now.Add(DefaultPresenceTTL),
+	})
+
+	second := NewStore(WithPersistencePath(path))
+	if _, err := second.LoadPersisted(); err != nil {
+		t.Fatalf("reload runtime presence: %v", err)
+	}
+	presence, ok := second.PresenceState("alexis")
+	if !ok || presence == nil {
+		t.Fatal("runtime presence should reload")
+	}
+	if presence.State != "present" || presence.Location != "zoneA.L0.entree" || !presence.LastSeen.Equal(now) {
+		t.Fatalf("unexpected reloaded runtime presence: %#v", presence)
+	}
+}
+
+func TestResidentPersistenceKeepsLastSeenWhenAbsent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	lastSeen := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	store := NewStore(WithPersistencePath(path))
+	store.SetPresence(&PresenceState{
+		ID:         "alexis",
+		ResidentID: "alexis",
+		Location:   "zoneA.L0.entree",
+		Confidence: 0.92,
+		State:      "present",
+		CreatedAt:  lastSeen,
+		UpdatedAt:  lastSeen,
+		LastSeen:   lastSeen,
+		ExpiresAt:  lastSeen.Add(DefaultPresenceTTL),
+	})
+
+	cleanupAt := lastSeen.Add(DefaultPresenceTTL + time.Second)
+	result := store.Cleanup(cleanupAt, DefaultExpirationConfig())
+	if len(result.Deleted["presence"]) != 1 || result.Deleted["presence"][0] != "alexis" {
+		t.Fatalf("expected expired presence result, got %#v", result)
+	}
+	presence, ok := store.PresenceState("alexis")
+	if !ok || presence == nil {
+		t.Fatal("expired presence should remain as an absent runtime record")
+	}
+	if presence.State != "absent" || presence.Location != "" || presence.Confidence != 0 || !presence.LastSeen.Equal(lastSeen) {
+		t.Fatalf("expiration should preserve last_seen: %#v", presence)
+	}
+
+	reloaded := NewStore(WithPersistencePath(path))
+	if _, err := reloaded.LoadPersisted(); err != nil {
+		t.Fatalf("reload expired presence: %v", err)
+	}
+	presence, ok = reloaded.PresenceState("alexis")
+	if !ok || presence == nil || presence.State != "absent" || !presence.LastSeen.Equal(lastSeen) {
+		t.Fatalf("expired state should persist last_seen: %#v", presence)
+	}
+}
+
+func TestResidentAbsentKeepsLastSeen(t *testing.T) {
+	lastSeen := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	store := NewStore()
+	store.SetPresence(&PresenceState{
+		ID:         "alexis",
+		ResidentID: "alexis",
+		State:      "present",
+		Confidence: 0.9,
+		LastSeen:   lastSeen,
+	})
+
+	store.SetPresence(&PresenceState{
+		ID:         "alexis",
+		ResidentID: "alexis",
+		State:      "absent",
+		Confidence: 0,
+		Location:   "",
+	})
+
+	presence, ok := store.PresenceState("alexis")
+	if !ok || presence == nil {
+		t.Fatal("expected resident presence after absent update")
+	}
+	if presence.State != "absent" || presence.Confidence != 0 || !presence.LastSeen.Equal(lastSeen) {
+		t.Fatalf("absent update erased runtime history: %#v", presence)
+	}
+}
+
 func TestUserConfigurationMutationCreatesStateBackup(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")

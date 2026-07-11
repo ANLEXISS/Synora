@@ -8,6 +8,7 @@ import {
   demoEvents,
   demoStats,
 } from "../data/demo";
+import { useSynoraData } from "../hooks/useSynoraData";
 
 
 function dangerTone(score: number): "success" | "warning" | "danger" {
@@ -26,25 +27,60 @@ function devicesTone(online: number, total: number): "success" | "warning" | "da
   return "warning";
 }
 
-function systemTone(state: string): "success" | "warning" | "danger" {
+function systemTone(state: string): "neutral" | "success" | "warning" | "danger" {
   const normalized = state.toLowerCase();
 
+  if (normalized === "—") return "neutral";
   if (normalized.includes("break") || normalized.includes("intrusion")) return "danger";
-  if (normalized.includes("suspicious") || normalized.includes("degraded")) return "warning";
+  if (
+    normalized.includes("suspicious") ||
+    normalized.includes("suspect")
+  ) return "warning";
   return "success";
 }
 
+function normalizeDeviceStatus(device: {
+  enabled?: unknown;
+  online?: unknown;
+  status?: unknown;
+}): string {
+  if (device.enabled === false) return "offline";
+  if (typeof device.status === "string" && device.status.trim()) {
+    return device.status;
+  }
+  return device.online === true ? "online" : "offline";
+}
+
 export function Dashboard() {
-  const danger = demoStats.dangerScore;
-  const deviceTone = devicesTone(demoStats.devicesOnline, demoStats.devicesTotal);
+  const data = useSynoraData();
+  const demoFallback = !data.snapshot;
+  const danger = demoFallback ? demoStats.dangerScore : data.dangerScore;
+  const devices = demoFallback ? demoDevices : data.devices.slice(0, 6).map((device) => ({
+    id: device.id,
+    name: String(device["name"] ?? device.id),
+    status: normalizeDeviceStatus(device),
+    node: String(device.node_id ?? device.room ?? "unlocated"),
+  }));
+  const events = demoFallback ? demoEvents : data.events.slice(0, 6).map((event) => ({
+    type: event.type ?? event.event_type ?? "event",
+    title: String(event["title"] ?? event.type ?? event.event_type ?? "Événement"),
+    subtitle: String(event["description"] ?? event.device_id ?? event.node_id ?? "Synora"),
+    tone: (event.priority && event.priority >= 8 ? "danger" : event.priority && event.priority >= 5 ? "warning" : "neutral") as "neutral" | "warning" | "danger",
+  }));
+  const devicesOnline = devices.filter((device) => device.status === "online").length;
+  const deviceTone = devicesTone(devicesOnline, devices.length);
+  const systemState = demoFallback ? "—" : data.systemState;
+  const residentsPresent = demoFallback
+    ? demoStats.residentsPresent
+    : data.residents.filter((resident) => resident.state === "present").length;
 
   return (
     <div className="dashboard-grid">
       <StatCard
         title="État système"
-        value={demoStats.systemState}
-        label="Aucune menace active"
-        tone={systemTone(demoStats.systemState)}
+        value={systemState}
+        label={demoFallback ? "Démo fallback" : "API synora-api"}
+        tone={systemTone(systemState)}
       />
 
       <StatCard
@@ -56,27 +92,31 @@ export function Dashboard() {
 
       <StatCard
         title="Devices"
-        value={`${demoStats.devicesOnline}/${demoStats.devicesTotal}`}
+        value={`${devicesOnline}/${devices.length}`}
         label="Périphériques actifs"
         tone={deviceTone}
       />
 
       <StatCard
         title="Résidents"
-        value={demoStats.residentsPresent}
+        value={residentsPresent}
         label="Présent actuellement"
-        tone={demoStats.residentsPresent > 0 ? "success" : "warning"}
+        tone={residentsPresent > 0 ? "success" : "warning"}
       />
 
       <Panel
         title="Événements récents"
         className="card-wide"
-        action={<span className="badge warning">Live waiting</span>}
+        action={
+          <span className={`badge ${demoFallback ? "warning" : data.connection === "connected" ? "success" : "warning"}`}>
+            {demoFallback ? "Démo fallback" : data.connection === "connected" ? "Connecté" : "Dégradé"}
+          </span>
+        }
       >
         <div className="event-list">
-          {demoEvents.map((event) => (
+          {events.map((event, index) => (
             <EventRow
-              key={`${event.type}-${event.title}`}
+              key={`${event.type}-${event.title}-${index}`}
               type={event.type}
               title={event.title}
               subtitle={event.subtitle}
@@ -117,7 +157,7 @@ export function Dashboard() {
         action={<Cpu size={17} />}
       >
         <div className="compact-list">
-          {demoDevices.map((device) => (
+          {devices.map((device) => (
             <div className="compact-row" key={device.id}>
               <div>
                 <strong>{device.name}</strong>

@@ -1,11 +1,14 @@
 import { Moon, Wifi } from "lucide-react";
+import type { SynoraUser } from "../lib/auth";
 
 type TopbarProps = {
   title: string;
   subtitle: string;
+  user?: SynoraUser | null;
+  onLogout?: () => void;
 };
 
-export function Topbar({ title, subtitle }: TopbarProps) {
+export function Topbar({ title, subtitle, user, onLogout }: TopbarProps) {
   return (
     <header className="topbar">
       <div className="page-title">
@@ -26,8 +29,20 @@ export function Topbar({ title, subtitle }: TopbarProps) {
 
         <div className="mode-pill">
           <Wifi size={16} />
-          Local API
+          Connecté
         </div>
+
+        {user && (
+          <div className="mode-pill">
+            {user.login} · {user.role === "admin" ? "Admin" : user.role === "resident" ? "Résident" : "Invité"}
+          </div>
+        )}
+
+        {onLogout && (
+          <button className="secondary-button" type="button" onClick={onLogout}>
+            Déconnexion
+          </button>
+        )}
       </div>
     </header>
   );

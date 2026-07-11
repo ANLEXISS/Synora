@@ -360,12 +360,16 @@ func (s *Server) residentConfigGet(msg contract.Message) (any, error) {
 
 func (s *Server) residentConfigCreate(msg contract.Message) (any, error) {
 	if err := validateObjectFields(msg.Payload,
-		"id", "name", "display_name", "role", "admin", "enabled", "trusted",
+		"id", "name", "first_name", "last_name", "display_name", "role", "admin", "enabled", "trusted",
+		"reference_node_id", "account_id", "face_profile",
 		"contact", "baseline", "presence_profile", "identity_profile", "permissions", "metadata"); err != nil {
 		return nil, err
 	}
 	var value topology.Resident
 	if err := decodePayload(msg.Payload, &value); err != nil {
+		return nil, err
+	}
+	if err := s.validateResidentReference(value.ReferenceNodeID); err != nil {
 		return nil, err
 	}
 	s.snapshot.Mu.Lock()
@@ -387,6 +391,11 @@ func (s *Server) residentConfigUpdate(msg contract.Message) (any, error) {
 	if err := decodePayload(req.Data, &patch); err != nil {
 		return nil, err
 	}
+	if patch.ReferenceNodeID != nil {
+		if err := s.validateResidentReference(*patch.ReferenceNodeID); err != nil {
+			return nil, err
+		}
+	}
 	s.snapshot.Mu.Lock()
 	updated, err := topology.PatchResident(s.residentsPath, s.snapshot.Residents, strings.TrimSpace(req.ID), patch)
 	s.snapshot.Mu.Unlock()
@@ -395,6 +404,18 @@ func (s *Server) residentConfigUpdate(msg contract.Message) (any, error) {
 	}
 	s.notifyMutation("resident.updated", updated.ID)
 	return updated.ConfigView(), nil
+}
+
+func (s *Server) validateResidentReference(nodeID string) error {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" || s == nil || s.snapshot == nil || s.snapshot.Topology == nil {
+		return nil
+	}
+	node, ok := s.snapshot.Topology.Nodes[nodeID]
+	if !ok || node == nil || node.Type != topology.NodeRoom {
+		return contract.NewAPIError(contract.ErrorValidationFailed, "reference_node_id must identify an existing room")
+	}
+	return nil
 }
 
 func (s *Server) residentConfigDelete(msg contract.Message) (any, error) {
