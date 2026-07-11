@@ -5,9 +5,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	webapi "synora/internal/api"
 	"synora/internal/bus"
 	"synora/internal/coreclient"
 	"synora/internal/security"
@@ -67,46 +69,46 @@ func main() {
 	wsHub := newWebSocketHub(core)
 	go wsHub.observeBus(busClient)
 	simulationRunner := newSimulationRunner(busClient, wsHub)
+	webEnabled := getenvBool("SYNORA_WEB_ENABLED", true)
+	webRoot := getenv("SYNORA_WEB_ROOT", "/var/lib/synora/web")
+	webServer := &webapi.Server{
+		WebEnabled: webEnabled,
+		WebRoot:    webRoot,
+	}
 
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/health", handleHealth)
-	mux.Handle("/api/ws", wsHub)
-	mux.HandleFunc("/api/state", handleState(core))
-	mux.HandleFunc("/api/simulation/scenarios", handleSimulationScenarios())
-	mux.HandleFunc("/api/simulation/run", handleSimulationRun(simulationRunner))
-	mux.HandleFunc("/api/simulation/runs/", handleSimulationRunStatus(simulationRunner))
-	mux.HandleFunc("/api/cge/summary", handleCGESummary(core))
-	mux.HandleFunc("/api/cge/sequences", handleCGESequences(core))
-	mux.HandleFunc("/api/cge/transitions", handleCGETransitions(core))
-	mux.HandleFunc("/api/cge/learned-behaviors", handleCGELearnedBehaviors(core))
-	mux.HandleFunc("/api/cge/critical-seeds", handleCGECriticalSeeds(core))
-	mux.HandleFunc("/api/cge/critical-seeds/", handleCGECriticalSeed(core))
-	mux.HandleFunc("/api/cge/danger-assessments", handleCGEDangerAssessments(core))
-	mux.HandleFunc("/api/cge/danger-assessments/", handleCGEDangerAssessment(core))
-	mux.HandleFunc("/api/cge/", handleCGEDetail(core))
-	mux.HandleFunc("/api/validations", handleValidationCollection(core))
-	mux.HandleFunc("/api/validations/", handleValidationItem(core))
-	mux.HandleFunc("/api/devices", handleDeviceCollection(core))
-	mux.HandleFunc("/api/devices/pairing/start", handlePairingStart(core))
-	mux.HandleFunc("/api/devices/pairing/complete", handlePairingComplete(core))
-	mux.HandleFunc("/api/devices/", handleDeviceItem(core))
-	mux.HandleFunc("/api/residents", handleResidentCollection(core))
-	mux.HandleFunc("/api/residents/", handleResidentItem(core))
-	mux.HandleFunc("/api/automations", handleAutomationCollection(core))
-	mux.HandleFunc("/api/automations/", handleAutomationItem(core))
-	mux.HandleFunc("/api/topology", handleTopologyConfiguration(core))
-	mux.HandleFunc("/api/topology/", handleTopologySubroute())
-	mux.HandleFunc("/api/system/health", handleSystemHealth(core))
-	mux.HandleFunc(
-		"/api/snapshot",
-		handleSnapshot(core),
-	)
-	mux.HandleFunc("/", handleIndex)
+	apiMux := http.NewServeMux()
+	apiMux.HandleFunc("/api/state", handleState(core))
+	apiMux.HandleFunc("/api/simulation/scenarios", handleSimulationScenarios())
+	apiMux.HandleFunc("/api/simulation/run", handleSimulationRun(simulationRunner))
+	apiMux.HandleFunc("/api/simulation/runs/", handleSimulationRunStatus(simulationRunner))
+	apiMux.HandleFunc("/api/cge/summary", handleCGESummary(core))
+	apiMux.HandleFunc("/api/cge/sequences", handleCGESequences(core))
+	apiMux.HandleFunc("/api/cge/transitions", handleCGETransitions(core))
+	apiMux.HandleFunc("/api/cge/learned-behaviors", handleCGELearnedBehaviors(core))
+	apiMux.HandleFunc("/api/cge/critical-seeds", handleCGECriticalSeeds(core))
+	apiMux.HandleFunc("/api/cge/critical-seeds/", handleCGECriticalSeed(core))
+	apiMux.HandleFunc("/api/cge/danger-assessments", handleCGEDangerAssessments(core))
+	apiMux.HandleFunc("/api/cge/danger-assessments/", handleCGEDangerAssessment(core))
+	apiMux.HandleFunc("/api/cge/", handleCGEDetail(core))
+	apiMux.HandleFunc("/api/validations", handleValidationCollection(core))
+	apiMux.HandleFunc("/api/validations/", handleValidationItem(core))
+	apiMux.HandleFunc("/api/devices", handleDeviceCollection(core))
+	apiMux.HandleFunc("/api/devices/pairing/start", handlePairingStart(core))
+	apiMux.HandleFunc("/api/devices/pairing/complete", handlePairingComplete(core))
+	apiMux.HandleFunc("/api/devices/", handleDeviceItem(core))
+	apiMux.HandleFunc("/api/residents", handleResidentCollection(core))
+	apiMux.HandleFunc("/api/residents/", handleResidentItem(core))
+	apiMux.HandleFunc("/api/automations", handleAutomationCollection(core))
+	apiMux.HandleFunc("/api/automations/catalog", handleAutomationCatalog(core))
+	apiMux.HandleFunc("/api/automations/", handleAutomationItem(core))
+	apiMux.HandleFunc("/api/topology", handleTopologyConfiguration(core))
+	apiMux.HandleFunc("/api/topology/", handleTopologySubroute())
+	apiMux.HandleFunc("/api/system/health", handleSystemHealth(core))
+	apiMux.HandleFunc("/api/snapshot", handleSnapshot(core))
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           loggingMiddleware(corsMiddleware(securityConfig, apiAuthMiddleware(securityConfig, mux))),
+		Handler:           buildServerHandler(securityConfig, apiMux, wsHub, webEnabled, webServer),
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       30 * time.Second,
@@ -227,17 +229,13 @@ func apiAuthMiddleware(cfg *security.Config, next http.Handler) http.Handler {
 		w http.ResponseWriter,
 		r *http.Request,
 	) {
-		if !strings.HasPrefix(r.URL.Path, "/api/") {
-			next.ServeHTTP(w, r)
-			return
-		}
 		if r.URL.Path == "/api/system/health" && cfg != nil && cfg.PublicSystemHealth {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		token, ok := bearerToken(r.Header.Get("Authorization"))
-		if !ok && r.URL.Path == "/api/ws" {
+		if !ok && (r.URL.Path == "/api/ws" || r.URL.Path == "/ws") {
 			token = strings.TrimSpace(r.URL.Query().Get("token"))
 			ok = token != ""
 		}
@@ -248,6 +246,28 @@ func apiAuthMiddleware(cfg *security.Config, next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func buildServerHandler(
+	cfg *security.Config,
+	apiMux http.Handler,
+	wsHub http.Handler,
+	webEnabled bool,
+	webServer *webapi.Server,
+) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/api/", apiAuthMiddleware(cfg, apiMux))
+	if wsHub != nil {
+		mux.Handle("/api/ws", apiAuthMiddleware(cfg, wsHub))
+		mux.Handle("/ws", apiAuthMiddleware(cfg, wsHub))
+	}
+	mux.HandleFunc("/health", handleHealth)
+	if webEnabled && webServer != nil {
+		mux.Handle("/", webServer.WebHandler())
+	} else {
+		mux.HandleFunc("/", handleIndex)
+	}
+	return loggingMiddleware(corsMiddleware(cfg, mux))
 }
 
 func bearerToken(header string) (string, bool) {
@@ -318,6 +338,18 @@ func getenv(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func getenvBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func handleDevices(

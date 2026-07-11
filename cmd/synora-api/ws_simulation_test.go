@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -107,7 +108,7 @@ func TestWebSocketWithoutTokenReturnsUnauthorized(t *testing.T) {
 	hub := newWebSocketHub(core)
 	defer hub.Close()
 	cfg := &security.Config{APITokenHash: security.HashSecret("dev-token")}
-	server := httptest.NewServer(apiAuthMiddleware(cfg, hub))
+	server := newIPv4TestServer(t, apiAuthMiddleware(cfg, hub))
 	defer server.Close()
 
 	_, resp, err := websocket.DefaultDialer.Dial(wsURL(server.URL)+"/api/ws", nil)
@@ -126,7 +127,7 @@ func TestWebSocketWithBearerReceivesInitialSnapshot(t *testing.T) {
 	hub := newWebSocketHub(core)
 	defer hub.Close()
 	cfg := &security.Config{APITokenHash: security.HashSecret("dev-token")}
-	server := httptest.NewServer(apiAuthMiddleware(cfg, hub))
+	server := newIPv4TestServer(t, apiAuthMiddleware(cfg, hub))
 	defer server.Close()
 
 	header := http.Header{}
@@ -157,7 +158,7 @@ func TestWebSocketAcceptsQueryTokenForBrowserTests(t *testing.T) {
 	hub := newWebSocketHub(core)
 	defer hub.Close()
 	cfg := &security.Config{APITokenHash: security.HashSecret("dev-token")}
-	server := httptest.NewServer(apiAuthMiddleware(cfg, hub))
+	server := newIPv4TestServer(t, apiAuthMiddleware(cfg, hub))
 	defer server.Close()
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL(server.URL)+"/api/ws?token=dev-token", nil)
@@ -171,7 +172,7 @@ func TestWebSocketBroadcastsSnapshotUpdateAfterBusSignal(t *testing.T) {
 	core := &dynamicStateCore{state: emptyPublicSnapshot()}
 	hub := newWebSocketHub(core)
 	defer hub.Close()
-	server := httptest.NewServer(hub)
+	server := newIPv4TestServer(t, hub)
 	defer server.Close()
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL(server.URL)+"/api/ws", nil)
@@ -212,7 +213,7 @@ func TestWebSocketMultipleClientsReceivePublishedMessage(t *testing.T) {
 	core := &dynamicStateCore{state: emptyPublicSnapshot()}
 	hub := newWebSocketHub(core)
 	defer hub.Close()
-	server := httptest.NewServer(hub)
+	server := newIPv4TestServer(t, hub)
 	defer server.Close()
 
 	first, _, err := websocket.DefaultDialer.Dial(wsURL(server.URL)+"/api/ws", nil)
@@ -436,6 +437,40 @@ func TestCGEAPIHardCapsLimitAndReturnsBoundedDetail(t *testing.T) {
 
 func wsURL(httpURL string) string {
 	return "ws" + strings.TrimPrefix(httpURL, "http")
+}
+
+type localTestServer struct {
+	*http.Server
+	ln  net.Listener
+	URL string
+}
+
+func newIPv4TestServer(t *testing.T, handler http.Handler) *localTestServer {
+	t.Helper()
+
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("IPv4 test listener unavailable: %v", err)
+	}
+	server := &http.Server{Handler: handler}
+	go func() {
+		_ = server.Serve(listener)
+	}()
+	return &localTestServer{
+		Server: server,
+		ln:     listener,
+		URL:    "http://" + listener.Addr().String(),
+	}
+}
+
+func (s *localTestServer) Close() {
+	if s == nil || s.Server == nil {
+		return
+	}
+	_ = s.Server.Close()
+	if s.ln != nil {
+		_ = s.ln.Close()
+	}
 }
 
 func discardInitial(t *testing.T, conn *websocket.Conn) {

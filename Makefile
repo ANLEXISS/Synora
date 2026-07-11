@@ -3,7 +3,7 @@ SHELL := /usr/bin/env bash
 
 .PHONY: build test install update start stop restart doctor delete clean help \
 	check-go install-deps install-dirs install-bins install-config install-models \
-	install-vision-worker install-mediamtx install-systemd enable-services
+	install-vision-worker install-web install-mediamtx install-systemd enable-services
 
 PREFIX ?= /opt/synora
 BINDIR ?= $(PREFIX)/bin
@@ -80,7 +80,7 @@ test: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./...
 	$(PYTHON) -m compileall -q services/vision-worker
 
-install: install-deps build install-dirs install-bins install-config install-models install-mediamtx install-vision-worker install-systemd enable-services
+install: install-deps build install-dirs install-bins install-config install-models install-web install-mediamtx install-vision-worker install-systemd enable-services
 	@echo "Synora runtime installation complete."
 	@echo "Run 'make start' to start services or 'make doctor' to inspect the install."
 
@@ -162,6 +162,30 @@ install-vision-worker: install-dirs
 		services/vision-worker/ $(VISION_WORKER_DIR)/
 	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(VISION_WORKER_DIR)
 	@if [ -f "$(VISION_WORKER_DIR)/worker.py" ]; then $(SUDO) chmod 0755 "$(VISION_WORKER_DIR)/worker.py"; fi
+
+install-web:
+	@if [ -f webapp/package.json ]; then \
+		web_dir="webapp"; \
+	elif [ -f synora-web/package.json ]; then \
+		web_dir="synora-web"; \
+	else \
+		echo "WARN: no webapp/package.json or synora-web/package.json found; skipping web install."; \
+		exit 0; \
+	fi; \
+	if ! command -v npm >/dev/null 2>&1; then \
+		echo "WARN: npm missing; skipping web install."; \
+		exit 0; \
+	fi; \
+	echo "Building webapp in $$web_dir"; \
+	( cd "$$web_dir" && npm run build ); \
+	if [ ! -d "$$web_dir/dist" ]; then \
+		echo "FAIL: $$web_dir/dist missing after build"; \
+		exit 1; \
+	fi; \
+	mkdir -p $(DATA_DIR)/web; \
+	chmod 0755 $(DATA_DIR) $(DATA_DIR)/web; \
+	rsync -a --delete "$$web_dir/dist"/ $(DATA_DIR)/web/; \
+	echo "Web static installed to $(DATA_DIR)/web"
 
 install-mediamtx: install-dirs
 	@if [ -d tools/mediamtx ]; then \
@@ -269,10 +293,14 @@ doctor: check-go
 		[ "$$code" = "200" ] && ok "API state 200" || warnf "API state returned $$code"; \
 	fi; \
 	find . -name '*_test.go' | grep -q . && ok "Go tests present" || failf "no Go tests found"; \
-	GOCACHE=$(GOCACHE) "$(GO)" test ./... >/tmp/synora-go-test.log 2>&1 && ok "go test ./..." || { failf "go test ./... failed"; tail -n 40 /tmp/synora-go-test.log; }; \
-	$(PYTHON) -m compileall -q services/vision-worker >/tmp/synora-compileall.log 2>&1 && ok "vision worker compileall" || { failf "vision worker compileall failed"; cat /tmp/synora-compileall.log; }; \
-	echo "Summary: $$fail fail(s), $$warn warning(s)"; \
-	[ "$$fail" -eq 0 ]
+		go_test_log="$$(mktemp /tmp/synora-go-test.XXXXXX.log)"; \
+		compileall_log="$$(mktemp /tmp/synora-compileall.XXXXXX.log)"; \
+		pkgs="$$( $(GO) list ./... | grep -v '/node_modules/' )"; \
+		GOCACHE=$(GOCACHE) "$(GO)" test $$pkgs >"$$go_test_log" 2>&1 && ok "go test ./..." || { failf "go test ./... failed"; tail -n 40 "$$go_test_log"; }; \
+		$(PYTHON) -m compileall -q services/vision-worker >"$$compileall_log" 2>&1 && ok "vision worker compileall" || { failf "vision worker compileall failed"; cat "$$compileall_log"; }; \
+		rm -f "$$go_test_log" "$$compileall_log"; \
+		echo "Summary: $$fail fail(s), $$warn warning(s)"; \
+		[ "$$fail" -eq 0 ]
 
 delete:
 	@if [ "$(CONFIRM)" != "YES" ]; then \
@@ -305,4 +333,4 @@ delete:
 
 clean:
 	rm -rf bin
-	rm -rf /tmp/synora-go-test.log /tmp/synora-compileall.log /tmp/synora-health.json /tmp/synora-state.json
+	rm -rf /tmp/synora-go-test*.log /tmp/synora-compileall*.log /tmp/synora-health.json /tmp/synora-state.json

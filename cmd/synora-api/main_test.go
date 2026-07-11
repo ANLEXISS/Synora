@@ -5,10 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	webapi "synora/internal/api"
 	"synora/internal/security"
 	"synora/pkg/contract"
 )
@@ -281,12 +284,27 @@ func TestAPIAuthMiddlewareRequiresBearerToken(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
+	req = httptest.NewRequest(http.MethodGet, "/ws", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("ws status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
 	req = httptest.NewRequest(http.MethodGet, "/api/state", nil)
 	req.Header.Set("Authorization", "Bearer dev-token")
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req.Header.Set("Authorization", "Bearer dev-token")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("ws status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -307,6 +325,72 @@ func TestAPIAuthMiddlewareAllowsPublicSystemHealthWhenConfigured(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestServerHandlerServesWebStaticWithoutAuthAndProtectsAPI(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html>synora</html>"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "assets"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "assets", "app.js"), []byte("console.log('ok')"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	apiMux := http.NewServeMux()
+	apiMux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	apiMux.HandleFunc("/api/automations/catalog", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"condition_kinds": []any{}})
+	})
+
+	handler := buildServerHandler(
+		&security.Config{APITokenHash: security.HashSecret("dev-token")},
+		apiMux,
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+		true,
+		&webapi.Server{WebEnabled: true, WebRoot: root},
+	)
+
+	for _, tc := range []struct {
+		name       string
+		method     string
+		path       string
+		token      string
+		wantStatus int
+		wantBody   string
+		wantCache  string
+	}{
+		{name: "index", method: http.MethodGet, path: "/", wantStatus: http.StatusOK, wantBody: "<html>synora</html>"},
+		{name: "spa", method: http.MethodGet, path: "/automations", wantStatus: http.StatusOK, wantBody: "<html>synora</html>"},
+		{name: "asset", method: http.MethodGet, path: "/assets/app.js", wantStatus: http.StatusOK, wantBody: "console.log('ok')", wantCache: "public, max-age=31536000, immutable"},
+		{name: "api-state", method: http.MethodGet, path: "/api/state", wantStatus: http.StatusUnauthorized},
+		{name: "catalog-unauth", method: http.MethodGet, path: "/api/automations/catalog", wantStatus: http.StatusUnauthorized},
+		{name: "catalog-auth", method: http.MethodGet, path: "/api/automations/catalog", token: "dev-token", wantStatus: http.StatusOK, wantBody: `"condition_kinds":[]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			if tc.token != "" {
+				req.Header.Set("Authorization", "Bearer "+tc.token)
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			if tc.wantBody != "" && !strings.Contains(rec.Body.String(), tc.wantBody) {
+				t.Fatalf("body=%s", rec.Body.String())
+			}
+			if tc.wantCache != "" && rec.Header().Get("Cache-Control") != tc.wantCache {
+				t.Fatalf("cache-control=%q", rec.Header().Get("Cache-Control"))
+			}
+		})
 	}
 }
 
