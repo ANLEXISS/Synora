@@ -185,7 +185,7 @@ func TestHandleSystemHealthReturnsCleanRuntimeHealth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/system/health", nil)
 	rec := httptest.NewRecorder()
 
-	handleSystemHealth(core).ServeHTTP(rec, req)
+	handleSystemHealth(core, &webapi.Server{WebEnabled: false, WebRoot: t.TempDir()}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
@@ -200,7 +200,7 @@ func TestHandleSystemHealthReturnsCleanRuntimeHealth(t *testing.T) {
 		t.Fatalf("system health is double wrapped: %s", rec.Body.String())
 	}
 
-	for _, key := range []string{"services", "network", "mediamtx", "disk"} {
+	for _, key := range []string{"services", "network", "mediamtx", "disk", "web"} {
 		if _, ok := body[key]; !ok {
 			t.Fatalf("system health missing key %q in %s", key, rec.Body.String())
 		}

@@ -3,7 +3,7 @@ SHELL := /usr/bin/env bash
 
 .PHONY: build test install update start stop restart doctor delete clean help \
 	check-go install-deps install-dirs install-bins install-config install-models \
-	install-vision-worker install-web install-mediamtx install-systemd enable-services
+	build-web install-web restart-web web-status install-mediamtx install-systemd enable-services
 
 PREFIX ?= /opt/synora
 BINDIR ?= $(PREFIX)/bin
@@ -13,6 +13,8 @@ MEDIAMTX_DIR ?= $(PREFIX)/mediamtx
 MODELS_DIR ?= $(PREFIX)/models
 CONFIG_DIR ?= /etc/synora
 DATA_DIR ?= /var/lib/synora
+WEBAPP_DIR ?= synora-web
+WEB_DIR ?= /var/lib/synora/web
 SYSTEMD_DIR ?= /etc/systemd/system
 RUN_DIR ?= /run/synora
 BUS_SOCKET ?= $(RUN_DIR)/bus.sock
@@ -51,8 +53,11 @@ help:
 	@printf '%s\n' \
 		'Targets:' \
 		'  make build                 Build Go runtime binaries into ./bin' \
+		'  make build-web             Build the React/Vite webapp statically' \
 		'  make test                  Run Go tests and Python compileall' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
+		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
+		'  make web-status            Show static webapp files and API reachability' \
 		'  make update                Rebuild and update deployed runtime without dependency install' \
 		'  make start                 Start runtime services' \
 		'  make stop                  Stop runtime services and remove bus socket' \
@@ -163,29 +168,64 @@ install-vision-worker: install-dirs
 	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(VISION_WORKER_DIR)
 	@if [ -f "$(VISION_WORKER_DIR)/worker.py" ]; then $(SUDO) chmod 0755 "$(VISION_WORKER_DIR)/worker.py"; fi
 
-install-web:
-	@if [ -f webapp/package.json ]; then \
-		web_dir="webapp"; \
-	elif [ -f synora-web/package.json ]; then \
-		web_dir="synora-web"; \
+build-web:
+	@if [ -f "$(WEBAPP_DIR)/package.json" ]; then \
+		if ! command -v npm >/dev/null 2>&1; then \
+			echo "FAIL: npm is required to build $(WEBAPP_DIR)."; \
+			exit 1; \
+		fi; \
+		echo "Building webapp in $(WEBAPP_DIR)"; \
+		if [ -f "$(WEBAPP_DIR)/package-lock.json" ]; then \
+			echo "Installing webapp dependencies with npm ci"; \
+			( cd "$(WEBAPP_DIR)" && npm ci ); \
+		else \
+			echo "Installing webapp dependencies with npm install"; \
+			( cd "$(WEBAPP_DIR)" && npm install ); \
+		fi; \
+		echo "Building static webapp"; \
+		( cd "$(WEBAPP_DIR)" && npm run build ); \
 	else \
-		echo "WARN: no webapp/package.json or synora-web/package.json found; skipping web install."; \
+		echo "WARN: $(WEBAPP_DIR)/package.json not found; skipping webapp build."; \
+	fi
+
+install-web: build-web
+	@if [ ! -d "$(WEBAPP_DIR)" ]; then \
+		echo "WARN: $(WEBAPP_DIR) directory not found; skipping webapp install."; \
 		exit 0; \
-	fi; \
-	if ! command -v npm >/dev/null 2>&1; then \
-		echo "WARN: npm missing; skipping web install."; \
-		exit 0; \
-	fi; \
-	echo "Building webapp in $$web_dir"; \
-	( cd "$$web_dir" && npm run build ); \
-	if [ ! -d "$$web_dir/dist" ]; then \
-		echo "FAIL: $$web_dir/dist missing after build"; \
+	fi
+	@if [ ! -f "$(WEBAPP_DIR)/dist/index.html" ]; then \
+		echo "FAIL: $(WEBAPP_DIR)/dist/index.html is missing; cannot install webapp."; \
 		exit 1; \
-	fi; \
-	mkdir -p $(DATA_DIR)/web; \
-	chmod 0755 $(DATA_DIR) $(DATA_DIR)/web; \
-	rsync -a --delete "$$web_dir/dist"/ $(DATA_DIR)/web/; \
-	echo "Web static installed to $(DATA_DIR)/web"
+	fi
+	@echo "Copying static webapp to $(WEB_DIR)"
+	$(SUDO) install -d -m 0755 -o $(SERVICE_USER) -g $(SERVICE_USER) $(WEB_DIR)
+	$(SUDO) rsync -a --delete $(WEBAPP_DIR)/dist/ $(WEB_DIR)/
+	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(WEB_DIR)
+	@echo "Static webapp copied to $(WEB_DIR)"
+
+restart-web:
+	$(MAKE) install-web
+	$(SUDO) systemctl restart synora-api
+
+web-status:
+	@echo "WEBAPP_DIR=$(WEBAPP_DIR)"
+	@echo "WEB_DIR=$(WEB_DIR)"
+	@if [ -f "$(WEB_DIR)/index.html" ]; then \
+		echo "index.html: present ($(WEB_DIR)/index.html)"; \
+	else \
+		echo "index.html: missing ($(WEB_DIR)/index.html)"; \
+	fi
+	@echo "Assets:"
+	@if [ -d "$(WEB_DIR)/assets" ]; then \
+		find "$(WEB_DIR)/assets" -maxdepth 1 -type f -printf '  %p\n' | sort | head -20; \
+	else \
+		echo "  assets directory missing"; \
+	fi
+	@if systemctl is-active --quiet synora-api 2>/dev/null; then \
+		curl -I http://127.0.0.1:8080/; \
+	else \
+		echo "synora-api is not active; skipping HTTP check"; \
+	fi
 
 install-mediamtx: install-dirs
 	@if [ -d tools/mediamtx ]; then \

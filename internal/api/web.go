@@ -7,7 +7,66 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// WebHealth describes the state of the static web build served by synora-api.
+type WebHealth struct {
+	Enabled       bool   `json:"enabled"`
+	Root          string `json:"root"`
+	IndexPresent  bool   `json:"index_present"`
+	IndexPath     string `json:"index_path"`
+	AssetsPresent bool   `json:"assets_present"`
+	AssetsCount   int    `json:"assets_count"`
+	LastModified  string `json:"last_modified,omitempty"`
+	Status        string `json:"status"`
+}
+
+// Health inspects the static web root without making its availability a
+// startup requirement for synora-api.
+func (s *Server) Health() WebHealth {
+	root := strings.TrimSpace(s.WebRoot)
+	indexPath := filepath.Join(root, "index.html")
+
+	health := WebHealth{
+		Enabled:   s.WebEnabled,
+		Root:      root,
+		IndexPath: indexPath,
+		Status:    "disabled",
+	}
+
+	if info, err := os.Stat(indexPath); err == nil && !info.IsDir() {
+		health.IndexPresent = true
+		health.LastModified = info.ModTime().UTC().Format(time.RFC3339Nano)
+	}
+
+	assetsPath := filepath.Join(root, "assets")
+	if info, err := os.Stat(assetsPath); err == nil && info.IsDir() {
+		health.AssetsCount = countWebAssets(assetsPath)
+		health.AssetsPresent = health.AssetsCount > 0
+	}
+
+	if !s.WebEnabled {
+		return health
+	}
+
+	health.Status = "degraded"
+	if health.IndexPresent && health.AssetsPresent {
+		health.Status = "ok"
+	}
+	return health
+}
+
+func countWebAssets(root string) int {
+	count := 0
+	_ = filepath.WalkDir(root, func(_ string, entry os.DirEntry, err error) error {
+		if err == nil && entry.Type().IsRegular() {
+			count++
+		}
+		return nil
+	})
+	return count
+}
 
 func (s *Server) WebHandler() http.Handler {
 	root := strings.TrimSpace(s.WebRoot)

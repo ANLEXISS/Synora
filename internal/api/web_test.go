@@ -54,6 +54,63 @@ func TestWebHandlerServesIndexAndSPAPaths(t *testing.T) {
 	}
 }
 
+func TestWebHealthDisabled(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html>synora</html>"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	health := (&Server{WebEnabled: false, WebRoot: root}).Health()
+	if health.Status != "disabled" {
+		t.Fatalf("status=%q, want disabled", health.Status)
+	}
+	if !health.IndexPresent {
+		t.Fatal("index_present=false, want true for an existing index")
+	}
+}
+
+func TestWebHealthEnabledMissingIndex(t *testing.T) {
+	root := t.TempDir()
+	health := (&Server{WebEnabled: true, WebRoot: root}).Health()
+
+	if health.Status != "degraded" {
+		t.Fatalf("status=%q, want degraded", health.Status)
+	}
+	if health.IndexPresent {
+		t.Fatal("index_present=true, want false")
+	}
+	if health.IndexPath != filepath.Join(root, "index.html") {
+		t.Fatalf("index_path=%q", health.IndexPath)
+	}
+}
+
+func TestWebHealthEnabledWithIndexAndAssets(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html>synora</html>"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "assets", "nested"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "assets", "app.js"), []byte("console.log('ok')"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "assets", "nested", "chunk.js"), []byte("console.log('chunk')"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	health := (&Server{WebEnabled: true, WebRoot: root}).Health()
+	if health.Status != "ok" {
+		t.Fatalf("status=%q, want ok", health.Status)
+	}
+	if !health.IndexPresent || !health.AssetsPresent || health.AssetsCount != 2 {
+		t.Fatalf("unexpected health: %#v", health)
+	}
+	if health.LastModified == "" {
+		t.Fatal("last_modified is empty")
+	}
+}
+
 func TestWebHandlerRejectsApiAndTraversalPaths(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "web")
@@ -75,6 +132,7 @@ func TestWebHandlerRejectsApiAndTraversalPaths(t *testing.T) {
 		path   string
 	}{
 		{name: "api-miss", method: http.MethodGet, path: "/api/does-not-exist"},
+		{name: "api-root", method: http.MethodGet, path: "/api"},
 		{name: "api-post", method: http.MethodPost, path: "/automations"},
 		{name: "traversal", method: http.MethodGet, path: "/../outside.txt"},
 	} {

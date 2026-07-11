@@ -9,6 +9,9 @@ Type=simple
 User=synora
 Group=synora
 
+Environment=SYNORA_WEB_ENABLED=true
+Environment=SYNORA_WEB_ROOT=/var/lib/synora/web
+
 ExecStart=/opt/synora/bin/synora-api
 
 Restart=always

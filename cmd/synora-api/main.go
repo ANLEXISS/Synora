@@ -22,6 +22,11 @@ type healthResponse struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+type systemHealthResponse struct {
+	*contract.RuntimeHealth
+	Web webapi.WebHealth `json:"web"`
+}
+
 type snapshotProvider interface {
 	Snapshot() (*contract.PublicSnapshot, error)
 }
@@ -75,6 +80,13 @@ func main() {
 		WebEnabled: webEnabled,
 		WebRoot:    webRoot,
 	}
+	webHealth := webServer.Health()
+	log.Printf(
+		"web enabled=%t root=%s index_present=%t",
+		webHealth.Enabled,
+		webHealth.Root,
+		webHealth.IndexPresent,
+	)
 
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("/api/state", handleState(core))
@@ -103,7 +115,7 @@ func main() {
 	apiMux.HandleFunc("/api/automations/", handleAutomationItem(core))
 	apiMux.HandleFunc("/api/topology", handleTopologyConfiguration(core))
 	apiMux.HandleFunc("/api/topology/", handleTopologySubroute())
-	apiMux.HandleFunc("/api/system/health", handleSystemHealth(core))
+	apiMux.HandleFunc("/api/system/health", handleSystemHealth(core, webServer))
 	apiMux.HandleFunc("/api/snapshot", handleSnapshot(core))
 
 	server := &http.Server{
@@ -402,6 +414,7 @@ func handleTopology(
 
 func handleSystemHealth(
 	core systemHealthProvider,
+	webServer *webapi.Server,
 ) http.HandlerFunc {
 
 	return func(
@@ -420,7 +433,14 @@ func handleSystemHealth(
 			return
 		}
 
-		writeJSON(w, http.StatusOK, health)
+		webHealth := webapi.WebHealth{Status: "disabled"}
+		if webServer != nil {
+			webHealth = webServer.Health()
+		}
+		writeJSON(w, http.StatusOK, systemHealthResponse{
+			RuntimeHealth: health,
+			Web:           webHealth,
+		})
 	}
 }
 
