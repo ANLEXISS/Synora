@@ -25,7 +25,9 @@ Les événements récents et évaluations sont bornés. Les événements context
 
 ## Mémoire critique
 
-Une chaîne est critique dès qu’elle atteint `high`/`critical`, `intrusion`/`break-in`, ou contient weapon, fall, fight ou tamper. Le Core fusionne les motifs similaires par séquence significative, nœud et classe de danger dans `CriticalChainMemory`, avec occurrences, trajectoires d’état/danger et chaînes représentatives.
+Une chaîne est critique dès qu’elle atteint `high`/`critical`, `intrusion`/`break-in`, ou contient weapon, fall, fight ou tamper. Le Core fusionne les motifs similaires par séquence significative, nœud et classe de danger dans `CriticalChainMemory`, avec occurrences, trajectoires d’état/danger et chaînes représentatives. Les mémoires exposent aussi `source` (`real`, `simulation` ou `mixed`), `real_occurrences` et `simulated_occurrences` afin de distinguer l’apprentissage réel des scénarios de test.
+
+Les chaînes simulées restent disponibles dans Live CGE, mais l’onglet Chaînes connues les masque par défaut. Les événements bruts, les chaînes et les évaluations historiques restent immuables ; les corrections administrateur sont stockées séparément comme feedback d’intention. Voir [cge-feedback.md](cge-feedback.md).
 
 ## API et WebSocket
 

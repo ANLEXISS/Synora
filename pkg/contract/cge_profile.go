@@ -167,13 +167,38 @@ func validCgeDangerLevel(level DangerLevel) bool {
 type CgeCorrectionType string
 
 const (
-	CgeCorrectionFalsePositive CgeCorrectionType = "false_positive"
-	CgeCorrectionTooLow        CgeCorrectionType = "too_low"
-	CgeCorrectionTooHigh       CgeCorrectionType = "too_high"
-	CgeCorrectionWrongState    CgeCorrectionType = "wrong_state"
-	CgeCorrectionWrongAction   CgeCorrectionType = "wrong_action"
-	CgeCorrectionMarkNormal    CgeCorrectionType = "mark_normal"
-	CgeCorrectionMarkCritical  CgeCorrectionType = "mark_critical"
+	CgeCorrectionFalseNegative      CgeCorrectionType = "false_negative"
+	CgeCorrectionReactionTooStrong  CgeCorrectionType = "reaction_too_strong"
+	CgeCorrectionReactionTooWeak    CgeCorrectionType = "reaction_too_weak"
+	CgeCorrectionCorrectTuneActions CgeCorrectionType = "correct_but_tune_actions"
+	CgeCorrectionFalsePositive      CgeCorrectionType = "false_positive"
+	CgeCorrectionTooLow             CgeCorrectionType = "too_low"
+	CgeCorrectionTooHigh            CgeCorrectionType = "too_high"
+	CgeCorrectionWrongState         CgeCorrectionType = "wrong_state"
+	CgeCorrectionWrongAction        CgeCorrectionType = "wrong_action"
+	CgeCorrectionMarkNormal         CgeCorrectionType = "mark_normal"
+	CgeCorrectionMarkCritical       CgeCorrectionType = "mark_critical"
+)
+
+type CgeFeedbackScope string
+
+const (
+	CgeFeedbackCaseOnly       CgeFeedbackScope = "case_only"
+	CgeFeedbackApplyToSimilar CgeFeedbackScope = "apply_to_similar_future_chains"
+)
+
+type CgePreferredAction string
+
+const (
+	CgeActionObserve                   CgePreferredAction = "observe"
+	CgeActionNotifyOwner               CgePreferredAction = "notify_owner"
+	CgeActionNotifyEmergencyContact    CgePreferredAction = "notify_emergency_contact"
+	CgeActionRecordClip                CgePreferredAction = "record_clip"
+	CgeActionLockEvidence              CgePreferredAction = "lock_evidence"
+	CgeActionCreateAlert               CgePreferredAction = "create_alert"
+	CgeActionRequestUserValidation     CgePreferredAction = "request_user_validation"
+	CgeActionIgnorePattern             CgePreferredAction = "ignore_pattern"
+	CgeActionActivateRelatedAutomation CgePreferredAction = "activate_related_automation"
 )
 
 type CgeFinalOutcome string
@@ -191,21 +216,27 @@ type CgeEvaluationFeedback struct {
 	EventID              string            `json:"event_id"`
 	EvaluationIndex      int               `json:"evaluation_index"`
 	CorrectionType       CgeCorrectionType `json:"correction_type"`
+	Scope                CgeFeedbackScope  `json:"scope,omitempty"`
+	PreferredActions     []string          `json:"preferred_actions"`
+	AdminNote            string            `json:"admin_note,omitempty"`
 	CorrectedState       string            `json:"corrected_state,omitempty"`
 	CorrectedDangerLevel DangerLevel       `json:"corrected_danger_level,omitempty"`
-	PreferredActions     []string          `json:"preferred_actions,omitempty"`
 	Note                 string            `json:"note,omitempty"`
 	CreatedBy            string            `json:"created_by"`
 	CreatedAt            time.Time         `json:"created_at"`
 }
 
 type CgeChainFeedback struct {
-	ID                         string          `json:"id"`
-	ChainID                    string          `json:"chain_id"`
-	FinalOutcome               CgeFinalOutcome `json:"final_outcome"`
-	CorrectedFinalDangerLevel  DangerLevel     `json:"corrected_final_danger_level,omitempty"`
-	ApplyToSimilarFutureChains bool            `json:"apply_to_similar_future_chains"`
-	Note                       string          `json:"note,omitempty"`
-	CreatedBy                  string          `json:"created_by"`
-	CreatedAt                  time.Time       `json:"created_at"`
+	ID                         string            `json:"id"`
+	ChainID                    string            `json:"chain_id"`
+	FinalOutcome               CgeFinalOutcome   `json:"final_outcome,omitempty"`
+	CorrectionType             CgeCorrectionType `json:"correction_type,omitempty"`
+	Scope                      CgeFeedbackScope  `json:"scope,omitempty"`
+	PreferredActions           []string          `json:"preferred_actions"`
+	AdminNote                  string            `json:"admin_note,omitempty"`
+	CorrectedFinalDangerLevel  DangerLevel       `json:"corrected_final_danger_level,omitempty"`
+	ApplyToSimilarFutureChains bool              `json:"apply_to_similar_future_chains"`
+	Note                       string            `json:"note,omitempty"`
+	CreatedBy                  string            `json:"created_by"`
+	CreatedAt                  time.Time         `json:"created_at"`
 }

@@ -125,6 +125,10 @@ type CriticalChainMemory struct {
 	Confidence            float64   `json:"confidence"`
 	FeedbackCount         int       `json:"feedback_count,omitempty"`
 	LastFeedbackAt        time.Time `json:"last_feedback_at,omitempty"`
+	Simulated             bool      `json:"simulated,omitempty"`
+	Source                string    `json:"source"`
+	SimulatedOccurrences  int       `json:"simulated_occurrences"`
+	RealOccurrences       int       `json:"real_occurrences"`
 }
 
 func NormalizeCriticalChainMemory(memory CriticalChainMemory) CriticalChainMemory {
@@ -146,6 +150,28 @@ func NormalizeCriticalChainMemory(memory CriticalChainMemory) CriticalChainMemor
 	if memory.FeedbackCount < 0 {
 		memory.FeedbackCount = 0
 	}
+	if memory.SimulatedOccurrences < 0 {
+		memory.SimulatedOccurrences = 0
+	}
+	if memory.RealOccurrences < 0 {
+		memory.RealOccurrences = 0
+	}
+	if memory.SimulatedOccurrences == 0 && memory.RealOccurrences == 0 && memory.Occurrences > 0 {
+		memory.RealOccurrences = memory.Occurrences
+	}
+	switch memory.Source {
+	case "simulation", "real", "mixed":
+	default:
+		memory.Source = "real"
+	}
+	if memory.SimulatedOccurrences > 0 && memory.RealOccurrences > 0 {
+		memory.Source = "mixed"
+	} else if memory.SimulatedOccurrences > 0 {
+		memory.Source = "simulation"
+	} else if memory.RealOccurrences > 0 {
+		memory.Source = "real"
+	}
+	memory.Simulated = memory.Source == "simulation"
 	if memory.RecentChainIDs == nil {
 		memory.RecentChainIDs = []string{}
 	}

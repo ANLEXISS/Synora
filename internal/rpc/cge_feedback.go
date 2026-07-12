@@ -114,7 +114,7 @@ func (s *Server) cgeFeedbackChain(msg contract.Message) (any, error) {
 
 func validCorrectionType(value contract.CgeCorrectionType) bool {
 	switch value {
-	case contract.CgeCorrectionFalsePositive, contract.CgeCorrectionTooLow, contract.CgeCorrectionTooHigh, contract.CgeCorrectionWrongState, contract.CgeCorrectionWrongAction, contract.CgeCorrectionMarkNormal, contract.CgeCorrectionMarkCritical:
+	case contract.CgeCorrectionFalsePositive, contract.CgeCorrectionFalseNegative, contract.CgeCorrectionReactionTooStrong, contract.CgeCorrectionReactionTooWeak, contract.CgeCorrectionCorrectTuneActions, contract.CgeCorrectionTooLow, contract.CgeCorrectionTooHigh, contract.CgeCorrectionWrongState, contract.CgeCorrectionWrongAction, contract.CgeCorrectionMarkNormal, contract.CgeCorrectionMarkCritical:
 		return true
 	default:
 		return false

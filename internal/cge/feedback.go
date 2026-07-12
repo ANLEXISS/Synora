@@ -48,6 +48,12 @@ func (s *FeedbackStore) Load() error {
 	}
 	s.evaluations = file.Evaluations
 	s.chains = file.Chains
+	for index := range s.evaluations {
+		s.evaluations[index] = normalizeEvaluation(s.evaluations[index])
+	}
+	for index := range s.chains {
+		s.chains[index] = normalizeChain(s.chains[index])
+	}
 	return nil
 }
 
@@ -57,6 +63,16 @@ func (s *FeedbackStore) AddEvaluation(value contract.CgeEvaluationFeedback) (con
 	}
 	if strings.TrimSpace(value.ChainID) == "" || strings.TrimSpace(value.EventID) == "" {
 		return contract.CgeEvaluationFeedback{}, errors.New("chain_id and event_id are required")
+	}
+	value = normalizeEvaluation(value)
+	if !validCorrectionType(value.CorrectionType) {
+		return contract.CgeEvaluationFeedback{}, errors.New("invalid correction_type")
+	}
+	if !validScope(value.Scope) {
+		return contract.CgeEvaluationFeedback{}, errors.New("invalid scope")
+	}
+	if err := validatePreferredActions(value.PreferredActions); err != nil {
+		return contract.CgeEvaluationFeedback{}, err
 	}
 	value.ID = idgen.New("cge-feedback")
 	value.CreatedAt = time.Now().UTC()
@@ -76,8 +92,20 @@ func (s *FeedbackStore) AddChain(value contract.CgeChainFeedback) (contract.CgeC
 	if strings.TrimSpace(value.ChainID) == "" {
 		return contract.CgeChainFeedback{}, errors.New("chain_id is required")
 	}
+	value = normalizeChain(value)
+	if !validCorrectionType(value.CorrectionType) {
+		return contract.CgeChainFeedback{}, errors.New("invalid correction_type")
+	}
+	if !validScope(value.Scope) {
+		return contract.CgeChainFeedback{}, errors.New("invalid scope")
+	}
+	if err := validatePreferredActions(value.PreferredActions); err != nil {
+		return contract.CgeChainFeedback{}, err
+	}
 	switch value.FinalOutcome {
 	case contract.CgeOutcomeNormal, contract.CgeOutcomeFalsePositive, contract.CgeOutcomeRealIncident, contract.CgeOutcomeUncertain:
+	case "":
+		// New intent-based chain feedback does not require final_outcome.
 	default:
 		return contract.CgeChainFeedback{}, errors.New("invalid final_outcome")
 	}
@@ -90,6 +118,94 @@ func (s *FeedbackStore) AddChain(value contract.CgeChainFeedback) (contract.CgeC
 		return contract.CgeChainFeedback{}, err
 	}
 	return value, nil
+}
+
+func normalizeEvaluation(value contract.CgeEvaluationFeedback) contract.CgeEvaluationFeedback {
+	if value.Scope == "" {
+		value.Scope = contract.CgeFeedbackCaseOnly
+	}
+	value.PreferredActions = append([]string{}, value.PreferredActions...)
+	value.AdminNote = strings.TrimSpace(value.AdminNote)
+	if value.AdminNote == "" {
+		value.AdminNote = strings.TrimSpace(value.Note)
+	}
+	if len(value.AdminNote) > 4000 {
+		value.AdminNote = value.AdminNote[:4000]
+	}
+	if value.Note == "" {
+		value.Note = value.AdminNote
+	}
+	return value
+}
+
+func normalizeChain(value contract.CgeChainFeedback) contract.CgeChainFeedback {
+	legacyOutcome := value.CorrectionType == "" && value.FinalOutcome != ""
+	if value.CorrectionType == "" {
+		switch value.FinalOutcome {
+		case contract.CgeOutcomeFalsePositive:
+			value.CorrectionType = contract.CgeCorrectionFalsePositive
+		case contract.CgeOutcomeRealIncident:
+			value.CorrectionType = contract.CgeCorrectionFalseNegative
+		default:
+			value.CorrectionType = contract.CgeCorrectionCorrectTuneActions
+		}
+	}
+	if value.Scope == "" {
+		if value.ApplyToSimilarFutureChains || legacyOutcome {
+			value.Scope = contract.CgeFeedbackApplyToSimilar
+		} else {
+			value.Scope = contract.CgeFeedbackCaseOnly
+		}
+	}
+	value.PreferredActions = append([]string{}, value.PreferredActions...)
+	value.AdminNote = strings.TrimSpace(value.AdminNote)
+	if value.AdminNote == "" {
+		value.AdminNote = strings.TrimSpace(value.Note)
+	}
+	if len(value.AdminNote) > 4000 {
+		value.AdminNote = value.AdminNote[:4000]
+	}
+	if value.Note == "" {
+		value.Note = value.AdminNote
+	}
+	value.ApplyToSimilarFutureChains = value.Scope == contract.CgeFeedbackApplyToSimilar
+	return value
+}
+
+func validCorrectionType(value contract.CgeCorrectionType) bool {
+	switch value {
+	case contract.CgeCorrectionFalsePositive, contract.CgeCorrectionFalseNegative,
+		contract.CgeCorrectionReactionTooStrong, contract.CgeCorrectionReactionTooWeak,
+		contract.CgeCorrectionCorrectTuneActions, contract.CgeCorrectionTooLow,
+		contract.CgeCorrectionTooHigh, contract.CgeCorrectionWrongState,
+		contract.CgeCorrectionWrongAction, contract.CgeCorrectionMarkNormal,
+		contract.CgeCorrectionMarkCritical:
+		return true
+	default:
+		return false
+	}
+}
+
+func validScope(value contract.CgeFeedbackScope) bool {
+	return value == contract.CgeFeedbackCaseOnly || value == contract.CgeFeedbackApplyToSimilar
+}
+
+func validatePreferredActions(actions []string) error {
+	if len(actions) > 20 {
+		return errors.New("preferred_actions cannot contain more than 20 actions")
+	}
+	for _, action := range actions {
+		switch contract.CgePreferredAction(action) {
+		case contract.CgeActionObserve, contract.CgeActionNotifyOwner,
+			contract.CgeActionNotifyEmergencyContact, contract.CgeActionRecordClip,
+			contract.CgeActionLockEvidence, contract.CgeActionCreateAlert,
+			contract.CgeActionRequestUserValidation, contract.CgeActionIgnorePattern,
+			contract.CgeActionActivateRelatedAutomation:
+		default:
+			return errors.New("invalid preferred_actions entry")
+		}
+	}
+	return nil
 }
 
 func (s *FeedbackStore) List(chainID string) []map[string]any {

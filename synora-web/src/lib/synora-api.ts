@@ -16,7 +16,9 @@ import type {
   ChainStatus,
   CriticalChainMemory,
   CgeChainFeedback,
+  CgeChainFeedbackPayload,
   CgeEvaluationFeedback,
+  CgeEvaluationFeedbackPayload,
   CgeSecurityProfile,
   CgeSecurityProfileInput,
   ResidentCreatePayload,
@@ -137,7 +139,7 @@ export function updateCgeSecurityProfile(payload: CgeSecurityProfile) {
   }).then(normalizeCgeSecurityProfile);
 }
 
-export function submitCgeEvaluationFeedback(payload: CgeEvaluationFeedback) {
+export function submitCgeEvaluationFeedback(payload: CgeEvaluationFeedbackPayload) {
   return synoraFetch<CgeEvaluationFeedback>("/api/cge/feedback/evaluation", {
     method: "POST",
     cache: "no-store",
@@ -146,7 +148,7 @@ export function submitCgeEvaluationFeedback(payload: CgeEvaluationFeedback) {
   });
 }
 
-export function submitCgeChainFeedback(payload: CgeChainFeedback) {
+export function submitCgeChainFeedback(payload: CgeChainFeedbackPayload) {
   return synoraFetch<{ feedback: CgeChainFeedback; critical_chain?: CriticalChainMemory }>("/api/cge/feedback/chain", {
     method: "POST",
     cache: "no-store",
@@ -454,14 +456,24 @@ function normalizeFaceProfile(value: unknown): SynoraFaceProfile {
 
 function normalizeCgeFeedback(value: unknown): CgeEvaluationFeedback | CgeChainFeedback {
   const source = isRecord(value) ? value : {};
+  const rawScope = source.scope;
+  const scope = rawScope === "apply_to_similar_future_chains" || source.apply_to_similar_future_chains === true
+    ? "apply_to_similar_future_chains"
+    : "case_only";
+  const preferredActions = normalizeStringArray(source.preferred_actions);
+  const legacyOutcome = normalizeString(source.final_outcome);
+  const correctionType = normalizeString(source.correction_type) || (legacyOutcome === "false_positive" ? "false_positive" : legacyOutcome === "real_incident" ? "false_negative" : "");
   return {
     ...source,
     id: normalizeString(source.id),
     chain_id: normalizeString(source.chain_id),
+    correction_type: correctionType as CgeEvaluationFeedback["correction_type"],
     note: normalizeString(source.note),
+    admin_note: normalizeString(source.admin_note ?? source.note),
+    scope,
     created_by: normalizeString(source.created_by),
     created_at: normalizeDateString(source.created_at),
-    preferred_actions: normalizeStringArray(source.preferred_actions),
+    preferred_actions: preferredActions,
     apply_to_similar_future_chains: normalizeBoolean(source.apply_to_similar_future_chains),
   } as unknown as CgeEvaluationFeedback | CgeChainFeedback;
 }

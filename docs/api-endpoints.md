@@ -86,8 +86,8 @@ rôle `admin` complet.
 | GET | `/api/cge/security-profile` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Profil de sécurité CGE, lecture résidents/guests. |
 | PATCH | `/api/cge/security-profile` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Admin uniquement, validation stricte et écriture atomique. |
 | GET | `/api/cge/feedback` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Corrections versionnées, filtre `chain_id`. |
-| POST | `/api/cge/feedback/evaluation` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Admin uniquement, événement brut immuable. |
-| POST | `/api/cge/feedback/chain` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Admin uniquement, influence la mémoire critique. |
+| POST | `/api/cge/feedback/evaluation` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Admin uniquement, feedback d’intention (`correction_type`, `scope`, `preferred_actions`, `admin_note`), événement brut immuable. |
+| POST | `/api/cge/feedback/chain` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Admin uniquement, feedback d’intention et influence optionnelle de la mémoire critique. |
 | GET | `/api/simulation/scenarios` | `cmd/synora-api/main.go` | oui | simulation | futur |  |
 | POST | `/api/simulation/run` | `cmd/synora-api/main.go` | oui | simulation | futur |  |
 | GET | `/api/simulation/runs/:id` | `cmd/synora-api/main.go` | oui | simulation | futur |  |

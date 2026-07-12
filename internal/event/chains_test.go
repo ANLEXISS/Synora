@@ -158,6 +158,17 @@ func TestCriticalChainMemoryMergesSimilarPattern(t *testing.T) {
 	}
 }
 
+func TestCriticalChainMemoryMarksSimulationSource(t *testing.T) {
+	manager := NewChainManager(DefaultChainConfig())
+	event := testChainEvent(contract.EventVisionWeapon, "simulation-1", chainTestStart)
+	event.Payload = map[string]any{"metadata": map[string]any{"simulated": true, "test_run_id": "run-1"}}
+	manager.Process(event, testEvaluation(event.ID, "break-in", "critical", 0.98))
+	memories := manager.CriticalMemories(10)
+	if len(memories) != 1 || memories[0].Source != "simulation" || !memories[0].Simulated || memories[0].SimulatedOccurrences != 1 || memories[0].RealOccurrences != 0 {
+		t.Fatalf("simulation memory metadata=%#v", memories)
+	}
+}
+
 func TestChainFeedbackChangesCriticalMemoryWithoutChangingChain(t *testing.T) {
 	manager := NewChainManager(DefaultChainConfig())
 	event := testChainEvent(contract.EventVisionWeapon, "feedback-chain", chainTestStart)

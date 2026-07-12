@@ -26,3 +26,33 @@ func TestFeedbackStorePersistsEvaluationAndChainFeedback(t *testing.T) {
 		t.Fatalf("feedback count = %d", len(got))
 	}
 }
+
+func TestFeedbackStoreAcceptsIntentPayloadAndNormalizesDefaults(t *testing.T) {
+	store := NewFeedbackStore(filepath.Join(t.TempDir(), "feedback.json"))
+	evaluation, err := store.AddEvaluation(contract.CgeEvaluationFeedback{
+		ChainID: "chain-1", EventID: "event-1", CorrectionType: contract.CgeCorrectionReactionTooStrong,
+		Scope:            contract.CgeFeedbackApplyToSimilar,
+		PreferredActions: []string{string(contract.CgeActionObserve), string(contract.CgeActionRequestUserValidation)},
+		AdminNote:        "réduire la réaction automatique",
+	})
+	if err != nil || evaluation.Scope != contract.CgeFeedbackApplyToSimilar || len(evaluation.PreferredActions) != 2 {
+		t.Fatalf("intent evaluation feedback: %#v %v", evaluation, err)
+	}
+	chain, err := store.AddChain(contract.CgeChainFeedback{
+		ChainID: "chain-1", CorrectionType: contract.CgeCorrectionCorrectTuneActions,
+		Scope: contract.CgeFeedbackCaseOnly, PreferredActions: []string{}, AdminNote: "observer d’abord",
+	})
+	if err != nil || chain.Scope != contract.CgeFeedbackCaseOnly || chain.AdminNote == "" {
+		t.Fatalf("intent chain feedback: %#v %v", chain, err)
+	}
+}
+
+func TestFeedbackStoreRejectsUnknownPreferredAction(t *testing.T) {
+	store := NewFeedbackStore(filepath.Join(t.TempDir(), "feedback.json"))
+	if _, err := store.AddEvaluation(contract.CgeEvaluationFeedback{
+		ChainID: "chain-1", EventID: "event-1", CorrectionType: contract.CgeCorrectionFalsePositive,
+		PreferredActions: []string{"rewrite_engine"},
+	}); err == nil {
+		t.Fatal("unknown preferred action should be rejected")
+	}
+}

@@ -676,11 +676,7 @@ export function Residents() {
                   </span>
 
                   <div className="resident-admin-actions">
-                    {resident.face_profile && (
-                      <span className={`badge ${resident.face_profile.status === "ready" ? "success" : "warning"}`}>
-                        {faceStatusLabel(resident.face_profile.status)} · {resident.face_profile.base_photos?.length ?? 0}/4 · Auto {resident.face_profile.auto_count ?? 0} · À valider {resident.face_profile.review_count ?? resident.face_profile.pending_count ?? 0}
-                      </span>
-                    )}
+                    {resident.face_profile && <div className="resident-face-summary"><span className={`badge ${resident.face_profile.status === "ready" ? "success" : "warning"}`}>{faceStatusLabel(resident.face_profile.status)}</span><span className="resident-face-counter">{resident.face_profile.base_photos?.length ?? 0}/4 photos</span><span className="resident-face-counter">Auto {resident.face_profile.auto_count ?? 0}</span><span className="resident-face-counter">À valider {resident.face_profile.review_count ?? resident.face_profile.pending_count ?? 0}</span></div>}
                     {auth.isAdmin && (
                       <>
                         <button className="secondary-button resident-details-button" onClick={() => openEdit(resident)} disabled={busy}>

@@ -197,14 +197,70 @@ export function getEvaluationForEvent(chain: EventChain, eventId: string) {
 
 export function formatEventType(type: string) {
   const labels: Record<string, string> = {
-    "vision.unknown": "Inconnu détecté",
+    "vision.unknown": "Présence inconnue",
     "vision.identity": "Résident reconnu",
     "vision.motion": "Mouvement",
     "vision.weapon": "Arme détectée",
     "vision.fall": "Chute détectée",
     "camera.offline": "Caméra hors ligne",
+    "camera.online": "Caméra reconnectée",
+    "door.open": "Porte ouverte",
+    "door.forced": "Porte forcée",
   };
-  return labels[type] ?? type.replaceAll(".", " · ");
+  if (labels[type]) return labels[type];
+  const readable = type.replaceAll(".", " · ").replaceAll("_", " ").trim();
+  return readable ? readable.charAt(0).toUpperCase() + readable.slice(1) : "Événement";
+}
+
+function isTechnicalText(value: string) {
+  return /[;=]/.test(value) || /(?:^|[._\s])[a-z0-9]+_[a-z0-9_]+/.test(value) || value.length > 150;
+}
+
+function mostRelevantEventType(chain: EventChain) {
+  const events = (chain.recent_events ?? [])
+    .filter((event) => event.significant)
+    .slice()
+    .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp));
+  return events[0]?.type ?? chain.recent_events?.[0]?.type ?? "";
+}
+
+export function getHumanChainTitle(chain: EventChain) {
+  const type = mostRelevantEventType(chain);
+  if (type === "vision.unknown") return "Présence inconnue";
+  if (type === "vision.weapon") return "Arme détectée";
+  if (type === "vision.fall") return "Chute détectée";
+  if (type === "camera.offline") return "Caméra hors ligne";
+  if (type) return formatEventType(type);
+  if (chain.title && !isTechnicalText(chain.title)) return chain.title;
+  if (chain.current_state === "break-in") return "Effraction détectée";
+  if (chain.current_state === "intrusion") return "Intrusion détectée";
+  return "Chaîne d’événements";
+}
+
+export function getHumanChainSummary(chain: EventChain) {
+  if (chain.summary && !isTechnicalText(chain.summary)) return chain.summary;
+  const title = getHumanChainTitle(chain);
+  const count = chain.events_count === 1 ? "1 événement" : `${chain.events_count} événements`;
+  return `${title} · ${count} observés par Synora.`;
+}
+
+export function formatCgeReason(reason: string) {
+  const labels: Record<string, string> = {
+    unknown_identity: "Présence inconnue",
+    simulated_input: "Entrée de simulation",
+    security_profile_night_multiplier: "Sensibilité nocturne appliquée",
+    security_profile_armed_multiplier: "Mode armé appliqué",
+    significant_inactivity_timeout: "Inactivité significative",
+    critical_pattern: "Pattern critique",
+  };
+  if (labels[reason]) return labels[reason];
+  const readable = reason.replaceAll(".", " · ").replaceAll("_", " ").trim();
+  return readable ? readable.charAt(0).toUpperCase() + readable.slice(1) : "Raison non précisée";
+}
+
+export function compactReasonList(reasons: string[] | null | undefined, max = 3) {
+  const values = (reasons ?? []).map(formatCgeReason).filter(Boolean);
+  return values.slice(0, max);
 }
 
 export function isContextualEvent(event: EventChainEvent) {

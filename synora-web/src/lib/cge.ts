@@ -9,6 +9,7 @@ import type {
   ChainEvaluation,
   DangerLevel,
 } from "./synora-types";
+import { formatCgeReason, formatEventType } from "./event-chains";
 import {
   normalizeDangerLevel,
   normalizeDateString,
@@ -90,7 +91,71 @@ export function normalizeCriticalChainMemory(raw: unknown): CriticalChainMemory 
     confidence: Math.max(0, Math.min(1, normalizeNumber(source.confidence))),
     feedback_count: Math.max(0, Math.round(normalizeNumber(source.feedback_count))),
     last_feedback_at: normalizeDateString(source.last_feedback_at),
+    simulated: source.simulated === true,
+    source: source.source === "simulation" || source.source === "mixed" ? source.source : "real",
+    simulated_occurrences: Math.max(0, Math.round(normalizeNumber(source.simulated_occurrences))),
+    real_occurrences: Math.max(0, Math.round(normalizeNumber(source.real_occurrences))),
   };
+}
+
+export function getHumanCriticalChainTitle(memory: CriticalChainMemory) {
+  const types = memory.significant_event_types ?? [];
+  if (types.includes("vision.unknown")) return "Présence inconnue persistante";
+  if (types.includes("vision.weapon")) return "Arme détectée à plusieurs reprises";
+  if (types.includes("vision.fall")) return "Chutes détectées à plusieurs reprises";
+  if (types.includes("camera.offline")) return "Caméra hors ligne récurrente";
+  const firstType = types[0];
+  return firstType ? `${formatEventType(firstType)} récurrent` : "Chaîne critique connue";
+}
+
+export function getHumanCriticalChainSummary(memory: CriticalChainMemory) {
+  const reason = memory.learned_reason?.trim();
+  if (reason && !/[;=]/.test(reason) && reason.length <= 150) return formatCgeReason(reason);
+  const types = (memory.significant_event_types ?? []).map(formatEventType).slice(0, 2);
+  return types.length > 0
+    ? `${types.join(" · ")} observés dans des chaînes similaires.`
+    : "Motif critique appris à partir de chaînes observées.";
+}
+
+export function formatCorrectionType(value: unknown) {
+  switch (value) {
+    case "false_positive": return "Faux positif";
+    case "false_negative": return "Faux négatif";
+    case "reaction_too_strong": return "Réaction trop forte";
+    case "reaction_too_weak": return "Réaction insuffisante";
+    case "correct_but_tune_actions": return "Évaluation correcte, réaction ajustée";
+    case "too_low": return "Danger évalué trop bas";
+    case "too_high": return "Danger évalué trop haut";
+    case "wrong_state": return "État système incorrect";
+    case "wrong_action": return "Action recommandée incorrecte";
+    case "mark_normal": return "Pattern marqué normal";
+    case "mark_critical": return "Pattern marqué critique";
+    default: return "Correction moteur";
+  }
+}
+
+export function formatFeedbackScope(value: unknown) {
+  return value === "apply_to_similar_future_chains" ? "Cas similaires futurs" : "Seulement ce cas";
+}
+
+export function formatPreferredAction(value: unknown) {
+  const labels: Record<string, string> = {
+    observe: "Observer",
+    notify_owner: "Notifier le propriétaire",
+    notify_emergency_contact: "Notifier un contact d’urgence",
+    record_clip: "Enregistrer un clip",
+    lock_evidence: "Verrouiller la preuve",
+    create_alert: "Créer une alerte",
+    request_user_validation: "Demander validation utilisateur",
+    ignore_pattern: "Ignorer ce pattern",
+    activate_related_automation: "Activer une automation liée",
+  };
+  return labels[String(value)] ?? String(value || "Action non précisée");
+}
+
+export function getFeedbackSummary(item: CgeEvaluationFeedback | CgeChainFeedback) {
+  const target = "event_id" in item && item.event_id ? `Évaluation · ${item.event_id}` : "Fin de chaîne";
+  return `${formatCorrectionType(item.correction_type)} · ${target}`;
 }
 
 export function formatSecurityMode(mode: CgeSecurityMode | string) {

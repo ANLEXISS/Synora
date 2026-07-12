@@ -188,7 +188,7 @@ function EventStepCard({
 
           <EventEvaluation evaluation={evaluation} />
           {hasFeedback && <span className="event-feedback-applied">Correction existante</span>}
-          {isAdmin && evaluation && onCorrectEvaluation && <button type="button" className="event-correction-button" onClick={() => onCorrectEvaluation(event, evaluation)}>Ajouter une correction</button>}
+          {isAdmin && significant && evaluation && onCorrectEvaluation && <button type="button" className="event-correction-button" onClick={() => onCorrectEvaluation(event, evaluation)}>Corriger cette évaluation</button>}
           <TechnicalPayload payload={event.payload} />
         </div>
       )}

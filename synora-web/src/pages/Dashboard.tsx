@@ -1,8 +1,12 @@
 import { Activity, Brain, Cpu, ShieldAlert, Users } from "lucide-react";
+import { useEffect, useState } from "react";
 import { EventRow } from "../components/EventRow";
 import { Panel } from "../components/Panel";
 import { StatCard } from "../components/StatCard";
 import { useSynoraData } from "../hooks/useSynoraData";
+import { getCriticalChains } from "../lib/synora-api";
+import { getHumanCriticalChainSummary, getHumanCriticalChainTitle, normalizeCriticalChainMemory } from "../lib/cge";
+import type { CriticalChainMemory } from "../lib/synora-types";
 
 
 function dangerTone(score: number): "success" | "warning" | "danger" {
@@ -47,6 +51,21 @@ function normalizeDeviceStatus(device: {
 
 export function Dashboard() {
   const data = useSynoraData();
+  const [criticalChains, setCriticalChains] = useState<CriticalChainMemory[]>([]);
+  const [criticalError, setCriticalError] = useState<string | null>(null);
+  const [criticalLoading, setCriticalLoading] = useState(true);
+  async function refreshCriticalChains() {
+    setCriticalLoading(true);
+    try {
+      setCriticalChains((await getCriticalChains()).map(normalizeCriticalChainMemory));
+      setCriticalError(null);
+    } catch (cause) {
+      setCriticalError(cause instanceof Error ? cause.message : "Impossible de charger les chaînes critiques.");
+    } finally {
+      setCriticalLoading(false);
+    }
+  }
+  useEffect(() => { void refreshCriticalChains(); }, []);
   const danger = data.dangerScore;
   const devices = data.devices.slice(0, 6).map((device) => ({
     id: device.id,
@@ -64,6 +83,14 @@ export function Dashboard() {
   const deviceTone = devicesTone(devicesOnline, devices.length);
   const systemState = data.systemState;
   const residentsPresent = data.residents.filter((resident) => resident.state === "present").length;
+  const latestResident = data.residents
+    .filter((resident) => typeof resident.last_seen === "string" && resident.last_seen.trim())
+    .slice()
+    .sort((left, right) => Date.parse(right.last_seen ?? "") - Date.parse(left.last_seen ?? ""))[0];
+  const realCriticalChains = criticalChains.filter((chain) => chain.source !== "simulation" && chain.simulated !== true);
+  const hiddenSimulationCount = criticalChains.length - realCriticalChains.length;
+  const hasRealCriticalPattern = realCriticalChains.length > 0;
+  const riskValue = hasRealCriticalPattern && danger <= 0 ? "—" : `${Math.round(danger * 100)}%`;
 
   return (
     <div className="dashboard-grid">
@@ -106,7 +133,7 @@ export function Dashboard() {
       >
         {data.error && <div className="auth-error" role="alert">{data.error}</div>}
         <div className="event-list">
-          {events.length === 0 ? <div className="empty-state"><strong>Aucun événement récent.</strong><span>Les événements apparaîtront ici lorsqu’ils seront reçus.</span></div> : events.map((event, index) => (
+          {events.length === 0 ? <div className="empty-state"><strong>Aucun événement brut récent.</strong><span>{realCriticalChains.length > 0 ? "Des chaînes CGE existent : consultez-les pour l’historique raisonné." : "Les événements apparaîtront ici lorsqu’ils seront reçus."}</span>{realCriticalChains.length > 0 && <button type="button" className="secondary-button" onClick={() => window.dispatchEvent(new CustomEvent("synora:navigate", { detail: "cge" }))}>Voir les chaînes CGE</button>}</div> : events.map((event, index) => (
             <EventRow
               key={`${event.type}-${event.title}-${index}`}
               type={event.type}
@@ -122,12 +149,11 @@ export function Dashboard() {
         <div className={`risk-card risk-${dangerTone(danger)}`}>
           <div className="risk-score">
             <ShieldAlert size={22} />
-            <strong>{Math.round(danger * 100)}%</strong>
+            <strong>{riskValue}</strong>
           </div>
 
           <p>
-            Chaîne critique reconnue en mode observation. Aucune action réelle
-            exécutée.
+            {hasRealCriticalPattern ? "Un pattern critique réel est mémorisé ; aucun risque actif n’est confirmé par le snapshot courant." : "Aucun risque réel actif."}
           </p>
 
           <div className="risk-meter">
@@ -135,8 +161,8 @@ export function Dashboard() {
           </div>
 
           <div className="risk-meta">
-            <span>expected_state</span>
-            <strong>suspicious</strong>
+            <span>Source</span>
+            <strong>{hasRealCriticalPattern ? "Réelle" : hiddenSimulationCount > 0 ? "Simulation masquée" : "Aucune donnée réelle"}</strong>
           </div>
 
           <button type="button" className="primary-button" onClick={() => window.dispatchEvent(new CustomEvent("synora:navigate", { detail: "live" }))}>Inspecter le CGE</button>
@@ -173,8 +199,9 @@ export function Dashboard() {
         className="card-wide"
         action={<Brain size={17} />}
       >
+        {criticalError && <div className="auth-error" role="alert">{criticalError} <button type="button" className="secondary-button" onClick={() => void refreshCriticalChains()}>Réessayer</button></div>}
         <div className="critical-list">
-          <div className="empty-state"><Activity size={20} /><strong>Aucune chaîne critique connue pour l’instant.</strong><span>Les chaînes apparaîtront après des incidents ou simulations.</span></div>
+          {criticalLoading ? <div className="empty-state"><Activity size={20} /><span>Chargement des chaînes critiques…</span></div> : realCriticalChains.length === 0 ? <div className="empty-state"><Activity size={20} /><strong>Aucune chaîne critique réelle connue.</strong><span>{hiddenSimulationCount > 0 ? `${hiddenSimulationCount} chaîne${hiddenSimulationCount > 1 ? "s" : ""} simulée${hiddenSimulationCount > 1 ? "s" : ""} masquée${hiddenSimulationCount > 1 ? "s" : ""}.` : "Les chaînes réelles apparaîtront après des incidents ou observations confirmés."}</span><button type="button" className="secondary-button" onClick={() => window.dispatchEvent(new CustomEvent("synora:navigate", { detail: "cge" }))}>Ouvrir le CGE</button></div> : realCriticalChains.slice(0, 3).map((chain) => <div className="critical-row" key={chain.id}><div><strong>{getHumanCriticalChainTitle(chain)}</strong><span>{getHumanCriticalChainSummary(chain)}</span></div><span className="badge danger">{chain.occurrences} occurrences</span></div>)}
         </div>
       </Panel>
 
@@ -185,8 +212,7 @@ export function Dashboard() {
       >
         <div className="presence-banner">
           <div>
-            <strong>Alexis reconnu</strong>
-            <span>Dernière présence confirmée · zoneA.L0.salon</span>
+            {residentsPresent > 0 ? <><strong>{residentsPresent} résident{residentsPresent > 1 ? "s" : ""} présent{residentsPresent > 1 ? "s" : ""} actuellement</strong><span>La présence est basée sur l’état courant remonté par Synora.</span></> : latestResident ? <><strong>Dernière présence reconnue : {latestResident.display_name || latestResident.name || latestResident.id}</strong><span>Ce résident n’est pas actuellement marqué présent.</span></> : <><strong>Aucune présence reconnue récemment</strong><span>La présence apparaîtra après une détection confirmée.</span></>}
           </div>
 
           <button type="button" className="secondary-button" onClick={() => window.dispatchEvent(new CustomEvent("synora:navigate", { detail: "residents" }))}>Voir les résidents</button>

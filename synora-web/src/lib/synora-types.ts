@@ -296,7 +296,28 @@ export type EventChainListResponse = {
 };
 
 export type CgeSecurityMode = "relaxed" | "balanced" | "strict" | "paranoid";
-export type CgeCorrectionType = "false_positive" | "too_low" | "too_high" | "wrong_state" | "wrong_action" | "mark_normal" | "mark_critical";
+export type CgeCorrectionType = "false_positive" | "false_negative" | "reaction_too_strong" | "reaction_too_weak" | "correct_but_tune_actions";
+export type CgeLegacyCorrectionType = "too_low" | "too_high" | "wrong_state" | "wrong_action" | "mark_normal" | "mark_critical";
+export type CgeFeedbackScope = "case_only" | "apply_to_similar_future_chains";
+export type CgePreferredAction = "observe" | "notify_owner" | "notify_emergency_contact" | "record_clip" | "lock_evidence" | "create_alert" | "request_user_validation" | "ignore_pattern" | "activate_related_automation";
+
+export type CgeEvaluationFeedbackPayload = {
+  chain_id: string;
+  event_id: string;
+  evaluation_index?: number;
+  correction_type: CgeCorrectionType;
+  scope: CgeFeedbackScope;
+  preferred_actions: CgePreferredAction[];
+  admin_note?: string;
+};
+
+export type CgeChainFeedbackPayload = {
+  chain_id: string;
+  correction_type: CgeCorrectionType;
+  scope: CgeFeedbackScope;
+  preferred_actions: CgePreferredAction[];
+  admin_note?: string;
+};
 export type CgeFinalOutcome = "normal" | "false_positive" | "real_incident" | "uncertain";
 
 export type CgeSecurityProfile = {
@@ -345,17 +366,23 @@ export type CriticalChainMemory = {
   confidence: number;
   feedback_count?: number;
   last_feedback_at?: string;
+  simulated?: boolean;
+  source?: "real" | "simulation" | "mixed" | string;
+  simulated_occurrences?: number;
+  real_occurrences?: number;
 };
 
 export type CgeEvaluationFeedback = {
   id?: string;
   chain_id: string;
   event_id: string;
-  evaluation_index: number;
+  evaluation_index?: number;
   correction_type: CgeCorrectionType;
+  scope: CgeFeedbackScope;
+  preferred_actions: CgePreferredAction[];
+  admin_note?: string;
   corrected_state?: string;
   corrected_danger_level?: DangerLevel;
-  preferred_actions?: string[];
   note?: string;
   created_by?: string;
   created_at?: string;
@@ -364,9 +391,13 @@ export type CgeEvaluationFeedback = {
 export type CgeChainFeedback = {
   id?: string;
   chain_id: string;
-  final_outcome: CgeFinalOutcome;
+  correction_type: CgeCorrectionType;
+  scope: CgeFeedbackScope;
+  preferred_actions: CgePreferredAction[];
+  admin_note?: string;
+  final_outcome?: CgeFinalOutcome;
   corrected_final_danger_level?: DangerLevel;
-  apply_to_similar_future_chains: boolean;
+  apply_to_similar_future_chains?: boolean;
   note?: string;
   created_by?: string;
   created_at?: string;

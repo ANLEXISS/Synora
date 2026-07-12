@@ -264,8 +264,30 @@ func (m *ChainManager) ApplyChainFeedback(chainID string, feedback contract.CgeC
 	}
 	memory.FeedbackCount++
 	memory.LastFeedbackAt = time.Now().UTC()
-	memory.Outcomes = appendUniqueString(memory.Outcomes, string(feedback.FinalOutcome))
-	switch feedback.FinalOutcome {
+	scope := feedback.Scope
+	if scope == "" {
+		scope = contract.CgeFeedbackApplyToSimilar
+	}
+	outcome := feedback.FinalOutcome
+	if outcome == "" {
+		switch feedback.CorrectionType {
+		case contract.CgeCorrectionFalsePositive, contract.CgeCorrectionReactionTooStrong:
+			outcome = contract.CgeOutcomeFalsePositive
+		case contract.CgeCorrectionFalseNegative, contract.CgeCorrectionReactionTooWeak:
+			outcome = contract.CgeOutcomeRealIncident
+		default:
+			outcome = contract.CgeOutcomeNormal
+		}
+	}
+	memory.Outcomes = appendUniqueString(memory.Outcomes, string(outcome))
+	if scope == contract.CgeFeedbackCaseOnly {
+		m.syncMemoryLocked(memory)
+		return cloneMemory(memory), nil
+	}
+	for _, action := range feedback.PreferredActions {
+		memory.RecommendedActions = appendUniqueString(memory.RecommendedActions, action)
+	}
+	switch outcome {
 	case contract.CgeOutcomeFalsePositive, contract.CgeOutcomeNormal:
 		memory.Confidence = maxFloat(0, memory.Confidence*0.8)
 	case contract.CgeOutcomeRealIncident:
@@ -659,10 +681,27 @@ func (m *ChainManager) upsertCriticalMemoryLocked(chain *contract.EventChain, at
 			MaxDangerLevel: string(chain.MaxDangerLevel), MaxDangerScore: chain.MaxDangerScore,
 			Summary: chain.Summary, LearnedReason: "chaîne critique observée",
 		}
+		if chain.Simulated {
+			memory.SimulatedOccurrences = 1
+		} else {
+			memory.RealOccurrences = 1
+		}
 		m.memories[templateID] = memory
+	} else if chain.Simulated {
+		memory.SimulatedOccurrences++
+	} else {
+		memory.RealOccurrences++
 	}
 	memory.LastSeen = at
 	memory.Occurrences++
+	if memory.SimulatedOccurrences > 0 && memory.RealOccurrences > 0 {
+		memory.Source = "mixed"
+	} else if memory.SimulatedOccurrences > 0 {
+		memory.Source = "simulation"
+	} else {
+		memory.Source = "real"
+	}
+	memory.Simulated = memory.Source == "simulation"
 	if chain.MaxDangerScore > memory.MaxDangerScore {
 		memory.MaxDangerScore = chain.MaxDangerScore
 	}
