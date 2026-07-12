@@ -22,6 +22,11 @@ export type TopologySource =
   | "unavailable"
   | "loading";
 
+export type TopologyRoom = ApiTopologyNode & {
+  zoneName: string;
+  floorName: string;
+};
+
 export function normalizeTopologyResponse(input: unknown): ApiTopologyNode[] {
   if (Array.isArray(input)) {
     return normalizeTree(input);
@@ -45,6 +50,49 @@ export function isRecognizedTopologyResponse(input: unknown): boolean {
   if (!isRecord(input)) return false;
   if (input.topology !== undefined) return isRecognizedTopologyResponse(input.topology);
   return Array.isArray(input.nodes);
+}
+
+export function getTopologyRooms(topology: ApiTopologyNode[]): TopologyRoom[] {
+  const rooms: TopologyRoom[] = [];
+
+  function visit(nodes: ApiTopologyNode[], zoneName = "", floorName = "") {
+    for (const node of nodes) {
+      const nextZoneName = node.type === "zone" ? node.name : zoneName;
+      const nextFloorName = node.type === "floor" ? node.name : floorName;
+      if (node.type === "room") {
+        rooms.push({
+          ...node,
+          zoneName: nextZoneName,
+          floorName: nextFloorName,
+        });
+      }
+      visit(node.children ?? [], nextZoneName, nextFloorName);
+    }
+  }
+
+  visit(topology);
+  return rooms;
+}
+
+export function getRoomLabel(nodeID: string | null | undefined, topology: ApiTopologyNode[]): string {
+  if (!nodeID || nodeID === "unlocated") return "Non placé";
+  const room = getTopologyRooms(topology).find((item) => item.id === nodeID);
+  if (!room) return nodeID;
+  const roomName = prettyTopologyName(room.name);
+  const floorName = room.floorName ? prettyTopologyName(room.floorName) : "";
+  return floorName ? `${roomName} · ${floorName}` : roomName;
+}
+
+export function getDevicesByRoom(devices: SynoraDevice[]): Record<string, SynoraDevice[]> {
+  return devices.reduce<Record<string, SynoraDevice[]>>((groups, device) => {
+    const nodeID = typeof device.node_id === "string" && device.node_id.trim()
+      ? device.node_id.trim()
+      : typeof device.room === "string" && device.room.trim()
+        ? device.room.trim()
+        : "unlocated";
+    (groups[nodeID] ??= []).push(device);
+    return groups;
+  }, {});
 }
 
 function normalizeTree(input: unknown[]): ApiTopologyNode[] {
@@ -128,6 +176,12 @@ function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function prettyTopologyName(value: string): string {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -136,8 +190,9 @@ export type NormalizedTopologyDevice = {
   id: string;
   name: string;
   type: "camera" | "light" | "sensor" | "siren" | "lock" | "unknown";
-  status: "online" | "offline";
+  status: "online" | "offline" | "degraded" | "pending";
   node_id: string | null;
+  enabled: boolean;
   role?: string;
   trusted?: boolean;
 };
@@ -160,13 +215,22 @@ export function normalizeTopologyDevices(
     const type = ["camera", "light", "sensor", "siren", "lock"].includes(rawType)
       ? rawType as NormalizedTopologyDevice["type"]
       : "unknown";
+    const configuredStatus = String(device["status"] ?? "");
+    const status = configuredStatus === "pending"
+      ? "pending"
+      : configuredStatus === "offline" || device.enabled === false
+        ? "offline"
+      : configuredStatus === "degraded"
+        ? "degraded"
+        : "online";
 
     return {
       id: device.id,
       name: String(device["name"] ?? device.id),
       type,
-      status: device.enabled === false ? "offline" : "online",
+      status,
       node_id: resolvedNodeID,
+      enabled: device.enabled !== false,
       role: typeof device["role"] === "string" ? device["role"] : undefined,
       trusted: typeof device["trusted"] === "boolean" ? device["trusted"] : undefined,
     };

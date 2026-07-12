@@ -98,6 +98,102 @@ func TestDeviceRegistryCRUDAndTopologyDetachAreTransactional(t *testing.T) {
 	}
 }
 
+func TestDeviceRegistryEnabledPatchPersistsBothDirections(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "devices.yaml")
+	initial := `devices:
+  - id: cam_01
+    type: camera
+    enabled: true
+`
+	if err := os.WriteFile(path, []byte(initial), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	configs, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry(path)
+	registry.Register(configs)
+
+	disabled := false
+	updated, err := registry.Patch("cam_01", contract.DevicePatch{Enabled: &disabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Enabled {
+		t.Fatal("device was not disabled")
+	}
+	persisted, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(persisted) != 1 || persisted[0].Enabled {
+		t.Fatalf("disabled state was not persisted: %#v", persisted)
+	}
+
+	enabled := true
+	updated, err = registry.Patch("cam_01", contract.DevicePatch{Enabled: &enabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.Enabled {
+		t.Fatal("device was not enabled")
+	}
+	persisted, err = Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(persisted) != 1 || !persisted[0].Enabled {
+		t.Fatalf("enabled state was not persisted: %#v", persisted)
+	}
+	views := registry.PublicViews()
+	if len(views) != 1 || !views[0].Enabled {
+		t.Fatalf("GET-equivalent public view does not reflect enabled state: %#v", views)
+	}
+}
+
+func TestDeviceRegistryRemoveIsDurableAndKeepsSecretsOutOfResponse(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "devices.yaml")
+	initial := `devices:
+  - id: cam_01
+    type: camera
+    secret: do-not-return
+    network: {ip: 10.0.0.2}
+  - id: sensor_01
+    type: sensor
+`
+	if err := os.WriteFile(path, []byte(initial), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	configs, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry(path)
+	registry.Register(configs)
+	removed, err := registry.Remove("cam_01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed.ID != "cam_01" || removed.Secret != "do-not-return" {
+		t.Fatalf("unexpected removed device: %#v", removed)
+	}
+	if _, ok := registry.Get("cam_01"); ok {
+		t.Fatal("removed device remains in registry")
+	}
+	remaining, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != "sensor_01" {
+		t.Fatalf("unexpected persisted devices: %#v", remaining)
+	}
+	backups, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "backups", "devices.*.yaml"))
+	if len(backups) != 1 {
+		t.Fatalf("backups=%v", backups)
+	}
+}
+
 func TestDeviceRegistryWriteFailureRollsBackMemory(t *testing.T) {
 	registry := NewRegistry(t.TempDir()) // a directory cannot be replaced by a config file
 	_, err := registry.Create(Device{ID: "sensor_1", Type: contract.DeviceTypeSensor})

@@ -33,22 +33,27 @@ var (
 // Device is Core's durable representation. Secret and Extra preserve installed
 // YAML fields but can never be emitted through JSON or PublicView.
 type Device struct {
-	ID           string         `json:"id" yaml:"id"`
-	Name         string         `json:"name,omitempty" yaml:"name,omitempty"`
-	Type         string         `json:"type" yaml:"type"`
-	Role         string         `json:"role,omitempty" yaml:"role,omitempty"`
-	Room         string         `json:"room,omitempty" yaml:"room,omitempty"` // legacy node id
-	NodeID       string         `json:"node_id,omitempty" yaml:"node_id,omitempty"`
-	ZoneRole     string         `json:"zone_role,omitempty" yaml:"zone_role,omitempty"`
-	RoomName     string         `json:"room_name,omitempty" yaml:"room_name,omitempty"`
-	Enabled      bool           `json:"enabled" yaml:"enabled"`
-	Trusted      bool           `json:"trusted" yaml:"trusted"`
-	Capabilities []string       `json:"capabilities" yaml:"capabilities"`
-	Config       map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
-	Metadata     map[string]any `json:"metadata,omitempty" yaml:"metadata,omitempty"`
-	CreatedAt    time.Time      `json:"created_at,omitempty" yaml:"created_at,omitempty"`
-	UpdatedAt    time.Time      `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
-	DeletedAt    *time.Time     `json:"deleted_at,omitempty" yaml:"deleted_at,omitempty"`
+	ID            string         `json:"id" yaml:"id"`
+	Name          string         `json:"name,omitempty" yaml:"name,omitempty"`
+	Type          string         `json:"type" yaml:"type"`
+	Vendor        string         `json:"vendor,omitempty" yaml:"vendor,omitempty"`
+	Model         string         `json:"model,omitempty" yaml:"model,omitempty"`
+	Serial        string         `json:"serial,omitempty" yaml:"serial,omitempty"`
+	PairingMethod string         `json:"pairing_method,omitempty" yaml:"pairing_method,omitempty"`
+	Status        string         `json:"status,omitempty" yaml:"status,omitempty"`
+	Role          string         `json:"role,omitempty" yaml:"role,omitempty"`
+	Room          string         `json:"room,omitempty" yaml:"room,omitempty"` // legacy node id
+	NodeID        string         `json:"node_id,omitempty" yaml:"node_id,omitempty"`
+	ZoneRole      string         `json:"zone_role,omitempty" yaml:"zone_role,omitempty"`
+	RoomName      string         `json:"room_name,omitempty" yaml:"room_name,omitempty"`
+	Enabled       bool           `json:"enabled" yaml:"enabled"`
+	Trusted       bool           `json:"trusted" yaml:"trusted"`
+	Capabilities  []string       `json:"capabilities" yaml:"capabilities"`
+	Config        map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	CreatedAt     time.Time      `json:"created_at,omitempty" yaml:"created_at,omitempty"`
+	UpdatedAt     time.Time      `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
+	DeletedAt     *time.Time     `json:"deleted_at,omitempty" yaml:"deleted_at,omitempty"`
 
 	Secret   string         `json:"-" yaml:"secret,omitempty"`
 	Network  map[string]any `json:"-" yaml:"network,omitempty"`
@@ -93,7 +98,9 @@ func (d *Device) UnmarshalJSON(data []byte) error {
 func (d Device) PublicView() contract.DeviceView {
 	value := cloneDevice(d)
 	return contract.DeviceView{
-		ID: value.ID, Name: value.Name, Type: value.Type, Role: value.Role,
+		ID: value.ID, Name: value.Name, Type: value.Type,
+		Vendor: value.Vendor, Model: value.Model, Serial: value.Serial,
+		PairingMethod: value.PairingMethod, Status: value.Status, Role: value.Role,
 		NodeID: value.NodeID, ZoneRole: value.ZoneRole, RoomName: value.RoomName,
 		Enabled: value.Enabled, Trusted: value.Trusted,
 		Capabilities: append([]string(nil), value.Capabilities...),
@@ -301,6 +308,35 @@ func (r *Registry) SoftDelete(id string) (*Device, error) {
 	return &copy, nil
 }
 
+// Remove permanently removes a device from the durable configuration. Runtime
+// history such as clips is owned by the state store and is deliberately not
+// touched here.
+func (r *Registry) Remove(id string) (*Device, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	id = strings.TrimSpace(id)
+	if !identifierPattern.MatchString(id) {
+		return nil, contract.NewAPIError(contract.ErrorValidationFailed, "device id is required and must be a stable identifier")
+	}
+	current, ok := r.devices[id]
+	if !ok || current == nil {
+		return nil, contract.NewAPIError(contract.ErrorNotFound, "device %q not found", id)
+	}
+
+	staged := make([]DeviceConfig, 0, len(r.devices)-1)
+	for _, value := range r.orderedLocked() {
+		if value.ID != id {
+			staged = append(staged, value)
+		}
+	}
+	if err := r.saveLocked(staged); err != nil {
+		return nil, err
+	}
+	r.replaceLocked(staged)
+	removed := cloneDevice(*current)
+	return &removed, nil
+}
+
 // MoveMissingNodesToUnlocated applies all topology detachments in one durable
 // replacement. The special unlocated id is always valid.
 func (r *Registry) MoveMissingNodesToUnlocated(valid map[string]bool) ([]Device, error) {
@@ -476,6 +512,11 @@ func normalizeDevice(value *Device) {
 	value.ID = strings.TrimSpace(value.ID)
 	value.Name = strings.TrimSpace(value.Name)
 	value.Type = strings.ToLower(strings.TrimSpace(value.Type))
+	value.Vendor = strings.TrimSpace(value.Vendor)
+	value.Model = strings.TrimSpace(value.Model)
+	value.Serial = strings.TrimSpace(value.Serial)
+	value.PairingMethod = strings.TrimSpace(value.PairingMethod)
+	value.Status = strings.TrimSpace(value.Status)
 	value.Role = strings.TrimSpace(value.Role)
 	value.NodeID = strings.TrimSpace(value.NodeID)
 	value.Room = strings.TrimSpace(value.Room)
@@ -509,11 +550,20 @@ func applyPatch(value *Device, patch DevicePatch) {
 	if patch.Name != nil {
 		value.Name = strings.TrimSpace(*patch.Name)
 	}
+	if patch.DisplayName != nil && patch.Name == nil {
+		value.Name = strings.TrimSpace(*patch.DisplayName)
+	}
 	if patch.Role != nil {
 		value.Role = strings.TrimSpace(*patch.Role)
 	}
 	if patch.NodeID != nil {
 		value.NodeID = strings.TrimSpace(*patch.NodeID)
+		if value.NodeID == "" {
+			value.NodeID = UnlocatedNodeID
+		}
+		value.Room = value.NodeID
+	} else if patch.Room != nil {
+		value.NodeID = strings.TrimSpace(*patch.Room)
 		if value.NodeID == "" {
 			value.NodeID = UnlocatedNodeID
 		}

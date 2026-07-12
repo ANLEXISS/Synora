@@ -9,22 +9,28 @@ import {
   Pencil,
   Plus,
   Radar,
+  Save,
   Search,
   ShieldCheck,
   Trash2,
   Wifi,
+  X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Panel } from "../components/Panel";
+import { DevicePlacementMap } from "../components/DevicePlacementMap";
+import { SynoraCameraPairingWizard } from "../components/SynoraCameraPairingWizard";
 import { useSynoraData } from "../hooks/useSynoraData";
 import { useAuth } from "../hooks/useAuth";
-import { deleteDevice } from "../lib/synora-api";
+import { SynoraApiError } from "../lib/api";
+import { buildDeviceMutationPayload, deviceToEditForm, type DeviceEditForm } from "../lib/device-form";
+import { deleteDevice, getDevices, updateDevice } from "../lib/synora-api";
 import { normalizeTopologyDevices } from "../lib/topology";
+import { getRoomLabel, getTopologyRooms } from "../lib/topology";
+import type { SynoraDevice } from "../lib/synora-types";
 import {
   demoApiTopology,
   demoTopologyDevices,
-  prettyTopologyName,
-  type ApiTopologyNode,
   type TopologyDevice,
 } from "../data/demo";
 
@@ -45,7 +51,7 @@ function deviceIcon(type: DeviceType) {
 
 function statusTone(status: DeviceStatus) {
   if (status === "online") return "success";
-  if (status === "degraded") return "warning";
+  if (status === "degraded" || status === "pending") return "warning";
 
   return "danger";
 }
@@ -53,6 +59,7 @@ function statusTone(status: DeviceStatus) {
 function statusLabel(status: DeviceStatus) {
   if (status === "online") return "Online";
   if (status === "degraded") return "Dégradé";
+  if (status === "pending") return "En attente";
 
   return "Offline";
 }
@@ -67,34 +74,10 @@ function typeLabel(type: DeviceType) {
   return "Device";
 }
 
-function flattenRooms(topology: ApiTopologyNode[]) {
-  return topology.flatMap((zone) =>
-    (zone.children ?? []).flatMap((floor) =>
-      (floor.children ?? [])
-        .filter((node) => node.type === "room")
-        .map((room) => ({
-          id: room.id,
-          name: prettyTopologyName(room.name),
-          floor: floor.name,
-          zone: zone.name,
-        }))
-    )
-  );
-}
-
-function getRoomLabel(roomId: string | null | undefined, topology: ApiTopologyNode[]) {
-  if (!roomId || roomId === "unlocated") return "Non placé";
-
-  const room = flattenRooms(topology).find((item) => item.id === roomId);
-
-  if (!room) return roomId;
-
-  return `${room.name} · ${room.floor}`;
-}
-
 function deviceHealth(device: TopologyDevice) {
   if (device.status === "online") return 96;
   if (device.status === "degraded") return 61;
+  if (device.status === "pending") return 42;
 
   return 8;
 }
@@ -102,7 +85,7 @@ function deviceHealth(device: TopologyDevice) {
 function deviceBattery(device: TopologyDevice) {
   if (device.type === "light") return null;
   if (device.status === "offline") return 0;
-  if (device.status === "degraded") return 42;
+  if (device.status === "degraded" || device.status === "pending") return 42;
 
   return 87;
 }
@@ -116,11 +99,21 @@ export function Devices() {
   const [statusFilter, setStatusFilter] = useState<DeviceFilter>("all");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [notice, setNotice] = useState<string | null>(null);
+  const [pairingOpen, setPairingOpen] = useState(false);
+  const [deletingID, setDeletingID] = useState<string | null>(null);
+  const [editingDevice, setEditingDevice] = useState<SynoraDevice | null>(null);
+  const [editForm, setEditForm] = useState<DeviceEditForm | null>(null);
+  const [placementOpen, setPlacementOpen] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [togglingDeviceID, setTogglingDeviceID] = useState<string | null>(null);
+  const [enabledOverrides, setEnabledOverrides] = useState<Record<string, boolean>>({});
 
   const data = useSynoraData();
   const auth = useAuth();
-  const demoFallback = data.devices.length === 0 || Boolean(data.error);
-  const topology = data.topology.length > 0 ? data.topology : demoApiTopology;
+  const demoFallback = Boolean(data.error) && data.devices.length === 0;
+  const topology = data.topology.length > 0 || !demoFallback ? data.topology : demoApiTopology;
+  const editRooms = useMemo(() => getTopologyRooms(data.topology), [data.topology]);
   const devices: TopologyDevice[] = demoFallback
     ? demoTopologyDevices
     : normalizeTopologyDevices(data.devices, topology);
@@ -153,8 +146,77 @@ export function Devices() {
   const offline = visibleDevices.filter((device) => device.status === "offline").length;
   const unlocated = visibleDevices.filter(isUnlocated).length;
 
+  function openEditor(id: string) {
+    if (!auth.isAdmin) {
+      setNotice("Accès refusé : action réservée administrateur.");
+      return;
+    }
+    const source = data.devices.find((device) => device.id === id);
+    if (!source || demoFallback) {
+      setNotice("Modification indisponible : le backend ne confirme pas ce périphérique.");
+      return;
+    }
+    setEditingDevice(source);
+    setEditForm(deviceToEditForm(source));
+    setPlacementOpen(false);
+    setEditError(null);
+  }
+
+  function closeEditor() {
+    setEditingDevice(null);
+    setEditForm(null);
+    setPlacementOpen(false);
+    setEditError(null);
+  }
+
+  async function handleSaveDevice() {
+    if (!auth.isAdmin || !editingDevice || !editForm) {
+      setEditError("Accès refusé : action réservée administrateur.");
+      return;
+    }
+    const payload = buildDeviceMutationPayload(editForm);
+    if (!payload.name) {
+      setEditError("Le nom du périphérique est obligatoire.");
+      return;
+    }
+
+    setEditBusy(true);
+    setEditError(null);
+    try {
+      const updated = await updateDevice(editingDevice.id, payload);
+      const responseNodeID = String(updated.node_id ?? updated.room ?? "unlocated");
+      if (
+        updated.id !== editingDevice.id ||
+        String(updated.name ?? updated.display_name ?? "").trim() !== payload.name ||
+        responseNodeID !== payload.node_id
+      ) {
+        throw new Error("device update response was not confirmed");
+      }
+
+      await data.refresh();
+      const devicesAfterRefresh = await getDevices();
+      const confirmed = devicesAfterRefresh.find((device) => device.id === editingDevice.id);
+      if (
+        !confirmed ||
+        String(confirmed.name ?? confirmed.display_name ?? "").trim() !== payload.name ||
+        String(confirmed.node_id ?? confirmed.room ?? "unlocated") !== payload.node_id
+      ) {
+        throw new Error("device update was not confirmed after refresh");
+      }
+
+      closeEditor();
+      setNotice("Périphérique modifié.");
+    } catch (error) {
+      setEditError(error instanceof SynoraApiError && error.status === 403
+        ? "Accès refusé : action réservée administrateur."
+        : "La modification du périphérique n’a pas été confirmée par le backend.");
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   async function handleDelete(id: string) {
-    if (!auth.can("devices:write")) {
+    if (!auth.isAdmin) {
       setNotice("Accès refusé : action réservée administrateur.");
       return;
     }
@@ -162,12 +224,83 @@ export function Devices() {
       setNotice("Suppression indisponible : affichage en fallback démo.");
       return;
     }
+    if (!window.confirm("Supprimer ce périphérique ? Les clips existants ne seront pas supprimés.")) {
+      return;
+    }
+
+    setDeletingID(id);
+    setNotice(null);
     try {
-      await deleteDevice(id);
+      const result = await deleteDevice(id);
+      if (result.status !== "deleted" || result.device_id !== id) {
+        throw new Error("backend deletion response was not confirmed");
+      }
       await data.refresh();
-      setNotice("Périphérique supprimé côté API.");
+      const devicesAfterRefresh = await getDevices();
+      if (devicesAfterRefresh.some((device) => device.id === id)) {
+        throw new Error("deleted device is still present after refresh");
+      }
+      setNotice("Périphérique supprimé. Les clips existants sont conservés.");
     } catch {
-      setNotice("Action non disponible côté backend.");
+      setNotice("La suppression n’a pas été confirmée par le backend.");
+    } finally {
+      setDeletingID(null);
+    }
+  }
+
+  async function handleToggleDevice(id: string, nextEnabled: boolean) {
+    if (!auth.isAdmin) {
+      setNotice("Accès refusé : action réservée administrateur.");
+      return;
+    }
+    if (demoFallback) {
+      setNotice("Modification indisponible : affichage en fallback démo.");
+      return;
+    }
+
+    const displayedDevice = visibleDevices.find((device) => device.id === id);
+    const previousEnabled = displayedDevice?.enabled !== false;
+    setTogglingDeviceID(id);
+    setNotice(null);
+
+    try {
+      const updated = await updateDevice(id, { enabled: nextEnabled });
+      if (updated.id !== id || updated.enabled !== nextEnabled) {
+        throw new Error("device enabled response was not confirmed");
+      }
+
+      const refreshResults = await Promise.allSettled([data.refresh(), getDevices()]);
+      const devicesRefresh = refreshResults[1];
+      if (devicesRefresh.status === "rejected") {
+        throw devicesRefresh.reason;
+      }
+      const confirmed = devicesRefresh.value.find((device) => device.id === id);
+      if (!confirmed || confirmed.enabled !== nextEnabled) {
+        throw new Error("device enabled update was not confirmed after refresh");
+      }
+
+      setEnabledOverrides((current) => ({ ...current, [id]: confirmed.enabled === true }));
+      setNotice(`Périphérique ${nextEnabled ? "activé" : "désactivé"}.`);
+    } catch (error) {
+      setEnabledOverrides((current) => ({ ...current, [id]: previousEnabled }));
+      setNotice(error instanceof SynoraApiError && error.status === 403
+        ? "Accès refusé : action réservée administrateur."
+        : "La modification n’a pas été confirmée par le backend.");
+    } finally {
+      setTogglingDeviceID(null);
+    }
+  }
+
+  async function refreshAndVerify(deviceID: string) {
+    try {
+      await data.refresh();
+      const devicesAfterRefresh = await getDevices();
+      if (!devicesAfterRefresh.some((device) => device.id === deviceID)) return false;
+      setNotice("Caméra Synora ajoutée.");
+      return true;
+    } catch {
+      setNotice("L’ajout de la caméra n’a pas été confirmé par le backend.");
+      return false;
     }
   }
 
@@ -226,8 +359,8 @@ export function Devices() {
       <Panel
         title="Périphériques"
         className="devices-main-panel"
-        action={auth.can("devices:write") ? (
-          <button className="primary-button devices-add-button" onClick={() => setNotice("Création disponible côté API, mais aucun formulaire web n’est encore fourni.")}>
+        action={auth.isAdmin ? (
+          <button className="primary-button devices-add-button" onClick={() => { setNotice(null); setPairingOpen(true); }}>
             <Plus size={16} />
             Ajouter
           </button>
@@ -262,6 +395,12 @@ export function Devices() {
               onClick={() => setStatusFilter("degraded")}
             >
               Dégradés
+            </button>
+            <button
+              className={statusFilter === "pending" ? "active" : ""}
+              onClick={() => setStatusFilter("pending")}
+            >
+              En attente
             </button>
             <button
               className={statusFilter === "offline" ? "active" : ""}
@@ -299,6 +438,9 @@ export function Devices() {
             const tone = statusTone(device.status);
             const health = deviceHealth(device);
             const battery = deviceBattery(device);
+            const sourceDevice = data.devices.find((item) => item.id === device.id);
+            const enabled = enabledOverrides[device.id] ?? device.enabled !== false;
+            const toggling = togglingDeviceID === device.id;
 
             return (
               <article className={`device-card device-${tone}`} key={device.id}>
@@ -310,6 +452,7 @@ export function Devices() {
                   <div className="device-card-title">
                     <strong>{device.name}</strong>
                     <span>{device.id}</span>
+                    {auth.isAdmin && device.node_id && <small>{device.node_id}</small>}
                   </div>
 
                   <span className={`badge ${tone}`}>{statusLabel(device.status)}</span>
@@ -326,6 +469,14 @@ export function Devices() {
                     <strong>{getRoomLabel(device.node_id, topology)}</strong>
                   </div>
                 </div>
+
+                {(sourceDevice?.vendor || sourceDevice?.model || sourceDevice?.serial) && (
+                  <div className="device-card-details">
+                    {[sourceDevice.vendor, sourceDevice.model, sourceDevice.serial]
+                      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+                      .join(" · ")}
+                  </div>
+                )}
 
                 <div className="device-health">
                   <div className="device-health-row">
@@ -350,16 +501,43 @@ export function Devices() {
                     </span>
                   )}
 
-                  <div className="device-actions">
-                    {auth.can("devices:write") && (
-                      <>
-                        <button title="Modifier" onClick={() => setNotice("Modification non disponible dans cette vue.")}>
+                  <div className="device-card-controls">
+                    {auth.isAdmin ? (
+                      <button
+                        type="button"
+                        className={`device-toggle ${enabled ? "is-enabled" : "is-disabled"} ${toggling ? "is-loading" : ""}`}
+                        role="switch"
+                        aria-checked={enabled}
+                        aria-busy={toggling}
+                        aria-label={`Activer ou désactiver ${device.name}`}
+                        disabled={toggling}
+                        onClick={() => void handleToggleDevice(device.id, !enabled)}
+                      >
+                        <span className="device-toggle-track" aria-hidden="true">
+                          <span className="device-toggle-thumb" />
+                        </span>
+                        <span className="device-toggle-label">{enabled ? "Activé" : "Désactivé"}</span>
+                      </button>
+                    ) : (
+                      <span className={`device-enabled-badge ${enabled ? "is-enabled" : "is-disabled"}`}>
+                        {enabled ? "Activé" : "Désactivé"}
+                      </span>
+                    )}
+
+                    {auth.isAdmin && (
+                      <div className="device-actions">
+                        <button aria-label="Modifier" title="Modifier" onClick={() => openEditor(device.id)}>
                           <Pencil size={15} />
                         </button>
-                        <button title="Supprimer" onClick={() => void handleDelete(device.id)}>
+                        <button
+                          aria-label="Supprimer"
+                          title="Supprimer"
+                          disabled={deletingID === device.id}
+                          onClick={() => void handleDelete(device.id)}
+                        >
                           <Trash2 size={15} />
                         </button>
-                      </>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -376,6 +554,68 @@ export function Devices() {
           </div>
         )}
       </Panel>
+      {editingDevice && editForm && auth.isAdmin && (
+        <div className="device-edit-backdrop" role="presentation">
+          <section className="device-edit-modal" role="dialog" aria-modal="true" aria-labelledby="device-edit-title">
+            <header className="device-edit-header">
+              <div>
+                <span>Configuration du périphérique</span>
+                <h2 id="device-edit-title">Modifier {String(editingDevice.name ?? editingDevice.id)}</h2>
+              </div>
+              <button type="button" className="icon-button" onClick={closeEditor} aria-label="Fermer">
+                <X size={19} />
+              </button>
+            </header>
+
+            <div className="device-edit-content">
+              {editError && <div className="wizard-error" role="alert">{editError}</div>}
+              <div className="device-edit-grid">
+                <label>ID<input value={editingDevice.id} readOnly /></label>
+                <label>Type<input value={String(editingDevice.type ?? "—")} readOnly /></label>
+                <label>Nom affiché<input value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} maxLength={128} /></label>
+                <label>Vendor<input value={String(editingDevice.vendor ?? "—")} readOnly /></label>
+                <label>Modèle<input value={String(editingDevice.model ?? "—")} readOnly /></label>
+                <label>Serial<input value={String(editingDevice.serial ?? "—")} readOnly /></label>
+                <label className="device-edit-wide">Pièce actuelle
+                  <select value={editForm.node_id} onChange={(event) => setEditForm({ ...editForm, node_id: event.target.value })}>
+                    <option value="unlocated">Non placé</option>
+                    {editRooms.map((room) => <option key={room.id} value={room.id}>{room.name}{room.floorName ? ` · ${room.floorName}` : ""}</option>)}
+                  </select>
+                </label>
+                <label className="device-edit-checkbox"><input type="checkbox" checked={editForm.enabled} onChange={(event) => setEditForm({ ...editForm, enabled: event.target.checked })} /> Périphérique activé</label>
+              </div>
+
+              <button type="button" className="secondary-button device-placement-toggle" onClick={() => setPlacementOpen(!placementOpen)}>
+                <MapPin size={16} /> {placementOpen ? "Masquer le plan" : "Choisir sur le plan"}
+              </button>
+
+              {placementOpen && (
+                <DevicePlacementMap
+                  topology={data.topology}
+                  devices={data.devices}
+                  selectedDeviceId={editingDevice.id}
+                  selectedNodeId={editForm.node_id}
+                  onSelectRoom={(nodeID) => setEditForm({ ...editForm, node_id: nodeID })}
+                />
+              )}
+            </div>
+
+            <footer className="device-edit-footer">
+              <button type="button" className="secondary-button" onClick={closeEditor} disabled={editBusy}>Annuler</button>
+              <button type="button" className="primary-button" onClick={() => void handleSaveDevice()} disabled={editBusy || !editForm.name.trim()}>
+                <Save size={16} /> {editBusy ? "Enregistrement…" : "Enregistrer"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+      {pairingOpen && auth.isAdmin && (
+        <SynoraCameraPairingWizard
+          topology={data.topology}
+          onClose={() => setPairingOpen(false)}
+          onPaired={refreshAndVerify}
+        />
+      )}
     </div>
   );
 }

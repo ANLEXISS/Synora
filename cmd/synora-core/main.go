@@ -11,9 +11,10 @@ import (
 
 	"synora/internal/automation"
 	"synora/internal/bus"
+	"synora/internal/cge"
 	"synora/internal/device"
 	"synora/internal/engine"
-	"synora/internal/event"
+	eventpkg "synora/internal/event"
 	"synora/internal/idgen"
 	"synora/internal/ingest"
 	corerpc "synora/internal/rpc"
@@ -27,6 +28,8 @@ import (
 const (
 	defaultCGECriticalChainsPath     = "/etc/synora/cge_critical_chains.yaml"
 	developmentCGECriticalChainsPath = "configs/cge_critical_chains.yaml"
+	defaultCGEProfilePath            = "/etc/synora/cge_profile.yaml"
+	defaultCGEFeedbackPath           = "/var/lib/synora/cge/feedback.json"
 )
 
 type coreMetrics struct {
@@ -52,8 +55,9 @@ type coreApp struct {
 	residents map[string]*topology.Resident
 
 	state      *state.Store
-	eventStore *event.Store
-	rate       *event.RateController
+	eventStore *eventpkg.Store
+	chains     *eventpkg.ChainManager
+	rate       *eventpkg.RateController
 	metrics    *coreMetrics
 
 	highPriority      chan *contract.Event
@@ -79,6 +83,8 @@ func main() {
 	devicePath := getenv("SYNORA_DEVICE", "/etc/synora/devices.yaml")
 	automationPath := getenv("SYNORA_AUTOMATION", "/etc/synora/automations.yaml")
 	securityPath := getenv("SYNORA_SECURITY", "/etc/synora/security.yaml")
+	cgeProfilePath := getenv("SYNORA_CGE_PROFILE", defaultCGEProfilePath)
+	cgeFeedbackPath := getenv("SYNORA_CGE_FEEDBACK", defaultCGEFeedbackPath)
 	statePath := getenv("SYNORA_STATE_PATH", "")
 	if statePath == "" {
 		statePath = state.DefaultStatePath()
@@ -113,6 +119,12 @@ func main() {
 	}
 
 	engineInstance := engine.NewEngine(topologyInstance, deviceRegistry, residents)
+	profileStore := cge.NewProfileStore(cgeProfilePath)
+	if profile, exists, err := profileStore.Load(); err != nil {
+		log.Println("cge security profile load warning:", err)
+	} else if exists {
+		engineInstance.SetSecurityProfile(&profile)
+	}
 	if loadedPath, err := loadCGECriticalChains(engineInstance); err != nil {
 		log.Println("cge critical chains load warning:", err)
 	} else if loadedPath == "" {
@@ -121,8 +133,17 @@ func main() {
 		log.Println("cge critical chains loaded:", loadedPath)
 	}
 	stateStore := state.NewStore()
-	eventStore := event.NewStore(200)
-	rateController := event.NewRateController(2*time.Second, 750*time.Millisecond)
+	eventStore := eventpkg.NewStore(200)
+	chainManager := eventpkg.NewChainManager(eventpkg.ChainConfigFromEnvironment(os.Getenv))
+	chainManager.SetDeviceRegistry(deviceRegistry)
+	if profile := engineInstance.SecurityProfile(); profile != nil {
+		chainManager.SetSignificantInactivityTimeout(time.Duration(profile.SignificantInactivityTimeoutSeconds) * time.Second)
+	}
+	feedbackStore := cge.NewFeedbackStore(cgeFeedbackPath)
+	if err := feedbackStore.Load(); err != nil {
+		log.Println("cge feedback load warning:", err)
+	}
+	rateController := eventpkg.NewRateController(2*time.Second, 750*time.Millisecond)
 
 	app := &coreApp{
 		bus:          busClient,
@@ -133,6 +154,7 @@ func main() {
 		residents:    residents,
 		state:        stateStore,
 		eventStore:   eventStore,
+		chains:       chainManager,
 		rate:         rateController,
 		metrics:      &coreMetrics{sourceLastSeen: map[string]time.Time{}},
 		highPriority: make(chan *contract.Event, 128),
@@ -146,6 +168,7 @@ func main() {
 		Residents:  app.residents,
 		Automation: app.automation,
 		Events:     app.eventStore,
+		Chains:     app.chains,
 		Metrics:    app.metrics,
 		CGE:        app.engine,
 	}
@@ -168,6 +191,7 @@ func main() {
 		Bus:            app.bus,
 		State:          app.state,
 		Events:         app.eventStore,
+		Chains:         app.chains,
 		Devices:        app.device,
 		Automation:     app.automation,
 		Snapshot:       app.snapshotBuilder,
@@ -177,6 +201,8 @@ func main() {
 		DevicePath:     devicePath,
 		AutomationPath: automationPath,
 		SecurityPath:   securityPath,
+		CGEProfile:     profileStore,
+		CGEFeedback:    feedbackStore,
 		PublishEvent:   app.publishEvent,
 		UpdateTopology: app.setTopology,
 		CGE:            app.engine,
@@ -189,6 +215,7 @@ func main() {
 	if err != nil {
 		log.Println("state persistence load warning:", err)
 	}
+	chainManager.AttachState(stateStore)
 	// Reconcile persisted runtime presence before publishing the first
 	// snapshot. Expiration is evaluated against wall-clock time after a
 	// restart, while Cleanup preserves each resident's last_seen value.
@@ -217,6 +244,7 @@ func main() {
 	app.publishStateSnapshot()
 	go app.processLoop()
 	go app.cleanupLoop()
+	go app.chainLoop()
 
 	if err := app.runBusLoop(); err != nil {
 		log.Fatal(err)
@@ -334,6 +362,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	}
 
 	started := time.Now()
+	chainRole := eventpkg.ClassifyEventForChain(event)
 
 	log.Printf(
 		"core: engine analyze event=%s type=%s",
@@ -341,15 +370,23 @@ func (a *coreApp) processEvent(event *contract.Event) {
 		event.Type,
 	)
 
-	result := a.engine.Analyze(
-		event,
-		a.state,
-	)
+	var result *engine.Result
+	if chainRole == eventpkg.ChainRoleContextual {
+		// Keep the legacy engine.decision notification for existing consumers;
+		// this path only observes graph continuity and does not run CGE danger,
+		// validation, state-transition, or action-planning evaluation.
+		result = a.engine.ObserveContext(event, a.state)
+	} else if chainRole != eventpkg.ChainRoleIgnored {
+		result = a.engine.Analyze(event, a.state)
+	}
 	if result != nil && result.Decision != nil && result.DangerAssessment == nil && !contract.IsUserValidationCandidate(event.Type) {
 		result.Decision.ValidationRequired = false
 		result.Decision.ValidationReason = ""
 		event.ValidationRequired = false
 		event.ValidationReason = ""
+	}
+	if event.SequenceKey == "" && result != nil && result.Decision != nil {
+		event.SequenceKey = result.Decision.SequenceKey
 	}
 
 	if result != nil &&
@@ -405,7 +442,84 @@ func (a *coreApp) processEvent(event *contract.Event) {
 		latency,
 	)
 
+	if a.chains != nil {
+		a.publishChainUpdates(a.chains.Process(event, chainEvaluation(event, result)))
+	}
+
 	a.triggerSnapshot()
+}
+
+func (a *coreApp) chainLoop() {
+	if a.chains == nil {
+		return
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for now := range ticker.C {
+		a.publishChainUpdates(a.chains.CloseInactive(now.UTC()))
+	}
+}
+
+func (a *coreApp) publishChainUpdates(updates []eventpkg.ChainUpdate) {
+	for _, update := range updates {
+		if update.Chain == nil {
+			continue
+		}
+		a.publishEvent(update.Type, chainEventPayload(update.Chain), contract.PriorityNormal)
+	}
+	if len(updates) > 0 {
+		if a.state != nil {
+			if err := a.state.SaveNow(); err != nil {
+				log.Printf("core: event chain state persistence warning: %v", err)
+			}
+		}
+		a.triggerSnapshot()
+	}
+}
+
+func chainEventPayload(chain *contract.EventChain) map[string]any {
+	return map[string]any{
+		"chain_id":                  chain.ID,
+		"status":                    chain.Status,
+		"current_state":             chain.CurrentState,
+		"danger_level":              chain.DangerLevel,
+		"danger_score":              chain.DangerScore,
+		"summary":                   chain.Summary,
+		"events_count":              chain.EventsCount,
+		"significant_events_count":  chain.SignificantEventsCount,
+		"contextual_events_count":   chain.ContextualEventsCount,
+		"motion_count":              chain.MotionCount,
+		"updated_at":                chain.UpdatedAt,
+		"last_significant_event_at": chain.LastSignificantEventAt,
+	}
+}
+
+func chainEvaluation(event *contract.Event, result *engine.Result) *contract.ChainEvaluation {
+	if event == nil || result == nil || result.Decision == nil {
+		return nil
+	}
+	evaluation := &contract.ChainEvaluation{
+		EventID:       event.ID,
+		Timestamp:     event.Timestamp,
+		State:         result.Decision.State,
+		DangerScore:   result.Decision.EffectiveScore,
+		EngineVersion: "synora-cge-v1",
+		Reasons:       []string{result.Decision.Reason},
+	}
+	if result.DangerAssessment != nil {
+		evaluation.DangerLevel = result.DangerAssessment.RiskLevel
+		evaluation.DangerScore = result.DangerAssessment.Score
+		evaluation.Reasons = append([]string(nil), result.DangerAssessment.Reasons...)
+		for _, action := range result.DangerAssessment.RecommendedSystemActions {
+			if action.Type != "" {
+				evaluation.RecommendedActions = append(evaluation.RecommendedActions, action.Type)
+			}
+		}
+	}
+	if len(evaluation.Reasons) == 1 && evaluation.Reasons[0] == "" {
+		evaluation.Reasons = nil
+	}
+	return evaluation
 }
 
 func (a *coreApp) storeActionResult(event *contract.Event) {

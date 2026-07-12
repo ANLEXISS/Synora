@@ -50,8 +50,16 @@ func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
 			parsed.NodeID = dev.NodeID
 		}
 	}
+	if parsed.NodeID != "" && strings.TrimSpace(resolveString(payload, "node_id", "node")) == "" {
+		payload["node_id"] = parsed.NodeID
+	}
 	parsed.Identity = strings.TrimSpace(resolveString(payload, "identity", "resident_id"))
 	parsed.Confidence = resolveFloat(payload, "confidence")
+	parsed.TrackID = resolveString(payload, "track_id")
+	parsed.ClipID = resolveString(payload, "clip_id")
+	parsed.ActivationID = resolveString(payload, "activation_id", "activation", "session_id")
+	parsed.SequenceKey = resolveString(payload, "sequence_key", "sequence")
+	parsed.ClipIndex = resolveInt(payload, "clip_index", "index")
 	if parsed.Priority == 0 {
 		parsed.Priority = contract.EventPriority(parsed.Type)
 	}
@@ -221,4 +229,27 @@ func resolveFloat(payload map[string]any, key string) float64 {
 	default:
 		return 0
 	}
+}
+
+func resolveInt(payload map[string]any, keys ...string) int {
+	for _, key := range keys {
+		value, ok := payload[key]
+		if !ok {
+			continue
+		}
+		switch current := value.(type) {
+		case int:
+			return current
+		case int64:
+			return int(current)
+		case float64:
+			return int(current)
+		case string:
+			parsed, err := strconv.Atoi(strings.TrimSpace(current))
+			if err == nil {
+				return parsed
+			}
+		}
+	}
+	return 0
 }

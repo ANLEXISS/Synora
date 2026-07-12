@@ -75,6 +75,30 @@ func TouchDeviceState(store *state.Store, registry *device.Registry, event *cont
 	if !ok || staticDevice == nil {
 		return
 	}
+	payloadNodeID, _ := event.Payload["node_id"].(string)
+	if strings.TrimSpace(payloadNodeID) == "" {
+		if alias, ok := event.Payload["node"].(string); ok {
+			payloadNodeID = alias
+		}
+	}
+	if event.NodeID == "" && strings.TrimSpace(payloadNodeID) != "" {
+		event.NodeID = strings.TrimSpace(payloadNodeID)
+	}
+	if event.NodeID == "" && staticDevice.NodeID != "" {
+		event.NodeID = staticDevice.NodeID
+	}
+	if event.Payload == nil {
+		event.Payload = map[string]any{}
+	}
+	payloadNodeID, _ = event.Payload["node_id"].(string)
+	if strings.TrimSpace(payloadNodeID) == "" {
+		if alias, ok := event.Payload["node"].(string); ok {
+			payloadNodeID = alias
+		}
+	}
+	if event.NodeID != "" && strings.TrimSpace(payloadNodeID) == "" {
+		event.Payload["node_id"] = event.NodeID
+	}
 	now := event.Timestamp
 	if now.IsZero() {
 		now = time.Now().UTC()

@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"synora/internal/bus"
+	"synora/internal/device"
 	"synora/internal/discovery/ingress"
 	"synora/internal/discovery/network"
 	discoveryruntime "synora/internal/discovery/runtime"
@@ -44,6 +45,10 @@ func NewManager(
 
 		log.Fatal(err)
 	}
+	devicePath := os.Getenv("SYNORA_DEVICE")
+	if devicePath == "" {
+		devicePath = "/etc/synora/devices.yaml"
+	}
 
 	log.Printf(
 		"loaded device secrets=%d",
@@ -53,6 +58,21 @@ func NewManager(
 	auth := &security.DeviceVerifier{
 		Config: func() (*security.Config, error) {
 			return security.Load(securityPath)
+		},
+		// The durable device registry is the source of truth for trust. Reloading
+		// it at ingress time ensures a deleted camera cannot keep submitting clips
+		// with a still-valid transport secret until discovery is restarted.
+		DeviceAllowed: func(deviceID string) bool {
+			configs, err := device.Load(devicePath)
+			if err != nil {
+				return false
+			}
+			for _, configured := range configs {
+				if configured.ID == deviceID {
+					return configured.Enabled && configured.DeletedAt == nil
+				}
+			}
+			return false
 		},
 	}
 

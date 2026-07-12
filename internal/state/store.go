@@ -25,6 +25,8 @@ type Store struct {
 	Danger            []*contract.DangerAssessment
 	RecentEvents      []*contract.Event
 	EventWindows      map[string]*contract.EventWindow
+	EventChains       map[string]*contract.EventChain
+	CriticalChains    map[string]*contract.CriticalChainMemory
 	System            *SystemState
 
 	persistence Persistence
@@ -71,6 +73,8 @@ func NewStore(options ...Option) *Store {
 		Danger:            []*contract.DangerAssessment{},
 		RecentEvents:      []*contract.Event{},
 		EventWindows:      make(map[string]*contract.EventWindow),
+		EventChains:       make(map[string]*contract.EventChain),
+		CriticalChains:    make(map[string]*contract.CriticalChainMemory),
 		System: &SystemState{
 			LastState:     "idle",
 			LastStateTime: now,
@@ -536,7 +540,7 @@ func (s *Store) SetSystemState(value SystemState) {
 func (s *Store) Size() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return len(s.DeviceStates) + len(s.CameraStates) + len(s.NodeStates) + len(s.Tracks) + len(s.Clusters) + len(s.Identities) + len(s.Presence) + len(s.Clips) + len(s.EventWindows)
+	return len(s.DeviceStates) + len(s.CameraStates) + len(s.NodeStates) + len(s.Tracks) + len(s.Clusters) + len(s.Identities) + len(s.Presence) + len(s.Clips) + len(s.EventWindows) + len(s.EventChains) + len(s.CriticalChains)
 }
 
 func (s *Store) ActiveTracks() int {
@@ -664,6 +668,18 @@ func (s *Store) Snapshot(collection string) map[string]interface{} {
 			}
 			out[id] = *cloneWindow(value)
 		}
+	case "event_chains", "chains":
+		for id, value := range s.EventChains {
+			if value != nil {
+				out[id] = *cloneEventChain(value)
+			}
+		}
+	case "critical_chain_memories", "critical_chains":
+		for id, value := range s.CriticalChains {
+			if value != nil {
+				out[id] = *cloneCriticalChainMemory(value)
+			}
+		}
 	}
 	return out
 }
@@ -728,6 +744,14 @@ func (s *Store) Upsert(collection string, id string, data interface{}) {
 		s.SetEventWindow(id, &value)
 	case *contract.EventWindow:
 		s.SetEventWindow(id, value)
+	case contract.EventChain:
+		s.SetEventChain(&value)
+	case *contract.EventChain:
+		s.SetEventChain(value)
+	case contract.CriticalChainMemory:
+		s.SetCriticalChainMemory(&value)
+	case *contract.CriticalChainMemory:
+		s.SetCriticalChainMemory(value)
 	case SystemState:
 		s.SetSystemState(value)
 	case *SystemState:
@@ -777,6 +801,10 @@ func (s *Store) Delete(collection string, id string) {
 		s.deleteRecentEvent(id)
 	case "windows":
 		s.DeleteEventWindow(id)
+	case "event_chains", "chains":
+		s.DeleteEventChain(id)
+	case "critical_chain_memories", "critical_chains":
+		s.DeleteCriticalChainMemory(id)
 	}
 }
 
@@ -979,6 +1007,32 @@ func (s *Store) applyPersistedState(persisted *PersistedState) {
 			s.Presence[id] = &cloned
 		}
 	}
+	if persisted.EventChains != nil {
+		s.EventChains = make(map[string]*contract.EventChain, len(persisted.EventChains))
+		for id, value := range persisted.EventChains {
+			cloned := cloneEventChain(&value)
+			if cloned == nil {
+				continue
+			}
+			if cloned.ID == "" {
+				cloned.ID = id
+			}
+			s.EventChains[id] = cloned
+		}
+	}
+	if persisted.CriticalChains != nil {
+		s.CriticalChains = make(map[string]*contract.CriticalChainMemory, len(persisted.CriticalChains))
+		for id, value := range persisted.CriticalChains {
+			cloned := cloneCriticalChainMemory(&value)
+			if cloned == nil {
+				continue
+			}
+			if cloned.ID == "" {
+				cloned.ID = id
+			}
+			s.CriticalChains[id] = cloned
+		}
+	}
 }
 
 func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
@@ -1018,6 +1072,16 @@ func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
 			continue
 		}
 		persisted.Presence[id] = *value
+	}
+	for id, value := range s.EventChains {
+		if value != nil {
+			persisted.EventChains[id] = *cloneEventChain(value)
+		}
+	}
+	for id, value := range s.CriticalChains {
+		if value != nil {
+			persisted.CriticalChains[id] = *cloneCriticalChainMemory(value)
+		}
 	}
 	return persisted
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"synora/internal/automation"
+	"synora/internal/cge"
 	"synora/internal/device"
 	"synora/internal/event"
 	"synora/internal/security"
@@ -39,6 +40,7 @@ type Server struct {
 	bus        Sender
 	state      *state.Store
 	events     *event.Store
+	chains     *event.ChainManager
 	devices    *device.Registry
 	automation *automation.Engine
 	snapshot   *snapshot.Builder
@@ -49,6 +51,8 @@ type Server struct {
 	devicePath     string
 	automationPath string
 	securityPath   string
+	cgeProfile     *cge.ProfileStore
+	cgeFeedback    *cge.FeedbackStore
 
 	publishEvent   func(string, any, int)
 	updateTopology func(*topology.Topology)
@@ -64,6 +68,7 @@ type Config struct {
 	Bus            Sender
 	State          *state.Store
 	Events         *event.Store
+	Chains         *event.ChainManager
 	Devices        *device.Registry
 	Automation     *automation.Engine
 	Snapshot       *snapshot.Builder
@@ -73,6 +78,8 @@ type Config struct {
 	DevicePath     string
 	AutomationPath string
 	SecurityPath   string
+	CGEProfile     *cge.ProfileStore
+	CGEFeedback    *cge.FeedbackStore
 	PublishEvent   func(string, any, int)
 	UpdateTopology func(*topology.Topology)
 	CGE            any
@@ -93,6 +100,7 @@ func NewServer(cfg Config) *Server {
 		bus:            cfg.Bus,
 		state:          cfg.State,
 		events:         cfg.Events,
+		chains:         cfg.Chains,
 		devices:        cfg.Devices,
 		automation:     cfg.Automation,
 		snapshot:       cfg.Snapshot,
@@ -102,6 +110,8 @@ func NewServer(cfg Config) *Server {
 		devicePath:     cfg.DevicePath,
 		automationPath: cfg.AutomationPath,
 		securityPath:   cfg.SecurityPath,
+		cgeProfile:     cfg.CGEProfile,
+		cgeFeedback:    cfg.CGEFeedback,
 		publishEvent:   cfg.PublishEvent,
 		updateTopology: cfg.UpdateTopology,
 		pairing:        &security.PairingService{Path: cfg.SecurityPath},
@@ -163,6 +173,15 @@ func (s *Server) Handler(name string) Handler {
 func (s *Server) register() {
 	s.handlers["core.state"] = s.coreState
 	s.handlers["event.list"] = s.eventList
+	s.handlers["event.chains"] = s.eventChains
+	s.handlers["event.chain"] = s.eventChain
+	s.handlers["cge.critical_chains"] = s.criticalChains
+	s.handlers["cge.critical_chain"] = s.criticalChain
+	s.handlers["cge.security_profile"] = s.cgeSecurityProfile
+	s.handlers["cge.security_profile.update"] = s.cgeSecurityProfileUpdate
+	s.handlers["cge.feedback.list"] = s.cgeFeedbackList
+	s.handlers["cge.feedback.evaluation"] = s.cgeFeedbackEvaluation
+	s.handlers["cge.feedback.chain"] = s.cgeFeedbackChain
 	s.handlers["system.health"] = s.systemHealth
 	s.handlers["system.reset_intrusion"] = s.systemResetIntrusion
 	s.handlers["device.list"] = s.deviceConfigList
@@ -223,7 +242,99 @@ func (s *Server) coreState(_ contract.Message) (any, error) {
 }
 
 func (s *Server) eventList(_ contract.Message) (any, error) {
-	return s.events.List(), nil
+	items := s.events.List()
+	views := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		views = append(views, map[string]any{
+			"id": item.ID, "type": item.Type, "source": item.Source, "timestamp": item.Timestamp,
+			"device_id": item.DeviceID, "node_id": item.NodeID, "identity": item.Identity,
+			"confidence": item.Confidence, "priority": item.Priority, "group_key": item.GroupKey,
+			"track_id": item.TrackID, "clip_id": item.ClipID, "clip_index": item.ClipIndex,
+			"activation_id": item.ActivationID, "sequence_key": item.SequenceKey,
+			"payload": sanitizeConfigurationMap(item.Payload),
+		})
+	}
+	return views, nil
+}
+
+func (s *Server) eventChains(msg contract.Message) (any, error) {
+	if s.chains == nil {
+		return map[string]any{"chains": []any{}, "generated_at": time.Now().UTC()}, nil
+	}
+	var request struct {
+		Status    string `json:"status"`
+		Limit     int    `json:"limit"`
+		Since     string `json:"since"`
+		Severity  string `json:"severity"`
+		Simulated *bool  `json:"simulated"`
+	}
+	if len(msg.Payload) > 0 {
+		if err := json.Unmarshal(msg.Payload, &request); err != nil {
+			return nil, contract.NewAPIError(contract.ErrorInvalidJSON, "invalid event chain filter")
+		}
+	}
+	var since time.Time
+	if strings.TrimSpace(request.Since) != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(request.Since))
+		if err != nil {
+			return nil, contract.NewAPIError(contract.ErrorInvalidJSON, "invalid event chain since")
+		}
+		since = parsed
+	}
+	return map[string]any{
+		"chains":       s.chains.List(event.ChainFilter{Status: request.Status, Limit: request.Limit, Since: since, Severity: request.Severity, Simulated: request.Simulated}),
+		"generated_at": time.Now().UTC(),
+	}, nil
+}
+
+func (s *Server) eventChain(msg contract.Message) (any, error) {
+	if s.chains == nil {
+		return nil, contract.NewAPIError(contract.ErrorNotFound, "event chain not found")
+	}
+	var request DeletePayload
+	if err := json.Unmarshal(msg.Payload, &request); err != nil || strings.TrimSpace(request.ID) == "" {
+		return nil, contract.NewAPIError(contract.ErrorInvalidJSON, "event chain id is required")
+	}
+	chain, ok := s.chains.Get(request.ID)
+	if !ok {
+		return nil, contract.NewAPIError(contract.ErrorNotFound, "event chain not found")
+	}
+	return chain, nil
+}
+
+func (s *Server) criticalChains(msg contract.Message) (any, error) {
+	if s.chains == nil {
+		return []any{}, nil
+	}
+	limit := 50
+	if len(msg.Payload) > 0 {
+		var request struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(msg.Payload, &request)
+		if request.Limit > 0 {
+			limit = request.Limit
+		}
+	}
+	return s.chains.CriticalMemories(limit), nil
+}
+
+func (s *Server) criticalChain(msg contract.Message) (any, error) {
+	var request DeletePayload
+	if err := json.Unmarshal(msg.Payload, &request); err != nil || strings.TrimSpace(request.ID) == "" {
+		return nil, contract.NewAPIError(contract.ErrorInvalidJSON, "critical chain id is required")
+	}
+	if s.chains == nil {
+		return nil, contract.NewAPIError(contract.ErrorNotFound, "critical chain memory not found")
+	}
+	item, ok := s.chains.CriticalMemory(request.ID)
+	if !ok {
+		return nil, contract.NewAPIError(contract.ErrorNotFound, "critical chain memory not found")
+	}
+	return item, nil
 }
 
 func (s *Server) systemHealth(_ contract.Message) (any, error) {

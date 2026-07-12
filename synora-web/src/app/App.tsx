@@ -2,12 +2,11 @@ import { useMemo, useState, type FormEvent } from "react";
 import { Sidebar } from "../components/Sidebar";
 import { Topbar } from "../components/Topbar";
 import { Dashboard } from "../pages/Dashboard";
-import { LiveEvents } from "../pages/LiveEvents";
+import { Cge } from "../pages/Cge";
 import { HomeMap } from "../pages/HomeMap";
 import { Devices } from "../pages/Devices";
 import { Residents } from "../pages/Residents";
 import { Automations } from "../pages/Automations";
-import { CgeInspector } from "../pages/CgeInspector";
 import { SynoraLab } from "../pages/SynoraLab";
 import { Settings } from "../pages/Settings";
 import { useAuth } from "../hooks/useAuth";
@@ -30,8 +29,8 @@ const pageMeta: Record<PageId, { title: string; subtitle: string }> = {
     subtitle: "Vue globale de la maison et du moteur Synora.",
   },
   live: {
-    title: "Live Events",
-    subtitle: "Flux temps réel des événements système et sécurité.",
+    title: "CGE — Cognitive Guard Engine",
+    subtitle: "Chaînes d’événements, raisonnement moteur et réglages de sécurité.",
   },
   home: {
     title: "Maison",
@@ -50,8 +49,8 @@ const pageMeta: Record<PageId, { title: string; subtitle: string }> = {
     subtitle: "Règles locales, réactions et scénarios conditionnels.",
   },
   cge: {
-    title: "CGE Inspector",
-    subtitle: "Mémoire cognitive, chaînes critiques et comportements appris.",
+    title: "CGE — Cognitive Guard Engine",
+    subtitle: "Chaînes d’événements, raisonnement moteur et réglages de sécurité.",
   },
   lab: {
     title: "Synora Lab",
@@ -120,12 +119,12 @@ export default function App() {
         ) : (
           <>
             {page === "dashboard" && <Dashboard />}
-            {page === "live" && <LiveEvents />}
+            {page === "live" && <Cge />}
             {page === "home" && <HomeMap />}
             {page === "devices" && <Devices />}
             {page === "residents" && <Residents />}
             {page === "automations" && <Automations />}
-            {page === "cge" && <CgeInspector />}
+            {page === "cge" && <Cge />}
             {page === "lab" && <SynoraLab />}
             {page === "settings" && <Settings />}
           </>

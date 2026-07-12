@@ -1,4 +1,4 @@
-import { normalizeTopologyResponse } from "./topology";
+import { getDevicesByRoom, getRoomLabel, getTopologyRooms, normalizeTopologyResponse } from "./topology";
 
 // Kept framework-free so the adapter can be exercised by any frontend test
 // runner without adding a production dependency.
@@ -29,5 +29,13 @@ export function topologyAdapterFixtureTest() {
   }
   if (!(room.connect ?? []).includes("zoneA.L0.salon") || room.children.length !== 0) {
     throw new Error("topology adapter did not preserve room connections/children");
+  }
+  const rooms = getTopologyRooms(topology);
+  if (rooms.length !== 2 || getRoomLabel("zoneA.L0.entree", topology) !== "Entree · L0") {
+    throw new Error("topology room helpers did not expose normalized rooms");
+  }
+  const grouped = getDevicesByRoom([{ id: "cam_01", node_id: "zoneA.L0.entree" }, { id: "sensor_01" }]);
+  if (grouped["zoneA.L0.entree"]?.[0]?.id !== "cam_01" || grouped.unlocated?.[0]?.id !== "sensor_01") {
+    throw new Error("device room grouping failed");
   }
 }

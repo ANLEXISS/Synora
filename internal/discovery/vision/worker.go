@@ -35,9 +35,24 @@ func RunClipWorker(
 	}
 
 	for _, evt := range result.Events {
+		payloadMap := clonePayload(evt.Payload)
+		if _, ok := payloadMap["device_id"]; !ok && job != nil {
+			payloadMap["device_id"] = job.CameraID
+		}
+		if _, ok := payloadMap["camera_id"]; !ok && job != nil {
+			payloadMap["camera_id"] = job.CameraID
+		}
+		if _, ok := payloadMap["clip_id"]; !ok && job != nil {
+			payloadMap["clip_id"] = job.ID
+		}
+		if evt.TrackID != nil {
+			if _, ok := payloadMap["track_id"]; !ok {
+				payloadMap["track_id"] = evt.TrackID
+			}
+		}
 
 		payload, err := json.Marshal(
-			evt.Payload,
+			payloadMap,
 		)
 
 		if err != nil {
@@ -88,4 +103,15 @@ func RunClipWorker(
 	}
 
 	return nil
+}
+
+func clonePayload(source map[string]any) map[string]any {
+	if source == nil {
+		return map[string]any{}
+	}
+	result := make(map[string]any, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
 }

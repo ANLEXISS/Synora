@@ -24,6 +24,11 @@ type Context struct {
 	DryRun            bool
 	DecisionReasons   []string
 	DecisionEvidence  []string
+	GlobalSensitivity float64
+	NightMultiplier   float64
+	ArmedMultiplier   float64
+	CriticalRoom      bool
+	ProfileEnabled    bool
 	Now               time.Time
 }
 
@@ -349,6 +354,26 @@ func ComputeDangerScore(event *contract.Event, context Context) scoreResult {
 			reasons:     []string{"system_health_diagnostic"},
 		}
 	}
+	if context.ProfileEnabled {
+		multiplier := 0.5 + context.GlobalSensitivity
+		if multiplier <= 0 {
+			multiplier = 1
+		}
+		if night && context.NightMultiplier > 0 {
+			multiplier *= context.NightMultiplier
+			result.reasons = append(result.reasons, "security_profile_night_multiplier")
+		}
+		if context.ArmedMultiplier > 0 && strings.EqualFold(context.HomeMode, "armed") {
+			multiplier *= context.ArmedMultiplier
+			result.reasons = append(result.reasons, "security_profile_armed_multiplier")
+		}
+		if context.CriticalRoom {
+			multiplier *= 1.15
+			result.reasons = append(result.reasons, "security_profile_critical_room")
+		}
+		result.score = math.Max(0, math.Min(1, result.score*multiplier))
+		result.level = maxInt(result.level, levelForScore(result.score))
+	}
 
 	if context.Simulated && result.category != contract.DangerCategorySystemHealth {
 		result.reasons = append(result.reasons, "simulated_input")
@@ -358,6 +383,23 @@ func ComputeDangerScore(event *contract.Event, context Context) scoreResult {
 		result.validationReason = ""
 	}
 	return result
+}
+
+func levelForScore(score float64) int {
+	switch {
+	case score >= 0.9:
+		return 5
+	case score >= 0.75:
+		return 4
+	case score >= 0.55:
+		return 3
+	case score >= 0.35:
+		return 2
+	case score >= 0.18:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func isSystemHealthDiagnostic(eventType string) bool {

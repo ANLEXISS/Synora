@@ -30,6 +30,10 @@ rôle `admin` complet.
 | POST | `/api/devices` | `cmd/synora-api/config_handlers.go` | oui | stable | partiel | Client disponible, formulaire web à compléter. |
 | PATCH | `/api/devices/:id` | `cmd/synora-api/config_handlers.go` | oui | stable | partiel | Client disponible, édition web à compléter. |
 | DELETE | `/api/devices/:id` | `cmd/synora-api/config_handlers.go` | oui | stable | oui | Suppression Devices branchée après succès API. |
+| GET | `/api/devices/pairing/capabilities` | `cmd/synora-api/synora_camera_pairing.go` | admin | stable | oui | Capacités Synora Camera Pairing. |
+| POST | `/api/devices/pairing/synora-camera/start` | `cmd/synora-api/synora_camera_pairing.go` | admin | stable | oui | Valide un QR/JSON et ouvre une session TTL de 10 minutes. |
+| POST | `/api/devices/pairing/synora-camera/confirm` | `cmd/synora-api/synora_camera_pairing.go` | admin | stable | oui | Crée atomiquement la caméra dans `devices.yaml`. |
+| POST | `/api/devices/pairing/synora-camera/claim` | `cmd/synora-api/synora_camera_pairing.go` | admin | préparatoire | non | Vérifie le token hashé et marque `device_seen`; auth caméra future à définir. |
 | GET | `/api/residents` | `cmd/synora-api/config_handlers.go` | oui | stable | oui | Configuration statique + métadonnées face pour admin. `/api/state.residents` reste la présence runtime. |
 | GET | `/api/residents/:id` | `cmd/synora-api/config_handlers.go` | oui | stable | oui | Configuration statique redacted selon le rôle. |
 | POST | `/api/residents` | `cmd/synora-api/config_handlers.go` | admin | stable | oui | Création atomique, id slug immutable. |
@@ -79,6 +83,11 @@ rôle `admin` complet.
 | DELETE | `/api/cge/critical-seeds/:id` | `cmd/synora-api/cge_config.go` | oui | stable | futur |  |
 | GET | `/api/cge/danger-assessments` | `cmd/synora-api/cge_config.go` | oui | stable | futur |  |
 | GET | `/api/cge/danger-assessments/:id` | `cmd/synora-api/cge_config.go` | oui | stable | futur |  |
+| GET | `/api/cge/security-profile` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Profil de sécurité CGE, lecture résidents/guests. |
+| PATCH | `/api/cge/security-profile` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Admin uniquement, validation stricte et écriture atomique. |
+| GET | `/api/cge/feedback` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Corrections versionnées, filtre `chain_id`. |
+| POST | `/api/cge/feedback/evaluation` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Admin uniquement, événement brut immuable. |
+| POST | `/api/cge/feedback/chain` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Admin uniquement, influence la mémoire critique. |
 | GET | `/api/simulation/scenarios` | `cmd/synora-api/main.go` | oui | simulation | futur |  |
 | POST | `/api/simulation/run` | `cmd/synora-api/main.go` | oui | simulation | futur |  |
 | GET | `/api/simulation/runs/:id` | `cmd/synora-api/main.go` | oui | simulation | futur |  |
@@ -117,12 +126,14 @@ La webapp reconstruit `zone -> floor -> room`, convertit `neighbors` et `links` 
 
 La webapp Vite est dans `synora-web/`. Le frontend appelle `GET /api/state`, `GET /api/ws`, `/api/topology`, `/api/devices`, `/api/residents` et `/api/automations` via `synora-web/src/lib/synora-api.ts`. Les écritures sont considérées persistées uniquement après un retour API réussi.
 
+Les chaînes d’événements sont accessibles via `GET /api/events/chains` et `GET /api/events/chains/{id}`. La liste accepte `status`, `limit`, `since`, `severity` et `simulated`; `/api/state` n’expose qu’un résumé `event_chains`. La mémoire des chaînes critiques est disponible via `GET /api/cge/critical-chains` et `GET /api/cge/critical-chains/{id}`. Voir [event-chains.md](event-chains.md) pour la classification et les règles de fermeture.
+
 ### Contrat par page
 
 | Page | Endpoints appelés aujourd’hui | Endpoints à brancher | Notes |
 |---|---|---|---|
 | Dashboard | `/api/state`, `/api/ws` | `/api/devices`, `/api/cge/summary` | La page est encore principalement alimentée par `synora-web/src/data/demo.ts`. |
-| Live Events | `/api/state`, `/api/ws` | `/api/events` (futur) | La page est encore un placeholder. |
+| CGE | `/api/events/chains`, `/api/events/chains/:id`, `/api/cge/critical-chains`, `/api/cge/security-profile`, `/api/cge/feedback`, `/api/ws` | — | Onglets Live, chaînes connues, réglages sécurité et corrections. |
 | Maison / Topologie | `/api/topology`, `/api/devices`, `/api/state`, `/api/ws` | — | Adaptateur plat/tree, résolution des devices et fallback démo diagnostiqué. |
 | Périphériques | `/api/devices`, `/api/state`, `/api/ws` | formulaire create/edit | Delete branché ; create/edit affichent leur disponibilité réelle. |
 | Résidents | `/api/residents`, `/api/state`, `/api/topology`, `/api/residents/:id/face/*` | — | CRUD, pièce de référence et photos admin branchés ; présence issue de `/api/state.residents`. |

@@ -65,6 +65,12 @@ func (h *websocketHub) observeBus(bus websocketBus) {
 
 func (h *websocketHub) handleBusMessage(msg contract.Message) {
 	switch msg.Type {
+	case "event.chain.created", "event.chain.updated", "event.chain.closed", "engine.evaluation.updated":
+		var data any
+		if err := json.Unmarshal(msg.Payload, &data); err != nil {
+			return
+		}
+		h.Publish(msg.Type, data)
 	case "state.snapshot":
 		h.broadcastSnapshot("snapshot.updated")
 	case contract.EventActionResult:

@@ -66,6 +66,86 @@ func (c *Client) Devices() ([]map[string]any, error) {
 	return devices, nil
 }
 
+func (c *Client) EventChains(filter map[string]any) (map[string]any, error) {
+	var result map[string]any
+	if err := c.call("event.chains", filter, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) Events() ([]map[string]any, error) {
+	var result []map[string]any
+	if err := c.call("event.list", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) EventChain(id string) (map[string]any, error) {
+	var result map[string]any
+	if err := c.call("event.chain", idPayload(id), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) CriticalChains(filter map[string]any) ([]map[string]any, error) {
+	var result []map[string]any
+	if err := c.call("cge.critical_chains", filter, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) CriticalChain(id string) (map[string]any, error) {
+	var result map[string]any
+	if err := c.call("cge.critical_chain", idPayload(id), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) CGESecurityProfile() (map[string]any, error) {
+	var result map[string]any
+	if err := c.call("cge.security_profile", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) UpdateCGESecurityProfile(data json.RawMessage) (map[string]any, error) {
+	var result map[string]any
+	if err := c.callRaw("cge.security_profile.update", data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) SubmitCgeEvaluationFeedback(data json.RawMessage) (map[string]any, error) {
+	var result map[string]any
+	if err := c.callRaw("cge.feedback.evaluation", data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) SubmitCgeChainFeedback(data json.RawMessage) (map[string]any, error) {
+	var result map[string]any
+	if err := c.callRaw("cge.feedback.chain", data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) CgeFeedbackList(filter map[string]any) ([]map[string]any, error) {
+	var result []map[string]any
+	if err := c.call("cge.feedback.list", filter, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (c *Client) Device(id string) (map[string]any, error) {
 	var result map[string]any
 	if err := c.call("device.get", idPayload(id), &result); err != nil {

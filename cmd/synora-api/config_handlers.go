@@ -17,6 +17,46 @@ type deviceConfigurationProvider interface {
 	DeleteDevice(string) (map[string]any, error)
 }
 
+func redactDeviceItems(items []map[string]any) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		result = append(result, redactDeviceMap(item))
+	}
+	return result
+}
+
+func redactDeviceMap(item map[string]any) map[string]any {
+	if item == nil {
+		return map[string]any{}
+	}
+	result := make(map[string]any, len(item))
+	for key, value := range item {
+		lower := strings.ToLower(strings.TrimSpace(key))
+		if lower == "setup_token" || lower == "secret" || lower == "token" ||
+			strings.Contains(lower, "credential") || strings.Contains(lower, "password") ||
+			strings.HasSuffix(lower, "_token") {
+			continue
+		}
+		switch typed := value.(type) {
+		case map[string]any:
+			result[key] = redactDeviceMap(typed)
+		case []any:
+			values := make([]any, len(typed))
+			for i := range typed {
+				if mapped, ok := typed[i].(map[string]any); ok {
+					values[i] = redactDeviceMap(mapped)
+				} else {
+					values[i] = typed[i]
+				}
+			}
+			result[key] = values
+		default:
+			result[key] = value
+		}
+	}
+	return result
+}
+
 type residentConfigurationProvider interface {
 	Residents() ([]map[string]any, error)
 	Resident(string) (map[string]any, error)
@@ -119,7 +159,7 @@ func handleDeviceCollection(core deviceConfigurationProvider) http.HandlerFunc {
 				writeError(w, err)
 				return
 			}
-			writeJSON(w, http.StatusOK, items)
+			writeJSON(w, http.StatusOK, redactDeviceItems(items))
 		case http.MethodPost:
 			body, ok := readJSONObject(w, r, true)
 			if !ok {
@@ -152,7 +192,7 @@ func handleDeviceItem(core deviceConfigurationProvider) http.HandlerFunc {
 				writeError(w, err)
 				return
 			}
-			writeJSON(w, http.StatusOK, item)
+			writeJSON(w, http.StatusOK, redactDeviceMap(item))
 		case http.MethodPatch:
 			body, valid := readJSONObject(w, r, true)
 			if !valid {
@@ -170,7 +210,7 @@ func handleDeviceItem(core deviceConfigurationProvider) http.HandlerFunc {
 				writeError(w, err)
 				return
 			}
-			writeJSON(w, http.StatusOK, item)
+			writeJSON(w, http.StatusOK, redactDeviceMap(item))
 		default:
 			writeMethodNotAllowed(w, http.MethodGet, http.MethodPatch, http.MethodDelete)
 		}

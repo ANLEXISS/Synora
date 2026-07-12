@@ -90,6 +90,7 @@ func PermissionsForRole(role string) []string {
 	case RoleResident:
 		permissions = []string{
 			PermissionStateRead,
+			PermissionCGERead,
 			PermissionDevicesRead,
 			PermissionResidentsRead,
 			PermissionTopologyRead,
@@ -99,6 +100,8 @@ func PermissionsForRole(role string) []string {
 	case RoleGuest:
 		permissions = []string{
 			PermissionStateRead,
+			PermissionCGERead,
+			PermissionDevicesRead,
 			PermissionTopologyRead,
 		}
 	}

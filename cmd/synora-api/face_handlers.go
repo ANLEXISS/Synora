@@ -168,12 +168,11 @@ func (s *faceStore) handleRebuild(w http.ResponseWriter, r *http.Request, core f
 	} else {
 		profile.Status = "ready"
 	}
-	updated, err := s.updateProfile(core, residentID, profile)
-	if err != nil {
+	if _, err := s.updateProfile(core, residentID, profile); err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, updated)
+	writeJSON(w, http.StatusOK, profile)
 }
 
 func (s *faceStore) handleReview(w http.ResponseWriter, r *http.Request, core faceConfigurationProvider, residentID string, parts []string) {

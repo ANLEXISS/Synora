@@ -481,8 +481,12 @@ func TestServerHandlerEnforcesResidentRBACAndKeepsBearerAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	guestHash, err := webapi.HashPassword("guest-password")
+	if err != nil {
+		t.Fatal(err)
+	}
 	authPath := filepath.Join(t.TempDir(), "auth.yaml")
-	if err := os.WriteFile(authPath, []byte("users:\n  - id: user-carole\n    login: carole\n    resident_id: carole\n    role: resident\n    enabled: true\n    password_hash: "+hash+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(authPath, []byte("users:\n  - id: user-carole\n    login: carole\n    resident_id: carole\n    role: resident\n    enabled: true\n    password_hash: "+hash+"\n  - id: user-guest\n    login: guest\n    role: guest\n    enabled: true\n    password_hash: "+guestHash+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	users, err := webapi.LoadUserDirectory(authPath)
@@ -545,6 +549,48 @@ func TestServerHandlerEnforcesResidentRBACAndKeepsBearerAdmin(t *testing.T) {
 		if rec.Code != http.StatusForbidden || rec.Body.String() != "{\"error\":\"forbidden\"}\n" {
 			t.Fatalf("resident write %s status=%d body=%s", path, rec.Code, rec.Body.String())
 		}
+	}
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/devices/cam_01", nil)
+	deleteReq.Host = "example.com"
+	deleteReq.Header.Set("Origin", "http://example.com")
+	deleteReq.AddCookie(cookie)
+	deleteRec := httptest.NewRecorder()
+	handler.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusForbidden || deleteRec.Body.String() != "{\"error\":\"forbidden\"}\n" {
+		t.Fatalf("resident device delete status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+	patchReq := httptest.NewRequest(http.MethodPatch, "/api/devices/cam_01", strings.NewReader(`{"name":"cam"}`))
+	patchReq.Host = "example.com"
+	patchReq.Header.Set("Origin", "http://example.com")
+	patchReq.AddCookie(cookie)
+	patchRec := httptest.NewRecorder()
+	handler.ServeHTTP(patchRec, patchReq)
+	if patchRec.Code != http.StatusForbidden || patchRec.Body.String() != "{\"error\":\"forbidden\"}\n" {
+		t.Fatalf("resident device patch status=%d body=%s", patchRec.Code, patchRec.Body.String())
+	}
+
+	guestLogin := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"login":"guest","password":"guest-password"}`))
+	guestLoginRec := httptest.NewRecorder()
+	handler.ServeHTTP(guestLoginRec, guestLogin)
+	if guestLoginRec.Code != http.StatusOK {
+		t.Fatalf("guest login status=%d body=%s", guestLoginRec.Code, guestLoginRec.Body.String())
+	}
+	guestCookie := guestLoginRec.Result().Cookies()[0]
+	guestGet := httptest.NewRequest(http.MethodGet, "/api/devices", nil)
+	guestGet.AddCookie(guestCookie)
+	guestGetRec := httptest.NewRecorder()
+	handler.ServeHTTP(guestGetRec, guestGet)
+	if guestGetRec.Code != http.StatusNoContent {
+		t.Fatalf("guest device read status=%d body=%s", guestGetRec.Code, guestGetRec.Body.String())
+	}
+	guestPatch := httptest.NewRequest(http.MethodPatch, "/api/devices/cam_01", strings.NewReader(`{"enabled":false}`))
+	guestPatch.Host = "example.com"
+	guestPatch.Header.Set("Origin", "http://example.com")
+	guestPatch.AddCookie(guestCookie)
+	guestPatchRec := httptest.NewRecorder()
+	handler.ServeHTTP(guestPatchRec, guestPatch)
+	if guestPatchRec.Code != http.StatusForbidden || guestPatchRec.Body.String() != "{\"error\":\"forbidden\"}\n" {
+		t.Fatalf("guest device patch status=%d body=%s", guestPatchRec.Code, guestPatchRec.Body.String())
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/devices", nil)

@@ -25,6 +25,7 @@ type PublicSnapshot struct {
 	ActionResults []map[string]any `json:"action_results"`
 	Metrics       map[string]any   `json:"metrics"`
 	CGE           map[string]any   `json:"cge"`
+	EventChains   map[string]any   `json:"event_chains,omitempty"`
 }
 
 func PublicSnapshotFromCoreState(state map[string]any) PublicSnapshot {
@@ -47,6 +48,7 @@ func PublicSnapshotFromCoreState(state map[string]any) PublicSnapshot {
 		ActionResults: collectionFrom(state, store, "action_results"),
 		Metrics:       publicMetrics(state["metrics"]),
 		CGE:           mapOrEmpty(normalizeMap(mapValue(state["cge"]))),
+		EventChains:   mapOrEmpty(normalizeMap(mapValue(state["event_chains"]))),
 	}
 }
 

@@ -91,10 +91,13 @@ type Event struct {
 	Identity   string  `json:"identity,omitempty"`
 	Confidence float64 `json:"confidence,omitempty"`
 
-	Priority int    `json:"priority,omitempty"`
-	GroupKey string `json:"group_key,omitempty"`
-	TrackID  string `json:"track_id,omitempty"`
-	ClipID   string `json:"clip_id,omitempty"`
+	Priority     int    `json:"priority,omitempty"`
+	GroupKey     string `json:"group_key,omitempty"`
+	TrackID      string `json:"track_id,omitempty"`
+	ClipID       string `json:"clip_id,omitempty"`
+	ClipIndex    int    `json:"clip_index,omitempty"`
+	ActivationID string `json:"activation_id,omitempty"`
+	SequenceKey  string `json:"sequence_key,omitempty"`
 
 	ValidationRequired bool   `json:"validation_required,omitempty"`
 	ValidationReason   string `json:"validation_reason,omitempty"`
@@ -114,6 +117,9 @@ type eventJSON struct {
 	GroupKey           string         `json:"group_key,omitempty"`
 	TrackID            string         `json:"track_id,omitempty"`
 	ClipID             string         `json:"clip_id,omitempty"`
+	ClipIndex          int            `json:"clip_index,omitempty"`
+	ActivationID       string         `json:"activation_id,omitempty"`
+	SequenceKey        string         `json:"sequence_key,omitempty"`
 	ValidationRequired bool           `json:"validation_required,omitempty"`
 	ValidationReason   string         `json:"validation_reason,omitempty"`
 }
@@ -139,6 +145,9 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 		GroupKey:           decoded.GroupKey,
 		TrackID:            decoded.TrackID,
 		ClipID:             decoded.ClipID,
+		ClipIndex:          decoded.ClipIndex,
+		ActivationID:       decoded.ActivationID,
+		SequenceKey:        decoded.SequenceKey,
 		ValidationRequired: decoded.ValidationRequired,
 		ValidationReason:   decoded.ValidationReason,
 	}

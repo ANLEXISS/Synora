@@ -12,8 +12,9 @@ import (
 )
 
 type DeviceVerifier struct {
-	Config func() (*Config, error)
-	Now    func() time.Time
+	Config        func() (*Config, error)
+	DeviceAllowed func(string) bool
+	Now           func() time.Time
 }
 
 func (v DeviceVerifier) VerifyRequest(r *http.Request, bodyHash string) error {
@@ -40,6 +41,9 @@ func (v DeviceVerifier) VerifyHeaders(
 	bodyHash = strings.TrimSpace(bodyHash)
 	if deviceID == "" || timestamp == "" || signature == "" {
 		return fmt.Errorf("missing auth headers")
+	}
+	if v.DeviceAllowed != nil && !v.DeviceAllowed(deviceID) {
+		return fmt.Errorf("unknown or unconfigured device")
 	}
 
 	cfg, err := v.Config()

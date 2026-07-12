@@ -27,8 +27,17 @@ import { useAuth } from "../hooks/useAuth";
 import {
   createAutomation,
   deleteAutomation,
+  getAutomations,
   updateAutomation,
 } from "../lib/synora-api";
+import {
+  automationPayloadMatches,
+  automationToFormState,
+  formStateToAutomationPayload,
+  type AutomationFormAction,
+  type AutomationFormCondition,
+  type AutomationFormState,
+} from "../lib/automation-form";
 import {
   automationActionCommandCatalog,
   automationActionTypeCatalog,
@@ -62,14 +71,8 @@ function normalizeAutomationState(value: string | undefined): DemoAutomation["st
     : "";
 }
 
-type BuilderCondition = DemoAutomationCondition & {
-  id: string;
-  join: JoinOperator;
-};
-
-type BuilderAction = DemoAutomationAction & {
-  id: string;
-};
+type BuilderCondition = AutomationFormCondition;
+type BuilderAction = AutomationFormAction;
 
 function uid(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -156,13 +159,6 @@ function buildConditionCatalog(): AutomationConditionDefinition[] {
       values: deviceOptions(),
     },
   ];
-}
-
-function dangerScoreFromLevel(level: string) {
-  if (level === "critical") return 0.9;
-  if (level === "high") return 0.7;
-  if (level === "medium") return 0.45;
-  return 0.2;
 }
 
 function automationTone(automation: DemoAutomation) {
@@ -292,6 +288,28 @@ function createAction(kind: AutomationActionKind = "notify"): BuilderAction {
     kind,
     target: target ?? "",
     command,
+    enabled: true,
+  };
+}
+
+function automationForList(
+  automation: import("../lib/synora-types").SynoraAutomation,
+  catalog: AutomationConditionDefinition[]
+): DemoAutomation {
+  const form = automationToFormState(automation, catalog);
+  return {
+    id: form.id,
+    name: form.name,
+    description: form.description,
+    enabled: form.enabled,
+    state: normalizeAutomationState(form.trigger.state),
+    event_type: form.trigger.event_type,
+    node_id: form.trigger.node_id,
+    min_score: typeof form.trigger.min_score === "number" ? form.trigger.min_score : 0,
+    schedule: form.schedule,
+    conditions: form.conditions.map(({ id: _id, join: _join, source: _source, ...condition }) => condition),
+    actions: form.actions.map(({ id: _id, enabled: _enabled, source: _source, ...action }) => action),
+    last_triggered: typeof automation["last_triggered"] === "string" ? automation["last_triggered"] : null,
   };
 }
 
@@ -306,22 +324,9 @@ export function Automations() {
   useEffect(() => {
     if (data.automations.length === 0) return;
     setAutomations(
-      data.automations.map((automation) => ({
-        id: automation.id,
-        name: String(automation["name"] ?? automation.id),
-        description: String(automation["description"] ?? "Automatisation Synora"),
-        enabled: automation.enabled !== false,
-        state: normalizeAutomationState(automation.state),
-        event_type: automation.event_type,
-        node_id: automation.node_id,
-        min_score: typeof automation["min_score"] === "number" ? automation["min_score"] : 0,
-        schedule: "always",
-        conditions: [],
-        actions: [],
-        last_triggered: null,
-      }))
+      data.automations.map((automation) => automationForList(automation, conditionCatalog))
     );
-  }, [data.automations]);
+  }, [conditionCatalog, data.automations]);
 
   const [builderOpen, setBuilderOpen] = useState(false);
   const [editingAutomationId, setEditingAutomationId] = useState<string | null>(null);
@@ -337,6 +342,7 @@ export function Automations() {
     "Décrire ce que cette automatisation doit faire."
   );
   const [enabled, setEnabled] = useState(true);
+  const [conditionMode, setConditionMode] = useState<JoinOperator>("AND");
   const [scheduleMode, setScheduleMode] = useState<"always" | "range">("always");
   const [scheduleStart, setScheduleStart] = useState("22:00");
   const [scheduleEnd, setScheduleEnd] = useState("06:00");
@@ -433,26 +439,27 @@ export function Automations() {
     });
   }
 
-  function resetBuilder() {
-  setEditingAutomationId(null);
-  setRuleName("Nouvelle règle");
-  setRuleDescription("Décrire ce que cette automatisation doit faire.");
-  setEnabled(true);
-  setScheduleMode("always");
-  setScheduleStart("22:00");
-  setScheduleEnd("06:00");
+function resetBuilder() {
+    setEditingAutomationId(null);
+    setRuleName("Nouvelle règle");
+    setRuleDescription("Décrire ce que cette automatisation doit faire.");
+    setEnabled(true);
+    setConditionMode("AND");
+    setScheduleMode("always");
+    setScheduleStart("22:00");
+    setScheduleEnd("06:00");
 
-  setConditions([
-    createCondition(conditionCatalog, "event.type"),
-    createCondition(conditionCatalog, "node.id"),
-    createCondition(conditionCatalog, "danger.level"),
-  ]);
+    setConditions([
+      createCondition(conditionCatalog, "event.type"),
+      createCondition(conditionCatalog, "node.id"),
+      createCondition(conditionCatalog, "danger.level"),
+    ]);
 
-  setActions([
-    createAction("notify"),
-    createAction("record.clip"),
-  ]);
-}
+    setActions([
+      createAction("notify"),
+      createAction("record.clip"),
+    ]);
+  }
 
 function openCreateBuilder() {
   resetBuilder();
@@ -465,39 +472,56 @@ function closeBuilder() {
 }
 
 function openEditBuilder(automation: DemoAutomation) {
-  setEditingAutomationId(automation.id);
-  setRuleName(automation.name);
-  setRuleDescription(automation.description);
-  setEnabled(automation.enabled);
+  const selectedAutomation = data.automations.find((item) => item.id === automation.id);
+  const initialState: AutomationFormState = selectedAutomation
+    ? automationToFormState(selectedAutomation, conditionCatalog)
+    : {
+        id: automation.id,
+        name: automation.name,
+        description: automation.description,
+        enabled: automation.enabled,
+        trigger: {
+          event_type: automation.event_type,
+          node_id: automation.node_id,
+          min_score: automation.min_score,
+          state: automation.state,
+        },
+        conditionMode: "AND",
+        conditions: automation.conditions.map((condition, index) => ({
+          id: uid("condition"),
+          join: index === 0 ? "AND" : "AND",
+          kind: condition.kind,
+          operator: condition.operator,
+          value: condition.value,
+        })),
+        actions: automation.actions.map((action) => ({
+          id: uid("action"),
+          kind: action.kind,
+          target: action.target,
+          command: action.command,
+          enabled: true,
+        })),
+        schedule: automation.schedule,
+        metadata: {},
+      };
 
-  if (automation.schedule === "always") {
+  setEditingAutomationId(initialState.id);
+  setRuleName(initialState.name);
+  setRuleDescription(initialState.description);
+  setEnabled(initialState.enabled);
+  setConditionMode(initialState.conditionMode);
+  setConditions(initialState.conditions);
+  setActions(initialState.actions);
+
+  if (initialState.schedule === "always") {
     setScheduleMode("always");
     setScheduleStart("22:00");
     setScheduleEnd("06:00");
   } else {
     setScheduleMode("range");
-    setScheduleStart(automation.schedule.start);
-    setScheduleEnd(automation.schedule.end);
+    setScheduleStart(initialState.schedule.start);
+    setScheduleEnd(initialState.schedule.end);
   }
-
-  setConditions(
-    automation.conditions.map((condition, index) => ({
-      id: uid("condition"),
-      join: index === 0 ? "AND" : "AND",
-      kind: condition.kind,
-      operator: condition.operator,
-      value: condition.value,
-    }))
-  );
-
-  setActions(
-    automation.actions.map((action) => ({
-      id: uid("action"),
-      kind: action.kind,
-      target: action.target,
-      command: action.command,
-    }))
-  );
 
   setBuilderOpen(true);
 }
@@ -511,33 +535,16 @@ async function createAutomationFromBuilder() {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "");
 
-  const eventType = conditions.find(
-    (condition) => condition.kind === "event.type"
-  )?.value;
-
-  const nodeId = conditions.find(
-    (condition) => condition.kind === "node.id"
-  )?.value;
-
-  const systemState = conditions.find(
-    (condition) => condition.kind === "system.state"
-  )?.value as DemoAutomation["state"] | undefined;
-
-  const dangerLevel =
-    conditions.find((condition) => condition.kind === "danger.level")?.value ??
-    "medium";
-
   const automationId = editingAutomationId ?? safeId ?? uid("automation");
-
-  const saved: DemoAutomation = {
+  const formState: AutomationFormState = {
     id: automationId,
     name: safeName,
     description: ruleDescription,
     enabled,
-    state: systemState ?? "suspicious",
-    event_type: eventType,
-    node_id: nodeId,
-    min_score: dangerScoreFromLevel(dangerLevel),
+    trigger: {},
+    conditionMode,
+    conditions,
+    actions,
     schedule:
       scheduleMode === "always"
         ? "always"
@@ -545,51 +552,37 @@ async function createAutomationFromBuilder() {
             start: scheduleStart,
             end: scheduleEnd,
           },
-    conditions: conditions.map(({ id: _id, join: _join, ...condition }) => ({
-      ...condition,
-    })),
-    actions: actions.map(({ id: _id, ...action }) => ({
-      ...action,
-    })),
-    last_triggered:
-      automations.find((automation) => automation.id === editingAutomationId)
-        ?.last_triggered ?? null,
+    metadata: {},
   };
-
-  const payload = {
-    id: saved.id,
-    name: saved.name,
-    description: saved.description,
-    enabled: saved.enabled,
-    event_type: saved.event_type,
-    node_id: saved.node_id,
-    min_score: saved.min_score,
-    schedule: saved.schedule,
-    conditions: saved.conditions,
-    actions: saved.actions,
-  };
+  const payload = formStateToAutomationPayload(formState);
 
   try {
     if (editingAutomationId) {
       await updateAutomation(editingAutomationId, payload);
     } else {
-      await createAutomation(payload);
+      await createAutomation({ id: automationId, ...payload, description: ruleDescription });
     }
-    await data.refresh();
   } catch {
     setNotice("Action non disponible côté backend : automatisation non sauvegardée.");
     return;
   }
 
-  setAutomations((items) => {
-    if (!editingAutomationId) {
-      return [saved, ...items];
-    }
+  let refreshed;
+  try {
+    refreshed = await getAutomations();
+    await data.refresh();
+  } catch {
+    setNotice("La sauvegarde de l’automatisation n’a pas été confirmée par le backend.");
+    return;
+  }
 
-    return items.map((item) =>
-      item.id === editingAutomationId ? saved : item
-    );
-  });
+  const confirmed = refreshed.find((item) => item.id === automationId);
+  if (!confirmed || (editingAutomationId && !automationPayloadMatches(formState, confirmed, conditionCatalog))) {
+    setNotice("La sauvegarde de l’automatisation n’a pas été confirmée par le backend.");
+    return;
+  }
+
+  setAutomations(refreshed.map((item) => automationForList(item, conditionCatalog)));
 
   setBuilderOpen(false);
   setEditingAutomationId(null);

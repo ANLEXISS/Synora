@@ -130,6 +130,9 @@ func main() {
 
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("/api/state", handleState(core))
+	apiMux.HandleFunc("/api/events", handleEvents(core))
+	apiMux.HandleFunc("/api/events/chains", handleEventChains(core))
+	apiMux.HandleFunc("/api/events/chains/", handleEventChain(core))
 	apiMux.HandleFunc("/api/simulation/scenarios", handleSimulationScenarios())
 	apiMux.HandleFunc("/api/simulation/run", handleSimulationRun(simulationRunner))
 	apiMux.HandleFunc("/api/simulation/runs/", handleSimulationRunStatus(simulationRunner))
@@ -141,12 +144,23 @@ func main() {
 	apiMux.HandleFunc("/api/cge/critical-seeds/", handleCGECriticalSeed(core))
 	apiMux.HandleFunc("/api/cge/danger-assessments", handleCGEDangerAssessments(core))
 	apiMux.HandleFunc("/api/cge/danger-assessments/", handleCGEDangerAssessment(core))
+	apiMux.HandleFunc("/api/cge/critical-chains", handleCriticalChains(core))
+	apiMux.HandleFunc("/api/cge/critical-chains/", handleCriticalChain(core))
+	apiMux.HandleFunc("/api/cge/security-profile", handleCGESecurityProfile(core))
+	apiMux.HandleFunc("/api/cge/feedback", handleCGEFeedbackList(core))
+	apiMux.HandleFunc("/api/cge/feedback/evaluation", handleCGEFeedbackEvaluation(core))
+	apiMux.HandleFunc("/api/cge/feedback/chain", handleCGEFeedbackChain(core))
 	apiMux.HandleFunc("/api/cge/", handleCGEDetail(core))
 	apiMux.HandleFunc("/api/validations", handleValidationCollection(core))
 	apiMux.HandleFunc("/api/validations/", handleValidationItem(core))
 	apiMux.HandleFunc("/api/devices", handleDeviceCollection(core))
 	apiMux.HandleFunc("/api/devices/pairing/start", handlePairingStart(core))
 	apiMux.HandleFunc("/api/devices/pairing/complete", handlePairingComplete(core))
+	synoraCameraPairing := newSynoraCameraPairingStore()
+	apiMux.HandleFunc("/api/devices/pairing/capabilities", handleSynoraCameraPairingCapabilities())
+	apiMux.HandleFunc("/api/devices/pairing/synora-camera/start", handleSynoraCameraPairingStart(core, synoraCameraPairing))
+	apiMux.HandleFunc("/api/devices/pairing/synora-camera/confirm", handleSynoraCameraPairingConfirm(core, synoraCameraPairing))
+	apiMux.HandleFunc("/api/devices/pairing/synora-camera/claim", handleSynoraCameraPairingClaim(synoraCameraPairing))
 	apiMux.HandleFunc("/api/devices/", handleDeviceItem(core))
 	registerResidentRoutes(apiMux, core, faceFiles)
 	apiMux.HandleFunc("/api/automations", handleAutomationCollection(core))
@@ -496,7 +510,13 @@ func requiredAPIPermission(r *http.Request) string {
 	readOnly := method == http.MethodGet || method == http.MethodHead
 
 	switch {
+	case path == "/api/devices/pairing/capabilities" || strings.HasPrefix(path, "/api/devices/pairing/synora-camera/"):
+		return webapi.PermissionSecurityAdmin
+	case method == http.MethodDelete && strings.HasPrefix(path, "/api/devices/"):
+		return webapi.PermissionSecurityAdmin
 	case path == "/api/state" || path == "/api/snapshot" || path == "/api/ws" || path == "/ws":
+		return webapi.PermissionStateRead
+	case strings.HasPrefix(path, "/api/events"):
 		return webapi.PermissionStateRead
 	case path == "/api/system/health":
 		return webapi.PermissionSettingsRead
@@ -504,7 +524,7 @@ func requiredAPIPermission(r *http.Request) string {
 		if readOnly {
 			return webapi.PermissionDevicesRead
 		}
-		return webapi.PermissionDevicesWrite
+		return webapi.PermissionSecurityAdmin
 	case strings.HasPrefix(path, "/api/residents"):
 		residentPath := strings.TrimPrefix(path, "/api/residents/")
 		if strings.Contains(residentPath, "/face") {
@@ -947,6 +967,8 @@ func writeError(
 func apiErrorStatus(code string) int {
 	switch code {
 	case contract.ErrorInvalidJSON:
+		return http.StatusBadRequest
+	case contract.ErrorInvalidRequest:
 		return http.StatusBadRequest
 	case contract.ErrorNotFound:
 		return http.StatusNotFound

@@ -15,6 +15,7 @@ import (
 	"synora/internal/engine/danger"
 	"synora/internal/engine/graph"
 	"synora/internal/engine/situation"
+	"synora/internal/idgen"
 	"synora/internal/state"
 	"synora/internal/topology"
 	"synora/pkg/contract"
@@ -27,8 +28,12 @@ type Engine struct {
 	graphMemory *graph.GraphMemory
 	cognitive   *cognitive.Engine
 
-	cgeConfigMu      sync.Mutex
-	criticalSeedPath string
+	cgeConfigMu       sync.Mutex
+	criticalSeedPath  string
+	securityProfileMu sync.RWMutex
+	securityProfile   *contract.CgeSecurityProfile
+	feedbackMu        sync.RWMutex
+	feedbackHints     []feedbackHint
 }
 
 func NewEngine(
@@ -75,7 +80,28 @@ func (e *Engine) Analyze(
 	}
 	decisionResult.Situations = situation.Analyze(cgeEvent, decisionResult, now)
 
-	return adapter.BuildResult(event, store, decisionResult, now, &assessment)
+	result := adapter.BuildResult(event, store, decisionResult, now, &assessment)
+	e.applyFeedbackHint(event, result)
+	return result
+}
+
+// ObserveContext records contextual events for legacy graph continuity without
+// running danger assessment, state transition, validation, or action planning.
+func (e *Engine) ObserveContext(event *contract.Event, store *state.Store) *Result {
+	if e == nil || event == nil {
+		return nil
+	}
+	if store == nil {
+		store = state.NewStore()
+	}
+	now := adapter.NormalizeEvent(event, e.device)
+	e.graphMemory.LearnEvent(adapter.ToCGEEvent(event, store, now))
+	return &Result{Decision: &contract.Decision{
+		ID: idgen.New("dec"), Type: "engine.decision", Source: "core", Timestamp: now,
+		Priority: contract.EventPriority(event.Type), EventID: event.ID, State: "activity",
+		NodeID: event.NodeID, ClipID: event.ClipID, TrackID: event.TrackID,
+		GroupKey: event.GroupKey, Reason: "contextual event observed",
+	}}
 }
 
 func ShouldPersistDangerAssessment(assessment *contract.DangerAssessment) bool {
@@ -579,13 +605,17 @@ func (e *Engine) dangerContext(
 	decision cgecontracts.DecisionResult,
 	now time.Time,
 ) danger.Context {
+	repetitionWindow := 2 * time.Minute
+	if profile := e.SecurityProfile(); profile != nil && profile.UnknownPersistenceSeconds > 0 {
+		repetitionWindow = time.Duration(profile.UnknownPersistenceSeconds) * time.Second
+	}
 	context := danger.Context{
 		NodeID:            event.NodeID,
 		DeviceID:          event.DeviceID,
 		TimeBucket:        danger.TimeBucket(now),
 		HomeMode:          houseMode(store),
 		ResidentsPresent:  residentsPresent(store),
-		RepetitionCount:   repetitionCount(event, store, now),
+		RepetitionCount:   repetitionCount(event, store, now, repetitionWindow),
 		SequenceNovelty:   decision.ValidationReason == "rapid_novel_transition" || containsString(decision.Reasons, "rapid_novel_transition"),
 		SequenceSignature: decision.SequenceKey,
 		Simulated:         payloadMetadataBool(event.Payload, "simulated"),
@@ -602,6 +632,7 @@ func (e *Engine) dangerContext(
 			}
 		}
 	}
+	e.dangerProfileContext(event, &context)
 	return context
 }
 
@@ -766,7 +797,7 @@ func severityFromDangerLevel(level int) cgecontracts.Severity {
 	}
 }
 
-func repetitionCount(event *contract.Event, store *state.Store, now time.Time) int {
+func repetitionCount(event *contract.Event, store *state.Store, now time.Time, window time.Duration) int {
 	if event == nil || store == nil {
 		return 1
 	}
@@ -781,7 +812,7 @@ func repetitionCount(event *contract.Event, store *state.Store, now time.Time) i
 		if event.NodeID != "" && recent.NodeID != "" && recent.NodeID != event.NodeID {
 			continue
 		}
-		if !recent.Timestamp.IsZero() && !now.IsZero() && now.Sub(recent.Timestamp) > 2*time.Minute {
+		if !recent.Timestamp.IsZero() && !now.IsZero() && now.Sub(recent.Timestamp) > window {
 			continue
 		}
 		count++

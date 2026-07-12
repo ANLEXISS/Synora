@@ -13,6 +13,10 @@ export type SynoraDevice = {
   room?: string;
   type?: string;
   role?: string;
+  vendor?: string;
+  model?: string;
+  serial?: string;
+  pairing_method?: string;
   online?: boolean;
   status?: "online" | "offline" | "degraded" | string;
   last_seen?: string | null;
@@ -90,15 +94,65 @@ export type SynoraEvent = {
   [key: string]: unknown;
 };
 
+export type SynoraAutomationTrigger = {
+  event_type?: string;
+  device_id?: string;
+  node_id?: string;
+  resident_id?: string;
+  min_score?: number;
+  state?: string;
+  situation_type?: string;
+  [key: string]: unknown;
+};
+
+export type SynoraAutomationCondition = {
+  id?: string;
+  field?: string;
+  op?: string;
+  value?: unknown;
+  value_type?: string;
+  negate?: boolean;
+  [key: string]: unknown;
+};
+
+export type SynoraAutomationAction = {
+  id?: string;
+  type?: string;
+  target?: string;
+  data?: Record<string, unknown>;
+  timeout_ms?: number;
+  retry_count?: number;
+  enabled?: boolean;
+  order?: number;
+  cooldown_key?: string;
+  device?: string;
+  command?: string;
+  value?: unknown;
+  channel?: string;
+  residents?: string[];
+  retry?: number;
+  [key: string]: unknown;
+};
+
 export type SynoraAutomation = {
   id: string;
   name?: string;
+  title?: string;
+  description?: string;
   enabled?: boolean;
   state?: SynoraSystemState;
   event_type?: string;
   node_id?: string;
-  conditions?: unknown[];
-  actions?: unknown[];
+  trigger?: SynoraAutomationTrigger;
+  condition_logic?: "all" | "any" | string;
+  conditions?: SynoraAutomationCondition[];
+  actions?: SynoraAutomationAction[];
+  schedule?: unknown;
+  cooldown_ms?: number;
+  timeout_ms?: number;
+  retry_count?: number;
+  dry_run?: boolean;
+  requires_validation?: boolean;
   [key: string]: unknown;
 };
 
@@ -154,4 +208,162 @@ export type SynoraWsMessage = {
   state?: SynoraSnapshot;
   data?: unknown;
   [key: string]: unknown;
+};
+
+export type DangerLevel = "none" | "low" | "medium" | "high" | "critical";
+export type ChainStatus = "open" | "closed";
+
+export type EventChainEvent = {
+  id?: string;
+  type: string;
+  timestamp: string;
+  device_id?: string;
+  node_id?: string;
+  activation_id?: string;
+  sequence_key?: string;
+  clip_id?: string;
+  clip_index?: number;
+  track_id?: string;
+  severity?: string;
+  significant: boolean;
+  contextual: boolean;
+  simulated?: boolean;
+  test_run_id?: string;
+  payload?: Record<string, unknown>;
+};
+
+export type ChainEvaluation = {
+  index: number;
+  event_id: string;
+  timestamp: string;
+  state?: string;
+  danger_level: DangerLevel | string;
+  danger_score: number;
+  reasons?: string[];
+  hypotheses?: string[];
+  recommended_actions?: string[];
+  engine_version?: string;
+};
+
+export type EventChain = {
+  id: string;
+  status: ChainStatus;
+  activation_id?: string;
+  sequence_key?: string;
+  started_at: string;
+  updated_at: string;
+  last_event_at: string;
+  last_significant_event_at: string;
+  closed_at?: string | null;
+  closed_reason?: string;
+  primary_device_id?: string;
+  primary_node_id?: string;
+  resident_id?: string;
+  identity_id?: string;
+  track_ids?: string[];
+  clip_ids?: string[];
+  current_state?: string;
+  danger_level: DangerLevel | string;
+  danger_score: number;
+  max_danger_level?: DangerLevel | string;
+  max_danger_score?: number;
+  danger_reasons?: string[];
+  title?: string;
+  summary?: string;
+  events_count: number;
+  significant_events_count: number;
+  contextual_events_count: number;
+  motion_count: number;
+  recent_events?: EventChainEvent[];
+  evaluations?: ChainEvaluation[];
+  rolling_summary?: string;
+  compaction?: {
+    total_events_count: number;
+    retained_events_count: number;
+    compacted_contextual_count: number;
+    rolling_summary?: string;
+  };
+  critical?: boolean;
+  simulated?: boolean;
+  test_run_id?: string;
+  scenario_id?: string;
+  created_by?: string;
+};
+
+export type EventChainListResponse = {
+  chains: EventChain[];
+  generated_at: string;
+};
+
+export type CgeSecurityMode = "relaxed" | "balanced" | "strict" | "paranoid";
+export type CgeCorrectionType = "false_positive" | "too_low" | "too_high" | "wrong_state" | "wrong_action" | "mark_normal" | "mark_critical";
+export type CgeFinalOutcome = "normal" | "false_positive" | "real_incident" | "uncertain";
+
+export type CgeSecurityProfile = {
+  mode: CgeSecurityMode;
+  global_sensitivity: number;
+  unknown_person_tolerance: "low" | "medium" | "high";
+  night_sensitivity_multiplier: number;
+  armed_sensitivity_multiplier: number;
+  critical_rooms: string[];
+  ignored_motion_rooms: string[];
+  minimum_notify_danger_level: DangerLevel;
+  minimum_auto_action_danger_level: DangerLevel;
+  require_human_confirmation_for_siren: boolean;
+  allow_automatic_lights: boolean;
+  allow_automatic_recording: boolean;
+  allow_automatic_notifications: boolean;
+  unknown_persistence_seconds: number;
+  significant_inactivity_timeout_seconds: number;
+};
+
+export type CriticalChainMemory = {
+  id: string;
+  template_id: string;
+  first_seen: string;
+  last_seen: string;
+  occurrences: number;
+  max_danger_level: DangerLevel | string;
+  max_danger_score: number;
+  representative_chain_id: string;
+  recent_chain_ids: string[];
+  significant_event_types: string[];
+  node_pattern: string[];
+  device_types: string[];
+  identity_pattern: string[];
+  typical_state_path: string[];
+  typical_danger_path: string[];
+  summary?: string;
+  learned_reason?: string;
+  recommended_actions: string[];
+  actions_taken: string[];
+  outcomes: string[];
+  confidence: number;
+  feedback_count?: number;
+  last_feedback_at?: string;
+};
+
+export type CgeEvaluationFeedback = {
+  id?: string;
+  chain_id: string;
+  event_id: string;
+  evaluation_index: number;
+  correction_type: CgeCorrectionType;
+  corrected_state?: string;
+  corrected_danger_level?: DangerLevel;
+  preferred_actions?: string[];
+  note?: string;
+  created_by?: string;
+  created_at?: string;
+};
+
+export type CgeChainFeedback = {
+  id?: string;
+  chain_id: string;
+  final_outcome: CgeFinalOutcome;
+  corrected_final_danger_level?: DangerLevel;
+  apply_to_similar_future_chains: boolean;
+  note?: string;
+  created_by?: string;
+  created_at?: string;
 };

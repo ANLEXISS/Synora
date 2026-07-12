@@ -22,7 +22,10 @@ func TestDeviceConfigurationCRUDIsDurableAndPublic(t *testing.T) {
 	notifications := []string{}
 	builder := &snapshot.Builder{
 		Mu: &sync.RWMutex{}, State: store, Devices: registry,
-		Topology:  &topology.Topology{Nodes: map[string]*topology.Node{}},
+		Topology: &topology.Topology{Nodes: map[string]*topology.Node{
+			"house":       {ID: "house", Type: topology.NodeHouse},
+			"house.entry": {ID: "house.entry", Type: topology.NodeRoom},
+		}},
 		Residents: map[string]*topology.Resident{}, Events: event.NewStore(10),
 	}
 	server := NewServer(Config{
@@ -52,29 +55,67 @@ func TestDeviceConfigurationCRUDIsDurableAndPublic(t *testing.T) {
 	if _, err := server.Handler("device.create")(rpcMessage(`{"id":"front_camera","type":"camera"}`)); contract.APIErrorCode(err) != contract.ErrorDuplicateID {
 		t.Fatalf("duplicate error=%v code=%s", err, contract.APIErrorCode(err))
 	}
+	store.SetClip(&state.ClipState{ID: "clip-1", CameraID: "front_camera"})
 
-	updatedAny, err := server.Handler("device.update")(mutationMessage("front_camera", `{"node_id":"house.entry","enabled":false}`))
+	updatedAny, err := server.Handler("device.update")(mutationMessage("front_camera", `{"display_name":"Caméra entrée","node_id":"house.entry","enabled":false}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	updated := updatedAny.(contract.DeviceView)
-	if updated.NodeID != "house.entry" || updated.Enabled {
+	if updated.NodeID != "house.entry" || updated.Name != "Caméra entrée" || updated.Enabled {
 		t.Fatalf("unexpected updated device: %#v", updated)
+	}
+	persisted, err := device.Load(server.devicePath)
+	if err != nil || len(persisted) != 1 || persisted[0].Name != "Caméra entrée" || persisted[0].NodeID != "house.entry" {
+		t.Fatalf("device patch was not persisted: %#v err=%v", persisted, err)
+	}
+	listedBeforeDelete, err := server.Handler("device.list")(rpcMessage(`{}`))
+	if err != nil || len(listedBeforeDelete.([]contract.DeviceView)) != 1 || listedBeforeDelete.([]contract.DeviceView)[0].NodeID != "house.entry" {
+		t.Fatalf("device list did not reflect patch: %#v err=%v", listedBeforeDelete, err)
+	}
+	if _, err := server.Handler("device.update")(mutationMessage("front_camera", `{"node_id":"house"}`)); contract.APIErrorCode(err) != contract.ErrorInvalidRequest {
+		t.Fatalf("non-room node error=%v code=%s", err, contract.APIErrorCode(err))
+	}
+	if _, err := server.Handler("device.update")(mutationMessage("front_camera", `{"node_id":"house.missing"}`)); contract.APIErrorCode(err) != contract.ErrorInvalidRequest {
+		t.Fatalf("unknown node error=%v code=%s", err, contract.APIErrorCode(err))
+	}
+	if _, err := server.Handler("device.update")(mutationMessage("front_camera", `{"id":"other"}`)); contract.APIErrorCode(err) != contract.ErrorValidationFailed {
+		t.Fatalf("immutable id error=%v code=%s", err, contract.APIErrorCode(err))
 	}
 	deletedAny, err := server.Handler("device.delete")(deleteMessage("front_camera"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	deleted := deletedAny.(contract.DeviceView)
-	if deleted.Enabled || deleted.DeletedAt == nil {
-		t.Fatalf("device was not soft deleted: %#v", deleted)
+	deleted := deletedAny.(map[string]any)
+	if deleted["status"] != "deleted" || deleted["device_id"] != "front_camera" {
+		t.Fatalf("unexpected deletion response: %#v", deleted)
 	}
-	if _, ok := store.DeviceState("front_camera"); !ok {
-		t.Fatal("soft delete removed runtime device history")
+	if _, ok := registry.Get("front_camera"); ok {
+		t.Fatal("delete left device in live registry")
+	}
+	if _, ok := store.DeviceState("front_camera"); ok {
+		t.Fatal("delete left runtime device state")
 	}
 	public := contract.PublicSnapshotFromCoreState(builder.CoreState())
-	if len(public.Devices) != 1 || public.Devices[0]["id"] != "front_camera" || public.Devices[0]["enabled"] != false {
-		t.Fatalf("device missing from public snapshot: %#v", public.Devices)
+	if len(public.Devices) != 0 {
+		t.Fatalf("deleted device remains in public snapshot: %#v", public.Devices)
+	}
+	configs, err := device.Load(server.devicePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(configs) != 0 {
+		t.Fatalf("deleted device remains in config: %#v", configs)
+	}
+	listedAny, err := server.Handler("device.list")(rpcMessage(`{}`))
+	if err != nil || len(listedAny.([]contract.DeviceView)) != 0 {
+		t.Fatalf("deleted device remains in device list: %#v err=%v", listedAny, err)
+	}
+	if _, ok := store.Clip("clip-1"); !ok {
+		t.Fatal("device deletion removed historical clip state")
+	}
+	if _, err := server.Handler("device.delete")(deleteMessage("front_camera")); contract.APIErrorCode(err) != contract.ErrorNotFound {
+		t.Fatalf("unknown device delete error=%v code=%s", err, contract.APIErrorCode(err))
 	}
 }
 

@@ -247,11 +247,15 @@ func TestDeviceConfigurationHandlersCRUDTransport(t *testing.T) {
 		t.Fatalf("create body=%s err=%v", core.createdBody, err)
 	}
 
-	req = httptest.NewRequest(http.MethodPatch, "/api/devices/cam-1", strings.NewReader(`{"enabled":false}`))
+	req = httptest.NewRequest(http.MethodPatch, "/api/devices/cam-1", strings.NewReader(`{"display_name":"Caméra entrée","room":"zoneA.L0.entree","enabled":false}`))
 	rec = httptest.NewRecorder()
 	handleDeviceItem(core).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || core.updatedID != "cam-1" {
 		t.Fatalf("patch status=%d id=%q body=%s", rec.Code, core.updatedID, rec.Body.String())
+	}
+	var updated map[string]any
+	if err := json.Unmarshal(core.updatedBody, &updated); err != nil || updated["display_name"] != "Caméra entrée" || updated["room"] != "zoneA.L0.entree" {
+		t.Fatalf("patch body=%s err=%v", core.updatedBody, err)
 	}
 
 	req = httptest.NewRequest(http.MethodDelete, "/api/devices/cam-1", nil)
@@ -514,6 +518,7 @@ func TestWriteErrorMapsStableAPIErrors(t *testing.T) {
 		status int
 	}{
 		{contract.ErrorInvalidJSON, http.StatusBadRequest},
+		{contract.ErrorInvalidRequest, http.StatusBadRequest},
 		{contract.ErrorNotFound, http.StatusNotFound},
 		{contract.ErrorDuplicateID, http.StatusConflict},
 		{contract.ErrorValidationFailed, http.StatusUnprocessableEntity},

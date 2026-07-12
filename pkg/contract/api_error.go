@@ -8,6 +8,7 @@ import (
 
 const (
 	ErrorInvalidJSON      = "invalid_json"
+	ErrorInvalidRequest   = "invalid_request"
 	ErrorNotFound         = "not_found"
 	ErrorDuplicateID      = "duplicate_id"
 	ErrorValidationFailed = "validation_failed"

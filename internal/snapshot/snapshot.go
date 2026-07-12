@@ -30,6 +30,7 @@ type Builder struct {
 	Residents  map[string]*topology.Resident
 	Automation *automation.Engine
 	Events     *event.Store
+	Chains     *event.ChainManager
 	Metrics    Metrics
 	CGE        CGEInspector
 }
@@ -58,17 +59,18 @@ func (b *Builder) CoreState() map[string]any {
 	cge := b.cgeInspection()
 	cge["danger_assessments"] = b.DangerAssessmentViews()
 	return map[string]any{
-		"nodes":       b.TopologyTreeViews(),
-		"devices":     b.DeviceViews(),
-		"device":      b.DeviceViews(),
-		"residents":   b.ResidentViews(),
-		"automations": b.automationList(),
-		"automation":  b.automationList(),
-		"events":      b.eventList(),
-		"event":       b.eventList(),
-		"system":      b.State.SystemState(),
-		"metrics":     b.metricsSnapshot(),
-		"cge":         cge,
+		"nodes":        b.TopologyTreeViews(),
+		"devices":      b.DeviceViews(),
+		"device":       b.DeviceViews(),
+		"residents":    b.ResidentViews(),
+		"automations":  b.automationList(),
+		"automation":   b.automationList(),
+		"events":       b.eventList(),
+		"event":        b.eventList(),
+		"system":       b.State.SystemState(),
+		"metrics":      b.metricsSnapshot(),
+		"event_chains": b.chainSummary(),
+		"cge":          cge,
 		"state_store": map[string]any{
 			"devices":        b.State.Snapshot("devices"),
 			"device":         b.State.Snapshot("devices"),
@@ -105,7 +107,20 @@ func (b *Builder) StatePayload() map[string]any {
 		"danger":         b.DangerAssessmentViews(),
 		"topology":       b.TopologyTreeViews(),
 		"residents":      b.ResidentViews(),
+		"event_chains":   b.chainSummary(),
 	}
+}
+
+func (b *Builder) chainSummary() map[string]any {
+	if b == nil || b.Chains == nil {
+		return map[string]any{
+			"open_count":           0,
+			"critical_open_count":  0,
+			"recent_closed_count":  0,
+			"highest_danger_level": contract.DangerNone,
+		}
+	}
+	return b.Chains.Summary()
 }
 
 func (b *Builder) DangerAssessmentViews() []map[string]any {

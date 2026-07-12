@@ -53,10 +53,16 @@ func NormalizeEvent(event *contract.Event, registry *device.Registry) time.Time 
 		event.DeviceID = resolveDeviceID(event, event.Payload)
 	}
 
+	if event.NodeID == "" {
+		event.NodeID = strings.TrimSpace(resolvePayloadString(event.Payload, "node_id", "node"))
+	}
 	if event.NodeID == "" && registry != nil && event.DeviceID != "" {
 		if device, ok := registry.Get(event.DeviceID); ok && device != nil {
 			event.NodeID = device.NodeID
 		}
+	}
+	if event.NodeID != "" && strings.TrimSpace(resolvePayloadString(event.Payload, "node_id", "node")) == "" {
+		event.Payload["node_id"] = event.NodeID
 	}
 
 	if event.Identity == "" {
@@ -81,6 +87,15 @@ func NormalizeEvent(event *contract.Event, registry *device.Registry) time.Time 
 	}
 	if event.ClipID == "" {
 		event.ClipID = resolvePayloadString(event.Payload, "clip_id")
+	}
+	if event.ActivationID == "" {
+		event.ActivationID = resolvePayloadString(event.Payload, "activation_id", "activation", "session_id")
+	}
+	if event.SequenceKey == "" {
+		event.SequenceKey = resolvePayloadString(event.Payload, "sequence_key", "sequence")
+	}
+	if event.ClipIndex == 0 {
+		event.ClipIndex = int(asFloat(event.Payload["clip_index"]))
 	}
 
 	return now

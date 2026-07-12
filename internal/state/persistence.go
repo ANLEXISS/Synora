@@ -26,16 +26,18 @@ type BackupPersistence interface {
 }
 
 type PersistedState struct {
-	Version           int                                   `json:"version"`
-	SavedAt           time.Time                             `json:"saved_at"`
-	Clips             map[string]ClipState                  `json:"clips,omitempty"`
-	Validations       map[string]contract.ValidationRequest `json:"validations,omitempty"`
-	BehaviorOverrides map[string]json.RawMessage            `json:"learned_behavior_overrides,omitempty"`
-	ActionResults     map[string]contract.ActionResult      `json:"action_results,omitempty"`
-	Danger            []*contract.DangerAssessment          `json:"danger_assessments,omitempty"`
-	Events            []*contract.Event                     `json:"events,omitempty"`
-	Identities        map[string]IdentityState              `json:"identities,omitempty"`
-	Presence          map[string]PresenceState              `json:"presence,omitempty"`
+	Version           int                                     `json:"version"`
+	SavedAt           time.Time                               `json:"saved_at"`
+	Clips             map[string]ClipState                    `json:"clips,omitempty"`
+	Validations       map[string]contract.ValidationRequest   `json:"validations,omitempty"`
+	BehaviorOverrides map[string]json.RawMessage              `json:"learned_behavior_overrides,omitempty"`
+	ActionResults     map[string]contract.ActionResult        `json:"action_results,omitempty"`
+	Danger            []*contract.DangerAssessment            `json:"danger_assessments,omitempty"`
+	Events            []*contract.Event                       `json:"events,omitempty"`
+	Identities        map[string]IdentityState                `json:"identities,omitempty"`
+	Presence          map[string]PresenceState                `json:"presence,omitempty"`
+	EventChains       map[string]contract.EventChain          `json:"event_chains,omitempty"`
+	CriticalChains    map[string]contract.CriticalChainMemory `json:"critical_chain_memories,omitempty"`
 }
 
 type PersistedSummary struct {
@@ -174,6 +176,8 @@ func emptyPersistedState() *PersistedState {
 		Events:            []*contract.Event{},
 		Identities:        map[string]IdentityState{},
 		Presence:          map[string]PresenceState{},
+		EventChains:       map[string]contract.EventChain{},
+		CriticalChains:    map[string]contract.CriticalChainMemory{},
 	}
 }
 

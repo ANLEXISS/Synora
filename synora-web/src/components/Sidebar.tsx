@@ -1,6 +1,5 @@
 import type { ComponentType } from "react";
 import {
-  Activity,
   Bot,
   Brain,
   Cpu,
@@ -28,12 +27,11 @@ const items: {
   icon: ComponentType<{ size?: number }>;
 }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "live", label: "Live Events", icon: Activity },
+  { id: "live", label: "CGE", icon: Brain },
   { id: "home", label: "Maison", icon: Home },
   { id: "devices", label: "Périphériques", icon: Cpu },
   { id: "residents", label: "Résidents", icon: Users },
   { id: "automations", label: "Automations", icon: Workflow },
-  { id: "cge", label: "CGE", icon: Brain },
   { id: "lab", label: "Synora Lab", icon: Bot },
   { id: "settings", label: "Settings", icon: Settings },
 ];
@@ -98,7 +96,7 @@ function permissionForPage(page: PageId) {
   switch (page) {
     case "dashboard":
     case "live":
-      return "state:read";
+      return "cge:read";
     case "home":
       return "topology:read";
     case "devices":

@@ -40,6 +40,19 @@ function mergeRuntimeCollection<T extends { id: string }>(
   ];
 }
 
+function mergeConfiguredRuntimeCollection<T extends { id: string }>(
+  configured: T[],
+  runtime: T[],
+): T[] {
+  if (runtime.length === 0) return configured;
+
+  const runtimeByID = new Map(runtime.map((item) => [item.id, item]));
+  return configured.map((item) => ({
+    ...item,
+    ...(runtimeByID.get(item.id) ?? {}),
+  }));
+}
+
 export function mergeResidentRuntime(
   configured: SynoraResident[],
   runtime: SynoraResident[]
@@ -116,7 +129,7 @@ export function useSynoraData() {
   }, [loadRemote, state.refresh]);
 
   const devices = useMemo(
-    () => mergeRuntimeCollection(
+    () => mergeConfiguredRuntimeCollection(
       remote?.devices ?? [],
       toArray(state.snapshot?.devices)
     ),

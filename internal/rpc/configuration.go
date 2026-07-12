@@ -242,7 +242,8 @@ func (s *Server) deviceConfigGet(msg contract.Message) (any, error) {
 
 func (s *Server) deviceConfigCreate(msg contract.Message) (any, error) {
 	if err := validateObjectFields(msg.Payload,
-		"id", "name", "type", "role", "node_id", "zone_role", "room_name",
+		"id", "name", "type", "vendor", "model", "serial", "pairing_method", "status",
+		"role", "node_id", "zone_role", "room_name",
 		"enabled", "trusted", "capabilities", "config", "metadata"); err != nil {
 		return nil, err
 	}
@@ -264,11 +265,29 @@ func (s *Server) deviceConfigUpdate(msg contract.Message) (any, error) {
 	if err := decodePayload(msg.Payload, &req); err != nil {
 		return nil, err
 	}
+	if err := validateObjectFields(req.Data,
+		"name", "display_name", "room", "node_id", "role", "zone_role", "room_name",
+		"enabled", "trusted", "capabilities", "config", "metadata"); err != nil {
+		return nil, err
+	}
 	var patch contract.DevicePatch
 	if err := decodePayload(req.Data, &patch); err != nil {
 		return nil, err
 	}
-	updated, err := s.devices.Patch(strings.TrimSpace(req.ID), patch)
+	id := strings.TrimSpace(req.ID)
+	if _, ok := s.devices.Get(id); !ok {
+		return nil, contract.NewAPIError(contract.ErrorNotFound, "device %q not found", id)
+	}
+	if patch.NodeID != nil {
+		if err := s.validateDeviceNode(*patch.NodeID); err != nil {
+			return nil, err
+		}
+	} else if patch.Room != nil {
+		if err := s.validateDeviceNode(*patch.Room); err != nil {
+			return nil, err
+		}
+	}
+	updated, err := s.devices.Patch(id, patch)
 	if err != nil {
 		return nil, err
 	}
@@ -277,18 +296,41 @@ func (s *Server) deviceConfigUpdate(msg contract.Message) (any, error) {
 	return updated.PublicView(), nil
 }
 
+func (s *Server) validateDeviceNode(nodeID string) error {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" || nodeID == device.UnlocatedNodeID || s == nil || s.snapshot == nil || s.snapshot.Mu == nil || s.snapshot.Topology == nil {
+		return nil
+	}
+	s.snapshot.Mu.RLock()
+	defer s.snapshot.Mu.RUnlock()
+	if len(s.snapshot.Topology.Nodes) == 0 {
+		return nil
+	}
+	node, ok := s.snapshot.Topology.Nodes[nodeID]
+	if !ok || node == nil {
+		return contract.NewAPIError(contract.ErrorInvalidRequest, "node_id %q does not identify an existing room", nodeID)
+	}
+	if node.Type != topology.NodeRoom {
+		return contract.NewAPIError(contract.ErrorInvalidRequest, "node_id %q must identify a room", nodeID)
+	}
+	return nil
+}
+
 func (s *Server) deviceConfigDelete(msg contract.Message) (any, error) {
 	var req DeletePayload
 	if err := decodePayload(msg.Payload, &req); err != nil {
 		return nil, err
 	}
-	deleted, err := s.devices.SoftDelete(strings.TrimSpace(req.ID))
+	deleted, err := s.devices.Remove(strings.TrimSpace(req.ID))
 	if err != nil {
 		return nil, err
 	}
-	s.syncDeviceConfigState(deleted)
-	s.notifyMutation("device.updated", deleted.ID)
-	return deleted.PublicView(), nil
+	if s.state != nil {
+		s.state.Delete("devices", deleted.ID)
+		s.state.Delete("cameras", deleted.ID)
+	}
+	s.notifyMutation("device.deleted", deleted.ID)
+	return map[string]any{"status": "deleted", "device_id": deleted.ID}, nil
 }
 
 func (s *Server) syncDeviceConfigState(value *device.Device) {

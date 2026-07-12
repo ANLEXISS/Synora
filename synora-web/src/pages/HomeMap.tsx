@@ -99,7 +99,7 @@ function deviceIcon(type: TopologyDevice["type"]) {
 
 function statusTone(status: TopologyDevice["status"]): Tone {
   if (status === "online") return "success";
-  if (status === "degraded") return "warning";
+  if (status === "degraded" || status === "pending") return "warning";
 
   return "danger";
 }
@@ -114,7 +114,7 @@ function roomTone(room: RoomNode, devices: TopologyDevice[]): Tone {
   if ((room.dynamic_score ?? 0) >= 0.75) return "danger";
   if ((room.dynamic_score ?? 0) >= 0.35) return "warning";
   if (roomDevices.some((device) => device.status === "offline")) return "danger";
-  if (roomDevices.some((device) => device.status === "degraded")) return "warning";
+  if (roomDevices.some((device) => device.status === "degraded" || device.status === "pending")) return "warning";
 
   return "success";
 }

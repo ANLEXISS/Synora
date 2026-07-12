@@ -1,4 +1,10 @@
 import {
+  BASE_FACE_VIEWS,
+  getBasePhotoByView,
+  isBaseComplete,
+  type BaseFaceView,
+} from "../lib/face";
+import {
   BadgeCheck,
   Brain,
   Clock,
@@ -257,13 +263,15 @@ export function Residents() {
     });
   }, [residents, search, stateFilter, roleFilter]);
 
-  async function refreshFace(residentID: string) {
+  async function refreshFace(residentID: string): Promise<SynoraFaceProfile | null> {
     try {
       const [profile, review] = await Promise.all([getResidentFace(residentID), getResidentFaceReview(residentID)]);
       setFaceProfile(profile);
       setReviewPhotos(review);
+      return profile;
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Impossible de charger le profil visage");
+      return null;
     }
   }
 
@@ -351,13 +359,16 @@ export function Residents() {
     }
   }
 
-  async function uploadFace(file: File, view: string) {
+  async function uploadFace(file: File, view: BaseFaceView) {
     if (!photoResident) return;
     setBusy(true);
     setNotice(null);
     try {
-      await uploadResidentBaseFace(photoResident.id, file, view);
-      await refreshFace(photoResident.id);
+      await uploadResidentBaseFace(photoResident.id, view, file);
+      const profile = await refreshFace(photoResident.id);
+      if (!getBasePhotoByView(profile, view)) {
+        throw new Error("La modification photo n’a pas été confirmée par le backend.");
+      }
       await data.refresh();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Upload impossible");
@@ -371,7 +382,10 @@ export function Residents() {
     setBusy(true);
     try {
       await deleteResidentBaseFace(photoResident.id, photoID);
-      await refreshFace(photoResident.id);
+      const profile = await refreshFace(photoResident.id);
+      if (profile?.base_photos.some((photo) => photo.id === photoID)) {
+        throw new Error("La modification photo n’a pas été confirmée par le backend.");
+      }
       await data.refresh();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Suppression photo impossible");
@@ -380,12 +394,16 @@ export function Residents() {
     }
   }
 
-  async function replaceFace(photoID: string, file: File, view: string) {
+  async function replaceFace(photoID: string, file: File, view: BaseFaceView) {
     if (!photoResident) return;
     setBusy(true);
     try {
-      await replaceResidentBaseFace(photoResident.id, photoID, file, view);
-      await refreshFace(photoResident.id);
+      await replaceResidentBaseFace(photoResident.id, photoID, view, file);
+      const profile = await refreshFace(photoResident.id);
+      const replacement = profile?.base_photos.find((photo) => photo.id === photoID || photo.view === view);
+      if (!replacement || replacement.view !== view) {
+        throw new Error("La modification photo n’a pas été confirmée par le backend.");
+      }
       await data.refresh();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Remplacement photo impossible");
@@ -398,7 +416,11 @@ export function Residents() {
     if (!photoResident) return;
     setBusy(true);
     try {
-      setFaceProfile(await rebuildResidentFace(photoResident.id));
+      await rebuildResidentFace(photoResident.id);
+      const profile = await refreshFace(photoResident.id);
+      if (!profile || (profile.base_photos.length > 0 && profile.status !== "ready")) {
+        throw new Error("La modification photo n’a pas été confirmée par le backend.");
+      }
       await data.refresh();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Recalcul impossible");
@@ -839,20 +861,17 @@ function ResidentPhotosModal({
   reviewPhotos: import("../lib/synora-types").SynoraFacePhoto[];
   busy: boolean;
   onClose: () => void;
-  onUpload: (file: File, view: string) => void;
-  onReplace: (photoID: string, file: File, view: string) => void;
+  onUpload: (file: File, view: BaseFaceView) => void;
+  onReplace: (photoID: string, file: File, view: BaseFaceView) => void;
   onDelete: (photoID: string) => void;
   onRebuild: () => void;
   onAcceptReview: (cropID: string) => void;
   onDeleteReview: (cropID: string) => void;
 }) {
   const photos = profile?.base_photos ?? resident.face_profile?.base_photos ?? [];
-  const views = [
-    { id: "face", label: "Face" },
-    { id: "up", label: "Haut" },
-    { id: "left", label: "Gauche" },
-    { id: "right", label: "Droite" },
-  ];
+  const baseCount = BASE_FACE_VIEWS.filter(({ id }) => Boolean(photos.find((photo) => photo.view === id))).length;
+  const complete = isBaseComplete(profile ?? resident.face_profile);
+  const nextView = BASE_FACE_VIEWS.find(({ id }) => !photos.some((photo) => photo.view === id));
   const chooseFile = (callback: (file: File) => void) => (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -864,30 +883,36 @@ function ResidentPhotosModal({
       <section className="resident-modal resident-photos-modal">
         <div className="resident-modal-header">
           <div>
-            <strong>Photos de base · {resident.name}</strong>
-            <span>{faceStatusLabel(profile?.status ?? resident.face_profile?.status)} · {photos.length}/4 validées</span>
+            <strong>Configurer la base faciale · {resident.name}</strong>
+            <span>{complete ? "Base complète" : `Progression : ${baseCount}/4`} · {faceStatusLabel(profile?.status ?? resident.face_profile?.status)}</span>
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
         </div>
 
+        <div className={`face-setup-progress ${complete ? "complete" : ""}`}>
+          <strong>{complete ? "Base complète" : `Prochain slot : ${nextView?.label ?? "—"}`}</strong>
+          <span>Ajoutez les quatre vues pour initialiser la reconnaissance faciale.</span>
+        </div>
+
         <div className="face-photo-grid">
-          {views.map((view) => {
+          {BASE_FACE_VIEWS.map((view) => {
             const photo = photos.find((candidate) => candidate.view === view.id);
             const inputID = `face-upload-${resident.id}-${view.id}`;
             return photo ? (
               <div className="face-photo-slot" key={view.id}>
                 <strong>{view.label}</strong>
                 <img src={getResidentFaceImageUrl(resident.id, photo.id)} alt={`Vue ${view.label} de ${resident.name}`} />
+                <small>{view.help}</small>
                 <small>{photo.filename}</small>
                 <div>
-                  <label className="secondary-button">Remplacer<input type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={chooseFile((file) => onReplace(photo.id, file, view.id))} disabled={busy} /></label>
+                  <label className="secondary-button">Remplacer<input type="file" accept="image/*" capture="user" hidden onChange={chooseFile((file) => onReplace(photo.id, file, view.id))} disabled={busy} /></label>
                   <button type="button" className="icon-button danger" onClick={() => onDelete(photo.id)} disabled={busy} aria-label="Supprimer photo"><Trash2 size={15} /></button>
                 </div>
               </div>
             ) : (
               <label className="face-photo-empty" htmlFor={inputID} key={view.id}>
-                <strong>{view.label}</strong><ImagePlus size={22} /><span>Ajouter cette vue</span>
-                <input id={inputID} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={chooseFile((file) => onUpload(file, view.id))} disabled={busy} />
+                <strong>{view.label}</strong><ImagePlus size={22} /><span>{view.help}</span><small>Ajouter une photo</small>
+                <input id={inputID} type="file" accept="image/*" capture="user" hidden onChange={chooseFile((file) => onUpload(file, view.id))} disabled={busy} />
               </label>
             );
           })}

@@ -52,6 +52,23 @@ func TestDeviceVerifierRejectsInvalidSignature(t *testing.T) {
 	}
 }
 
+func TestDeviceVerifierRejectsDeviceNotInDurableConfiguration(t *testing.T) {
+	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	cfg := &Config{DeviceSecrets: map[string]string{"cam_01": HashSecret("device-secret")}}
+	timestamp := "1783512000"
+	bodyHash := HashSecret("clip")
+	signature := DeviceSignature("cam_01", timestamp, bodyHash, cfg.DeviceSecrets["cam_01"])
+	verifier := DeviceVerifier{
+		Config:        func() (*Config, error) { return cfg, nil },
+		DeviceAllowed: func(string) bool { return false },
+		Now:           func() time.Time { return now },
+	}
+
+	if err := verifier.VerifyHeaders("cam_01", timestamp, signature, bodyHash); err == nil {
+		t.Fatal("deleted/unconfigured device was accepted")
+	}
+}
+
 func TestDeviceVerifierRejectsExpiredTimestamp(t *testing.T) {
 	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
 	cfg := &Config{
