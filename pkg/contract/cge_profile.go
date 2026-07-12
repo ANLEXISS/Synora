@@ -1,6 +1,10 @@
 package contract
 
-import "time"
+import (
+	"math"
+	"strings"
+	"time"
+)
 
 type CgeSecurityMode string
 
@@ -46,6 +50,117 @@ func DefaultCgeSecurityProfile() CgeSecurityProfile {
 		AllowAutomaticNotifications:         true,
 		UnknownPersistenceSeconds:           10,
 		SignificantInactivityTimeoutSeconds: 30,
+	}
+}
+
+// NormalizeCgeSecurityProfile returns a safe, JSON-serializable CGE profile.
+// In particular, all profile slices are always non-nil so they serialize as
+// [] rather than null.
+func NormalizeCgeSecurityProfile(profile CgeSecurityProfile) CgeSecurityProfile {
+	if profile.Mode == "" {
+		defaults := DefaultCgeSecurityProfile()
+		profile.Mode = defaults.Mode
+		if profile.GlobalSensitivity == 0 {
+			profile.GlobalSensitivity = defaults.GlobalSensitivity
+		}
+		if profile.NightSensitivityMultiplier == 0 {
+			profile.NightSensitivityMultiplier = defaults.NightSensitivityMultiplier
+		}
+		if profile.ArmedSensitivityMultiplier == 0 {
+			profile.ArmedSensitivityMultiplier = defaults.ArmedSensitivityMultiplier
+		}
+		if profile.UnknownPersonTolerance == "" {
+			profile.UnknownPersonTolerance = defaults.UnknownPersonTolerance
+		}
+		if profile.MinimumNotifyDangerLevel == "" {
+			profile.MinimumNotifyDangerLevel = defaults.MinimumNotifyDangerLevel
+		}
+		if profile.MinimumAutoActionDangerLevel == "" {
+			profile.MinimumAutoActionDangerLevel = defaults.MinimumAutoActionDangerLevel
+		}
+		if profile.UnknownPersistenceSeconds == 0 {
+			profile.UnknownPersistenceSeconds = defaults.UnknownPersistenceSeconds
+		}
+		if profile.SignificantInactivityTimeoutSeconds == 0 {
+			profile.SignificantInactivityTimeoutSeconds = defaults.SignificantInactivityTimeoutSeconds
+		}
+	}
+
+	switch profile.Mode {
+	case CgeSecurityRelaxed, CgeSecurityBalanced, CgeSecurityStrict, CgeSecurityParanoid:
+	default:
+		profile.Mode = CgeSecurityBalanced
+	}
+
+	if math.IsNaN(profile.GlobalSensitivity) || math.IsInf(profile.GlobalSensitivity, 0) {
+		profile.GlobalSensitivity = 0.5
+	}
+	profile.GlobalSensitivity = clampFloat(profile.GlobalSensitivity, 0, 1)
+
+	if math.IsNaN(profile.NightSensitivityMultiplier) || math.IsInf(profile.NightSensitivityMultiplier, 0) {
+		profile.NightSensitivityMultiplier = 1.3
+	}
+	profile.NightSensitivityMultiplier = clampFloat(profile.NightSensitivityMultiplier, 0.1, 5)
+
+	if math.IsNaN(profile.ArmedSensitivityMultiplier) || math.IsInf(profile.ArmedSensitivityMultiplier, 0) {
+		profile.ArmedSensitivityMultiplier = 1.5
+	}
+	profile.ArmedSensitivityMultiplier = clampFloat(profile.ArmedSensitivityMultiplier, 0.1, 5)
+
+	profile.UnknownPersonTolerance = strings.ToLower(strings.TrimSpace(profile.UnknownPersonTolerance))
+	switch profile.UnknownPersonTolerance {
+	case "low", "medium", "high":
+	default:
+		profile.UnknownPersonTolerance = "medium"
+	}
+	if !validCgeDangerLevel(profile.MinimumNotifyDangerLevel) {
+		profile.MinimumNotifyDangerLevel = DangerMedium
+	}
+	if !validCgeDangerLevel(profile.MinimumAutoActionDangerLevel) {
+		profile.MinimumAutoActionDangerLevel = DangerHigh
+	}
+
+	profile.UnknownPersistenceSeconds = clampIntWithDefault(profile.UnknownPersistenceSeconds, 1, 86400, 10)
+	profile.SignificantInactivityTimeoutSeconds = clampIntWithDefault(profile.SignificantInactivityTimeoutSeconds, 1, 86400, 30)
+
+	if profile.CriticalRooms == nil {
+		profile.CriticalRooms = []string{}
+	}
+	if profile.IgnoredMotionRooms == nil {
+		profile.IgnoredMotionRooms = []string{}
+	}
+	return profile
+}
+
+func clampFloat(value, minimum, maximum float64) float64 {
+	if value < minimum {
+		return minimum
+	}
+	if value > maximum {
+		return maximum
+	}
+	return value
+}
+
+func clampIntWithDefault(value, minimum, maximum, fallback int) int {
+	if value == 0 {
+		return fallback
+	}
+	if value < minimum {
+		return minimum
+	}
+	if value > maximum {
+		return maximum
+	}
+	return value
+}
+
+func validCgeDangerLevel(level DangerLevel) bool {
+	switch level {
+	case DangerNone, DangerLow, DangerMedium, DangerHigh, DangerCritical:
+		return true
+	default:
+		return false
 	}
 }
 

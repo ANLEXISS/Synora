@@ -15,10 +15,11 @@ type cgeProfileEngine interface {
 
 func (s *Server) cgeSecurityProfile(_ contract.Message) (any, error) {
 	if s == nil || s.cgeProfile == nil {
-		profile := contract.DefaultCgeSecurityProfile()
+		profile := contract.NormalizeCgeSecurityProfile(contract.DefaultCgeSecurityProfile())
 		return profile, nil
 	}
-	return s.cgeProfile.Get(), nil
+	profile := contract.NormalizeCgeSecurityProfile(s.cgeProfile.Get())
+	return profile, nil
 }
 
 func (s *Server) cgeSecurityProfileUpdate(msg contract.Message) (any, error) {
@@ -37,7 +38,7 @@ func (s *Server) cgeSecurityProfileUpdate(msg contract.Message) (any, error) {
 	if s.chains != nil {
 		s.chains.SetSignificantInactivityTimeout(timeDurationSeconds(profile.SignificantInactivityTimeoutSeconds))
 	}
-	return profile, nil
+	return contract.NormalizeCgeSecurityProfile(profile), nil
 }
 
 func (s *Server) cgeFeedbackList(msg contract.Message) (any, error) {

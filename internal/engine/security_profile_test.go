@@ -21,3 +21,12 @@ func TestSecurityProfileInfluencesDangerScore(t *testing.T) {
 		t.Fatalf("profile did not increase danger: base=%#v configured=%#v", base, configured)
 	}
 }
+
+func TestSetSecurityProfileNormalizesArrays(t *testing.T) {
+	engine := NewEngine(nil, nil, nil)
+	engine.SetSecurityProfile(&contract.CgeSecurityProfile{Mode: contract.CgeSecurityBalanced})
+	profile := engine.SecurityProfile()
+	if profile == nil || profile.CriticalRooms == nil || profile.IgnoredMotionRooms == nil {
+		t.Fatalf("engine profile arrays must be non-nil: %#v", profile)
+	}
+}

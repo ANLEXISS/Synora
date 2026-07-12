@@ -21,7 +21,7 @@ type ProfileStore struct {
 }
 
 func NewProfileStore(path string) *ProfileStore {
-	return &ProfileStore{path: strings.TrimSpace(path), profile: contract.DefaultCgeSecurityProfile()}
+	return &ProfileStore{path: strings.TrimSpace(path), profile: contract.NormalizeCgeSecurityProfile(contract.DefaultCgeSecurityProfile())}
 }
 
 func (s *ProfileStore) Load() (contract.CgeSecurityProfile, bool, error) {
@@ -31,12 +31,13 @@ func (s *ProfileStore) Load() (contract.CgeSecurityProfile, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.path == "" {
-		s.profile = contract.DefaultCgeSecurityProfile()
+		s.profile = contract.NormalizeCgeSecurityProfile(contract.DefaultCgeSecurityProfile())
+		s.loaded = false
 		return s.profile, false, nil
 	}
 	data, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
-		s.profile = contract.DefaultCgeSecurityProfile()
+		s.profile = contract.NormalizeCgeSecurityProfile(contract.DefaultCgeSecurityProfile())
 		s.loaded = false
 		return s.profile, false, nil
 	}
@@ -50,6 +51,7 @@ func (s *ProfileStore) Load() (contract.CgeSecurityProfile, bool, error) {
 	if err := ValidateProfile(profile); err != nil {
 		return contract.CgeSecurityProfile{}, false, err
 	}
+	profile = contract.NormalizeCgeSecurityProfile(profile)
 	s.profile = profile
 	s.loaded = true
 	return profile, true, nil
@@ -71,9 +73,7 @@ func (s *ProfileStore) Update(raw []byte) (contract.CgeSecurityProfile, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current := s.profile
-	if current.Mode == "" {
-		current = contract.DefaultCgeSecurityProfile()
-	}
+	current = contract.NormalizeCgeSecurityProfile(current)
 	updated, err := mergeJSONProfile(current, raw)
 	if err != nil {
 		return contract.CgeSecurityProfile{}, err
@@ -81,6 +81,7 @@ func (s *ProfileStore) Update(raw []byte) (contract.CgeSecurityProfile, error) {
 	if err := ValidateProfile(updated); err != nil {
 		return contract.CgeSecurityProfile{}, err
 	}
+	updated = contract.NormalizeCgeSecurityProfile(updated)
 	if err := writeProfileAtomic(s.path, updated); err != nil {
 		return contract.CgeSecurityProfile{}, err
 	}
@@ -133,7 +134,21 @@ func decodeProfile(data []byte) (contract.CgeSecurityProfile, error) {
 	if err != nil {
 		return contract.CgeSecurityProfile{}, err
 	}
-	return mergeJSONProfile(contract.DefaultCgeSecurityProfile(), jsonData)
+	profile, err := mergeJSONProfile(contract.DefaultCgeSecurityProfile(), jsonData)
+	if err != nil {
+		return contract.CgeSecurityProfile{}, err
+	}
+	return contract.NormalizeCgeSecurityProfile(profile), nil
+}
+
+// NormalizeCgeSecurityProfileJSON merges a partial JSON profile with the
+// defaults and returns a normalized profile for API boundaries.
+func NormalizeCgeSecurityProfileJSON(raw []byte) (contract.CgeSecurityProfile, error) {
+	profile, err := mergeJSONProfile(contract.DefaultCgeSecurityProfile(), raw)
+	if err != nil {
+		return contract.CgeSecurityProfile{}, err
+	}
+	return contract.NormalizeCgeSecurityProfile(profile), nil
 }
 
 func mergeJSONProfile(current contract.CgeSecurityProfile, raw []byte) (contract.CgeSecurityProfile, error) {
@@ -148,6 +163,14 @@ func mergeJSONProfile(current contract.CgeSecurityProfile, raw []byte) (contract
 	var base map[string]any
 	_ = json.Unmarshal(baseBytes, &base)
 	for key, value := range patch {
+		if value == nil {
+			switch key {
+			case "critical_rooms", "ignored_motion_rooms":
+				value = []any{}
+			default:
+				continue
+			}
+		}
 		base[key] = value
 	}
 	mergedBytes, _ := json.Marshal(base)
@@ -209,7 +232,8 @@ func validDangerLevel(level contract.DangerLevel) bool {
 }
 
 func cloneProfile(profile contract.CgeSecurityProfile) contract.CgeSecurityProfile {
-	profile.CriticalRooms = append([]string(nil), profile.CriticalRooms...)
-	profile.IgnoredMotionRooms = append([]string(nil), profile.IgnoredMotionRooms...)
+	profile = contract.NormalizeCgeSecurityProfile(profile)
+	profile.CriticalRooms = append([]string{}, profile.CriticalRooms...)
+	profile.IgnoredMotionRooms = append([]string{}, profile.IgnoredMotionRooms...)
 	return profile
 }

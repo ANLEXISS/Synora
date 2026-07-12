@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	webapi "synora/internal/api"
+	"synora/internal/cge"
 )
 
 type cgeProfileProvider interface {
@@ -28,6 +29,11 @@ func handleCGESecurityProfile(core cgeProfileProvider) http.HandlerFunc {
 				writeError(w, err)
 				return
 			}
+			value, err = normalizeCGESecurityProfileResponse(value)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
 			writeJSON(w, http.StatusOK, value)
 		case http.MethodPatch:
 			if !isAdminRequest(r) {
@@ -43,11 +49,36 @@ func handleCGESecurityProfile(core cgeProfileProvider) http.HandlerFunc {
 				writeError(w, err)
 				return
 			}
+			value, err = normalizeCGESecurityProfileResponse(value)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
 			writeJSON(w, http.StatusOK, value)
 		default:
 			writeMethodNotAllowed(w, http.MethodGet, http.MethodPatch)
 		}
 	}
+}
+
+func normalizeCGESecurityProfileResponse(value map[string]any) (map[string]any, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	profile, err := cge.NormalizeCgeSecurityProfileJSON(raw)
+	if err != nil {
+		return nil, err
+	}
+	normalized, err := json.Marshal(profile)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	if err := json.Unmarshal(normalized, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func handleCGEFeedbackList(core cgeFeedbackProvider) http.HandlerFunc {

@@ -1,6 +1,7 @@
 import { synoraFetch } from "./api";
 import { buildApiUrl } from "./config";
 import { buildFaceUploadFormData, type BaseFaceView } from "./face";
+import { normalizeCgeSecurityProfile } from "./cge";
 import type {
   SynoraFacePhoto,
   SynoraFaceProfile,
@@ -15,6 +16,7 @@ import type {
   CgeChainFeedback,
   CgeEvaluationFeedback,
   CgeSecurityProfile,
+  CgeSecurityProfileInput,
   ResidentCreatePayload,
   ResidentMutationPayload,
 } from "./synora-types";
@@ -121,16 +123,16 @@ export function getCriticalChain(id: string, signal?: AbortSignal) {
 }
 
 export function getCgeSecurityProfile(signal?: AbortSignal) {
-  return synoraFetch<CgeSecurityProfile>("/api/cge/security-profile", { signal });
+  return synoraFetch<CgeSecurityProfileInput | null>("/api/cge/security-profile", { signal }).then(normalizeCgeSecurityProfile);
 }
 
 export function updateCgeSecurityProfile(payload: CgeSecurityProfile) {
-  return synoraFetch<CgeSecurityProfile>("/api/cge/security-profile", {
+  return synoraFetch<CgeSecurityProfileInput | null>("/api/cge/security-profile", {
     method: "PATCH",
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-  });
+  }).then(normalizeCgeSecurityProfile);
 }
 
 export function submitCgeEvaluationFeedback(payload: CgeEvaluationFeedback) {

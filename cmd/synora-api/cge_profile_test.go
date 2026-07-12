@@ -53,6 +53,29 @@ func TestCGESecurityProfilePatchIsAdminOnly(t *testing.T) {
 	}
 }
 
+func TestCGESecurityProfileGetNormalizesNullArrays(t *testing.T) {
+	provider := &fakeCGEProfileProvider{profile: map[string]any{
+		"mode":                 "balanced",
+		"critical_rooms":       nil,
+		"ignored_motion_rooms": nil,
+	}}
+	response := httptest.NewRecorder()
+	handleCGESecurityProfile(provider).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/cge/security-profile", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("get status=%d body=%s", response.Code, response.Body.String())
+	}
+	var profile map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &profile); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	for _, key := range []string{"critical_rooms", "ignored_motion_rooms"} {
+		value, ok := profile[key].([]any)
+		if !ok || value == nil {
+			t.Fatalf("%s should be an empty JSON array: %#v", key, profile[key])
+		}
+	}
+}
+
 func TestCGEFeedbackPostIsAdminOnly(t *testing.T) {
 	provider := fakeCGEFeedbackProvider{}
 	resident := httptest.NewRecorder()

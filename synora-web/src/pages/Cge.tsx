@@ -11,7 +11,7 @@ import {
   updateCgeSecurityProfile,
 } from "../lib/synora-api";
 import { formatDangerLevel } from "../lib/event-chains";
-import { buildSecurityProfilePayload, formatSecurityMode } from "../lib/cge";
+import { buildSecurityProfilePayload, formatSecurityMode, normalizeCgeSecurityProfile } from "../lib/cge";
 import type {
   CgeChainFeedback,
   CgeEvaluationFeedback,
@@ -115,14 +115,14 @@ function SecuritySettings({ isAdmin }: { isAdmin: boolean }) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { getCgeSecurityProfile().then(setProfile).catch((cause) => setError(cause instanceof Error ? cause.message : "Profil sécurité indisponible.")).finally(() => setLoading(false)); }, []);
+  useEffect(() => { getCgeSecurityProfile().then((raw) => setProfile(normalizeCgeSecurityProfile(raw))).catch((cause) => setError(cause instanceof Error ? cause.message : "Profil sécurité indisponible.")).finally(() => setLoading(false)); }, []);
 
   if (loading || !profile) return <div className="cge-tab-content"><div className="cge-empty">Chargement du profil sécurité…</div>{error && <div className="auth-error">{error}</div>}</div>;
-  const currentProfile = profile;
+  const currentProfile = normalizeCgeSecurityProfile(profile);
 
   function update<K extends keyof CgeSecurityProfile>(key: K, value: CgeSecurityProfile[K]) { setProfile((current) => current ? { ...current, [key]: value } : current); setMessage(null); }
-  function toggleRoom(key: "critical_rooms" | "ignored_motion_rooms", roomID: string) { const values = currentProfile[key].includes(roomID) ? currentProfile[key].filter((value) => value !== roomID) : [...currentProfile[key], roomID]; update(key, values); }
-  async function save() { setSaving(true); setError(null); try { setProfile(await updateCgeSecurityProfile(buildSecurityProfilePayload(currentProfile))); setMessage("Profil sécurité enregistré. Les prochaines évaluations utiliseront ces réglages."); } catch (cause) { setError(cause instanceof Error ? cause.message : "Impossible d’enregistrer le profil."); } finally { setSaving(false); } }
+  function toggleRoom(key: "critical_rooms" | "ignored_motion_rooms", roomID: string) { const rooms = currentProfile[key] ?? []; const values = rooms.includes(roomID) ? rooms.filter((value) => value !== roomID) : [...rooms, roomID]; update(key, values); }
+  async function save() { setSaving(true); setError(null); try { setProfile(normalizeCgeSecurityProfile(await updateCgeSecurityProfile(buildSecurityProfilePayload(currentProfile)))); setMessage("Profil sécurité enregistré. Les prochaines évaluations utiliseront ces réglages."); } catch (cause) { setError(cause instanceof Error ? cause.message : "Impossible d’enregistrer le profil."); } finally { setSaving(false); } }
 
   return <div className="cge-tab-content">
     <div className="cge-section-toolbar"><div><h3>Réglages sécurité CGE</h3><p>Le profil influence les futures évaluations. Les chaînes historiques restent inchangées.</p></div>{!isAdmin && <span className="readonly-label"><Lock size={14} /> Lecture seule</span>}</div>
@@ -146,7 +146,8 @@ function SecuritySettings({ isAdmin }: { isAdmin: boolean }) {
 }
 
 function RoomSelector({ title, rooms, values, disabled, onToggle }: { title: string; rooms: Array<{ id: string; name: string }>; values: string[]; disabled: boolean; onToggle: (id: string) => void }) {
-  return <fieldset className="security-room-selector"><legend>{title}</legend>{rooms.length === 0 ? <small>Aucune pièce configurée.</small> : rooms.map((room) => <label key={room.id}><input disabled={disabled} type="checkbox" checked={values.includes(room.id)} onChange={() => onToggle(room.id)} /> {room.name} <small>{room.id}</small></label>)}</fieldset>;
+  const safeValues = values ?? [];
+  return <fieldset className="security-room-selector"><legend>{title}</legend>{rooms.length === 0 ? <small>Aucune pièce configurée.</small> : rooms.map((room) => <label key={room.id}><input disabled={disabled} type="checkbox" checked={safeValues.includes(room.id)} onChange={() => onToggle(room.id)} /> {room.name} <small>{room.id}</small></label>)}</fieldset>;
 }
 
 function CgeCorrections({ isAdmin }: { isAdmin: boolean }) {

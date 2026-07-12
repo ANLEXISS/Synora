@@ -24,9 +24,9 @@ func (e *Engine) SetSecurityProfile(profile *contract.CgeSecurityProfile) {
 	if profile == nil {
 		e.securityProfile = nil
 	} else {
-		copy := *profile
-		copy.CriticalRooms = append([]string(nil), profile.CriticalRooms...)
-		copy.IgnoredMotionRooms = append([]string(nil), profile.IgnoredMotionRooms...)
+		copy := contract.NormalizeCgeSecurityProfile(*profile)
+		copy.CriticalRooms = append([]string{}, copy.CriticalRooms...)
+		copy.IgnoredMotionRooms = append([]string{}, copy.IgnoredMotionRooms...)
 		e.securityProfile = &copy
 	}
 	e.securityProfileMu.Unlock()
@@ -41,9 +41,9 @@ func (e *Engine) SecurityProfile() *contract.CgeSecurityProfile {
 	if e.securityProfile == nil {
 		return nil
 	}
-	copy := *e.securityProfile
-	copy.CriticalRooms = append([]string(nil), e.securityProfile.CriticalRooms...)
-	copy.IgnoredMotionRooms = append([]string(nil), e.securityProfile.IgnoredMotionRooms...)
+	copy := contract.NormalizeCgeSecurityProfile(*e.securityProfile)
+	copy.CriticalRooms = append([]string{}, copy.CriticalRooms...)
+	copy.IgnoredMotionRooms = append([]string{}, copy.IgnoredMotionRooms...)
 	return &copy
 }
 
@@ -142,7 +142,8 @@ func (e *Engine) applyFeedbackHint(event *contract.Event, result *Result) {
 func (e *Engine) ConfigureDangerProfile(profile *contract.CgeSecurityProfile, chainsTimeout func(int)) {
 	e.SetSecurityProfile(profile)
 	if profile != nil && chainsTimeout != nil {
-		chainsTimeout(profile.SignificantInactivityTimeoutSeconds)
+		normalized := contract.NormalizeCgeSecurityProfile(*profile)
+		chainsTimeout(normalized.SignificantInactivityTimeoutSeconds)
 	}
 }
 

@@ -317,6 +317,10 @@ export type CgeSecurityProfile = {
   significant_inactivity_timeout_seconds: number;
 };
 
+export type CgeSecurityProfileInput = {
+  [Key in keyof CgeSecurityProfile]?: CgeSecurityProfile[Key] | null;
+};
+
 export type CriticalChainMemory = {
   id: string;
   template_id: string;
