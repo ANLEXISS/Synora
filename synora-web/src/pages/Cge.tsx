@@ -11,7 +11,7 @@ import {
   updateCgeSecurityProfile,
 } from "../lib/synora-api";
 import { formatDangerLevel } from "../lib/event-chains";
-import { buildSecurityProfilePayload, formatSecurityMode, normalizeCgeSecurityProfile } from "../lib/cge";
+import { buildSecurityProfilePayload, formatSecurityMode, normalizeCgeSecurityProfile, normalizeCriticalChainMemory } from "../lib/cge";
 import type {
   CgeChainFeedback,
   CgeEvaluationFeedback,
@@ -58,7 +58,7 @@ function KnownChains() {
 
   async function refresh() {
     setLoading(true);
-    try { setChains(await getCriticalChains()); setError(null); }
+    try { setChains((await getCriticalChains()).map(normalizeCriticalChainMemory)); setError(null); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Impossible de charger les chaînes connues."); }
     finally { setLoading(false); }
   }
@@ -66,14 +66,15 @@ function KnownChains() {
   useEffect(() => { void refresh(); }, []);
 
   async function showDetails(chain: CriticalChainMemory) {
-    setSelected(chain);
-    try { setSelected(await getCriticalChain(chain.id)); } catch { setError("Les détails de cette chaîne connue sont indisponibles."); }
+    const safeChain = normalizeCriticalChainMemory(chain);
+    setSelected(safeChain);
+    try { setSelected(normalizeCriticalChainMemory(await getCriticalChain(safeChain.id))); } catch (cause) { setError(cause instanceof Error ? cause.message : "Les détails de cette chaîne connue sont indisponibles."); }
   }
 
   return (
     <div className="cge-tab-content">
       <div className="cge-section-toolbar"><div><h3>Chaînes critiques connues</h3><p>Motifs mémorisés par le moteur pour accélérer la reconnaissance des situations critiques.</p></div><button className="secondary-button" type="button" onClick={() => void refresh()}><RefreshCw size={15} /> Actualiser</button></div>
-      {error && <div className="auth-error" role="alert">{error}</div>}
+      {error && <div className="auth-error" role="alert">{error} <button type="button" className="secondary-button" onClick={() => void refresh()}>Réessayer</button></div>}
       {loading ? <div className="cge-empty">Chargement des chaînes connues…</div> : chains.length === 0 ? <div className="cge-empty"><Brain size={22} /><span>Aucune chaîne critique connue pour l’instant.</span></div> : (
         <div className="critical-chains-grid">{chains.map((chain) => <CriticalChainCard key={chain.id} chain={chain} onDetails={showDetails} />)}</div>
       )}
@@ -83,6 +84,7 @@ function KnownChains() {
 }
 
 function CriticalChainCard({ chain, onDetails }: { chain: CriticalChainMemory; onDetails: (chain: CriticalChainMemory) => void }) {
+  chain = normalizeCriticalChainMemory(chain);
   return <article className="critical-chain-card">
     <header><div><strong>{chain.summary || "Chaîne critique mémorisée"}</strong><small>{chain.template_id || chain.id}</small></div><span className="badge danger">{formatDangerLevel(chain.max_danger_level)}</span></header>
     <p>{chain.learned_reason || "Motif critique appris à partir de chaînes observées."}</p>
@@ -93,16 +95,18 @@ function CriticalChainCard({ chain, onDetails }: { chain: CriticalChainMemory; o
 }
 
 function CriticalChainDetail({ chain, onClose }: { chain: CriticalChainMemory; onClose: () => void }) {
+  chain = normalizeCriticalChainMemory(chain);
   return <div className="cge-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="cge-modal" role="dialog" aria-modal="true" aria-labelledby="critical-chain-title">
       <header><div><span>Chaîne critique connue</span><h2 id="critical-chain-title">{chain.summary || chain.template_id}</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></header>
-      <div className="cge-modal-content"><div className="critical-chain-detail-grid"><DetailList title="Trajectoire d’état" values={chain.typical_state_path} /><DetailList title="Trajectoire de danger" values={chain.typical_danger_path.map(formatDangerLevel)} /><DetailList title="Nœuds" values={chain.node_pattern} /><DetailList title="Types d’événements" values={chain.significant_event_types} /></div><DetailList title="Chaînes récentes" values={chain.recent_chain_ids} /><DetailList title="Actions recommandées" values={chain.recommended_actions} /><DetailList title="Actions prises" values={chain.actions_taken} /><DetailList title="Résultats" values={chain.outcomes} /><p className="cge-feedback-note">Chaîne représentative : {chain.representative_chain_id || "—"} · Apprentissage : {chain.learned_reason || "—"}</p></div>
+      <div className="cge-modal-content"><div className="critical-chain-detail-grid"><DetailList title="Trajectoire d’état" values={chain.typical_state_path} emptyMessage="Aucun chemin d’état typique enregistré." /><DetailList title="Trajectoire de danger" values={chain.typical_danger_path.map(formatDangerLevel)} emptyMessage="Aucun chemin danger typique enregistré." /><DetailList title="Nœuds" values={chain.node_pattern} /><DetailList title="Types d’événements" values={chain.significant_event_types} /></div><DetailList title="Chaînes récentes" values={chain.recent_chain_ids} emptyMessage="Aucune chaîne récente associée." /><DetailList title="Actions recommandées" values={chain.recommended_actions} emptyMessage="Aucune action recommandée enregistrée." /><DetailList title="Actions prises" values={chain.actions_taken} /><DetailList title="Résultats" values={chain.outcomes} emptyMessage="Aucun retour admin enregistré." /><p className="cge-feedback-note">Chaîne représentative : {chain.representative_chain_id || "—"} · Apprentissage : {chain.learned_reason || "—"}</p></div>
     </section>
   </div>;
 }
 
-function DetailList({ title, values }: { title: string; values: string[] }) {
-  if (!values.length) return null;
+function DetailList({ title, values, emptyMessage }: { title: string; values: string[]; emptyMessage?: string }) {
+  if (!values.length && !emptyMessage) return null;
+  if (!values.length) return <div className="cge-detail-list"><h4>{title}</h4><p>{emptyMessage}</p></div>;
   return <div className="cge-detail-list"><h4>{title}</h4><div>{values.map((value) => <span key={value}>{value}</span>)}</div></div>;
 }
 
@@ -115,14 +119,22 @@ function SecuritySettings({ isAdmin }: { isAdmin: boolean }) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { getCgeSecurityProfile().then((raw) => setProfile(normalizeCgeSecurityProfile(raw))).catch((cause) => setError(cause instanceof Error ? cause.message : "Profil sécurité indisponible.")).finally(() => setLoading(false)); }, []);
+  async function loadProfile() {
+    setLoading(true);
+    try { setProfile(normalizeCgeSecurityProfile(await getCgeSecurityProfile())); setError(null); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Profil sécurité indisponible."); }
+    finally { setLoading(false); }
+  }
 
-  if (loading || !profile) return <div className="cge-tab-content"><div className="cge-empty">Chargement du profil sécurité…</div>{error && <div className="auth-error">{error}</div>}</div>;
+  useEffect(() => { void loadProfile(); }, []);
+
+  if (loading) return <div className="cge-tab-content"><div className="cge-empty">Chargement du profil sécurité…</div></div>;
+  if (!profile) return <div className="cge-tab-content"><div className="auth-error" role="alert">{error || "Profil sécurité indisponible."} <button type="button" className="secondary-button" onClick={() => void loadProfile()}>Réessayer</button></div></div>;
   const currentProfile = normalizeCgeSecurityProfile(profile);
 
   function update<K extends keyof CgeSecurityProfile>(key: K, value: CgeSecurityProfile[K]) { setProfile((current) => current ? { ...current, [key]: value } : current); setMessage(null); }
   function toggleRoom(key: "critical_rooms" | "ignored_motion_rooms", roomID: string) { const rooms = currentProfile[key] ?? []; const values = rooms.includes(roomID) ? rooms.filter((value) => value !== roomID) : [...rooms, roomID]; update(key, values); }
-  async function save() { setSaving(true); setError(null); try { setProfile(normalizeCgeSecurityProfile(await updateCgeSecurityProfile(buildSecurityProfilePayload(currentProfile)))); setMessage("Profil sécurité enregistré. Les prochaines évaluations utiliseront ces réglages."); } catch (cause) { setError(cause instanceof Error ? cause.message : "Impossible d’enregistrer le profil."); } finally { setSaving(false); } }
+  async function save() { setSaving(true); setError(null); try { const payload = buildSecurityProfilePayload(currentProfile); const updated = normalizeCgeSecurityProfile(await updateCgeSecurityProfile(payload)); const confirmed = normalizeCgeSecurityProfile(await getCgeSecurityProfile()); if (JSON.stringify(confirmed) !== JSON.stringify(updated)) throw new Error("La sauvegarde du profil n’a pas été confirmée par le backend."); setProfile(confirmed); setMessage("Profil sécurité enregistré. Les prochaines évaluations utiliseront ces réglages."); } catch (cause) { setError(cause instanceof Error ? cause.message : "Impossible d’enregistrer le profil."); } finally { setSaving(false); } }
 
   return <div className="cge-tab-content">
     <div className="cge-section-toolbar"><div><h3>Réglages sécurité CGE</h3><p>Le profil influence les futures évaluations. Les chaînes historiques restent inchangées.</p></div>{!isAdmin && <span className="readonly-label"><Lock size={14} /> Lecture seule</span>}</div>
@@ -153,8 +165,10 @@ function RoomSelector({ title, rooms, values, disabled, onToggle }: { title: str
 function CgeCorrections({ isAdmin }: { isAdmin: boolean }) {
   const [feedback, setFeedback] = useState<Array<CgeEvaluationFeedback | CgeChainFeedback>>([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { getCgeFeedback().then(setFeedback).catch(() => undefined).finally(() => setLoading(false)); }, []);
-  return <div className="cge-tab-content"><div className="cge-section-toolbar"><div><h3>Corrections moteur</h3><p>Les corrections sont versionnées et influencent les futures évaluations ; l’événement brut reste inchangé.</p></div>{!isAdmin && <span className="readonly-label"><Lock size={14} /> Lecture seule</span>}</div>{loading ? <div className="cge-empty">Chargement des corrections…</div> : feedback.length === 0 ? <div className="cge-empty"><SlidersHorizontal size={22} /><span>Aucune correction enregistrée.</span></div> : <div className="cge-feedback-list">{feedback.slice().reverse().map((item, index) => <article key={item.id || index}><span className="badge neutral">{"correction_type" in item ? item.correction_type : item.final_outcome}</span><strong>Chaîne {item.chain_id}</strong><p>{item.note || "Aucune note."}</p><small>{item.created_by || "admin"} · {item.created_at ? formatDate(item.created_at) : "—"}</small></article>)}</div>}</div>;
+  const [error, setError] = useState<string | null>(null);
+  async function refresh() { setLoading(true); try { setFeedback(await getCgeFeedback()); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : "Impossible de charger les corrections moteur."); } finally { setLoading(false); } }
+  useEffect(() => { void refresh(); }, []);
+  return <div className="cge-tab-content"><div className="cge-section-toolbar"><div><h3>Corrections moteur</h3><p>Les corrections sont versionnées et influencent les futures évaluations ; l’événement brut reste inchangé.</p></div>{!isAdmin && <span className="readonly-label"><Lock size={14} /> Lecture seule</span>}</div>{loading ? <div className="cge-empty">Chargement des corrections…</div> : error ? <div className="auth-error" role="alert">{error} <button type="button" className="secondary-button" onClick={() => void refresh()}>Réessayer</button></div> : feedback.length === 0 ? <div className="cge-empty"><SlidersHorizontal size={22} /><span>Aucune correction moteur enregistrée.</span></div> : <div className="cge-feedback-list">{feedback.slice().reverse().map((item, index) => <article key={item.id || index}><span className="badge neutral">{"correction_type" in item ? item.correction_type : item.final_outcome}</span><strong>Chaîne {item.chain_id}</strong><p>{item.note || "Aucune note."}</p><small>{item.created_by || "admin"} · {item.created_at ? formatDate(item.created_at) : "—"}</small></article>)}</div>}</div>;
 }
 
 function dangerOptions() { return [<option key="none" value="none">Aucun</option>, <option key="low" value="low">Faible</option>, <option key="medium" value="medium">Moyen</option>, <option key="high" value="high">Élevé</option>, <option key="critical" value="critical">Critique</option>]; }

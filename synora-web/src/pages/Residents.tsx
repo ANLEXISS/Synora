@@ -50,7 +50,6 @@ import { useAuth } from "../hooks/useAuth";
 import { formatRelativeDateTime } from "../lib/format";
 import {
   demoApiTopology,
-  demoResidents,
   prettyTopologyName,
   type DemoResident,
 } from "../data/demo";
@@ -217,8 +216,7 @@ export function Residents() {
 
   const data = useSynoraData();
   const auth = useAuth();
-  const residents: DemoResident[] = data.residents.length > 0
-    ? data.residents.map((resident) => ({
+  const residents: DemoResident[] = data.residents.map((resident) => ({
         id: resident.id,
         name: String(resident.display_name ?? resident.name ?? resident.id),
         first_name: typeof resident.first_name === "string" ? resident.first_name : "",
@@ -238,10 +236,7 @@ export function Residents() {
         reference_node_id: resident.reference_node_id ?? null,
         account_id: resident.account_id ?? null,
         face_profile: resident.face_profile,
-      }))
-    : data.snapshot
-      ? []
-      : demoResidents;
+      }));
 
   const filteredResidents = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -512,6 +507,7 @@ export function Residents() {
           </button>
         ) : undefined}
       >
+        {data.error && <div className="auth-error" role="alert">{data.error} <button type="button" className="secondary-button" onClick={() => void data.refresh()}>Réessayer</button></div>}
         {notice && <div className="auth-error">{notice}</div>}
         <div className="residents-toolbar">
           <label className="resident-search">
@@ -711,7 +707,8 @@ export function Residents() {
           <div className="empty-state">
             <Home size={24} />
             <strong>Aucun résident</strong>
-            <span>Aucun profil ne correspond aux filtres actifs.</span>
+            <span>{data.error ? "Les résidents ne sont pas disponibles." : "Aucun résident configuré ou aucun profil ne correspond aux filtres actifs."}</span>
+            {auth.isAdmin && !data.error && <button type="button" className="primary-button" onClick={openCreate}>Ajouter un résident</button>}
           </div>
         )}
       </Panel>

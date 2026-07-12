@@ -110,19 +110,71 @@ type CriticalChainMemory struct {
 	MaxDangerLevel        string    `json:"max_danger_level"`
 	MaxDangerScore        float64   `json:"max_danger_score"`
 	RepresentativeChainID string    `json:"representative_chain_id"`
-	RecentChainIDs        []string  `json:"recent_chain_ids,omitempty"`
-	SignificantEventTypes []string  `json:"significant_event_types,omitempty"`
-	NodePattern           []string  `json:"node_pattern,omitempty"`
-	DeviceTypes           []string  `json:"device_types,omitempty"`
-	IdentityPattern       []string  `json:"identity_pattern,omitempty"`
-	TypicalStatePath      []string  `json:"typical_state_path,omitempty"`
-	TypicalDangerPath     []string  `json:"typical_danger_path,omitempty"`
+	RecentChainIDs        []string  `json:"recent_chain_ids"`
+	SignificantEventTypes []string  `json:"significant_event_types"`
+	NodePattern           []string  `json:"node_pattern"`
+	DeviceTypes           []string  `json:"device_types"`
+	IdentityPattern       []string  `json:"identity_pattern"`
+	TypicalStatePath      []string  `json:"typical_state_path"`
+	TypicalDangerPath     []string  `json:"typical_danger_path"`
 	Summary               string    `json:"summary,omitempty"`
 	LearnedReason         string    `json:"learned_reason,omitempty"`
-	RecommendedActions    []string  `json:"recommended_actions,omitempty"`
-	ActionsTaken          []string  `json:"actions_taken,omitempty"`
-	Outcomes              []string  `json:"outcomes,omitempty"`
+	RecommendedActions    []string  `json:"recommended_actions"`
+	ActionsTaken          []string  `json:"actions_taken"`
+	Outcomes              []string  `json:"outcomes"`
 	Confidence            float64   `json:"confidence"`
 	FeedbackCount         int       `json:"feedback_count,omitempty"`
 	LastFeedbackAt        time.Time `json:"last_feedback_at,omitempty"`
+}
+
+func NormalizeCriticalChainMemory(memory CriticalChainMemory) CriticalChainMemory {
+	if memory.MaxDangerLevel != string(DangerNone) && memory.MaxDangerLevel != string(DangerLow) && memory.MaxDangerLevel != string(DangerMedium) && memory.MaxDangerLevel != string(DangerHigh) && memory.MaxDangerLevel != string(DangerCritical) {
+		memory.MaxDangerLevel = string(DangerNone)
+	}
+	if memory.MaxDangerScore < 0 {
+		memory.MaxDangerScore = 0
+	}
+	if memory.Confidence < 0 {
+		memory.Confidence = 0
+	}
+	if memory.Confidence > 1 {
+		memory.Confidence = 1
+	}
+	if memory.Occurrences < 0 {
+		memory.Occurrences = 0
+	}
+	if memory.FeedbackCount < 0 {
+		memory.FeedbackCount = 0
+	}
+	if memory.RecentChainIDs == nil {
+		memory.RecentChainIDs = []string{}
+	}
+	if memory.SignificantEventTypes == nil {
+		memory.SignificantEventTypes = []string{}
+	}
+	if memory.NodePattern == nil {
+		memory.NodePattern = []string{}
+	}
+	if memory.DeviceTypes == nil {
+		memory.DeviceTypes = []string{}
+	}
+	if memory.IdentityPattern == nil {
+		memory.IdentityPattern = []string{}
+	}
+	if memory.TypicalStatePath == nil {
+		memory.TypicalStatePath = []string{}
+	}
+	if memory.TypicalDangerPath == nil {
+		memory.TypicalDangerPath = []string{}
+	}
+	if memory.RecommendedActions == nil {
+		memory.RecommendedActions = []string{}
+	}
+	if memory.ActionsTaken == nil {
+		memory.ActionsTaken = []string{}
+	}
+	if memory.Outcomes == nil {
+		memory.Outcomes = []string{}
+	}
+	return memory
 }

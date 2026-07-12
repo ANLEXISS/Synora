@@ -28,11 +28,7 @@ import { deleteDevice, getDevices, updateDevice } from "../lib/synora-api";
 import { normalizeTopologyDevices } from "../lib/topology";
 import { getRoomLabel, getTopologyRooms } from "../lib/topology";
 import type { SynoraDevice } from "../lib/synora-types";
-import {
-  demoApiTopology,
-  demoTopologyDevices,
-  type TopologyDevice,
-} from "../data/demo";
+import type { TopologyDevice } from "../data/demo";
 
 type DeviceStatus = TopologyDevice["status"];
 type DeviceType = TopologyDevice["type"];
@@ -111,12 +107,9 @@ export function Devices() {
 
   const data = useSynoraData();
   const auth = useAuth();
-  const demoFallback = Boolean(data.error) && data.devices.length === 0;
-  const topology = data.topology.length > 0 || !demoFallback ? data.topology : demoApiTopology;
+  const topology = data.topology;
   const editRooms = useMemo(() => getTopologyRooms(data.topology), [data.topology]);
-  const devices: TopologyDevice[] = demoFallback
-    ? demoTopologyDevices
-    : normalizeTopologyDevices(data.devices, topology);
+  const devices: TopologyDevice[] = normalizeTopologyDevices(data.devices, topology);
   const visibleDevices = devices;
 
   const filteredDevices = useMemo(() => {
@@ -152,7 +145,7 @@ export function Devices() {
       return;
     }
     const source = data.devices.find((device) => device.id === id);
-    if (!source || demoFallback) {
+    if (!source) {
       setNotice("Modification indisponible : le backend ne confirme pas ce périphérique.");
       return;
     }
@@ -220,7 +213,7 @@ export function Devices() {
       setNotice("Accès refusé : action réservée administrateur.");
       return;
     }
-    if (demoFallback) {
+    if (data.error) {
       setNotice("Suppression indisponible : affichage en fallback démo.");
       return;
     }
@@ -253,7 +246,7 @@ export function Devices() {
       setNotice("Accès refusé : action réservée administrateur.");
       return;
     }
-    if (demoFallback) {
+    if (data.error) {
       setNotice("Modification indisponible : affichage en fallback démo.");
       return;
     }
@@ -366,6 +359,7 @@ export function Devices() {
           </button>
         ) : undefined}
       >
+        {data.error && <div className="auth-error" role="alert">{data.error} <button type="button" className="secondary-button" onClick={() => void data.refresh()}>Réessayer</button></div>}
         {notice && <div className="auth-error">{notice}</div>}
         <div className="devices-toolbar">
           <label className="device-search">
@@ -550,7 +544,7 @@ export function Devices() {
           <div className="empty-state">
             <Cpu size={24} />
             <strong>Aucun périphérique</strong>
-            <span>Aucun device ne correspond aux filtres actifs.</span>
+            <span>{data.error ? "Les périphériques ne sont pas disponibles." : "Aucun appareil enregistré ou aucun ne correspond aux filtres actifs."}</span>
           </div>
         )}
       </Panel>

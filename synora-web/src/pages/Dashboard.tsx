@@ -2,12 +2,6 @@ import { Activity, Brain, Cpu, ShieldAlert, Users } from "lucide-react";
 import { EventRow } from "../components/EventRow";
 import { Panel } from "../components/Panel";
 import { StatCard } from "../components/StatCard";
-import {
-  demoCriticalChains,
-  demoDevices,
-  demoEvents,
-  demoStats,
-} from "../data/demo";
 import { useSynoraData } from "../hooks/useSynoraData";
 
 
@@ -53,15 +47,14 @@ function normalizeDeviceStatus(device: {
 
 export function Dashboard() {
   const data = useSynoraData();
-  const demoFallback = !data.snapshot;
-  const danger = demoFallback ? demoStats.dangerScore : data.dangerScore;
-  const devices = demoFallback ? demoDevices : data.devices.slice(0, 6).map((device) => ({
+  const danger = data.dangerScore;
+  const devices = data.devices.slice(0, 6).map((device) => ({
     id: device.id,
     name: String(device["name"] ?? device.id),
     status: normalizeDeviceStatus(device),
     node: String(device.node_id ?? device.room ?? "unlocated"),
   }));
-  const events = demoFallback ? demoEvents : data.events.slice(0, 6).map((event) => ({
+  const events = data.events.slice(0, 6).map((event) => ({
     type: event.type ?? event.event_type ?? "event",
     title: String(event["title"] ?? event.type ?? event.event_type ?? "Événement"),
     subtitle: String(event["description"] ?? event.device_id ?? event.node_id ?? "Synora"),
@@ -69,17 +62,15 @@ export function Dashboard() {
   }));
   const devicesOnline = devices.filter((device) => device.status === "online").length;
   const deviceTone = devicesTone(devicesOnline, devices.length);
-  const systemState = demoFallback ? "—" : data.systemState;
-  const residentsPresent = demoFallback
-    ? demoStats.residentsPresent
-    : data.residents.filter((resident) => resident.state === "present").length;
+  const systemState = data.systemState;
+  const residentsPresent = data.residents.filter((resident) => resident.state === "present").length;
 
   return (
     <div className="dashboard-grid">
       <StatCard
         title="État système"
         value={systemState}
-        label={demoFallback ? "Démo fallback" : "API synora-api"}
+        label={data.error ? "Données partielles" : "API synora-api"}
         tone={systemTone(systemState)}
       />
 
@@ -108,13 +99,14 @@ export function Dashboard() {
         title="Événements récents"
         className="card-wide"
         action={
-          <span className={`badge ${demoFallback ? "warning" : data.connection === "connected" ? "success" : "warning"}`}>
-            {demoFallback ? "Démo fallback" : data.connection === "connected" ? "Connecté" : "Dégradé"}
+          <span className={`badge ${data.connection === "connected" ? "success" : "warning"}`}>
+            {data.connection === "connected" ? "Connecté" : "Dégradé"}
           </span>
         }
       >
+        {data.error && <div className="auth-error" role="alert">{data.error}</div>}
         <div className="event-list">
-          {events.map((event, index) => (
+          {events.length === 0 ? <div className="empty-state"><strong>Aucun événement récent.</strong><span>Les événements apparaîtront ici lorsqu’ils seront reçus.</span></div> : events.map((event, index) => (
             <EventRow
               key={`${event.type}-${event.title}-${index}`}
               type={event.type}
@@ -127,10 +119,10 @@ export function Dashboard() {
       </Panel>
 
       <Panel title="CGE Risk" className="card-side">
-        <div className={`risk-card risk-${dangerTone(0.72)}`}>
+        <div className={`risk-card risk-${dangerTone(danger)}`}>
           <div className="risk-score">
             <ShieldAlert size={22} />
-            <strong>72%</strong>
+            <strong>{Math.round(danger * 100)}%</strong>
           </div>
 
           <p>
@@ -139,7 +131,7 @@ export function Dashboard() {
           </p>
 
           <div className="risk-meter">
-            <span style={{ width: "72%" }} />
+            <span style={{ width: `${Math.round(danger * 100)}%` }} />
           </div>
 
           <div className="risk-meta">
@@ -147,7 +139,7 @@ export function Dashboard() {
             <strong>suspicious</strong>
           </div>
 
-          <button className="primary-button">Inspecter le CGE</button>
+          <button type="button" className="primary-button" onClick={() => window.dispatchEvent(new CustomEvent("synora:navigate", { detail: "live" }))}>Inspecter le CGE</button>
         </div>
       </Panel>
 
@@ -157,7 +149,7 @@ export function Dashboard() {
         action={<Cpu size={17} />}
       >
         <div className="compact-list">
-          {devices.map((device) => (
+          {devices.length === 0 ? <div className="empty-state"><strong>Aucun appareil enregistré.</strong><span>Ajoutez un appareil depuis la page Périphériques.</span></div> : devices.map((device) => (
             <div className="compact-row" key={device.id}>
               <div>
                 <strong>{device.name}</strong>
@@ -182,23 +174,7 @@ export function Dashboard() {
         action={<Brain size={17} />}
       >
         <div className="critical-list">
-          {demoCriticalChains.map((chain) => (
-            <div className="critical-row" key={chain.id}>
-              <div className={`critical-icon ${dangerTone(chain.score)}`}>
-                <Activity size={17} />
-              </div>
-
-              <div>
-                <strong>{chain.label}</strong>
-                <span>{chain.id}</span>
-              </div>
-
-              <div className={`critical-score ${dangerTone(chain.score)}`}>
-                <span>{chain.state}</span>
-                <strong>{chain.score.toFixed(2)}</strong>
-              </div>
-            </div>
-          ))}
+          <div className="empty-state"><Activity size={20} /><strong>Aucune chaîne critique connue pour l’instant.</strong><span>Les chaînes apparaîtront après des incidents ou simulations.</span></div>
         </div>
       </Panel>
 
@@ -213,7 +189,7 @@ export function Dashboard() {
             <span>Dernière présence confirmée · zoneA.L0.salon</span>
           </div>
 
-          <button className="secondary-button">Voir les résidents</button>
+          <button type="button" className="secondary-button" onClick={() => window.dispatchEvent(new CustomEvent("synora:navigate", { detail: "residents" }))}>Voir les résidents</button>
         </div>
       </Panel>
     </div>

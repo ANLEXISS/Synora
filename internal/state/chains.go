@@ -119,5 +119,6 @@ func cloneCriticalChainMemory(value *contract.CriticalChainMemory) *contract.Cri
 	if json.Unmarshal(data, &cloned) != nil {
 		return nil
 	}
+	cloned = contract.NormalizeCriticalChainMemory(cloned)
 	return &cloned
 }

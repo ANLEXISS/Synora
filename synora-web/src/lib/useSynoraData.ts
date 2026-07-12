@@ -88,6 +88,7 @@ export function useSynoraData() {
     topology: ApiTopologyNode[] | null;
     topologySource: Exclude<TopologySource, "snapshot" | "loading">;
   } | null>(null);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
 
   const loadRemote = useCallback(async (signal?: AbortSignal) => {
     const results = await Promise.allSettled([
@@ -99,6 +100,10 @@ export function useSynoraData() {
     if (signal?.aborted) return;
 
     const [devices, residents, automations, topology] = results;
+    const failed = results.find((result) => result.status === "rejected");
+    setRemoteError(failed?.status === "rejected"
+      ? failed.reason instanceof Error ? failed.reason.message : "Impossible de charger les données de configuration."
+      : null);
     const topologyValue = topology.status === "fulfilled" ? topology.value : {};
     const topologySource: Exclude<TopologySource, "snapshot" | "loading"> =
       topology.status !== "fulfilled"
@@ -189,6 +194,7 @@ export function useSynoraData() {
 
   return {
     ...state,
+    error: state.error ?? remoteError,
     refresh: refreshData,
     devices,
     residents,

@@ -4,10 +4,18 @@ import type {
   CgeSecurityMode,
   CgeSecurityProfileInput,
   CgeSecurityProfile,
+  CriticalChainMemory,
   EventChain,
   ChainEvaluation,
   DangerLevel,
 } from "./synora-types";
+import {
+  normalizeDangerLevel,
+  normalizeDateString,
+  normalizeNumber,
+  normalizeString,
+  normalizeStringArray,
+} from "./normalize";
 
 const SECURITY_MODES: CgeSecurityMode[] = ["relaxed", "balanced", "strict", "paranoid"];
 const DANGER_LEVELS: DangerLevel[] = ["none", "low", "medium", "high", "critical"];
@@ -53,6 +61,35 @@ export function normalizeCgeSecurityProfile(raw: CgeSecurityProfileInput | null 
     allow_automatic_notifications: typeof source.allow_automatic_notifications === "boolean" ? source.allow_automatic_notifications : true,
     unknown_persistence_seconds: boundedInteger(source.unknown_persistence_seconds, 10, 1, 86400),
     significant_inactivity_timeout_seconds: boundedInteger(source.significant_inactivity_timeout_seconds, 30, 1, 86400),
+  };
+}
+
+export function normalizeCriticalChainMemory(raw: unknown): CriticalChainMemory {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  return {
+    id: normalizeString(source.id),
+    template_id: normalizeString(source.template_id),
+    first_seen: normalizeDateString(source.first_seen),
+    last_seen: normalizeDateString(source.last_seen),
+    occurrences: Math.max(0, Math.round(normalizeNumber(source.occurrences))),
+    max_danger_level: normalizeDangerLevel(source.max_danger_level),
+    max_danger_score: Math.max(0, normalizeNumber(source.max_danger_score)),
+    representative_chain_id: normalizeString(source.representative_chain_id),
+    recent_chain_ids: normalizeStringArray(source.recent_chain_ids),
+    significant_event_types: normalizeStringArray(source.significant_event_types),
+    node_pattern: normalizeStringArray(source.node_pattern),
+    device_types: normalizeStringArray(source.device_types),
+    identity_pattern: normalizeStringArray(source.identity_pattern),
+    typical_state_path: normalizeStringArray(source.typical_state_path),
+    typical_danger_path: normalizeStringArray(source.typical_danger_path),
+    summary: normalizeString(source.summary),
+    learned_reason: normalizeString(source.learned_reason),
+    recommended_actions: normalizeStringArray(source.recommended_actions),
+    actions_taken: normalizeStringArray(source.actions_taken),
+    outcomes: normalizeStringArray(source.outcomes),
+    confidence: Math.max(0, Math.min(1, normalizeNumber(source.confidence))),
+    feedback_count: Math.max(0, Math.round(normalizeNumber(source.feedback_count))),
+    last_feedback_at: normalizeDateString(source.last_feedback_at),
   };
 }
 

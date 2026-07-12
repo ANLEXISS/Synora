@@ -868,14 +868,17 @@ func cloneMemory(value *contract.CriticalChainMemory) *contract.CriticalChainMem
 	if value == nil {
 		return nil
 	}
-	cloned := *value
-	cloned.RecentChainIDs = append([]string(nil), value.RecentChainIDs...)
-	cloned.SignificantEventTypes = append([]string(nil), value.SignificantEventTypes...)
-	cloned.NodePattern = append([]string(nil), value.NodePattern...)
-	cloned.DeviceTypes = append([]string(nil), value.DeviceTypes...)
-	cloned.IdentityPattern = append([]string(nil), value.IdentityPattern...)
-	cloned.TypicalStatePath = append([]string(nil), value.TypicalStatePath...)
-	cloned.TypicalDangerPath = append([]string(nil), value.TypicalDangerPath...)
+	cloned := contract.NormalizeCriticalChainMemory(*value)
+	cloned.RecentChainIDs = append([]string{}, cloned.RecentChainIDs...)
+	cloned.SignificantEventTypes = append([]string{}, cloned.SignificantEventTypes...)
+	cloned.NodePattern = append([]string{}, cloned.NodePattern...)
+	cloned.DeviceTypes = append([]string{}, cloned.DeviceTypes...)
+	cloned.IdentityPattern = append([]string{}, cloned.IdentityPattern...)
+	cloned.TypicalStatePath = append([]string{}, cloned.TypicalStatePath...)
+	cloned.TypicalDangerPath = append([]string{}, cloned.TypicalDangerPath...)
+	cloned.RecommendedActions = append([]string{}, cloned.RecommendedActions...)
+	cloned.ActionsTaken = append([]string{}, cloned.ActionsTaken...)
+	cloned.Outcomes = append([]string{}, cloned.Outcomes...)
 	return &cloned
 }
 

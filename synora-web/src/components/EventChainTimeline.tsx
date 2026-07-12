@@ -17,6 +17,7 @@ import {
   getLatestEventId,
   isContextualEvent,
   isSignificantEvent,
+  normalizeEventChain,
 } from "../lib/event-chains";
 import type {
   ApiTopologyNode,
@@ -46,13 +47,14 @@ export function EventChainTimeline({
   onCorrectEvaluation,
   feedback = [],
 }: EventChainTimelineProps) {
+  const safeChain = normalizeEventChain(chain);
   const events = useMemo(
-    () => (chain.recent_events ?? [])
+    () => (safeChain.recent_events ?? [])
       .map((event, index) => ({ event, index }))
       .sort((left, right) => Date.parse(left.event.timestamp) - Date.parse(right.event.timestamp)),
-    [chain.recent_events],
+    [safeChain.recent_events],
   );
-  const latestEventId = getLatestEventId(chain);
+  const latestEventId = getLatestEventId(safeChain);
   const [expandedEventId, setExpandedEventId] = useState(
     initialExpandedEventId ?? latestEventId,
   );
@@ -95,7 +97,7 @@ export function EventChainTimeline({
     <div className="event-chain-timeline" aria-label="Maillons de la chaîne">
       {events.map(({ event, index }) => {
         const eventId = getEventKey(event, index);
-        const evaluation = event.id ? getEvaluationForEvent(chain, event.id) : undefined;
+        const evaluation = event.id ? getEvaluationForEvent(safeChain, event.id) : undefined;
         return (
           <EventStepCard
             key={eventId}

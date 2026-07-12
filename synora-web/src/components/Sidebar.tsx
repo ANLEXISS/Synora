@@ -94,9 +94,8 @@ export function Sidebar({
 
 function permissionForPage(page: PageId) {
   switch (page) {
-    case "dashboard":
-    case "live":
-      return "cge:read";
+    case "dashboard": return "state:read";
+    case "live": return "cge:read";
     case "home":
       return "topology:read";
     case "devices":

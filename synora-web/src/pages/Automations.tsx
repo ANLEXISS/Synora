@@ -47,7 +47,6 @@ import {
   automationOperatorLabels,
   automationSystemStateCatalog,
   demoApiTopology,
-  demoAutomations,
   demoTopologyDevices,
   prettyTopologyName,
   type AutomationActionKind,
@@ -318,11 +317,9 @@ export function Automations() {
   const auth = useAuth();
   const conditionCatalog = useMemo(() => buildConditionCatalog(), []);
 
-  const [automations, setAutomations] =
-    useState<DemoAutomation[]>(demoAutomations);
+  const [automations, setAutomations] = useState<DemoAutomation[]>([]);
 
   useEffect(() => {
-    if (data.automations.length === 0) return;
     setAutomations(
       data.automations.map((automation) => automationForList(automation, conditionCatalog))
     );
@@ -590,6 +587,7 @@ async function createAutomationFromBuilder() {
 }
 
 async function handleDeleteAutomation(id: string) {
+  if (!window.confirm("Supprimer cette automatisation ?")) return;
   try {
     await deleteAutomation(id);
     await data.refresh();
@@ -665,6 +663,7 @@ async function handleDeleteAutomation(id: string) {
           </button>
         ) : undefined}
       >
+        {data.error && <div className="auth-error" role="alert">{data.error} <button type="button" className="secondary-button" onClick={() => void data.refresh()}>Réessayer</button></div>}
         {notice && <div className="auth-error">{notice}</div>}
         <div className="automations-toolbar">
           <label className="automation-search">
@@ -715,7 +714,7 @@ async function handleDeleteAutomation(id: string) {
         </div>
 
         <div className="automations-grid">
-          {filteredAutomations.map((automation) => {
+          {filteredAutomations.length === 0 ? <div className="empty-state"><Workflow size={24} /><strong>Aucune automatisation.</strong><span>{data.error ? "Les automatisations ne sont pas disponibles." : "Créez une règle pour automatiser les réactions de Synora."}</span>{auth.can("automations:write") && !data.error && <button type="button" className="primary-button" onClick={openCreateBuilder}>Créer une automatisation</button>}</div> : filteredAutomations.map((automation) => {
             const tone = automationTone(automation);
             const score = Math.round(automation.min_score * 100);
 

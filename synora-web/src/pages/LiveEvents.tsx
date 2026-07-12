@@ -78,6 +78,7 @@ export function LiveEvents() {
   const [selectedFeedback, setSelectedFeedback] = useState<CgeEvaluationFeedback[]>([]);
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const selectedChainIDRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -181,7 +182,7 @@ export function LiveEvents() {
     };
     // The transport lifecycle must be mounted once per page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshNonce]);
 
   const chains = useMemo(() => Object.values(chainsByID), [chainsByID]);
   const openChains = useMemo(() => sortEventChains(chains, "open"), [chains]);
@@ -237,7 +238,7 @@ export function LiveEvents() {
         </span>
       </div>
 
-      {error && <div className="auth-error" role="alert">{error}</div>}
+      {error && <div className="auth-error" role="alert">{error} <button type="button" className="secondary-button" onClick={() => setRefreshNonce((value) => value + 1)}>Réessayer</button></div>}
       {notice && <div className="cge-success" role="status">{notice}</div>}
 
       <ChainSection
@@ -246,7 +247,7 @@ export function LiveEvents() {
         chains={openChains}
         devices={topologyData.devices}
         topology={topologyData.topology}
-        empty="Aucune chaîne ouverte."
+        empty="Aucune chaîne en cours. Lance une simulation ou attends un événement réel."
         onDetails={showDetails}
       />
 

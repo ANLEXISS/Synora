@@ -1,10 +1,100 @@
 import { getRoomLabel } from "./topology";
 import type { ApiTopologyNode, ChainStatus, DangerLevel, EventChain, EventChainEvent } from "./synora-types";
+import { normalizeArray, normalizeBoolean, normalizeDangerLevel, normalizeDateString, normalizeNumber, normalizeString, normalizeStringArray, isRecord } from "./normalize";
 
 export type EventChainUpdate = Partial<EventChain> & {
   chain_id?: string;
   updated_at?: string;
 };
+
+export function normalizeEventChain(raw: unknown): EventChain {
+  const source = isRecord(raw) ? raw : {};
+  const status: ChainStatus = source.status === "closed" ? "closed" : "open";
+  const events = normalizeArray<unknown>(source.recent_events).map(normalizeEventChainEvent);
+  const evaluations = normalizeArray<unknown>(source.evaluations).map(normalizeChainEvaluation);
+  return {
+    id: normalizeString(source.id),
+    status,
+    activation_id: normalizeString(source.activation_id),
+    sequence_key: normalizeString(source.sequence_key),
+    started_at: normalizeDateString(source.started_at),
+    updated_at: normalizeDateString(source.updated_at),
+    last_event_at: normalizeDateString(source.last_event_at),
+    last_significant_event_at: normalizeDateString(source.last_significant_event_at),
+    closed_at: normalizeDateString(source.closed_at, "") || null,
+    closed_reason: normalizeString(source.closed_reason),
+    primary_device_id: normalizeString(source.primary_device_id),
+    primary_node_id: normalizeString(source.primary_node_id),
+    resident_id: normalizeString(source.resident_id),
+    identity_id: normalizeString(source.identity_id),
+    track_ids: normalizeStringArray(source.track_ids),
+    clip_ids: normalizeStringArray(source.clip_ids),
+    current_state: normalizeString(source.current_state),
+    danger_level: normalizeDangerLevel(source.danger_level),
+    danger_score: normalizeNumber(source.danger_score),
+    max_danger_level: normalizeDangerLevel(source.max_danger_level),
+    max_danger_score: normalizeNumber(source.max_danger_score),
+    danger_reasons: normalizeStringArray(source.danger_reasons),
+    title: normalizeString(source.title),
+    summary: normalizeString(source.summary),
+    events_count: Math.max(0, Math.round(normalizeNumber(source.events_count))),
+    significant_events_count: Math.max(0, Math.round(normalizeNumber(source.significant_events_count))),
+    contextual_events_count: Math.max(0, Math.round(normalizeNumber(source.contextual_events_count))),
+    motion_count: Math.max(0, Math.round(normalizeNumber(source.motion_count))),
+    recent_events: events,
+    evaluations,
+    rolling_summary: normalizeString(source.rolling_summary),
+    compaction: isRecord(source.compaction) ? {
+      total_events_count: Math.max(0, Math.round(normalizeNumber(source.compaction.total_events_count))),
+      retained_events_count: Math.max(0, Math.round(normalizeNumber(source.compaction.retained_events_count))),
+      compacted_contextual_count: Math.max(0, Math.round(normalizeNumber(source.compaction.compacted_contextual_count))),
+      rolling_summary: normalizeString(source.compaction.rolling_summary),
+    } : undefined,
+    critical: normalizeBoolean(source.critical),
+    simulated: normalizeBoolean(source.simulated),
+    test_run_id: normalizeString(source.test_run_id),
+    scenario_id: normalizeString(source.scenario_id),
+    created_by: normalizeString(source.created_by),
+  };
+}
+
+function normalizeEventChainEvent(raw: unknown): EventChainEvent {
+  const source = isRecord(raw) ? raw : {};
+  return {
+    id: normalizeString(source.id),
+    type: normalizeString(source.type, "unknown"),
+    timestamp: normalizeDateString(source.timestamp),
+    device_id: normalizeString(source.device_id),
+    node_id: normalizeString(source.node_id),
+    activation_id: normalizeString(source.activation_id),
+    sequence_key: normalizeString(source.sequence_key),
+    clip_id: normalizeString(source.clip_id),
+    clip_index: Math.max(0, Math.round(normalizeNumber(source.clip_index))),
+    track_id: normalizeString(source.track_id),
+    severity: normalizeString(source.severity),
+    significant: normalizeBoolean(source.significant),
+    contextual: normalizeBoolean(source.contextual),
+    simulated: normalizeBoolean(source.simulated),
+    test_run_id: normalizeString(source.test_run_id),
+    payload: isRecord(source.payload) ? source.payload : {},
+  };
+}
+
+function normalizeChainEvaluation(raw: unknown) {
+  const source = isRecord(raw) ? raw : {};
+  return {
+    index: Math.max(0, Math.round(normalizeNumber(source.index))),
+    event_id: normalizeString(source.event_id),
+    timestamp: normalizeDateString(source.timestamp),
+    state: normalizeString(source.state),
+    danger_level: normalizeDangerLevel(source.danger_level),
+    danger_score: normalizeNumber(source.danger_score),
+    reasons: normalizeStringArray(source.reasons),
+    hypotheses: normalizeStringArray(source.hypotheses),
+    recommended_actions: normalizeStringArray(source.recommended_actions),
+    engine_version: normalizeString(source.engine_version),
+  };
+}
 
 export function sortEventChains(chains: EventChain[], status?: ChainStatus | "all") {
   return [...chains]
@@ -22,7 +112,7 @@ export function sortEventChains(chains: EventChain[], status?: ChainStatus | "al
 
 export function mergeChainUpdate(existing: EventChain | undefined, update: EventChainUpdate): EventChain {
   const id = update.id ?? update.chain_id ?? existing?.id ?? "";
-  return {
+  return normalizeEventChain({
     ...(existing ?? {
       id,
       status: "open",
@@ -39,7 +129,7 @@ export function mergeChainUpdate(existing: EventChain | undefined, update: Event
     }),
     ...update,
     id,
-  } as EventChain;
+  });
 }
 
 export function formatDangerLevel(level: DangerLevel | string | undefined) {

@@ -21,8 +21,6 @@ import {
 import { Panel } from "../components/Panel";
 import { useSynoraData } from "../hooks/useSynoraData";
 import {
-  demoApiTopology,
-  demoTopologyDevices,
   prettyTopologyName,
   type ApiTopologyNode,
   type TopologyDevice,
@@ -471,13 +469,8 @@ function computeMetrics(
 
 export function HomeMap() {
   const data = useSynoraData();
-  const fallbackDemo =
-    data.apiStatus !== "unauthenticated" &&
-    ["empty", "unavailable"].includes(data.topologySource);
-  const topology = fallbackDemo ? demoApiTopology : data.topology;
-  const devices: TopologyDevice[] = fallbackDemo
-    ? demoTopologyDevices
-    : normalizeTopologyDevices(data.devices, topology);
+  const topology = data.topology;
+  const devices: TopologyDevice[] = normalizeTopologyDevices(data.devices, topology);
   const { ref: boardRef, width: boardWidth } =
     useElementWidth<HTMLDivElement>();
 
@@ -573,7 +566,7 @@ export function HomeMap() {
                     ? "API indisponible"
                     : "Topologie vide côté backend"}
             </strong>
-            <span>{fallbackDemo ? "Fallback démo disponible après chargement." : "Aucune zone ou étage disponible."}</span>
+            <span>{data.error ? "La topologie n’est pas disponible. Réessayez après vérification de l’API." : "Aucune zone ou étage disponible."}</span>
           </div>
         </Panel>
       </div>
@@ -588,7 +581,7 @@ export function HomeMap() {
         action={
           <span className="badge success">
             <Lock size={12} />
-            {fallbackDemo ? "fallback démo" : sourceLabel(data.apiStatus, data.topologySource)}
+            {sourceLabel(data.apiStatus, data.topologySource)}
           </span>
         }
       >

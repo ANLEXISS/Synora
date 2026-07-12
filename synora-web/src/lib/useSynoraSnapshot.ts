@@ -105,15 +105,37 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
     let ws: WebSocket | null = null;
     let closedByComponent = false;
     let reconnectTimer: number | null = null;
+    let pollingTimer: number | null = null;
     let reconnectDelay = 1000;
 
-    function connect() {
-      setConnection("connecting");
+    function startPolling() {
+      if (pollingTimer !== null) return;
+      pollingTimer = window.setInterval(() => void refresh(), 5000);
+    }
 
-      ws = new WebSocket(buildWsUrl("/api/ws"));
+    function stopPolling() {
+      if (pollingTimer !== null) window.clearInterval(pollingTimer);
+      pollingTimer = null;
+    }
+
+    function connect() {
+      if (typeof WebSocket === "undefined") {
+        setConnection("disconnected");
+        startPolling();
+        return;
+      }
+      setConnection("connecting");
+      try {
+        ws = new WebSocket(buildWsUrl("/api/ws"));
+      } catch {
+        setConnection("disconnected");
+        startPolling();
+        return;
+      }
 
       ws.onopen = () => {
         setConnection("connected");
+        stopPolling();
         setError(null);
         reconnectDelay = 1000;
       };
@@ -138,6 +160,7 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
 
       ws.onerror = () => {
         setConnection("error");
+        startPolling();
       };
 
       ws.onclose = () => {
@@ -145,6 +168,7 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
 
         setConnection("disconnected");
         void refresh();
+        startPolling();
 
         reconnectTimer = window.setTimeout(() => {
           connect();
@@ -161,6 +185,7 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
       if (reconnectTimer !== null) {
         window.clearTimeout(reconnectTimer);
       }
+      stopPolling();
 
       ws?.close();
     };

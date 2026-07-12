@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Sidebar } from "../components/Sidebar";
 import { Topbar } from "../components/Topbar";
 import { Dashboard } from "../pages/Dashboard";
@@ -11,6 +11,7 @@ import { SynoraLab } from "../pages/SynoraLab";
 import { Settings } from "../pages/Settings";
 import { useAuth } from "../hooks/useAuth";
 import { Shield } from "lucide-react";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 
 export type PageId =
   | "dashboard"
@@ -64,7 +65,7 @@ const pageMeta: Record<PageId, { title: string; subtitle: string }> = {
 
 const pagePermissions: Record<PageId, string> = {
   dashboard: "state:read",
-  live: "state:read",
+  live: "cge:read",
   home: "topology:read",
   devices: "devices:read",
   residents: "residents:read",
@@ -76,8 +77,31 @@ const pagePermissions: Record<PageId, string> = {
 
 export default function App() {
 	const auth = useAuth();
-	const [page, setPage] = useState<PageId>("dashboard");
+	const [page, setPage] = useState<PageId | "not-found">(pageFromPath);
 	const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+	function navigateTo(nextPage: PageId) {
+		setPage(nextPage);
+		setMobileSidebarOpen(false);
+		const path = nextPage === "live" ? "/cge" : `/${nextPage}`;
+		if (window.location.pathname !== path) window.history.pushState({}, "", path);
+	}
+
+	useEffect(() => {
+		const handleNavigate = (event: Event) => {
+			const nextPage = (event as CustomEvent<unknown>).detail;
+			if (typeof nextPage === "string" && nextPage in pageMeta) navigateTo(nextPage as PageId);
+		};
+		const handlePopState = () => setPage(pageFromPath());
+		window.addEventListener("synora:navigate", handleNavigate);
+		window.addEventListener("popstate", handlePopState);
+		return () => {
+			window.removeEventListener("synora:navigate", handleNavigate);
+			window.removeEventListener("popstate", handlePopState);
+		};
+	}, []);
+
+	if (page === "not-found") return <NotFound onDashboard={() => navigateTo("dashboard")} />;
 
 	const meta = useMemo(() => pageMeta[page], [page]);
 
@@ -99,8 +123,7 @@ export default function App() {
 			page={page}
 			can={auth.can}
         setPage={(nextPage) => {
-          setPage(nextPage);
-          setMobileSidebarOpen(false);
+			navigateTo(nextPage);
         }}
         mobileOpen={mobileSidebarOpen}
         toggleMobile={() => setMobileSidebarOpen((open) => !open)}
@@ -117,7 +140,7 @@ export default function App() {
         {!auth.can(pagePermissions[page]) ? (
           <AccessDenied />
         ) : (
-          <>
+          <ErrorBoundary key={page} name={page}>
             {page === "dashboard" && <Dashboard />}
             {page === "live" && <Cge />}
             {page === "home" && <HomeMap />}
@@ -127,7 +150,7 @@ export default function App() {
             {page === "cge" && <Cge />}
             {page === "lab" && <SynoraLab />}
             {page === "settings" && <Settings />}
-          </>
+          </ErrorBoundary>
         )}
       </main>
     </div>
@@ -206,4 +229,25 @@ function AccessDenied() {
 			<p>Votre rôle ne possède pas la permission nécessaire pour cette vue.</p>
 		</section>
 	);
+}
+
+function pageFromPath(): PageId | "not-found" {
+	const path = window.location.pathname.replace(/\/+$/, "") || "/";
+	const routes: Record<string, PageId> = {
+		"/": "dashboard",
+		"/dashboard": "dashboard",
+		"/live-events": "live",
+		"/cge": "live",
+		"/home": "home",
+		"/devices": "devices",
+		"/residents": "residents",
+		"/automations": "automations",
+		"/lab": "lab",
+		"/settings": "settings",
+	};
+	return routes[path] ?? "not-found";
+}
+
+function NotFound({ onDashboard }: { onDashboard: () => void }) {
+	return <section className="page-placeholder"><h2>Page introuvable</h2><p>Cette route Synora n’existe pas ou n’est plus disponible.</p><div className="page-placeholder-actions"><button type="button" className="primary-button" onClick={onDashboard}>Retour au tableau de bord</button></div></section>;
 }
