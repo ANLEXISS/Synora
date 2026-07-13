@@ -5,6 +5,7 @@ import { normalizeCgeSecurityProfile, normalizeCriticalChainMemory } from "./cge
 import { normalizeEventChain } from "./event-chains";
 import { normalizeArray, normalizeBoolean, normalizeCollection, normalizeDateString, normalizeNumber, normalizeString, normalizeStringArray, isRecord } from "./normalize";
 import { normalizeTopologyResponse } from "./topology";
+import type { DashboardRuntimeStatus } from "./dashboard";
 import type {
   SynoraFacePhoto,
   SynoraFaceProfile,
@@ -89,6 +90,12 @@ export function buildResidentMutationPayload(form: ResidentFormMutationInput): R
 
 export function getState(signal?: AbortSignal) {
   return synoraFetch<unknown>("/api/state", { signal }).then(normalizeSnapshot);
+}
+
+export function getRuntimeStatus(signal?: AbortSignal) {
+  return synoraFetch<unknown>("/api/cge/runtime-status", { signal }).then((value): DashboardRuntimeStatus => (
+    isRecord(value) ? value : {}
+  ));
 }
 
 export function getDevices(signal?: AbortSignal) {
@@ -368,7 +375,7 @@ function normalizeSnapshot(value: unknown): SynoraSnapshot {
     devices: normalizeCollection<unknown>(source.devices).map(normalizeDevice).filter((device) => device.id),
     residents: normalizeCollection<unknown>(source.residents).map(normalizeResident).filter((resident) => resident.id),
     automations: normalizeCollection<unknown>(source.automations).map(normalizeAutomation).filter((automation) => automation.id),
-    events: normalizeArray<unknown>(source.events).filter(isRecord).map((event) => ({
+    events: normalizeArray<unknown>(source.events ?? source.recent_events).filter(isRecord).map((event) => ({
       ...event,
       id: normalizeString(event.id),
       type: normalizeString(event.type ?? event.event_type, "event"),

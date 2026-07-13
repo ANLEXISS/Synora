@@ -191,6 +191,7 @@ export type SynoraSnapshot = {
   danger_score?: number;
   devices?: SynoraDevice[] | Record<string, SynoraDevice>;
   events?: SynoraEvent[];
+  recent_events?: SynoraEvent[];
   residents?: SynoraResident[] | Record<string, SynoraResident>;
   automations?: SynoraAutomation[] | Record<string, SynoraAutomation>;
   nodes?: Record<string, unknown>;

@@ -559,6 +559,28 @@ button {
   gap: 12px;
 }
 
+.dashboard-panel-actions,
+.risk-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.text-button {
+  border: 0;
+  padding: 0;
+  color: var(--cyan);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.text-button:hover {
+  text-decoration: underline;
+}
+
 .event-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

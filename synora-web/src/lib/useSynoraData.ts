@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getAutomations, getDevices, getResidents, getTopology } from "./synora-api";
+import { getAutomations, getDevices, getResidents, getRuntimeStatus, getTopology } from "./synora-api";
 import {
   isRecognizedTopologyResponse,
   normalizeTopologyResponse,
   type TopologySource,
 } from "./topology";
 import { useSynoraSnapshot } from "./useSynoraSnapshot";
-import { normalizeDangerScore, normalizeSystemState } from "./format";
+import type { DashboardRuntimeStatus } from "./dashboard";
 import type {
   ApiTopologyNode,
   SynoraAutomation,
@@ -44,6 +44,7 @@ function mergeConfiguredRuntimeCollection<T extends { id: string }>(
   configured: T[],
   runtime: T[],
 ): T[] {
+  if (configured.length === 0) return runtime;
   if (runtime.length === 0) return configured;
 
   const runtimeByID = new Map(runtime.map((item) => [item.id, item]));
@@ -89,6 +90,21 @@ export function useSynoraData() {
     topologySource: Exclude<TopologySource, "snapshot" | "loading">;
   } | null>(null);
   const [remoteError, setRemoteError] = useState<string | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<DashboardRuntimeStatus | null>(null);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+
+  const loadRuntimeStatus = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const value = await getRuntimeStatus(signal);
+      if (signal?.aborted) return;
+      setRuntimeStatus(value);
+      setRuntimeError(null);
+    } catch (cause) {
+      if (signal?.aborted) return;
+      setRuntimeStatus(null);
+      setRuntimeError(cause instanceof Error ? cause.message : "Impossible de charger le statut runtime du CGE.");
+    }
+  }, []);
 
   const loadRemote = useCallback(async (signal?: AbortSignal) => {
     const results = await Promise.allSettled([
@@ -96,11 +112,12 @@ export function useSynoraData() {
       getResidents(signal),
       getAutomations(signal),
       getTopology(signal),
+      getRuntimeStatus(signal),
     ]);
     if (signal?.aborted) return;
 
-    const [devices, residents, automations, topology] = results;
-    const failed = results.find((result) => result.status === "rejected");
+    const [devices, residents, automations, topology, runtime] = results;
+    const failed = results.slice(0, 4).find((result) => result.status === "rejected");
     setRemoteError(failed?.status === "rejected"
       ? failed.reason instanceof Error ? failed.reason.message : "Impossible de charger les données de configuration."
       : null);
@@ -120,14 +137,30 @@ export function useSynoraData() {
       topology: topology.status === "fulfilled" ? normalizeTopologyResponse(topologyValue) : null,
       topologySource,
     });
+    if (runtime.status === "fulfilled") {
+      setRuntimeStatus(runtime.value);
+      setRuntimeError(null);
+    } else {
+      setRuntimeStatus(null);
+      setRuntimeError(runtime.reason instanceof Error ? runtime.reason.message : "Impossible de charger le statut runtime du CGE.");
+    }
   }, []);
 
   useEffect(() => {
     const controller = new AbortController();
     void loadRemote(controller.signal);
 
-    return () => controller.abort();
-  }, [loadRemote]);
+    const refreshTimer = window.setInterval(() => void loadRemote(), 5000);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(refreshTimer);
+    };
+  }, [loadRemote, loadRuntimeStatus]);
+
+  useEffect(() => {
+    if (state.lastMessageAt) void loadRuntimeStatus();
+  }, [state.lastMessageAt, loadRuntimeStatus]);
 
   const refreshData = useCallback(async () => {
     await Promise.all([state.refresh(), loadRemote()]);
@@ -174,8 +207,8 @@ export function useSynoraData() {
   );
 
   const events = useMemo(
-    () => state.snapshot?.events ?? [],
-    [state.snapshot?.events]
+    () => state.snapshot?.events ?? state.snapshot?.recent_events ?? [],
+    [state.snapshot?.events, state.snapshot?.recent_events]
   );
 
   const snapshotTopology = useMemo(
@@ -194,7 +227,7 @@ export function useSynoraData() {
 
   return {
     ...state,
-    error: state.error ?? remoteError,
+    error: state.error ?? remoteError ?? runtimeError,
     refresh: refreshData,
     devices,
     residents,
@@ -202,7 +235,6 @@ export function useSynoraData() {
     events,
     topology,
     topologySource,
-    systemState: normalizeSystemState(state.snapshot),
-    dangerScore: normalizeDangerScore(state.snapshot),
+    runtimeStatus,
   };
 }
