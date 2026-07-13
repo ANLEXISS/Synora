@@ -92,9 +92,10 @@ export function normalizeCriticalChainMemory(raw: unknown): CriticalChainMemory 
     feedback_count: Math.max(0, Math.round(normalizeNumber(source.feedback_count))),
     last_feedback_at: normalizeDateString(source.last_feedback_at),
     simulated: source.simulated === true,
-    source: source.source === "simulation" || source.source === "mixed" ? source.source : "real",
+    source: source.source === "simulation" || source.source === "validation" || source.source === "mixed" ? source.source : "real",
     simulated_occurrences: Math.max(0, Math.round(normalizeNumber(source.simulated_occurrences))),
     real_occurrences: Math.max(0, Math.round(normalizeNumber(source.real_occurrences))),
+    validation_occurrences: Math.max(0, Math.round(normalizeNumber(source.validation_occurrences))),
   };
 }
 

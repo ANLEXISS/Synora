@@ -22,22 +22,24 @@ const (
 // PublicEvent is the redacted event representation exposed as part of a
 // chain. Raw events remain available through the existing event store.
 type PublicEvent struct {
-	ID           string         `json:"id,omitempty"`
-	Type         string         `json:"type"`
-	Timestamp    time.Time      `json:"timestamp"`
-	DeviceID     string         `json:"device_id,omitempty"`
-	NodeID       string         `json:"node_id,omitempty"`
-	ActivationID string         `json:"activation_id,omitempty"`
-	SequenceKey  string         `json:"sequence_key,omitempty"`
-	ClipID       string         `json:"clip_id,omitempty"`
-	ClipIndex    int            `json:"clip_index,omitempty"`
-	TrackID      string         `json:"track_id,omitempty"`
-	Severity     string         `json:"severity,omitempty"`
-	Significant  bool           `json:"significant"`
-	Contextual   bool           `json:"contextual"`
-	Simulated    bool           `json:"simulated,omitempty"`
-	TestRunID    string         `json:"test_run_id,omitempty"`
-	Payload      map[string]any `json:"payload,omitempty"`
+	ID              string         `json:"id,omitempty"`
+	Type            string         `json:"type"`
+	Timestamp       time.Time      `json:"timestamp"`
+	DeviceID        string         `json:"device_id,omitempty"`
+	NodeID          string         `json:"node_id,omitempty"`
+	ActivationID    string         `json:"activation_id,omitempty"`
+	SequenceKey     string         `json:"sequence_key,omitempty"`
+	ClipID          string         `json:"clip_id,omitempty"`
+	ClipIndex       int            `json:"clip_index,omitempty"`
+	TrackID         string         `json:"track_id,omitempty"`
+	Severity        string         `json:"severity,omitempty"`
+	Significant     bool           `json:"significant"`
+	Contextual      bool           `json:"contextual"`
+	Simulated       bool           `json:"simulated,omitempty"`
+	Validation      bool           `json:"validation,omitempty"`
+	ValidationLearn bool           `json:"validation_learn,omitempty"`
+	TestRunID       string         `json:"test_run_id,omitempty"`
+	Payload         map[string]any `json:"payload,omitempty"`
 }
 
 type ChainEvaluation struct {
@@ -101,6 +103,10 @@ type EventChain struct {
 	TestRunID              string            `json:"test_run_id,omitempty"`
 	ScenarioID             string            `json:"scenario_id,omitempty"`
 	CreatedBy              string            `json:"created_by,omitempty"`
+	Source                 string            `json:"source,omitempty"`
+	Validation             bool              `json:"validation,omitempty"`
+	ValidationLearn        bool              `json:"validation_learn,omitempty"`
+	ValidationID           string            `json:"validation_id,omitempty"`
 }
 
 type CriticalChainMemory struct {
@@ -131,6 +137,7 @@ type CriticalChainMemory struct {
 	Source                string    `json:"source"`
 	SimulatedOccurrences  int       `json:"simulated_occurrences"`
 	RealOccurrences       int       `json:"real_occurrences"`
+	ValidationOccurrences int       `json:"validation_occurrences,omitempty"`
 }
 
 func NormalizeCriticalChainMemory(memory CriticalChainMemory) CriticalChainMemory {
@@ -158,19 +165,26 @@ func NormalizeCriticalChainMemory(memory CriticalChainMemory) CriticalChainMemor
 	if memory.RealOccurrences < 0 {
 		memory.RealOccurrences = 0
 	}
+	if memory.ValidationOccurrences < 0 {
+		memory.ValidationOccurrences = 0
+	}
 	if memory.SimulatedOccurrences == 0 && memory.RealOccurrences == 0 && memory.Occurrences > 0 {
 		memory.RealOccurrences = memory.Occurrences
 	}
 	switch memory.Source {
-	case "simulation", "real", "mixed":
+	case "simulation", "real", "validation", "mixed":
 	default:
 		memory.Source = "real"
 	}
-	if memory.SimulatedOccurrences > 0 && memory.RealOccurrences > 0 {
+	if memory.ValidationOccurrences > 0 && memory.SimulatedOccurrences == 0 && memory.RealOccurrences == 0 {
+		memory.Source = "validation"
+	} else if memory.ValidationOccurrences > 0 && (memory.SimulatedOccurrences > 0 || memory.RealOccurrences > 0) {
+		memory.Source = "mixed"
+	} else if memory.SimulatedOccurrences > 0 && memory.RealOccurrences > 0 {
 		memory.Source = "mixed"
 	} else if memory.SimulatedOccurrences > 0 {
 		memory.Source = "simulation"
-	} else if memory.RealOccurrences > 0 {
+	} else if memory.RealOccurrences > 0 || memory.ValidationOccurrences > 0 {
 		memory.Source = "real"
 	}
 	memory.Simulated = memory.Source == "simulation"

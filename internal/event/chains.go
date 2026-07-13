@@ -118,7 +118,7 @@ func ClassifyEventForChain(event *contract.Event) ChainRole {
 		"presence.changed", "security.armed_changed", "automation.action_failed":
 		return ChainRoleSignificant
 	case contract.EventVisionMotion, "camera.heartbeat", "camera.clip_received",
-		"camera.clip_started", "camera.clip_finished", "stream.started",
+		"camera.clip_started", "camera.clip_finished", "camera.online", "stream.started",
 		"stream.frame", "sensor.noise", "vision.end":
 		return ChainRoleContextual
 	default:
@@ -246,7 +246,10 @@ func (m *ChainManager) ApplyChainFeedback(chainID string, feedback contract.CgeC
 	}
 	var memory *contract.CriticalChainMemory
 	for _, candidate := range m.memories {
-		if candidate == nil || candidate.RepresentativeChainID == chain.ID {
+		if candidate == nil {
+			continue
+		}
+		if candidate.RepresentativeChainID == chain.ID {
 			memory = candidate
 			break
 		}
@@ -368,7 +371,9 @@ func (m *ChainManager) Process(event *contract.Event, evaluation *contract.Chain
 	m.syncChainLocked(chain)
 	if isCriticalChain(chain, event, evaluation) {
 		chain.Critical = true
-		m.upsertCriticalMemoryLocked(chain, at)
+		if !chain.Validation || chain.ValidationLearn {
+			m.upsertCriticalMemoryLocked(chain, at)
+		}
 	}
 	if created {
 		updates = append(updates, ChainUpdate{Type: "event.chain.created", Chain: cloneChain(chain)})
@@ -474,7 +479,7 @@ func (m *ChainManager) closeInactiveLocked(now time.Time) []ChainUpdate {
 		chain.ClosedReason = "significant_inactivity_timeout"
 		chain.UpdatedAt = closedAt
 		m.syncChainLocked(chain)
-		if chain.Critical {
+		if chain.Critical && (!chain.Validation || chain.ValidationLearn) {
 			m.upsertCriticalMemoryLocked(chain, closedAt)
 		}
 		updates = append(updates, ChainUpdate{Type: "event.chain.closed", Chain: cloneChain(chain)})
@@ -512,6 +517,12 @@ func (m *ChainManager) findCompatibleLocked(event *contract.Event, at time.Time)
 	}
 	sort.Slice(open, func(i, j int) bool { return open[i].UpdatedAt.After(open[j].UpdatedAt) })
 	for _, chain := range open {
+		if chain.Validation != isValidationEvent(event) {
+			continue
+		}
+		if chain.Validation && validationID(chain) != validationID(event) {
+			continue
+		}
 		eventTestRunID := eventTestRun(event)
 		if eventTestRunID != "" && chain.TestRunID != "" && eventTestRunID != chain.TestRunID {
 			continue
@@ -643,6 +654,37 @@ func applyEventMetadata(chain *contract.EventChain, event *contract.Event) {
 		if chain.ScenarioID == "" {
 			chain.ScenarioID = stringValue(metadata["scenario_id"])
 		}
+		if boolValue(metadata["validation"]) {
+			chain.Validation = true
+			chain.ValidationLearn = chain.ValidationLearn || boolValue(metadata["learn"])
+			if chain.ValidationID == "" {
+				chain.ValidationID = stringValue(metadata["validation_id"])
+			}
+			chain.Source = "validation"
+		}
+	}
+	if chain.Source == "" {
+		chain.Source = "real"
+	}
+}
+
+func isValidationEvent(event *contract.Event) bool {
+	if event == nil {
+		return false
+	}
+	metadata, _ := event.Payload["metadata"].(map[string]any)
+	return boolValue(metadataValue(metadata, "validation"))
+}
+
+func validationID(value any) string {
+	switch item := value.(type) {
+	case *contract.Event:
+		metadata, _ := item.Payload["metadata"].(map[string]any)
+		return stringValue(metadataValue(metadata, "validation_id"))
+	case *contract.EventChain:
+		return item.ValidationID
+	default:
+		return ""
 	}
 }
 
@@ -654,6 +696,7 @@ func publicEvent(event *contract.Event, role ChainRole) contract.PublicEvent {
 		ClipID: event.ClipID, ClipIndex: event.ClipIndex, TrackID: event.TrackID,
 		Severity: severity(event.Priority), Significant: role == ChainRoleSignificant,
 		Contextual: role == ChainRoleContextual, Simulated: boolValue(metadataValue(metadata, "simulated")),
+		Validation: boolValue(metadataValue(metadata, "validation")), ValidationLearn: boolValue(metadataValue(metadata, "learn")),
 		TestRunID: stringValue(metadataValue(metadata, "test_run_id")), Payload: redactMap(event.Payload),
 	}
 }
@@ -716,12 +759,16 @@ func (m *ChainManager) upsertCriticalMemoryLocked(chain *contract.EventChain, at
 			MaxDangerLevel: string(chain.MaxDangerLevel), MaxDangerScore: chain.MaxDangerScore,
 			Summary: chain.Summary, LearnedReason: "chaîne critique observée",
 		}
-		if chain.Simulated {
+		if chain.Validation {
+			memory.ValidationOccurrences = 1
+		} else if chain.Simulated {
 			memory.SimulatedOccurrences = 1
 		} else {
 			memory.RealOccurrences = 1
 		}
 		m.memories[templateID] = memory
+	} else if chain.Validation {
+		memory.ValidationOccurrences++
 	} else if chain.Simulated {
 		memory.SimulatedOccurrences++
 	} else {
@@ -729,7 +776,11 @@ func (m *ChainManager) upsertCriticalMemoryLocked(chain *contract.EventChain, at
 	}
 	memory.LastSeen = at
 	memory.Occurrences++
-	if memory.SimulatedOccurrences > 0 && memory.RealOccurrences > 0 {
+	if memory.ValidationOccurrences > 0 && memory.SimulatedOccurrences == 0 && memory.RealOccurrences == 0 {
+		memory.Source = "validation"
+	} else if memory.ValidationOccurrences > 0 && (memory.SimulatedOccurrences > 0 || memory.RealOccurrences > 0) {
+		memory.Source = "mixed"
+	} else if memory.SimulatedOccurrences > 0 && memory.RealOccurrences > 0 {
 		memory.Source = "mixed"
 	} else if memory.SimulatedOccurrences > 0 {
 		memory.Source = "simulation"

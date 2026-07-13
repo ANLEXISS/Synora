@@ -73,16 +73,22 @@ func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
 		parsed.NodeID,
 		parsed.Identity,
 	}, "|")
-	if suffix := simulatedGroupKeySuffix(payload); suffix != "" {
+	if suffix := controlledGroupKeySuffix(payload); suffix != "" {
 		parsed.GroupKey += "|" + suffix
 	}
 
 	return parsed, nil
 }
 
-func simulatedGroupKeySuffix(payload map[string]any) string {
+func controlledGroupKeySuffix(payload map[string]any) string {
 	metadata, ok := payload["metadata"].(map[string]any)
-	if !ok || !metadataBool(metadata["simulated"]) {
+	if !ok {
+		return ""
+	}
+	if metadataBool(metadata["validation"]) {
+		return strings.TrimSpace(resolveString(metadata, "event_id"))
+	}
+	if !metadataBool(metadata["simulated"]) {
 		return ""
 	}
 	if eventInstanceID := strings.TrimSpace(resolveString(metadata, "event_instance_id")); eventInstanceID != "" {

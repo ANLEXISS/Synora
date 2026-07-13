@@ -8,6 +8,7 @@ export type DashboardDanger = {
   score: number;
   source: string;
   manualRiskActive: boolean;
+  manualRiskLevel: DangerLevel | "";
   simulated: boolean;
   realOpenChainsCount: number;
   openChainsCount: number;
@@ -107,6 +108,8 @@ export function normalizeDashboardDanger(runtimeStatus: unknown, state: unknown)
     snapshot.manual_risk_active,
     system.manual_risk_active,
   ) ?? false;
+  const normalizedManualRiskLevel = normalizeLevel(runtime.manual_risk_level);
+  const manualRiskLevel: DangerLevel | "" = normalizedManualRiskLevel && normalizedManualRiskLevel !== "unknown" ? normalizedManualRiskLevel : "";
   const simulated = firstBoolean(runtime.manual_risk_test, runtime.simulated, snapshot.simulated, system.simulated)
     ?? false;
   const score = normalizeScore(firstNumber(
@@ -128,6 +131,7 @@ export function normalizeDashboardDanger(runtimeStatus: unknown, state: unknown)
     score,
     source,
     manualRiskActive,
+    manualRiskLevel,
     simulated,
     realOpenChainsCount: firstNumber(runtime.real_open_chains_count, snapshot.real_open_chains_count) ?? 0,
     openChainsCount: firstNumber(runtime.open_chains_count, snapshot.open_chains_count) ?? 0,

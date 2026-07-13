@@ -240,6 +240,8 @@ export type EventChainEvent = {
   significant: boolean;
   contextual: boolean;
   simulated?: boolean;
+  validation?: boolean;
+  validation_learn?: boolean;
   test_run_id?: string;
   payload?: Record<string, unknown>;
 };
@@ -300,6 +302,10 @@ export type EventChain = {
   test_run_id?: string;
   scenario_id?: string;
   created_by?: string;
+  source?: "real" | "simulation" | "validation" | "mixed" | string;
+  validation?: boolean;
+  validation_learn?: boolean;
+  validation_id?: string;
 };
 
 export type EventChainListResponse = {
@@ -379,9 +385,35 @@ export type CriticalChainMemory = {
   feedback_count?: number;
   last_feedback_at?: string;
   simulated?: boolean;
-  source?: "real" | "simulation" | "mixed" | string;
+  source?: "real" | "simulation" | "validation" | "mixed" | string;
   simulated_occurrences?: number;
   real_occurrences?: number;
+  validation_occurrences?: number;
+};
+
+export type CgeValidationEventPayload = {
+  event_type: string;
+  device_id?: string;
+  node_id?: string;
+  identity?: string;
+  confidence?: number;
+  danger_level_hint?: string;
+  learn?: boolean;
+  reason?: string;
+};
+
+export type CgeValidationHistoryItem = {
+  validation_id: string;
+  event_id: string;
+  event_type: string;
+  timestamp: string;
+  device_id?: string;
+  node_id?: string;
+  chain_id?: string;
+  learn: boolean;
+  reason?: string;
+  source_type: string;
+  test_mode: string;
 };
 
 export type CgeEvaluationFeedback = {

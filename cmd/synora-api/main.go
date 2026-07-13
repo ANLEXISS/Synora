@@ -157,6 +157,9 @@ func main() {
 	apiMux.HandleFunc("/api/cge/feedback", handleCGEFeedbackList(core))
 	apiMux.HandleFunc("/api/cge/feedback/evaluation", handleCGEFeedbackEvaluation(core))
 	apiMux.HandleFunc("/api/cge/feedback/chain", handleCGEFeedbackChain(core))
+	apiMux.HandleFunc("/api/cge/validation/events", handleCGEValidationEvents(core))
+	apiMux.HandleFunc("/api/cge/validation/chain-sequence", handleCGEValidationSequence(core))
+	apiMux.HandleFunc("/api/cge/validation/history", handleCGEValidationHistory(core))
 	apiMux.HandleFunc("/api/cge/", handleCGEDetail(core))
 	apiMux.HandleFunc("/api/validations", handleValidationCollection(core))
 	apiMux.HandleFunc("/api/validations/", handleValidationItem(core))
@@ -541,6 +544,11 @@ func requiredAPIPermission(r *http.Request) string {
 	case path == "/api/security/mode" && readOnly:
 		return webapi.PermissionStateRead
 	case path == "/api/security/mode" || path == "/api/security/arm" || path == "/api/security/disarm" || path == "/api/cge/manual-risk" || path == "/api/cge/manual-risk/clear":
+		return webapi.PermissionSecurityAdmin
+	case path == "/api/cge/validation/events" || path == "/api/cge/validation/chain-sequence" || path == "/api/cge/validation/history":
+		if readOnly {
+			return webapi.PermissionCGERead
+		}
 		return webapi.PermissionSecurityAdmin
 	case path == "/api/runtime/diagnostics" || path == "/api/cge/runtime-status":
 		return webapi.PermissionCGERead

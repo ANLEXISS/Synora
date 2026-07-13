@@ -26,6 +26,8 @@ import {
   getHumanChainSummary,
   getHumanChainTitle,
   getChainRoomLabel,
+  chainSourceLabel,
+  chainSourceTone,
   mergeChainUpdate,
   sortEventChains,
   type EventChainUpdate,
@@ -337,7 +339,7 @@ function ChainCard({ chain, devices, topology, closed, onDetails }: { chain: Eve
           <span className={`badge ${tone}`}>{formatDangerLevel(chain.danger_level)}</span>
           <span className="badge neutral">{stateLabel(chain.current_state)}</span>
           <span className="badge neutral">{chain.status === "open" ? "En cours" : "Clôturée"}</span>
-          <span className={`badge ${chain.simulated ? "simulation" : "success"}`}>{chain.simulated ? "Simulation" : "Réelle"}</span>
+          <span className={`badge ${chainSourceTone(chain)}`}>{chainSourceLabel(chain)}</span>
         </div>
       </header>
 
@@ -356,7 +358,7 @@ function ChainCard({ chain, devices, topology, closed, onDetails }: { chain: Eve
         <div>
           {closed ? <span>{formatClosedReason(chain.closed_reason)}</span> : <span>Mis à jour {relativeTime(chain.updated_at)}</span>}
           <small>{closed ? `Durée ${formatChainDuration(chain)}` : `Dernier signal ${relativeTime(chain.last_significant_event_at)}`}</small>
-          {chain.simulated && <small>{chain.test_run_id || chain.scenario_id || "Simulation"}</small>}
+          {(chain.simulated || chain.validation) && <small>{chain.validation_id || chain.test_run_id || chain.scenario_id || chainSourceLabel(chain)}</small>}
         </div>
         <button type="button" className="secondary-button event-chain-details-button" onClick={() => onDetails(chain)}>Voir la chaîne</button>
       </div>
@@ -378,7 +380,7 @@ function ChainDetail({ chain, devices, topology, loading, isAdmin, feedback, onC
             <span className={`badge ${dangerTone(chain.danger_level)}`}>{formatDangerLevel(chain.danger_level)} · {chain.danger_score.toFixed(2)}</span>
             <span className="badge neutral">{stateLabel(chain.current_state)}</span>
             <span className="badge neutral">{chain.status === "open" ? "En cours" : "Clôturée"}</span>
-            <span className={`badge ${chain.simulated ? "simulation" : "success"}`}>{chain.simulated ? "Simulation" : "Réelle"}</span>
+            <span className={`badge ${chainSourceTone(chain)}`}>{chainSourceLabel(chain)}</span>
             <span>{chain.primary_device_id || "Device inconnu"} · {getChainRoomLabel(chain, topology)}</span>
           </div>
           <div className="event-chain-detail-metrics">

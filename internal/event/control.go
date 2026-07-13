@@ -70,7 +70,7 @@ func (c *RateController) Accept(event *contract.Event) bool {
 			event.Source + "|" +
 			event.NodeID + "|" +
 			event.Identity
-	if suffix := simulatedFingerprintSuffix(event.Payload); suffix != "" {
+	if suffix := controlledFingerprintSuffix(event.Payload); suffix != "" {
 		fingerprint += "|" + suffix
 	}
 
@@ -122,9 +122,15 @@ func (c *RateController) Accept(event *contract.Event) bool {
 	return true
 }
 
-func simulatedFingerprintSuffix(payload map[string]any) string {
+func controlledFingerprintSuffix(payload map[string]any) string {
 	metadata, ok := payload["metadata"].(map[string]any)
-	if !ok || !metadataBool(metadata["simulated"]) {
+	if !ok {
+		return ""
+	}
+	if metadataBool(metadata["validation"]) {
+		return metadataString(metadata["event_id"])
+	}
+	if !metadataBool(metadata["simulated"]) {
 		return ""
 	}
 	if eventInstanceID := metadataString(metadata["event_instance_id"]); eventInstanceID != "" {

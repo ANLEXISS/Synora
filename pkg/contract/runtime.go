@@ -6,17 +6,21 @@ import (
 )
 
 const (
-	RPCRuntimeHealth         = "runtime.health"
-	RPCRuntimeRestartService = "runtime.restart_service"
-	RPCRuntimeSnapshot       = "runtime.snapshot"
-	RPCRuntimeRollback       = "runtime.rollback"
-	RPCSystemResetState      = "system.reset_state"
-	RPCManualRisk            = "system.manual_risk"
-	RPCManualRiskClear       = "system.manual_risk.clear"
-	RPCSecurityMode          = "system.security_mode"
-	RPCSecurityModeUpdate    = "system.security_mode.update"
-	RPCSecurityArm           = "system.security_mode.arm"
-	RPCSecurityDisarm        = "system.security_mode.disarm"
+	RPCRuntimeHealth             = "runtime.health"
+	RPCRuntimeRestartService     = "runtime.restart_service"
+	RPCRuntimeSnapshot           = "runtime.snapshot"
+	RPCRuntimeRollback           = "runtime.rollback"
+	RPCSystemResetState          = "system.reset_state"
+	RPCManualRisk                = "system.manual_risk"
+	RPCManualRiskClear           = "system.manual_risk.clear"
+	RPCSecurityMode              = "system.security_mode"
+	RPCSecurityModeUpdate        = "system.security_mode.update"
+	RPCSecurityArm               = "system.security_mode.arm"
+	RPCSecurityDisarm            = "system.security_mode.disarm"
+	RPCCGEValidationEvent        = "cge.validation.event"
+	RPCCGEValidationSequence     = "cge.validation.sequence"
+	RPCCGEValidationHistory      = "cge.validation.history"
+	RPCCGEValidationHistoryClear = "cge.validation.history.clear"
 )
 
 type RuntimeHealth struct {

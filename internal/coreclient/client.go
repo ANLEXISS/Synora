@@ -146,6 +146,38 @@ func (c *Client) CgeFeedbackList(filter map[string]any) ([]map[string]any, error
 	return result, nil
 }
 
+func (c *Client) InjectCGEValidationEvent(data json.RawMessage) (map[string]any, error) {
+	var result map[string]any
+	if err := c.callRaw(contract.RPCCGEValidationEvent, data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) InjectCGEValidationSequence(data json.RawMessage) (map[string]any, error) {
+	var result map[string]any
+	if err := c.callRaw(contract.RPCCGEValidationSequence, data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) CGEValidationHistory() ([]map[string]any, error) {
+	var result []map[string]any
+	if err := c.call(contract.RPCCGEValidationHistory, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) ClearCGEValidationHistory() (map[string]any, error) {
+	var result map[string]any
+	if err := c.call(contract.RPCCGEValidationHistoryClear, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (c *Client) Device(id string) (map[string]any, error) {
 	var result map[string]any
 	if err := c.call("device.get", idPayload(id), &result); err != nil {

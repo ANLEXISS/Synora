@@ -34,6 +34,7 @@ type PersistedState struct {
 	ActionResults     map[string]contract.ActionResult        `json:"action_results,omitempty"`
 	Danger            []*contract.DangerAssessment            `json:"danger_assessments,omitempty"`
 	Events            []*contract.Event                       `json:"events,omitempty"`
+	ValidationEvents  []*contract.Event                       `json:"validation_events,omitempty"`
 	Identities        map[string]IdentityState                `json:"identities,omitempty"`
 	Presence          map[string]PresenceState                `json:"presence,omitempty"`
 	EventChains       map[string]contract.EventChain          `json:"event_chains,omitempty"`

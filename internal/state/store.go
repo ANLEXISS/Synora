@@ -24,6 +24,7 @@ type Store struct {
 	ActionResults     map[string]*contract.ActionResult
 	Danger            []*contract.DangerAssessment
 	RecentEvents      []*contract.Event
+	ValidationEvents  []*contract.Event
 	EventWindows      map[string]*contract.EventWindow
 	EventChains       map[string]*contract.EventChain
 	CriticalChains    map[string]*contract.CriticalChainMemory
@@ -72,6 +73,7 @@ func NewStore(options ...Option) *Store {
 		ActionResults:     make(map[string]*contract.ActionResult),
 		Danger:            []*contract.DangerAssessment{},
 		RecentEvents:      []*contract.Event{},
+		ValidationEvents:  []*contract.Event{},
 		EventWindows:      make(map[string]*contract.EventWindow),
 		EventChains:       make(map[string]*contract.EventChain),
 		CriticalChains:    make(map[string]*contract.CriticalChainMemory),
@@ -502,6 +504,31 @@ func (s *Store) RecentEventsList() []*contract.Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return cloneEvents(s.RecentEvents)
+}
+
+func (s *Store) AddValidationEvent(event *contract.Event) {
+	if event == nil {
+		return
+	}
+	s.mu.Lock()
+	s.ValidationEvents = cloneEvents(trimEvents(append(s.ValidationEvents, event), maxRecentEvents))
+	s.mu.Unlock()
+	s.SaveNow()
+}
+
+func (s *Store) ValidationEventsList() []*contract.Event {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneEvents(s.ValidationEvents)
+}
+
+func (s *Store) ClearValidationEvents() int {
+	s.mu.Lock()
+	count := len(s.ValidationEvents)
+	s.ValidationEvents = []*contract.Event{}
+	s.mu.Unlock()
+	s.SaveNow()
+	return count
 }
 
 func (s *Store) SetEventWindow(nodeID string, value *contract.EventWindow) {
@@ -1052,6 +1079,9 @@ func (s *Store) applyPersistedState(persisted *PersistedState) {
 	if persisted.Events != nil {
 		s.RecentEvents = cloneEvents(trimEvents(persisted.Events, maxRecentEvents))
 	}
+	if persisted.ValidationEvents != nil {
+		s.ValidationEvents = cloneEvents(trimEvents(persisted.ValidationEvents, maxRecentEvents))
+	}
 	if persisted.Identities != nil {
 		s.Identities = make(map[string]*IdentityState, len(persisted.Identities))
 		for id, value := range persisted.Identities {
@@ -1129,6 +1159,7 @@ func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
 	}
 	persisted.Danger = cloneDangerAssessments(trimDanger(s.Danger, maxDanger))
 	persisted.Events = cloneEvents(trimEvents(s.RecentEvents, maxRecentEvents))
+	persisted.ValidationEvents = cloneEvents(trimEvents(s.ValidationEvents, maxRecentEvents))
 	for id, value := range s.Identities {
 		if value == nil {
 			continue

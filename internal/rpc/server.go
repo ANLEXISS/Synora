@@ -199,6 +199,10 @@ func (s *Server) register() {
 	s.handlers[contract.RPCSecurityModeUpdate] = s.securityModeUpdate
 	s.handlers[contract.RPCSecurityArm] = s.securityArm
 	s.handlers[contract.RPCSecurityDisarm] = s.securityDisarm
+	s.handlers[contract.RPCCGEValidationEvent] = s.cgeValidationEvent
+	s.handlers[contract.RPCCGEValidationSequence] = s.cgeValidationSequence
+	s.handlers[contract.RPCCGEValidationHistory] = s.cgeValidationHistory
+	s.handlers[contract.RPCCGEValidationHistoryClear] = s.cgeValidationHistoryClear
 	s.handlers["device.list"] = s.deviceConfigList
 	s.handlers["device.get"] = s.deviceConfigGet
 	s.handlers["device.create"] = s.deviceConfigCreate

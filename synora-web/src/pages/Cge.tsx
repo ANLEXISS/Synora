@@ -9,22 +9,27 @@ import {
   getCgeSecurityProfile,
   getCriticalChain,
   getCriticalChains,
+  getCgeValidationHistory,
+  clearCgeValidationHistory,
+  injectCgeValidationEvent,
+  injectCgeValidationSequence,
   submitCgeChainFeedback,
   updateCgeSecurityProfile,
 } from "../lib/synora-api";
-import { formatDangerLevel } from "../lib/event-chains";
+import { formatDangerLevel, formatEventType } from "../lib/event-chains";
 import { buildSecurityProfilePayload, formatCorrectionType, formatFeedbackScope, formatPreferredAction, formatSecurityMode, getFeedbackSummary, getHumanCriticalChainSummary, getHumanCriticalChainTitle, normalizeCgeSecurityProfile, normalizeCriticalChainMemory } from "../lib/cge";
-import { formatEventType } from "../lib/event-chains";
 import type {
   CgeChainFeedback,
   CgeChainFeedbackPayload,
   CgeEvaluationFeedback,
   CgeSecurityProfile,
   CriticalChainMemory,
+  CgeValidationEventPayload,
+  CgeValidationHistoryItem,
 } from "../lib/synora-types";
 import { LiveEvents } from "./LiveEvents";
 
-type CgeTab = "live" | "known" | "settings" | "corrections";
+type CgeTab = "live" | "known" | "validation" | "settings" | "corrections";
 
 export function Cge() {
   const auth = useAuth();
@@ -39,11 +44,13 @@ export function Cge() {
       <nav className="cge-tabs" aria-label="Sections CGE">
         <CgeTabButton active={tab === "live"} onClick={() => setTab("live")}>Live</CgeTabButton>
         <CgeTabButton active={tab === "known"} onClick={() => setTab("known")}>Chaînes connues</CgeTabButton>
+        <CgeTabButton active={tab === "validation"} onClick={() => setTab("validation")}>Validation CGE</CgeTabButton>
         <CgeTabButton active={tab === "settings"} onClick={() => setTab("settings")}>Réglages sécurité</CgeTabButton>
         <CgeTabButton active={tab === "corrections"} onClick={() => setTab("corrections")}>Corrections</CgeTabButton>
       </nav>
       {tab === "live" && <LiveEvents />}
       {tab === "known" && <KnownChains />}
+      {tab === "validation" && <CgeValidationPanel isAdmin={auth.isAdmin} />}
       {tab === "settings" && <SecuritySettings isAdmin={auth.isAdmin} />}
       {tab === "corrections" && <CgeCorrections isAdmin={auth.isAdmin} />}
     </div>
@@ -92,7 +99,7 @@ function KnownChains() {
 function CriticalChainCard({ chain, onDetails }: { chain: CriticalChainMemory; onDetails: (chain: CriticalChainMemory) => void }) {
   chain = normalizeCriticalChainMemory(chain);
   return <article className="critical-chain-card">
-    <header><div><strong>{getHumanCriticalChainTitle(chain)}</strong><small>{chain.template_id || chain.id}</small></div><div><span className={`badge ${chain.source === "simulation" ? "simulation" : "success"}`}>{chain.source === "simulation" ? "Simulation" : chain.source === "mixed" ? "Mixte" : "Réelle"}</span> <span className="badge danger">{formatDangerLevel(chain.max_danger_level)}</span></div></header>
+    <header><div><strong>{getHumanCriticalChainTitle(chain)}</strong><small>{chain.template_id || chain.id}</small></div><div><span className={`badge ${chain.source === "simulation" ? "simulation" : chain.source === "validation" ? "validation" : "success"}`}>{chain.source === "simulation" ? "Simulation" : chain.source === "validation" ? "Validation" : chain.source === "mixed" ? "Mixte" : "Réelle"}</span> <span className="badge danger">{formatDangerLevel(chain.max_danger_level)}</span></div></header>
     <p>{getHumanCriticalChainSummary(chain)}</p>
     <div className="critical-chain-stats"><span><strong>{chain.occurrences}</strong> occurrences</span><span><strong>{Math.round(chain.confidence * 100)} %</strong> confiance</span><span><strong>{chain.max_danger_score.toFixed(2)}</strong> score max</span></div>
     <div className="critical-chain-tags">{chain.significant_event_types.slice(0, 3).map((type) => <span key={type}>{formatEventType(type)}</span>)}{chain.significant_event_types.length > 3 && <span>+ {chain.significant_event_types.length - 3}</span>}</div>
@@ -106,7 +113,7 @@ function CriticalChainDetail({ chain, onClose }: { chain: CriticalChainMemory; o
     <section className="cge-modal" role="dialog" aria-modal="true" aria-labelledby="critical-chain-title">
       <header><div><span>Chaîne critique connue · {chain.source === "simulation" ? "Simulation" : chain.source === "mixed" ? "Mixte" : "Réelle"}</span><h2 id="critical-chain-title">{getHumanCriticalChainTitle(chain)}</h2><p className="cge-modal-subtitle">{getHumanCriticalChainSummary(chain)}</p></div><button className="icon-button" type="button" onClick={onClose} aria-label="Fermer"><X size={18} /></button></header>
       <div className="cge-modal-content">
-        <section className="cge-chain-synthesis"><h3>Synthèse</h3><div className="critical-chain-detail-overview"><span className="badge danger">Danger max · {formatDangerLevel(chain.max_danger_level)}</span><span className="badge neutral">{chain.occurrences} occurrences</span><span className="badge neutral">Confiance · {Math.round(chain.confidence * 100)} %</span><span className="badge neutral">Dernière vue · {formatDate(chain.last_seen)}</span></div><p className="cge-feedback-note">Chaîne représentative : {chain.representative_chain_id || "—"}</p></section>
+        <section className="cge-chain-synthesis"><h3>Synthèse</h3><div className="critical-chain-detail-overview"><span className="badge danger">Danger max · {formatDangerLevel(chain.max_danger_level)}</span><span className={`badge ${chain.source === "simulation" ? "simulation" : chain.source === "validation" ? "validation" : "success"}`}>{chain.source === "simulation" ? "Simulation" : chain.source === "validation" ? "Validation" : chain.source === "mixed" ? "Mixte" : "Réelle"}</span><span className="badge neutral">{chain.occurrences} occurrences</span><span className="badge neutral">Confiance · {Math.round(chain.confidence * 100)} %</span><span className="badge neutral">Dernière vue · {formatDate(chain.last_seen)}</span></div><p className="cge-feedback-note">Chaîne représentative : {chain.representative_chain_id || "—"}</p></section>
         <section><h3>Trajectoire</h3><div className="critical-chain-detail-grid"><DetailList title="État" values={chain.typical_state_path} emptyMessage="Aucun chemin d’état typique enregistré." /><DetailList title="Danger" values={chain.typical_danger_path.map(formatDangerLevel)} emptyMessage="Aucun chemin danger typique enregistré." /></div></section>
         <section><h3>Actions recommandées</h3><DetailList title="" values={chain.recommended_actions} emptyMessage="Aucune action recommandée enregistrée." /></section>
         <section><h3>Retours admin</h3><DetailList title="" values={chain.outcomes} emptyMessage="Aucun retour admin enregistré." /></section>
@@ -120,6 +127,98 @@ function DetailList({ title, values, emptyMessage }: { title: string; values: st
   if (!values.length && !emptyMessage) return null;
   if (!values.length) return <div className="cge-detail-list cge-detail-list-empty">{title && <h4>{title}</h4>}<p>{emptyMessage}</p></div>;
   return <div className="cge-detail-list">{title && <h4>{title}</h4>}<div>{values.map((value, index) => <span key={`${value}-${index}`}>{value}</span>)}</div></div>;
+}
+
+const validationEventOptions = [
+  ["vision.unknown", "Présence inconnue"],
+  ["vision.identity", "Résident reconnu"],
+  ["vision.uncertain", "Identité incertaine"],
+  ["vision.weapon", "Arme détectée"],
+  ["vision.fall", "Chute détectée"],
+  ["device.offline", "Périphérique hors ligne"],
+  ["camera.offline", "Caméra hors ligne"],
+  ["camera.tampered", "Caméra manipulée"],
+  ["manual.risk", "Danger manuel"],
+] as const;
+
+function CgeValidationPanel({ isAdmin }: { isAdmin: boolean }) {
+  const data = useSynoraData();
+  const rooms = useMemo(() => getTopologyRooms(data.topology), [data.topology]);
+  const [eventType, setEventType] = useState("vision.unknown");
+  const [deviceID, setDeviceID] = useState("");
+  const [nodeID, setNodeID] = useState("");
+  const [confidence, setConfidence] = useState("0.78");
+  const [dangerHint, setDangerHint] = useState("medium");
+  const [learn, setLearn] = useState(false);
+  const [reason, setReason] = useState("validation_unknown_entry");
+  const [history, setHistory] = useState<CgeValidationHistoryItem[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function refreshHistory() {
+    if (!isAdmin) return;
+    try { setHistory(await getCgeValidationHistory()); setError(null); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Historique de validation indisponible."); }
+  }
+
+  useEffect(() => { void refreshHistory(); }, []);
+
+  function buildEvent(type = eventType): CgeValidationEventPayload {
+    const payload: CgeValidationEventPayload = {
+      event_type: type,
+      device_id: deviceID || undefined,
+      node_id: nodeID || undefined,
+      danger_level_hint: dangerHint || undefined,
+      learn,
+      reason: reason.trim() || undefined,
+    };
+    if (confidence.trim()) payload.confidence = Number(confidence);
+    return payload;
+  }
+
+  async function inject() {
+    if (!isAdmin) return;
+    setBusy(true); setError(null); setMessage(null);
+    try { await injectCgeValidationEvent(buildEvent()); setMessage(`Événement ${eventType} injecté dans le pipeline CGE${learn ? " · apprentissage actif" : ""}.`); await refreshHistory(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Injection de validation impossible."); }
+    finally { setBusy(false); }
+  }
+
+  async function injectSequence(label: string, events: CgeValidationEventPayload[]) {
+    if (!isAdmin) return;
+    setBusy(true); setError(null); setMessage(null);
+    try { await injectCgeValidationSequence({ events, learn, reason: label }); setMessage(`${label} injectée dans le pipeline CGE${learn ? " · apprentissage actif" : ""}.`); await refreshHistory(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Séquence de validation impossible."); }
+    finally { setBusy(false); }
+  }
+
+  async function clearHistory() {
+    if (!isAdmin || !window.confirm("Effacer uniquement l’historique des validations contrôlées ?")) return;
+    setBusy(true); setError(null);
+    try { await clearCgeValidationHistory(); setHistory([]); setMessage("Historique de validation nettoyé. Les événements et chaînes réels restent intacts."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Nettoyage impossible."); }
+    finally { setBusy(false); }
+  }
+
+  const deviceOptions = data.devices.map((device) => ({ id: device.id, label: String(device.name ?? device.display_name ?? device.id), node: String(device.node_id ?? "") }));
+  return <div className="cge-tab-content">
+    <div className="cge-section-toolbar"><div><h3>Validation CGE contrôlée</h3><p>Injecte un événement admin dans le pipeline normal. Il est traçable comme Validation et reste distinct des simulations.</p></div><span className="badge validation">controlled_real_test</span></div>
+    {!isAdmin && <div className="readonly-label"><Lock size={14} /> Injection réservée aux administrateurs.</div>}
+    {error && <div className="auth-error" role="alert">{error}</div>}
+    {message && <div className="cge-success" role="status"><CheckCircle2 size={16} /> {message}</div>}
+    <div className="cge-validation-form">
+      <label>Type d’événement<select disabled={!isAdmin || busy} value={eventType} onChange={(event) => setEventType(event.target.value)}>{validationEventOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label>Périphérique<select disabled={!isAdmin || busy} value={deviceID} onChange={(event) => { setDeviceID(event.target.value); const device = deviceOptions.find((item) => item.id === event.target.value); if (device?.node && !nodeID) setNodeID(device.node); }}><option value="">Sélectionner (optionnel)</option>{deviceOptions.map((device) => <option key={device.id} value={device.id}>{device.label}</option>)}</select></label>
+      <label>Pièce / nœud<select disabled={!isAdmin || busy} value={nodeID} onChange={(event) => setNodeID(event.target.value)}><option value="">Sélectionner (optionnel)</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
+      <label>Confiance<input disabled={!isAdmin || busy} type="number" min="0" max="1" step="0.01" value={confidence} onChange={(event) => setConfidence(event.target.value)} placeholder="optionnelle" /></label>
+      <label>Indice danger<select disabled={!isAdmin || busy} value={dangerHint} onChange={(event) => setDangerHint(event.target.value)}>{dangerOptions()}</select></label>
+      <label className="cge-validation-reason">Motif<input disabled={!isAdmin || busy} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="validation_unknown_entry" /></label>
+    </div>
+    <div className="cge-validation-actions"><label className="checkbox-line"><input disabled={!isAdmin || busy} type="checkbox" checked={learn} onChange={(event) => setLearn(event.target.checked)} /> Apprentissage actif <small>{learn ? "la mémoire CGE peut être alimentée" : "mémoire critique réelle inchangée"}</small></label><button type="button" className="primary-button" disabled={!isAdmin || busy} onClick={() => void inject()}>{busy ? "Injection…" : "Injecter l’événement"}</button></div>
+    <div className="cge-validation-presets"><strong>Presets séquence</strong><button type="button" className="secondary-button" disabled={!isAdmin || busy} onClick={() => void injectSequence("unknown_entry_persistent", [buildEvent("vision.unknown"), { ...buildEvent("vision.motion"), node_id: nodeID || "zoneA.L0.entree" }, { ...buildEvent("vision.unknown"), node_id: nodeID || "zoneA.L0.salon" }])}>Inconnu persistant à l’entrée</button><button type="button" className="secondary-button" disabled={!isAdmin || busy} onClick={() => void injectSequence("resident_then_fall", [{ ...buildEvent("vision.identity"), identity: "resident-test" }, buildEvent("vision.motion"), buildEvent("vision.fall")] )}>Résident reconnu puis chute</button><button type="button" className="secondary-button" disabled={!isAdmin || busy} onClick={() => void injectSequence("camera_offline_then_return", [buildEvent("camera.offline"), buildEvent("camera.online")] )}>Caméra hors ligne puis retour</button></div>
+  <div className="cge-validation-history"><div className="cge-validation-history-heading"><div><strong>Historique contrôlé récent</strong><small>Effacer ici ne supprime ni les chaînes ni l’historique réel.</small></div><div><button type="button" className="secondary-button" disabled={!isAdmin} onClick={() => void refreshHistory()}><RefreshCw size={14} /> Actualiser</button>{isAdmin && <button type="button" className="secondary-button" disabled={busy || history.length === 0} onClick={() => void clearHistory()}>Nettoyer</button>}</div></div>{history.length === 0 ? <div className="cge-empty">{isAdmin ? "Aucun événement de validation récent." : "Historique réservé aux administrateurs."}</div> : <div className="cge-validation-history-list">{history.slice().reverse().slice(0, 12).map((item) => <div className="cge-validation-history-row" key={item.event_id}><div><strong>{formatEventType(item.event_type)}</strong><small>{item.node_id || item.device_id || "Emplacement non précisé"} · {formatDate(item.timestamp)}</small></div><div><span className="badge validation">Validation</span>{item.learn && <span className="badge neutral">Apprentissage actif</span>}{item.chain_id && <small title={item.chain_id}>Chaîne liée</small>}</div></div>)}</div>}</div>
+  </div>;
 }
 
 function SecuritySettings({ isAdmin }: { isAdmin: boolean }) {

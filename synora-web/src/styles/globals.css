@@ -522,6 +522,12 @@ button {
   background: var(--panel-soft);
 }
 
+.security-summary-item {
+  flex: 1 1 150px;
+  min-width: 0 !important;
+  background: rgba(148, 163, 184, 0.045) !important;
+}
+
 .security-control-status span,
 .security-control-status strong {
   display: block;
@@ -534,6 +540,49 @@ button {
 
 .security-control-actions + .security-control-actions {
   margin-top: 12px;
+}
+
+.security-control-group {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.security-control-group-title {
+  display: grid;
+  gap: 3px;
+}
+
+.security-control-group-title strong { color: var(--text); font-size: 0.88rem; }
+.security-control-group-title span { color: var(--muted); font-size: 0.74rem; }
+.security-control-group-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.security-mode-action,
+.security-danger-action {
+  min-height: 38px;
+  padding: 8px 13px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 10px;
+  color: var(--muted);
+  background: rgba(15, 23, 42, 0.36);
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.security-mode-action:hover:not(:disabled), .security-mode-action.selected { color: var(--text); border-color: var(--line-strong); background: rgba(148, 163, 184, 0.11); }
+.security-danger-action.selected { color: var(--text); }
+.security-danger-low.selected { border-color: rgba(74, 222, 128, 0.55); background: rgba(74, 222, 128, 0.14); color: #bbf7d0; }
+.security-danger-medium.selected { border-color: rgba(251, 191, 36, 0.55); background: rgba(251, 191, 36, 0.14); color: #fde68a; }
+.security-danger-high.selected { border-color: rgba(251, 146, 60, 0.6); background: rgba(251, 146, 60, 0.16); color: #fed7aa; }
+.security-danger-critical.selected { border-color: rgba(248, 113, 113, 0.6); background: rgba(248, 113, 113, 0.16); color: #fecaca; }
+.security-options { position: relative; color: var(--muted); font-size: 0.74rem; }
+.security-options summary { cursor: pointer; list-style: none; }
+.security-options summary::-webkit-details-marker { display: none; }
+.security-options label { position: absolute; z-index: 2; right: 0; top: 24px; display: grid; gap: 5px; min-width: 130px; padding: 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 12px 30px rgba(0,0,0,.25); }
+.security-options select { width: 100%; }
+
+.badge.validation {
+  border-color: rgba(167, 139, 250, 0.42);
+  color: #ddd6fe;
+  background: rgba(139, 92, 246, 0.13);
 }
 
 .security-control-actions label {
@@ -1300,6 +1349,18 @@ button {
   .card-full {
     grid-column: span 1;
   }
+
+  .security-control-status,
+  .security-control-actions { align-items: stretch; }
+  .security-control-actions > button { flex: 1 1 145px; }
+  .security-control-group-heading { align-items: flex-start; }
+}
+
+@media (max-width: 560px) {
+  .security-control-status { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .security-control-status > div { min-width: 0; }
+  .security-control-actions { display: grid; grid-template-columns: 1fr; }
+  .security-control-actions > button { width: 100%; }
 }
 
 @media (max-width: 560px) {
@@ -5514,6 +5575,60 @@ button {
   background: rgba(2, 6, 23, 0.66);
 }
 
+.cge-validation-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.cge-validation-form label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.cge-validation-form input,
+.cge-validation-form select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+}
+
+.cge-validation-reason { grid-column: span 2; }
+
+.cge-validation-actions,
+.cge-validation-presets,
+.cge-validation-history-heading,
+.cge-validation-history-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cge-validation-actions { justify-content: space-between; }
+.cge-validation-actions small,
+.cge-validation-history-heading small,
+.cge-validation-history-row small { color: var(--muted-2); }
+.cge-validation-presets { align-items: center; }
+.cge-validation-presets strong { color: var(--text); font-size: 0.82rem; margin-right: 2px; }
+.cge-validation-history { display: grid; gap: 10px; }
+.cge-validation-history-heading { justify-content: space-between; }
+.cge-validation-history-heading > div:first-child { display: grid; gap: 3px; }
+.cge-validation-history-heading strong { color: var(--text); font-size: 0.9rem; }
+.cge-validation-history-heading > div:last-child { display: flex; flex-wrap: wrap; gap: 8px; }
+.cge-validation-history-list { display: grid; gap: 7px; }
+.cge-validation-history-row { justify-content: space-between; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(15, 23, 42, 0.34); }
+.cge-validation-history-row > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.cge-validation-history-row strong { color: var(--text); }
+.cge-validation-history-row > div:last-child { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+
 .cge-empty {
   display: flex;
   align-items: center;
@@ -5921,6 +6036,14 @@ button {
   .security-rooms-grid,
   .critical-chain-detail-grid { grid-template-columns: 1fr; }
   .security-switches { grid-template-columns: 1fr; }
+  .cge-validation-form { grid-template-columns: 1fr; }
+  .cge-validation-reason { grid-column: span 1; }
+  .cge-validation-actions { align-items: stretch; flex-direction: column; }
+  .cge-validation-actions > button { width: 100%; justify-content: center; }
+  .cge-validation-history-heading,
+  .cge-validation-history-row { align-items: flex-start; flex-direction: column; }
+  .cge-validation-history-heading > div:last-child,
+  .cge-validation-history-row > div:last-child { justify-content: flex-start; }
   .cge-modal-backdrop { place-items: end center; padding: 0; }
   .cge-modal { width: 100%; max-height: 94dvh; border-radius: 20px 20px 0 0; }
   .cge-modal > header,

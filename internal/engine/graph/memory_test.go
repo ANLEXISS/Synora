@@ -121,6 +121,41 @@ func TestLearningModeDisabledSkipsInspection(t *testing.T) {
 	}
 }
 
+func TestControlledValidationLearningIsOptIn(t *testing.T) {
+	memory := NewGraphMemory()
+	withoutLearning := realCGEEvent("vision.unknown", time.Now().UTC())
+	withoutLearning.Metadata["metadata"] = map[string]any{
+		"validation":  true,
+		"source_type": "validation",
+		"test_mode":   "controlled_real_test",
+		"learn":       false,
+	}
+	memory.LearnEvent(withoutLearning)
+	if len(memory.GetGraph().Roots) != 0 || len(memory.Inspection()["sequences"].([]contracts.LearnedSequence)) != 0 {
+		t.Fatal("learn=false validation must not populate CGE memory")
+	}
+
+	withLearning := realCGEEvent("vision.unknown", time.Now().UTC().Add(time.Second))
+	withLearning.Metadata["metadata"] = map[string]any{
+		"validation":  true,
+		"source_type": "validation",
+		"test_mode":   "controlled_real_test",
+		"learn":       true,
+	}
+	memory.LearnEvent(withLearning)
+	second := realCGEEvent("vision.motion", time.Now().UTC().Add(2*time.Second))
+	second.Metadata["metadata"] = map[string]any{
+		"validation":  true,
+		"source_type": "validation",
+		"test_mode":   "controlled_real_test",
+		"learn":       true,
+	}
+	memory.LearnEvent(second)
+	if len(memory.GetGraph().Roots) != 1 || len(memory.Inspection()["sequences"].([]contracts.LearnedSequence)) == 0 {
+		t.Fatalf("learn=true validation should populate CGE memory: roots=%d inspection=%#v", len(memory.GetGraph().Roots), memory.Inspection())
+	}
+}
+
 func TestGraphMemoryLimitsLearnedInspection(t *testing.T) {
 	memory := NewGraphMemory()
 	base := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)

@@ -222,6 +222,9 @@ func (g *GraphMemory) LearnEvent(
 	if learningMode(event) == "disabled" {
 		return nil
 	}
+	if !validationLearningEnabled(event) {
+		return nil
+	}
 
 	current := learnedEventFromCGE(event)
 	var seedMatch *contracts.CriticalSeedMatch
@@ -711,6 +714,14 @@ func learningMode(event *contracts.Event) string {
 		return "real"
 	}
 	return strings.ToLower(mode)
+}
+
+func validationLearningEnabled(event *contracts.Event) bool {
+	metadata := nestedMetadata(event.Metadata)
+	if !metadataBool(metadata["validation"]) {
+		return true
+	}
+	return metadataBool(metadata["learn"])
 }
 
 func nestedMetadata(metadata map[string]any) map[string]any {

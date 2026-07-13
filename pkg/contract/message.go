@@ -8,10 +8,11 @@ import (
 )
 
 const (
-	SourceDevice    = "device"
-	SourceService   = "service"
-	SourceSimulator = "simulator"
-	SourceSystem    = "system"
+	SourceDevice     = "device"
+	SourceService    = "service"
+	SourceSimulator  = "simulator"
+	SourceValidation = "validation"
+	SourceSystem     = "system"
 )
 
 const (

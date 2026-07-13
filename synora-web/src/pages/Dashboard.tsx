@@ -179,23 +179,28 @@ export function Dashboard() {
 
       <Panel title="Contrôle sécurité" className="card-full">
         {controlError && <div className="auth-error" role="alert">{controlError}</div>}
-        <div className="security-control-status">
-          <div><span>Mode</span><strong>{securityModeLabel(data.securityMode.mode)}</strong></div>
-          <div><span>Armé</span><strong>{data.securityMode.armed ? "Oui" : "Non"}</strong></div>
-          <div><span>Occupation attendue</span><strong>{data.securityMode.expected_occupancy === "empty" ? "Personne" : data.securityMode.expected_occupancy === "occupied" ? "Occupé" : "Inconnue"}</strong></div>
-          <div><span>Danger manuel</span><strong>{danger.manualRiskActive ? `${formatDangerLevel(danger.level)}${data.runtimeStatus?.manual_risk_expires_at ? ` · jusqu’à ${formatDateTime(String(data.runtimeStatus.manual_risk_expires_at))}` : ""}` : "Inactif"}</strong></div>
+        <div className="security-control-status" aria-label="Résumé sécurité">
+          <div className="security-summary-item"><span>Mode</span><strong>{securityModeLabel(data.securityMode.mode)}</strong></div>
+          <div className="security-summary-item"><span>Armé</span><strong>{data.securityMode.armed ? "Oui" : "Non"}</strong></div>
+          <div className="security-summary-item"><span>Occupation attendue</span><strong>{data.securityMode.expected_occupancy === "empty" ? "Personne" : data.securityMode.expected_occupancy === "occupied" ? "Occupé" : "Inconnue"}</strong></div>
+          <div className="security-summary-item"><span>Danger manuel</span><strong>{danger.manualRiskActive ? `Actif · ${formatDangerLevel(danger.manualRiskLevel || danger.level)}` : "Inactif"}</strong></div>
         </div>
         {auth.isAdmin ? <>
-          <div className="security-control-actions">
-            <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => void runControl(() => disarmSecurity({ reason: "Désarmement depuis le Dashboard" }))}>Repos / Désarmer</button>
-            <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => arm("night")}>Mode nuit</button>
-            <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => arm("away")}>Absent</button>
-            <button type="button" className="primary-button" disabled={controlBusy} onClick={() => arm("high_security")}>Sécurité élevée</button>
+          <div className="security-control-group">
+            <div className="security-control-group-title"><strong>Mode sécurité</strong><span>Contexte durable du système</span></div>
+            <div className="security-control-actions">
+              <button type="button" className={`security-mode-action ${data.securityMode.mode === "home" ? "selected" : ""}`} aria-pressed={data.securityMode.mode === "home"} disabled={controlBusy} onClick={() => void runControl(() => disarmSecurity({ reason: "Désarmement depuis le Dashboard" }))}>Repos / Désarmer</button>
+              <button type="button" className={`security-mode-action ${data.securityMode.mode === "night" ? "selected" : ""}`} aria-pressed={data.securityMode.mode === "night"} disabled={controlBusy} onClick={() => arm("night")}>Mode nuit</button>
+              <button type="button" className={`security-mode-action ${data.securityMode.mode === "away" ? "selected" : ""}`} aria-pressed={data.securityMode.mode === "away"} disabled={controlBusy} onClick={() => arm("away")}>Absent</button>
+              <button type="button" className={`security-mode-action ${data.securityMode.mode === "high_security" ? "selected" : ""}`} aria-pressed={data.securityMode.mode === "high_security"} disabled={controlBusy} onClick={() => arm("high_security")}>Sécurité élevée</button>
+            </div>
           </div>
-          <div className="security-control-actions">
-            <label>Durée danger manuel <select value={manualDuration} disabled={controlBusy} onChange={(event) => setManualDuration(Number(event.target.value))}><option value={30}>30 s</option><option value={60}>60 s</option><option value={300}>5 min</option><option value={900}>15 min</option></select></label>
-            {(["low", "medium", "high", "critical"] as const).map((level) => <button key={level} type="button" className={level === "high" || level === "critical" ? "danger-button" : "secondary-button"} disabled={controlBusy} onClick={() => triggerManualRisk(level)}>Danger {formatDangerLevel(level)}</button>)}
-            <button type="button" className="secondary-button" disabled={controlBusy || !danger.manualRiskActive} onClick={() => void runControl(() => clearManualRisk({ reason: "Annulation depuis le Dashboard" }))}>Annuler danger manuel</button>
+          <div className="security-control-group">
+            <div className="security-control-group-heading"><div className="security-control-group-title"><strong>Danger manuel</strong><span>Forçage temporaire</span></div><details className="security-options"><summary>Durée : {manualDuration >= 60 ? `${manualDuration / 60} min` : `${manualDuration} s`}</summary><label>Durée<select value={manualDuration} disabled={controlBusy} onChange={(event) => setManualDuration(Number(event.target.value))}><option value={30}>30 s</option><option value={60}>60 s</option><option value={300}>5 min</option><option value={900}>15 min</option></select></label></details></div>
+            <div className="security-control-actions">
+              {(["low", "medium", "high", "critical"] as const).map((level) => <button key={level} type="button" className={`security-danger-action security-danger-${level} ${danger.manualRiskActive && danger.manualRiskLevel === level ? "selected" : ""}`} aria-pressed={danger.manualRiskActive && danger.manualRiskLevel === level} disabled={controlBusy} onClick={() => triggerManualRisk(level)}>Danger {formatDangerLevel(level)}</button>)}
+              <button type="button" className="security-mode-action" disabled={controlBusy || !danger.manualRiskActive} onClick={() => void runControl(() => clearManualRisk({ reason: "Annulation depuis le Dashboard" }))}>Annuler danger manuel</button>
+            </div>
           </div>
         </> : <small>Lecture seule : les contrôles de sécurité sont réservés aux administrateurs.</small>}
       </Panel>

@@ -23,6 +23,8 @@ import type {
   CgeEvaluationFeedbackPayload,
   CgeSecurityProfile,
   CgeSecurityProfileInput,
+  CgeValidationEventPayload,
+  CgeValidationHistoryItem,
   ResidentCreatePayload,
   ResidentMutationPayload,
 } from "./synora-types";
@@ -190,6 +192,22 @@ export function submitCgeChainFeedback(payload: CgeChainFeedbackPayload) {
 export function getCgeFeedback(params: { chain_id?: string } = {}, signal?: AbortSignal) {
   const query = params.chain_id ? `?chain_id=${encodeURIComponent(params.chain_id)}` : "";
   return synoraFetch<unknown>(`/api/cge/feedback${query}`, { signal }).then((value) => normalizeArray<unknown>(value).map(normalizeCgeFeedback));
+}
+
+export function injectCgeValidationEvent(payload: CgeValidationEventPayload) {
+  return synoraFetch<Record<string, unknown>>("/api/cge/validation/events", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function injectCgeValidationSequence(payload: { events: CgeValidationEventPayload[]; learn?: boolean; reason?: string }) {
+  return synoraFetch<Record<string, unknown>>("/api/cge/validation/chain-sequence", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function getCgeValidationHistory(signal?: AbortSignal) {
+  return synoraFetch<unknown>("/api/cge/validation/history", { signal }).then((value) => normalizeArray<unknown>(value) as CgeValidationHistoryItem[]);
+}
+
+export function clearCgeValidationHistory() {
+  return synoraFetch<Record<string, unknown>>("/api/cge/validation/history", { method: "DELETE" });
 }
 
 export function getDevicePairingCapabilities(signal?: AbortSignal) {

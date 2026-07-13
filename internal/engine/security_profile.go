@@ -73,6 +73,32 @@ func (e *Engine) AddEvaluationFeedback(feedback contract.CgeEvaluationFeedback, 
 	return nil
 }
 
+// AddChainFeedback keeps an admin correction usable for comparable future
+// events without turning a controlled validation into persistent CGE memory.
+func (e *Engine) AddChainFeedback(feedback contract.CgeChainFeedback, chain *contract.EventChain) error {
+	if e == nil || chain == nil || feedback.Scope != contract.CgeFeedbackApplyToSimilar {
+		return nil
+	}
+	e.feedbackMu.Lock()
+	defer e.feedbackMu.Unlock()
+	for _, event := range chain.RecentEvents {
+		if !event.Significant {
+			continue
+		}
+		e.feedbackHints = append(e.feedbackHints, feedbackHint{
+			eventType:        contract.NormalizeEventType(event.Type),
+			nodeID:           event.NodeID,
+			correctionType:   feedback.CorrectionType,
+			correctedLevel:   feedback.CorrectedFinalDangerLevel,
+			preferredActions: append([]string(nil), feedback.PreferredActions...),
+		})
+	}
+	if len(e.feedbackHints) > 200 {
+		e.feedbackHints = e.feedbackHints[len(e.feedbackHints)-200:]
+	}
+	return nil
+}
+
 func (e *Engine) applyFeedbackHint(event *contract.Event, result *Result) {
 	if e == nil || event == nil || result == nil {
 		return
@@ -110,12 +136,18 @@ func (e *Engine) applyFeedbackHint(event *contract.Event, result *Result) {
 		decision.State = "intrusion"
 	case contract.CgeCorrectionTooLow:
 		level = maxInt(level, dangerLevelNumber(matched.correctedLevel))
+	case contract.CgeCorrectionFalseNegative, contract.CgeCorrectionReactionTooWeak:
+		if level < 5 {
+			level++
+		}
 	case contract.CgeCorrectionTooHigh:
 		if matched.correctedLevel != "" {
 			level = dangerLevelNumber(matched.correctedLevel)
 		} else if level > 0 {
 			level--
 		}
+	case contract.CgeCorrectionReactionTooStrong:
+		level = maxInt(0, level-1)
 	case contract.CgeCorrectionWrongState:
 		if matched.correctedState != "" {
 			decision.State = matched.correctedState

@@ -7,6 +7,18 @@ export type EventChainUpdate = Partial<EventChain> & {
   updated_at?: string;
 };
 
+export function chainSourceLabel(chain: Pick<EventChain, "source" | "validation" | "simulated">) {
+  if (chain.validation || chain.source === "validation") return "Validation";
+  if (chain.simulated || chain.source === "simulation") return "Simulation";
+  if (chain.source === "mixed") return "Mixte";
+  return "Réel";
+}
+
+export function chainSourceTone(chain: Pick<EventChain, "source" | "validation" | "simulated">) {
+  const source = chainSourceLabel(chain);
+  return source === "Simulation" ? "simulation" : source === "Validation" ? "validation" : source === "Mixte" ? "neutral" : "success";
+}
+
 export function normalizeEventChain(raw: unknown): EventChain {
   const source = isRecord(raw) ? raw : {};
   const status: ChainStatus = source.status === "closed" ? "closed" : "open";
@@ -55,6 +67,10 @@ export function normalizeEventChain(raw: unknown): EventChain {
     test_run_id: normalizeString(source.test_run_id),
     scenario_id: normalizeString(source.scenario_id),
     created_by: normalizeString(source.created_by),
+    source: normalizeString(source.source, source.validation === true ? "validation" : source.simulated === true ? "simulation" : "real"),
+    validation: normalizeBoolean(source.validation),
+    validation_learn: normalizeBoolean(source.validation_learn),
+    validation_id: normalizeString(source.validation_id),
   };
 }
 
@@ -75,6 +91,8 @@ function normalizeEventChainEvent(raw: unknown): EventChainEvent {
     significant: normalizeBoolean(source.significant),
     contextual: normalizeBoolean(source.contextual),
     simulated: normalizeBoolean(source.simulated),
+    validation: normalizeBoolean(source.validation),
+    validation_learn: normalizeBoolean(source.validation_learn),
     test_run_id: normalizeString(source.test_run_id),
     payload: isRecord(source.payload) ? source.payload : {},
   };

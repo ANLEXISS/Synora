@@ -11,6 +11,7 @@ import (
 type cgeProfileEngine interface {
 	SetSecurityProfile(*contract.CgeSecurityProfile)
 	AddEvaluationFeedback(contract.CgeEvaluationFeedback, *contract.EventChain) error
+	AddChainFeedback(contract.CgeChainFeedback, *contract.EventChain) error
 }
 
 func (s *Server) cgeSecurityProfile(_ contract.Message) (any, error) {
@@ -98,7 +99,8 @@ func (s *Server) cgeFeedbackChain(msg contract.Message) (any, error) {
 	if strings.TrimSpace(feedback.ChainID) == "" {
 		return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "chain_id is required")
 	}
-	if _, ok := s.chains.Get(feedback.ChainID); !ok {
+	chain, ok := s.chains.Get(feedback.ChainID)
+	if !ok {
 		return nil, contract.NewAPIError(contract.ErrorNotFound, "event chain not found")
 	}
 	created, err := s.cgeFeedback.AddChain(feedback)
@@ -108,6 +110,9 @@ func (s *Server) cgeFeedbackChain(msg contract.Message) (any, error) {
 	memory, err := s.chains.ApplyChainFeedback(created.ChainID, created)
 	if err != nil {
 		return nil, err
+	}
+	if configured, ok := s.cge.(cgeProfileEngine); ok {
+		_ = configured.AddChainFeedback(created, chain)
 	}
 	return map[string]any{"feedback": created, "critical_chain": memory}, nil
 }

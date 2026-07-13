@@ -960,6 +960,10 @@ func chainEventPayload(chain *contract.EventChain) map[string]any {
 		"motion_count":              chain.MotionCount,
 		"updated_at":                chain.UpdatedAt,
 		"last_significant_event_at": chain.LastSignificantEventAt,
+		"source":                    chain.Source,
+		"validation":                chain.Validation,
+		"validation_learn":          chain.ValidationLearn,
+		"validation_id":             chain.ValidationID,
 	}
 }
 
