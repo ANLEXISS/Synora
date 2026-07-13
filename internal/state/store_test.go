@@ -27,6 +27,24 @@ func TestDeviceCollectionAlias(t *testing.T) {
 	}
 }
 
+func TestSystemStateNormalizesMissingSystemAndSecurity(t *testing.T) {
+	store := NewStore()
+	store.mu.Lock()
+	store.System = nil
+	store.mu.Unlock()
+
+	state := store.SystemState()
+	if state.LastState != "idle" || state.DangerLevel != "unknown" || state.DangerSource != "unknown" {
+		t.Fatalf("unexpected zero-value system defaults: %#v", state)
+	}
+	if state.Security.Mode != contract.SecurityModeHome || state.Security.Armed || state.Security.ExpectedOccupancy != contract.ExpectedOccupancyUnknown {
+		t.Fatalf("missing security defaults: %#v", state.Security)
+	}
+	if persisted := store.PersistedState(); persisted.System == nil || persisted.System.Security.Mode != contract.SecurityModeHome {
+		t.Fatalf("persisted system defaults missing: %#v", persisted.System)
+	}
+}
+
 func TestActionResultsSnapshot(t *testing.T) {
 	store := NewStore()
 	store.SetActionResult(&contract.ActionResult{

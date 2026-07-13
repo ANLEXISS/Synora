@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"synora/internal/configfile"
 )
 
 const (
@@ -100,10 +101,7 @@ func Save(path string, cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0600)
+	return configfile.WriteAtomicWithBackup(path, data, 0600)
 }
 
 // RotateAPIToken replaces both the bootstrap token and its verification hash

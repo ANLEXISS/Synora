@@ -1079,7 +1079,9 @@ func apiErrorStatus(code string) int {
 		return http.StatusNotFound
 	case contract.ErrorDuplicateID, contract.ErrorTopologyRequired:
 		return http.StatusConflict
-	case contract.ErrorValidationFailed, contract.ErrorUnsafeAutomation:
+	case contract.ErrorValidationFailed:
+		return http.StatusBadRequest
+	case contract.ErrorUnsafeAutomation:
 		return http.StatusUnprocessableEntity
 	case contract.ErrorForbiddenAction:
 		return http.StatusForbidden

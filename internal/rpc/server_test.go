@@ -145,6 +145,22 @@ func TestRPCStateAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestUnknownRPCReturnsAnErrorResponseInsteadOfTimingOut(t *testing.T) {
+	sender := &testSender{}
+	server := NewServer(Config{Bus: sender})
+	server.Handle(contract.Message{ID: "unknown-1", Type: "unknown.rpc", Kind: contract.KindRPC, Source: "api"})
+	if len(sender.messages) != 1 {
+		t.Fatalf("expected an error response for unknown RPC, got %d", len(sender.messages))
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(sender.messages[0].Payload, &payload); err != nil {
+		t.Fatalf("decode unknown RPC response: %v", err)
+	}
+	if payload["error"] != contract.ErrorNotFound || sender.messages[0].Target != "api" {
+		t.Fatalf("unexpected unknown RPC response: %#v", sender.messages[0])
+	}
+}
+
 func TestPublicSnapshotAbsentResidentKeepsLastSeen(t *testing.T) {
 	store := state.NewStore()
 	lastSeen := time.Date(2026, 7, 11, 17, 3, 56, 742582666, time.UTC)

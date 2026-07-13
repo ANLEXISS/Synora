@@ -1,5 +1,5 @@
 import { getRoomLabel } from "./topology";
-import type { ApiTopologyNode, ChainStatus, DangerLevel, EventChain, EventChainEvent } from "./synora-types";
+import type { ApiTopologyNode, ChainEvaluation, ChainStatus, DangerLevel, EventChain, EventChainEvent } from "./synora-types";
 import { normalizeArray, normalizeBoolean, normalizeDangerLevel, normalizeDateString, normalizeNumber, normalizeString, normalizeStringArray, isRecord } from "./normalize";
 
 export type EventChainUpdate = Partial<EventChain> & {
@@ -232,6 +232,55 @@ export function formatEventType(type: string) {
   return readable ? readable.charAt(0).toUpperCase() + readable.slice(1) : "Événement";
 }
 
+export function formatChainEventLabel(event: EventChainEvent) {
+  return formatEventType(event?.type || "event");
+}
+
+export function formatChainEventLocation(event: EventChainEvent, topology: ApiTopologyNode[] = []) {
+  if (event?.node_id) return getRoomLabel(event.node_id, topology) || event.node_id;
+  if (event?.device_id) return event.device_id;
+  return "Emplacement inconnu";
+}
+
+export function getChainEventDangerLevel(event: EventChainEvent, evaluation?: ChainEvaluation): DangerLevel {
+  if (evaluation?.danger_level) return normalizeDangerLevel(evaluation.danger_level);
+  const payload = event?.payload ?? {};
+  return normalizeDangerLevel(payload.danger_level ?? payload.danger_level_hint);
+}
+
+export function getChainEventKind(event: EventChainEvent): "contextual" | "significant" {
+  return isContextualEvent(event) ? "contextual" : "significant";
+}
+
+export function getChainSourceBadge(chain: Pick<EventChain, "source" | "validation" | "simulated">) {
+  return chainSourceLabel(chain);
+}
+
+export type EventChainRailItem = {
+  event: EventChainEvent;
+  eventId: string;
+  evaluation?: ChainEvaluation;
+  kind: "contextual" | "significant";
+  dangerLevel: DangerLevel;
+};
+
+export function getChainRailItems(chain: EventChain): EventChainRailItem[] {
+  const safeChain = normalizeEventChain(chain);
+  return (safeChain.recent_events ?? [])
+    .map((event, index) => {
+      const eventId = getEventKey(event, index);
+      const evaluation = event.id ? getEvaluationForEvent(safeChain, event.id) : undefined;
+      return {
+        event,
+        eventId,
+        evaluation,
+        kind: getChainEventKind(event),
+        dangerLevel: getChainEventDangerLevel(event, evaluation),
+      };
+    })
+    .sort((left, right) => Date.parse(left.event.timestamp) - Date.parse(right.event.timestamp));
+}
+
 function isTechnicalText(value: string) {
   return /[;=]/.test(value) || /(?:^|[._\s])[a-z0-9]+_[a-z0-9_]+/.test(value) || value.length > 150;
 }
@@ -284,9 +333,10 @@ export function compactReasonList(reasons: string[] | null | undefined, max = 3)
 }
 
 export function isContextualEvent(event: EventChainEvent) {
-  return event.contextual === true || event.type === "vision.motion";
+  return event?.contextual === true || event?.type === "vision.motion" || event?.type === "motion.detected";
 }
 
 export function isSignificantEvent(event: EventChainEvent) {
-  return event.significant === true;
+  if (event?.significant === true) return true;
+  return ["vision.unknown", "vision.identity", "vision.uncertain", "vision.weapon", "vision.fall", "camera.offline", "device.offline", "manual.risk"].includes(event?.type);
 }

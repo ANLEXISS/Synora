@@ -116,7 +116,12 @@ func (c *Client) Send(msg contract.Message) error {
 		}
 
 		c.writeMu.Lock()
+		if deadlineErr := conn.SetWriteDeadline(time.Now().Add(clientWriteTimeout)); deadlineErr != nil {
+			c.writeMu.Unlock()
+			return deadlineErr
+		}
 		_, err = conn.Write(data)
+		_ = conn.SetWriteDeadline(time.Time{})
 		c.writeMu.Unlock()
 		if err == nil {
 			return nil
@@ -291,7 +296,12 @@ func (c *Client) register(conn net.Conn) error {
 	data = append(data, '\n')
 
 	c.writeMu.Lock()
+	if deadlineErr := conn.SetWriteDeadline(time.Now().Add(clientWriteTimeout)); deadlineErr != nil {
+		c.writeMu.Unlock()
+		return deadlineErr
+	}
 	_, err = conn.Write(data)
+	_ = conn.SetWriteDeadline(time.Time{})
 	c.writeMu.Unlock()
 	return err
 }

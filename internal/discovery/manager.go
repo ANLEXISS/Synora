@@ -236,7 +236,7 @@ func (m *Manager) publishRuntimeStatus() {
 		healthState.setVisionWorker("degraded", "running with missing models")
 		status.VisionWorkerStatus = workerStatus
 	}
-	discoveryStatus := statusForDiscovery(status)
+	discoveryStatus := statusForDiscovery(&status)
 	m.publishDiagnostic(contract.EventDiscoveryRuntimeStatus, map[string]any{
 		"component": "discovery",
 		"status":    discoveryStatus,
@@ -257,7 +257,10 @@ func regularFilePath(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-func statusForDiscovery(status discoveryHealth) string {
+func statusForDiscovery(status *discoveryHealth) string {
+	if status == nil {
+		return "degraded"
+	}
 	if status.NetworkStatus == "degraded" || status.VisionWorkerStatus != "ok" || status.VisionIngressStatus != "ok" {
 		return "degraded"
 	}

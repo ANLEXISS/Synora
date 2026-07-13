@@ -50,8 +50,6 @@ import {
   automationSecurityArmedCatalog,
   automationSecurityModeCatalog,
   automationSystemStateCatalog,
-  demoApiTopology,
-  demoTopologyDevices,
   prettyTopologyName,
   type AutomationActionKind,
   type AutomationCatalogOption,
@@ -62,6 +60,7 @@ import {
   type DemoAutomationAction,
   type DemoAutomationCondition,
 } from "../data/demo";
+import type { ApiTopologyNode, SynoraDevice } from "../lib/synora-types";
 
 type AutomationFilter = "all" | "enabled" | "disabled";
 type StateFilter = "all" | DemoAutomation["state"];
@@ -85,8 +84,8 @@ function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2)}`;
 }
 
-function flattenRooms() {
-  return demoApiTopology.flatMap((zone) =>
+function flattenRooms(topology: ApiTopologyNode[]) {
+  return topology.flatMap((zone) =>
     (zone.children ?? []).flatMap((floor) =>
       (floor.children ?? [])
         .filter((node) => node.type === "room")
@@ -100,31 +99,31 @@ function flattenRooms() {
   );
 }
 
-function roomOptions(): AutomationCatalogOption[] {
-  return flattenRooms().map((room) => ({
+function roomOptions(topology: ApiTopologyNode[]): AutomationCatalogOption[] {
+  return flattenRooms(topology).map((room) => ({
     value: room.id,
     label: `${room.name} · ${room.floor}`,
     category: room.zone,
   }));
 }
 
-function deviceOptions(filter?: "camera" | "siren"): AutomationCatalogOption[] {
-  const devices = filter
-    ? demoTopologyDevices.filter((device) => device.type === filter)
-    : demoTopologyDevices;
+function deviceOptions(devices: SynoraDevice[], filter?: "camera" | "siren"): AutomationCatalogOption[] {
+  const filteredDevices = filter
+    ? devices.filter((device) => device.type === filter)
+    : devices;
 
-  if (filter === "siren" && devices.length === 0) {
+  if (filter === "siren" && filteredDevices.length === 0) {
     return [{ value: "siren_main", label: "Sirène principale" }];
   }
 
-  return devices.map((device) => ({
+  return filteredDevices.map((device) => ({
     value: device.id,
-    label: device.name,
-    category: prettyTopologyName(device.type),
+    label: typeof device.name === "string" ? device.name : device.id,
+    category: prettyTopologyName(typeof device.type === "string" ? device.type : "device"),
   }));
 }
 
-function buildConditionCatalog(): AutomationConditionDefinition[] {
+function buildConditionCatalog(topology: ApiTopologyNode[], devices: SynoraDevice[]): AutomationConditionDefinition[] {
   return [
     {
       kind: "event.type",
@@ -149,7 +148,7 @@ function buildConditionCatalog(): AutomationConditionDefinition[] {
       label: "Pièce",
       description: "Pièce ou zone concernée.",
       operators: ["==", "!="],
-      values: roomOptions(),
+      values: roomOptions(topology),
     },
     {
       kind: "danger.level",
@@ -163,7 +162,7 @@ function buildConditionCatalog(): AutomationConditionDefinition[] {
       label: "Périphérique",
       description: "Périphérique concerné.",
       operators: ["==", "!="],
-      values: deviceOptions(),
+      values: deviceOptions(devices),
     },
   ];
 }
@@ -211,7 +210,7 @@ function conditionLabel(
   return `${definition?.label ?? condition.kind} ${operator} ${value}`;
 }
 
-function actionLabel(action: DemoAutomationAction) {
+function actionLabel(action: DemoAutomationAction, devices: SynoraDevice[]) {
   const definition = automationActionTypeCatalog.find(
     (item) => item.kind === action.kind
   );
@@ -220,10 +219,10 @@ function actionLabel(action: DemoAutomationAction) {
     action.kind === "notify"
       ? automationNotifyTargetCatalog
       : action.kind === "record.clip"
-        ? deviceOptions("camera")
+        ? deviceOptions(devices, "camera")
         : action.kind === "siren"
-          ? deviceOptions("siren")
-          : deviceOptions();
+          ? deviceOptions(devices, "siren")
+          : deviceOptions(devices);
 
   const commandOptions = automationActionCommandCatalog[action.kind];
 
@@ -248,10 +247,10 @@ function actionIcon(type: AutomationActionKind) {
   return Zap;
 }
 
-function nodeLabel(nodeId?: string) {
+function nodeLabel(nodeId: string | undefined, topology: ApiTopologyNode[]) {
   if (!nodeId) return "Global";
 
-  return findOptionLabel(roomOptions(), nodeId);
+  return findOptionLabel(roomOptions(topology), nodeId);
 }
 
 function filterMatches(automation: DemoAutomation, filter: AutomationFilter) {
@@ -278,15 +277,15 @@ function createCondition(
   };
 }
 
-function createAction(kind: AutomationActionKind = "notify"): BuilderAction {
+function createAction(kind: AutomationActionKind = "notify", devices: SynoraDevice[] = []): BuilderAction {
   const target =
     kind === "notify"
       ? automationNotifyTargetCatalog[0]?.value
       : kind === "record.clip"
-        ? deviceOptions("camera")[0]?.value
+        ? deviceOptions(devices, "camera")[0]?.value
         : kind === "siren"
-          ? deviceOptions("siren")[0]?.value
-          : deviceOptions()[0]?.value;
+          ? deviceOptions(devices, "siren")[0]?.value
+          : deviceOptions(devices)[0]?.value;
 
   const command = automationActionCommandCatalog[kind][0]?.value;
 
@@ -323,7 +322,7 @@ function automationForList(
 export function Automations() {
   const data = useSynoraData();
   const auth = useAuth();
-  const conditionCatalog = useMemo(() => buildConditionCatalog(), []);
+  const conditionCatalog = useMemo(() => buildConditionCatalog(data.topology, data.devices), [data.devices, data.topology]);
 
   const [automations, setAutomations] = useState<DemoAutomation[]>([]);
 
@@ -359,8 +358,8 @@ export function Automations() {
   ]);
 
   const [actions, setActions] = useState<BuilderAction[]>([
-    createAction("notify"),
-    createAction("record.clip"),
+    createAction("notify", data.devices),
+    createAction("record.clip", data.devices),
   ]);
 
   const filteredAutomations = useMemo(() => {
@@ -374,7 +373,7 @@ export function Automations() {
 
       const readableActions = automation.actions
         .map((action) => {
-          const labels = actionLabel(action);
+          const labels = actionLabel(action, data.devices);
           return `${labels.type} ${labels.target} ${labels.command}`;
         })
         .join(" ")
@@ -387,7 +386,7 @@ export function Automations() {
         automation.description.toLowerCase().includes(query) ||
         readableConditions.includes(query) ||
         readableActions.includes(query) ||
-        nodeLabel(automation.node_id).toLowerCase().includes(query);
+        nodeLabel(automation.node_id, data.topology).toLowerCase().includes(query);
 
       const matchAutomationFilter = filterMatches(automation, automationFilter);
       const matchState =
@@ -435,7 +434,7 @@ export function Automations() {
   }
 
   function changeActionKind(id: string, kind: AutomationActionKind) {
-    const next = createAction(kind);
+    const next = createAction(kind, data.devices);
 
     updateAction(id, {
       kind,
@@ -461,8 +460,8 @@ function resetBuilder() {
     ]);
 
     setActions([
-      createAction("notify"),
-      createAction("record.clip"),
+      createAction("notify", data.devices),
+      createAction("record.clip", data.devices),
     ]);
   }
 
@@ -768,7 +767,7 @@ async function handleDeleteAutomation(id: string) {
                       <Cpu size={13} />
                       Pièce
                     </span>
-                    <strong>{nodeLabel(automation.node_id)}</strong>
+                    <strong>{nodeLabel(automation.node_id, data.topology)}</strong>
                   </div>
 
                   <div>
@@ -815,7 +814,7 @@ async function handleDeleteAutomation(id: string) {
                   <div className="automation-action-grid">
                     {automation.actions.map((action, index) => {
                       const Icon = actionIcon(action.kind);
-                      const labels = actionLabel(action);
+                      const labels = actionLabel(action, data.devices);
 
                       return (
                         <div
@@ -1057,10 +1056,10 @@ async function handleDeleteAutomation(id: string) {
                         action.kind === "notify"
                           ? automationNotifyTargetCatalog
                           : action.kind === "record.clip"
-                            ? deviceOptions("camera")
+                            ? deviceOptions(data.devices, "camera")
                             : action.kind === "siren"
-                              ? deviceOptions("siren")
-                              : deviceOptions();
+                              ? deviceOptions(data.devices, "siren")
+                              : deviceOptions(data.devices);
 
                       const commandOptions =
                         automationActionCommandCatalog[action.kind];
@@ -1132,7 +1131,7 @@ async function handleDeleteAutomation(id: string) {
                   <button
                     className="builder-add-brick"
                     onClick={() =>
-                      setActions((items) => [...items, createAction()])
+                      setActions((items) => [...items, createAction("notify", data.devices)])
                     }
                   >
                     <Plus size={15} />

@@ -214,7 +214,7 @@ export function Devices() {
       return;
     }
     if (data.error) {
-      setNotice("Suppression indisponible : affichage en fallback démo.");
+      setNotice("Suppression indisponible : l’API des périphériques ne répond pas.");
       return;
     }
     if (!window.confirm("Supprimer ce périphérique ? Les clips existants ne seront pas supprimés.")) {
@@ -247,7 +247,7 @@ export function Devices() {
       return;
     }
     if (data.error) {
-      setNotice("Modification indisponible : affichage en fallback démo.");
+      setNotice("Modification indisponible : l’API des périphériques ne répond pas.");
       return;
     }
 

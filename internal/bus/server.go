@@ -16,6 +16,8 @@ import (
 	"synora/pkg/contract"
 )
 
+const clientWriteTimeout = 2 * time.Second
+
 func NewServer(address string) *Server {
 	return &Server{
 		address: address,
@@ -190,6 +192,10 @@ func (s *Server) broadcast(msg contract.Message) {
 func (c *ClientConn) send(msg contract.Message) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.conn.SetWriteDeadline(time.Now().Add(clientWriteTimeout)); err != nil {
+		return err
+	}
+	defer func() { _ = c.conn.SetWriteDeadline(time.Time{}) }()
 	if err := c.encoder.Encode(msg); err != nil {
 		return err
 	}

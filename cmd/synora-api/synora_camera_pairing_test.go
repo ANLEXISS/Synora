@@ -95,7 +95,7 @@ func TestSynoraCameraPairingConfirmPersistsAndConsumesSession(t *testing.T) {
 	confirm := handleSynoraCameraPairingConfirm(provider, store)
 	body := `{"session_id":"` + started.SessionID + `","name":"Caméra entrée","node_id":"zoneA.L0.entree","enabled":true}`
 	invalidNode := callPairing(confirm, http.MethodPost, "/api/devices/pairing/synora-camera/confirm", strings.Replace(body, "zoneA.L0.entree", "zoneA.L0.missing", 1))
-	if invalidNode.Code != http.StatusUnprocessableEntity {
+	if invalidNode.Code != http.StatusBadRequest {
 		t.Fatalf("invalid node status=%d body=%s", invalidNode.Code, invalidNode.Body.String())
 	}
 	response := callPairing(confirm, http.MethodPost, "/api/devices/pairing/synora-camera/confirm", body)

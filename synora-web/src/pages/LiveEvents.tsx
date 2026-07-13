@@ -11,6 +11,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Panel } from "../components/Panel";
 import { EventChainTimeline } from "../components/EventChainTimeline";
+import { EventChainRail } from "../components/EventChainRail";
 import { CgeFeedbackBuilder } from "../components/CgeFeedbackBuilder";
 import { useAuth } from "../hooks/useAuth";
 import { useSynoraData } from "../hooks/useSynoraData";
@@ -80,6 +81,7 @@ export function LiveEvents() {
   const [error, setError] = useState<string | null>(null);
   const [selectedChainID, setSelectedChainID] = useState<string | null>(null);
   const [selectedChain, setSelectedChain] = useState<EventChain | null>(null);
+  const [selectedEventID, setSelectedEventID] = useState<string | undefined>();
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedFeedback, setSelectedFeedback] = useState<CgeEvaluationFeedback[]>([]);
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null);
@@ -194,9 +196,10 @@ export function LiveEvents() {
   const openChains = useMemo(() => sortEventChains(chains, "open"), [chains]);
   const closedChains = useMemo(() => sortEventChains(chains, "closed"), [chains]);
 
-  async function showDetails(chain: EventChain) {
+  async function showDetails(chain: EventChain, eventId?: string) {
     selectedChainIDRef.current = chain.id;
     setSelectedChainID(chain.id);
+    setSelectedEventID(eventId);
     setSelectedChain(chain);
     setDetailLoading(true);
     try {
@@ -214,6 +217,7 @@ export function LiveEvents() {
     selectedChainIDRef.current = null;
     setSelectedChainID(null);
     setSelectedChain(null);
+    setSelectedEventID(undefined);
     setSelectedFeedback([]);
     setCorrectionTarget(null);
   }
@@ -276,6 +280,8 @@ export function LiveEvents() {
           loading={detailLoading}
           isAdmin={auth.isAdmin}
           feedback={selectedFeedback}
+          selectedEventId={selectedEventID}
+          onSelectEvent={setSelectedEventID}
           onCorrectEvaluation={(event, evaluation) => selectedChain && setCorrectionTarget({ kind: "evaluation", chain: selectedChain, event, evaluation })}
           onCorrectChain={(chain) => setCorrectionTarget({ kind: "chain", chain })}
           onClose={closeDetails}
@@ -303,7 +309,7 @@ function ChainSection({
   topology: ApiTopologyNode[];
   empty: string;
   closed?: boolean;
-  onDetails: (chain: EventChain) => void;
+  onDetails: (chain: EventChain, eventId?: string) => void;
 }) {
   return (
     <Panel title={title} className="live-events-panel" action={<span className="live-events-section-count">{chains.length}</span>}>
@@ -321,7 +327,7 @@ function ChainSection({
   );
 }
 
-function ChainCard({ chain, devices, topology, closed, onDetails }: { chain: EventChain; devices: SynoraDevice[]; topology: ApiTopologyNode[]; closed: boolean; onDetails: (chain: EventChain) => void }) {
+function ChainCard({ chain, devices, topology, closed, onDetails }: { chain: EventChain; devices: SynoraDevice[]; topology: ApiTopologyNode[]; closed: boolean; onDetails: (chain: EventChain, eventId?: string) => void }) {
   const tone = dangerTone(chain.danger_level);
   const primaryDevice = devices.find((device) => device.id === chain.primary_device_id);
   const deviceLabel = primaryDevice && typeof primaryDevice.name === "string"
@@ -344,6 +350,7 @@ function ChainCard({ chain, devices, topology, closed, onDetails }: { chain: Eve
       </header>
 
       <p className="event-chain-summary">{getHumanChainSummary(chain)}</p>
+      <EventChainRail chain={chain} topology={topology} compact onSelectEvent={(eventId) => onDetails(chain, eventId)} />
       <div className="event-chain-location">
         <span><Cpu size={14} /> {deviceLabel}</span>
         <span>{getChainRoomLabel(chain, topology)}</span>
@@ -366,7 +373,7 @@ function ChainCard({ chain, devices, topology, closed, onDetails }: { chain: Eve
   );
 }
 
-function ChainDetail({ chain, devices, topology, loading, isAdmin, feedback, onCorrectEvaluation, onCorrectChain, onClose }: { chain: EventChain | null; devices: SynoraDevice[]; topology: ApiTopologyNode[]; loading: boolean; isAdmin: boolean; feedback: CgeEvaluationFeedback[]; onCorrectEvaluation: (event: EventChainEvent, evaluation: ChainEvaluation) => void; onCorrectChain: (chain: EventChain) => void; onClose: () => void }) {
+function ChainDetail({ chain, devices, topology, loading, isAdmin, feedback, selectedEventId, onSelectEvent, onCorrectEvaluation, onCorrectChain, onClose }: { chain: EventChain | null; devices: SynoraDevice[]; topology: ApiTopologyNode[]; loading: boolean; isAdmin: boolean; feedback: CgeEvaluationFeedback[]; selectedEventId?: string; onSelectEvent: (eventId: string) => void; onCorrectEvaluation: (event: EventChainEvent, evaluation: ChainEvaluation) => void; onCorrectChain: (chain: EventChain) => void; onClose: () => void }) {
   return (
     <div className="event-chain-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="event-chain-detail" role="dialog" aria-modal="true" aria-labelledby="event-chain-detail-title">
@@ -391,8 +398,9 @@ function ChainDetail({ chain, devices, topology, loading, isAdmin, feedback, onC
           </div>
           <p className="event-chain-detail-summary">{getHumanChainSummary(chain)}</p>
           {chain.simulated && <div className="event-chain-simulation-meta">Simulation · test_run_id={chain.test_run_id || "—"} · scenario_id={chain.scenario_id || "—"}</div>}
+          <EventChainRail chain={chain} topology={topology} selectedEventId={selectedEventId} onSelectEvent={onSelectEvent} />
           <h3>Maillons de la chaîne</h3>
-          <EventChainTimeline chain={chain} devices={devices} topology={topology} isAdmin={isAdmin} feedback={feedback} onCorrectEvaluation={onCorrectEvaluation} />
+          <EventChainTimeline key={`${chain.id}:${selectedEventId || "latest"}`} chain={chain} devices={devices} topology={topology} initialExpandedEventId={selectedEventId} isAdmin={isAdmin} feedback={feedback} onCorrectEvaluation={onCorrectEvaluation} />
           {isAdmin && <button type="button" className="secondary-button chain-correction-button" onClick={() => onCorrectChain(chain)}>Corriger la fin de chaîne</button>}
           <h3>Historique des évaluations CGE</h3>
           <EvaluationList evaluations={chain.evaluations ?? []} />

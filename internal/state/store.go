@@ -559,8 +559,12 @@ func (s *Store) DeleteEventWindow(nodeID string) {
 func (s *Store) SystemState() SystemState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.systemStateLocked()
+}
+
+func (s *Store) systemStateLocked() SystemState {
 	if s.System == nil {
-		return SystemState{}
+		return SystemState{LastState: "idle", DangerLevel: "unknown", DangerSource: "unknown", Security: contract.DefaultSecurityModeState(time.Now().UTC())}
 	}
 	cloned := *s.System
 	if cloned.LastState == "" {
@@ -1182,7 +1186,7 @@ func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
 			persisted.CriticalChains[id] = *cloneCriticalChainMemory(value)
 		}
 	}
-	system := s.SystemState()
+	system := s.systemStateLocked()
 	persisted.System = &system
 	return persisted
 }

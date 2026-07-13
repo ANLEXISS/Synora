@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"synora/internal/bus"
 	"synora/internal/security"
@@ -17,6 +18,12 @@ type Client struct {
 type requester interface {
 	Request(msgType string, source string, payload []byte, target string) (*contract.Message, error)
 }
+
+type boundedRequester interface {
+	RequestWithTimeout(msgType string, source string, payload []byte, target string, timeout time.Duration) (*contract.Message, error)
+}
+
+const coreRPCTimeout = 2 * time.Second
 
 func New(
 	busClient *bus.Client,
@@ -665,12 +672,13 @@ func (c *Client) callRaw(
 	out any,
 ) error {
 
-	response, err := c.bus.Request(
-		msgType,
-		"api",
-		body,
-		"core",
-	)
+	var response *contract.Message
+	var err error
+	if bounded, ok := c.bus.(boundedRequester); ok {
+		response, err = bounded.RequestWithTimeout(msgType, "api", body, "core", coreRPCTimeout)
+	} else {
+		response, err = c.bus.Request(msgType, "api", body, "core")
+	}
 	if err != nil {
 		return err
 	}

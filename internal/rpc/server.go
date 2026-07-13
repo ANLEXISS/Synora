@@ -137,6 +137,9 @@ func NewServer(cfg Config) *Server {
 func (s *Server) Handle(msg contract.Message) {
 	handler, ok := s.handlers[msg.Type]
 	if !ok {
+		if msg.Kind == contract.KindRPC && s.bus != nil {
+			s.sendErrorResponse(msg, contract.NewAPIError(contract.ErrorNotFound, "unsupported core RPC %q", msg.Type))
+		}
 		return
 	}
 	result, err := handler(msg)
@@ -172,6 +175,24 @@ func (s *Server) Handle(msg contract.Message) {
 	}
 	if sendErr := s.bus.Send(response); sendErr != nil {
 		log.Println("core: rpc response send error", sendErr)
+	}
+}
+
+func (s *Server) sendErrorResponse(msg contract.Message, err error) {
+	payload, marshalErr := json.Marshal(map[string]any{
+		"error":   contract.APIErrorCode(err),
+		"message": err.Error(),
+		"details": apiErrorDetails(err),
+	})
+	if marshalErr != nil {
+		log.Printf("core: rpc error response marshal failed type=%s err=%v", msg.Type, marshalErr)
+		return
+	}
+	if sendErr := s.bus.Send(contract.Message{
+		ID: msg.ID, Type: msg.Type, Kind: contract.KindRPC, Source: "core", Target: msg.Source,
+		Timestamp: time.Now().UTC(), Payload: payload,
+	}); sendErr != nil {
+		log.Printf("core: rpc error response send failed type=%s err=%v", msg.Type, sendErr)
 	}
 }
 

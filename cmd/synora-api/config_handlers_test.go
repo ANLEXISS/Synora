@@ -521,7 +521,7 @@ func TestWriteErrorMapsStableAPIErrors(t *testing.T) {
 		{contract.ErrorInvalidRequest, http.StatusBadRequest},
 		{contract.ErrorNotFound, http.StatusNotFound},
 		{contract.ErrorDuplicateID, http.StatusConflict},
-		{contract.ErrorValidationFailed, http.StatusUnprocessableEntity},
+		{contract.ErrorValidationFailed, http.StatusBadRequest},
 		{contract.ErrorForbiddenAction, http.StatusForbidden},
 		{contract.ErrorTopologyRequired, http.StatusConflict},
 		{contract.ErrorUnsafeAutomation, http.StatusUnprocessableEntity},

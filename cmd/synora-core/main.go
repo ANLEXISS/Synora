@@ -62,6 +62,7 @@ type coreApp struct {
 
 	highPriority      chan *contract.Event
 	normalQueue       chan *contract.Event
+	rpcQueue          chan contract.Message
 	ingest            *ingest.Queue
 	rpc               *corerpc.Server
 	snapshotBuilder   *snapshotpkg.Builder
@@ -159,6 +160,7 @@ func main() {
 		metrics:      &coreMetrics{sourceLastSeen: map[string]time.Time{}},
 		highPriority: make(chan *contract.Event, 128),
 		normalQueue:  make(chan *contract.Event, 512),
+		rpcQueue:     make(chan contract.Message, 256),
 	}
 	app.snapshotBuilder = &snapshotpkg.Builder{
 		Mu:         &app.mu,
@@ -301,6 +303,10 @@ func (a *coreApp) seedState() {
 func (a *coreApp) runBusLoop() error {
 	log.Println("core bus loop started")
 	msgCh := a.bus.SubscribeChannel("core")
+	if a.rpcQueue == nil {
+		a.rpcQueue = make(chan contract.Message, 256)
+	}
+	go a.rpcLoop()
 	for msg := range msgCh {
 		log.Printf(
 			"core: received message type=%s kind=%s source=%s",
@@ -311,7 +317,9 @@ func (a *coreApp) runBusLoop() error {
 		a.metrics.touchSource(msg.Source)
 		switch msg.Kind {
 		case contract.KindRPC, contract.KindCommand:
-			a.rpc.Handle(msg)
+			// Keep bus reads independent from filesystem-backed RPC handlers.
+			// The bounded queue backpressures instead of silently dropping RPCs.
+			a.rpcQueue <- msg
 		case contract.KindEvent:
 			a.ingest.Ingest(msg)
 		default:
@@ -319,6 +327,15 @@ func (a *coreApp) runBusLoop() error {
 		}
 	}
 	return nil
+}
+
+func (a *coreApp) rpcLoop() {
+	if a == nil || a.rpc == nil || a.rpcQueue == nil {
+		return
+	}
+	for msg := range a.rpcQueue {
+		a.rpc.Handle(msg)
+	}
 }
 
 func (a *coreApp) processLoop() {

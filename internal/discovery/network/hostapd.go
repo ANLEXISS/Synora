@@ -44,10 +44,13 @@ func EnsureHostapd() error {
 	err = os.WriteFile(
 		HostapdConfigPath,
 		[]byte(config),
-		0644,
+		0600,
 	)
 
 	if err != nil {
+		return err
+	}
+	if err := os.Chmod(HostapdConfigPath, 0600); err != nil {
 		return err
 	}
 
