@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"synora/internal/device"
 	"synora/internal/event"
 	"synora/internal/state"
 	"synora/pkg/contract"
@@ -43,6 +44,49 @@ func TestCGEValidationEventKeepsControlledTrace(t *testing.T) {
 	}
 	if response, ok := result.(map[string]any); !ok || response["status"] != "queued" {
 		t.Fatalf("unexpected injection response: %#v", result)
+	}
+}
+
+func TestCGEValidationEventResolvesDeviceNodeWithoutDangerHint(t *testing.T) {
+	store := state.NewStore()
+	registry := device.NewRegistry()
+	registry.Register([]device.DeviceConfig{{ID: "cam_03", Type: contract.DeviceTypeCamera, NodeID: "zoneA.L0.entree"}})
+	var queued []*contract.Event
+	server := NewServer(Config{
+		State:   store,
+		Devices: registry,
+		IngestEvent: func(value *contract.Event) {
+			queued = append(queued, value)
+		},
+	})
+
+	_, err := server.Handler(contract.RPCCGEValidationEvent)(contract.Message{Payload: json.RawMessage(`{
+		"event_type":"vision.unknown","device_id":"cam_03","confidence":0.78,"learn":false
+	}`)})
+	if err != nil {
+		t.Fatalf("inject validation event without hint: %v", err)
+	}
+	if len(queued) != 1 || queued[0].NodeID != "zoneA.L0.entree" {
+		t.Fatalf("device node was not resolved: %#v", queued)
+	}
+	if _, exists := queued[0].Payload["danger_level_hint"]; exists {
+		t.Fatalf("validation event unexpectedly contains danger hint: %#v", queued[0].Payload)
+	}
+	if _, exists := queued[0].Payload["danger_level"]; exists {
+		t.Fatalf("validation event unexpectedly contains computed danger: %#v", queued[0].Payload)
+	}
+}
+
+func TestCGEValidationRejectsUnlocatedDevice(t *testing.T) {
+	registry := device.NewRegistry()
+	registry.Register([]device.DeviceConfig{{ID: "cam_unlocated", Type: contract.DeviceTypeCamera}})
+	server := NewServer(Config{State: state.NewStore(), Devices: registry, IngestEvent: func(*contract.Event) {}})
+
+	_, err := server.Handler(contract.RPCCGEValidationEvent)(contract.Message{Payload: json.RawMessage(`{
+		"event_type":"vision.unknown","device_id":"cam_unlocated","confidence":0.7
+	}`)})
+	if contract.APIErrorCode(err) != contract.ErrorValidationFailed {
+		t.Fatalf("error code=%s err=%v", contract.APIErrorCode(err), err)
 	}
 }
 

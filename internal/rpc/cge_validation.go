@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"synora/internal/device"
 	"synora/internal/event"
 	"synora/internal/idgen"
 	"synora/pkg/contract"
@@ -86,6 +87,12 @@ func (s *Server) queueValidationEvents(requests []contract.CGEValidationEventReq
 				map[string]any{"event_index": index, "field": "danger_level_hint", "value": hint},
 				"invalid danger_level_hint %q at events[%d]", hint, index)
 		}
+		nodeID, err := s.resolveValidationNode(request, index)
+		if err != nil {
+			return nil, err
+		}
+		request.NodeID = nodeID
+		requests[index] = request
 	}
 
 	results := make([]map[string]any, 0, len(requests))
@@ -141,11 +148,42 @@ func (s *Server) queueValidationEvents(requests []contract.CGEValidationEventReq
 		log.Printf("core: validation sequence queued event_id=%s", eventID)
 		results = append(results, map[string]any{
 			"event_id": eventID, "validation_id": validationID, "event_type": eventType,
+			"device_id": strings.TrimSpace(request.DeviceID), "node_id": strings.TrimSpace(request.NodeID),
+			"confidence":  request.Confidence,
 			"source_type": contract.SourceValidation, "test_mode": contract.ValidationTestModeControlledReal,
 			"learn": eventLearn, "event_index": index, "clip_index": index, "queued_at": at,
 		})
 	}
 	return map[string]any{"status": "queued", "kind": firstNonEmpty(kind, "event"), "validation_id": validationID, "activation_id": validationID, "sequence_key": validationID, "events": results}, nil
+}
+
+func (s *Server) resolveValidationNode(request contract.CGEValidationEventRequest, index int) (string, error) {
+	deviceID := strings.TrimSpace(request.DeviceID)
+	nodeID := strings.TrimSpace(request.NodeID)
+
+	if s.devices != nil && deviceID != "" {
+		configured, ok := s.devices.Get(deviceID)
+		if !ok || configured == nil || configured.DeletedAt != nil {
+			return "", contract.NewAPIErrorWithDetails(contract.ErrorValidationFailed,
+				map[string]any{"event_index": index, "field": "device_id", "value": deviceID},
+				"unknown device_id %q at events[%d]", deviceID, index)
+		}
+		nodeID = strings.TrimSpace(configured.NodeID)
+		if nodeID == "" {
+			nodeID = strings.TrimSpace(configured.Room)
+		}
+	}
+
+	if nodeID == "" || nodeID == device.UnlocatedNodeID {
+		field := "node_id"
+		if deviceID != "" {
+			field = "device_id"
+		}
+		return "", contract.NewAPIErrorWithDetails(contract.ErrorValidationFailed,
+			map[string]any{"event_index": index, "field": field, "device_id": deviceID},
+			"device %q has no assigned node at events[%d]; assign a room before injecting", deviceID, index)
+	}
+	return nodeID, nil
 }
 
 func (s *Server) cgeValidationHistory(_ contract.Message) (any, error) {

@@ -1645,7 +1645,59 @@ button {
 .lab-event-form input,
 .lab-event-form select,
 .lab-reason input {
+  box-sizing: border-box;
   width: 100%;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 9px;
+  outline: none;
+  color: var(--text);
+  background: rgba(2, 6, 23, 0.72);
+  font: inherit;
+  color-scheme: dark;
+}
+
+.lab-event-form input::placeholder,
+.lab-reason input::placeholder {
+  color: var(--muted-2);
+}
+
+.lab-event-form input:focus,
+.lab-event-form select:focus,
+.lab-reason input:focus {
+  border-color: rgba(34, 211, 238, 0.65);
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.1);
+}
+
+.lab-event-form select option {
+  color: var(--text);
+  background: #0b1220;
+}
+
+.lab-readonly-field {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 9px;
+  background: rgba(148, 163, 184, 0.055);
+}
+
+.lab-readonly-field span,
+.lab-readonly-field small {
+  color: var(--muted-2);
+  font-size: 0.72rem;
+}
+
+.lab-readonly-field strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lab-builder-actions,
@@ -1693,17 +1745,68 @@ button {
 .lab-execution-panel .panel-body { align-content: start; }
 
 .lab-learning-toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
   padding: 10px 11px;
   border: 1px solid rgba(245, 158, 11, 0.2);
   border-radius: 10px;
   background: rgba(245, 158, 11, 0.045);
 }
 
-.lab-learning-toggle span { display: grid; gap: 3px; }
-.lab-learning-toggle strong { color: var(--text); font-size: 0.8rem; }
+.lab-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  text-align: left;
+}
+
+.lab-switch:focus-visible {
+  outline: 2px solid rgba(34, 211, 238, 0.65);
+  outline-offset: 4px;
+}
+
+.lab-switch-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 24px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.lab-switch-track span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.lab-switch.on .lab-switch-track {
+  border-color: rgba(34, 211, 238, 0.65);
+  background: rgba(34, 211, 238, 0.22);
+}
+
+.lab-switch.on .lab-switch-track span {
+  transform: translateX(18px);
+  background: var(--cyan);
+}
+
+.lab-switch-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.lab-switch-copy strong { color: var(--text); font-size: 0.8rem; }
 .lab-learning-toggle small,
 .lab-source-note { color: var(--muted-2); }
 .lab-source-note code { color: var(--cyan); font-size: 0.72rem; }
@@ -1713,6 +1816,30 @@ button {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 9px;
 }
+
+.lab-submitted {
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  border-radius: 10px;
+  background: rgba(34, 211, 238, 0.045);
+}
+
+.lab-submitted > strong { color: var(--text); }
+.lab-submitted > span { color: var(--muted); font-size: 0.78rem; }
+.lab-submitted > div { display: grid; gap: 5px; margin-top: 4px; }
+
+.lab-submitted-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.lab-submitted-item small { color: var(--muted-2); }
 
 .lab-result-grid > div {
   display: grid;
