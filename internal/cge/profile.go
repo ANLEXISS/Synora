@@ -224,7 +224,7 @@ func writeProfileAtomic(path string, profile contract.CgeSecurityProfile) error 
 
 func validDangerLevel(level contract.DangerLevel) bool {
 	switch level {
-	case contract.DangerNone, contract.DangerLow, contract.DangerMedium, contract.DangerHigh, contract.DangerCritical:
+	case contract.DangerNone, contract.DangerLow, contract.DangerMedium, contract.DangerMediumHigh, contract.DangerHigh, contract.DangerCritical:
 		return true
 	default:
 		return false

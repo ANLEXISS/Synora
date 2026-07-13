@@ -30,9 +30,10 @@ type PublicSnapshot struct {
 
 func PublicSnapshotFromCoreState(state map[string]any) PublicSnapshot {
 	store := mapValue(state["state_store"])
+	system := publicSystemState(mapValue(state["system"]))
 
 	return PublicSnapshot{
-		System:        mapOrEmpty(normalizeMap(mapValue(state["system"]))),
+		System:        system,
 		Devices:       collectionFrom(state, store, "devices"),
 		Residents:     collectionFrom(state, store, "residents"),
 		Nodes:         collectionFrom(state, store, "nodes"),
@@ -50,6 +51,33 @@ func PublicSnapshotFromCoreState(state map[string]any) PublicSnapshot {
 		CGE:           mapOrEmpty(normalizeMap(mapValue(state["cge"]))),
 		EventChains:   mapOrEmpty(normalizeMap(mapValue(state["event_chains"]))),
 	}
+}
+
+func publicSystemState(raw map[string]any) map[string]any {
+	system := mapOrEmpty(normalizeMap(raw))
+	securityState := DefaultSecurityModeState(time.Now().UTC())
+	if security := mapValue(raw["security"]); security != nil {
+		if mode, ok := security["mode"].(string); ok {
+			securityState.Mode = SecurityMode(mode)
+		}
+		if armed, ok := security["armed"].(bool); ok {
+			securityState.Armed = armed
+		}
+		if occupancy, ok := security["expected_occupancy"].(string); ok {
+			securityState.ExpectedOccupancy = ExpectedOccupancy(occupancy)
+		}
+	}
+	securityState = NormalizeSecurityModeState(securityState, time.Now().UTC())
+	security := map[string]any{
+		"mode":               string(securityState.Mode),
+		"armed":              securityState.Armed,
+		"expected_occupancy": string(securityState.ExpectedOccupancy),
+	}
+	system["security"] = security
+	system["security_mode"] = security["mode"]
+	system["security_armed"] = security["armed"]
+	system["expected_occupancy"] = security["expected_occupancy"]
+	return system
 }
 
 func publicMetrics(value any) map[string]any {

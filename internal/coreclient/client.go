@@ -713,7 +713,9 @@ func responseError(payload []byte) error {
 		var message string
 		_ = json.Unmarshal(fields["message"], &message)
 		if isStableAPIErrorCode(code) || strings.TrimSpace(message) != "" {
-			return &contract.APIError{Code: code, Message: strings.TrimSpace(message)}
+			var details map[string]any
+			_ = json.Unmarshal(fields["details"], &details)
+			return &contract.APIError{Code: code, Message: strings.TrimSpace(message), Details: details}
 		}
 		// Compatibility with the historical RPC envelope {"error":"message"}.
 		if len(fields) == 1 {
@@ -724,6 +726,7 @@ func responseError(payload []byte) error {
 
 	var typed contract.APIError
 	if err := json.Unmarshal(raw, &typed); err == nil && strings.TrimSpace(typed.Code) != "" {
+		_ = json.Unmarshal(fields["details"], &typed.Details)
 		return &typed
 	}
 	return nil
@@ -732,6 +735,7 @@ func responseError(payload []byte) error {
 func isStableAPIErrorCode(code string) bool {
 	switch strings.TrimSpace(code) {
 	case contract.ErrorInvalidJSON,
+		contract.ErrorInvalidRequest,
 		contract.ErrorNotFound,
 		contract.ErrorDuplicateID,
 		contract.ErrorValidationFailed,

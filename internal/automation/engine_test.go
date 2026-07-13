@@ -146,6 +146,10 @@ func TestCompareDangerLevelUsesBusinessOrder(t *testing.T) {
 		{actual: "high", op: "!=", expected: "critical", want: true},
 		{actual: "critical", op: ">", expected: "high", want: true},
 		{actual: "high", op: "<=", expected: "high", want: true},
+		{actual: "medium_high", op: ">", expected: "medium", want: true},
+		{actual: "medium_high", op: ">=", expected: "high", want: false},
+		{actual: "high", op: ">", expected: "medium_high", want: true},
+		{actual: "medium_high", op: "==", expected: "medium_high", want: true},
 	} {
 		if got := compareDangerLevel(test.op, test.actual, true, test.expected); got != test.want {
 			t.Fatalf("compareDangerLevel(%q, %q, %q)=%t, want %t", test.actual, test.op, test.expected, got, test.want)

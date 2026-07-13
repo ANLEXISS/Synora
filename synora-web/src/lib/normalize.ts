@@ -34,10 +34,11 @@ export function normalizeDateString(value: unknown, fallback = ""): string {
   return value;
 }
 
-export function normalizeDangerLevel(value: unknown): "none" | "low" | "medium" | "high" | "critical" {
+export function normalizeDangerLevel(value: unknown): "none" | "low" | "medium" | "medium_high" | "high" | "critical" {
   switch (value) {
     case "low":
-    case "medium":
+	case "medium":
+	case "medium_high":
     case "high":
     case "critical":
     case "none":

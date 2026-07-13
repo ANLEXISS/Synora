@@ -157,7 +157,7 @@ func clampIntWithDefault(value, minimum, maximum, fallback int) int {
 
 func validCgeDangerLevel(level DangerLevel) bool {
 	switch level {
-	case DangerNone, DangerLow, DangerMedium, DangerHigh, DangerCritical:
+	case DangerNone, DangerLow, DangerMedium, DangerMediumHigh, DangerHigh, DangerCritical:
 		return true
 	default:
 		return false

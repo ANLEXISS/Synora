@@ -3,7 +3,7 @@
 Synora sépare deux contrôles :
 
 - **Manual Risk** est un risque temporaire injecté par un administrateur. Il
-  accepte `low`, `medium`, `high` ou `critical`, expire automatiquement et reste
+  accepte `low`, `medium`, `medium_high`, `high` ou `critical`, expire automatiquement et reste
   compatible avec `POST /api/cge/manual-risk`.
 - **Security Mode** est le contexte durable du système : `home`, `night`,
   `away` ou `high_security`. Il est persisté avec le `StateStore` dans l’état
@@ -41,6 +41,10 @@ Les évaluations exposent les champs suivants :
 Les champs booléens acceptent les valeurs JSON `true`/`false` et leurs formes
 texte usuelles. Le catalogue `/api/automations/catalog` et le builder web
 exposent les quatre conditions sécurité/occupation/risque manuel.
+
+Les niveaux de danger suivent l’ordre `none < low < medium < medium_high < high
+< critical`. Les automations utilisent cet ordre pour les opérateurs `>`, `>=`,
+`<` et `<=` ; `medium_high` est affiché « Moyen élevé » dans la webapp.
 
 ## Runtime et frontend
 

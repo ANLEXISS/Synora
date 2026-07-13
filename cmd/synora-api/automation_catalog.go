@@ -220,6 +220,7 @@ func automationDangerLevelOptions() []catalogOption {
 	return []catalogOption{
 		{Value: "low", Label: "Faible", Category: "Danger"},
 		{Value: "medium", Label: "Moyen", Category: "Danger"},
+		{Value: "medium_high", Label: "Moyen élevé", Category: "Danger"},
 		{Value: "high", Label: "Élevé", Category: "Danger"},
 		{Value: "critical", Label: "Critique", Category: "Danger"},
 	}

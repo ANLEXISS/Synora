@@ -29,6 +29,10 @@ rôle `admin` complet.
 | POST | `/api/system/state/reset` | `cmd/synora-api/runtime_controls.go` | admin | stable | futur | Réinitialise vers `idle`, avec audit. |
 | POST | `/api/cge/manual-risk` | `cmd/synora-api/runtime_controls.go` | admin | stable | oui | Risque manuel ; `test:true` est simulé/dry-run. |
 | POST | `/api/cge/manual-risk/clear` | `cmd/synora-api/runtime_controls.go` | admin | stable | oui | Annule le risque manuel actif sans supprimer l’historique. |
+| POST | `/api/cge/validation/events` | `cmd/synora-api/cge_validation.go` | admin | stable | oui | Injecte un événement contrôlé dans le pipeline réel ; marqué `source_type=validation`. |
+| POST | `/api/cge/validation/chain-sequence` | `cmd/synora-api/cge_validation.go` | admin | stable | oui | Injecte 1 à 20 événements partageant `validation_id`, `activation_id` et `sequence_key`. |
+| GET | `/api/cge/validation/history` | `cmd/synora-api/cge_validation.go` | admin | stable | oui | Historique des événements de validation contrôlée uniquement. |
+| DELETE | `/api/cge/validation/history` | `cmd/synora-api/cge_validation.go` | admin | stable | oui | Nettoie cet historique sans toucher aux événements/chaînes réels. |
 | GET | `/api/security/mode` | `cmd/synora-api/security_mode.go` | state read | stable | oui | Mode durable courant ; lecture seule pour resident/guest. |
 | POST | `/api/security/mode` | `cmd/synora-api/security_mode.go` | admin | stable | oui | Définit `home`, `night`, `away` ou `high_security`. |
 | PATCH | `/api/security/mode` | `cmd/synora-api/security_mode.go` | admin | stable | futur | Mise à jour partielle du mode. |

@@ -158,6 +158,7 @@ func (s *Server) Handle(msg contract.Message) {
 		payload, _ := json.Marshal(map[string]any{
 			"error":   code,
 			"message": message,
+			"details": apiErrorDetails(err),
 		})
 		response.Payload = payload
 	} else if result != nil {
@@ -172,6 +173,14 @@ func (s *Server) Handle(msg contract.Message) {
 	if sendErr := s.bus.Send(response); sendErr != nil {
 		log.Println("core: rpc response send error", sendErr)
 	}
+}
+
+func apiErrorDetails(err error) map[string]any {
+	var typed *contract.APIError
+	if errors.As(err, &typed) && typed != nil {
+		return typed.Details
+	}
+	return nil
 }
 
 func (s *Server) Handler(name string) Handler {
@@ -471,9 +480,9 @@ func (s *Server) manualRisk(msg contract.Message) (any, error) {
 	}
 	request.DangerLevel = strings.ToLower(strings.TrimSpace(request.DangerLevel))
 	switch request.DangerLevel {
-	case "low", "medium", "high", "critical":
+	case "low", "medium", "medium_high", "high", "critical":
 	default:
-		return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "danger_level must be low, medium, high or critical")
+		return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "danger_level must be low, medium, medium_high, high or critical")
 	}
 	if request.DurationSeconds <= 0 {
 		request.DurationSeconds = 60

@@ -3,6 +3,9 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
+
+	"synora/pkg/contract"
 )
 
 type cgeValidationProvider interface {
@@ -41,6 +44,14 @@ func handleCGEValidationSequence(core cgeValidationProvider) http.HandlerFunc {
 		}
 		result, err := core.InjectCGEValidationSequence(body)
 		if err != nil {
+			if contract.APIErrorCode(err) == contract.ErrorValidationFailed && strings.Contains(err.Error(), " at events[") {
+				response := map[string]any{"error": contract.ErrorValidationFailed, "message": err.Error()}
+				if typed, ok := err.(*contract.APIError); ok && typed.Details != nil {
+					response["details"] = typed.Details
+				}
+				writeJSON(w, http.StatusBadRequest, response)
+				return
+			}
 			writeError(w, err)
 			return
 		}

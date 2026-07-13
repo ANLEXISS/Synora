@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"encoding/json"
+	"log"
 	"math"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ var supportedValidationEventTypes = map[string]bool{
 	contract.EventVisionUnknown: true, contract.EventVisionIdentity: true,
 	contract.EventVisionUncertain: true, contract.EventVisionWeapon: true,
 	contract.EventVisionFall: true, contract.EventDeviceOffline: true,
+	"motion.detected": true, "weapon.detected": true, "fall.detected": true,
 	"camera.offline": true, "camera.online": true, "camera.tampered": true, contract.EventVisionTamper: true,
 	contract.EventManualRisk: true, contract.EventVisionMotion: true,
 }
@@ -39,49 +41,79 @@ func (s *Server) cgeValidationSequence(msg contract.Message) (any, error) {
 		if request.Events[i].Reason == "" {
 			request.Events[i].Reason = request.Reason
 		}
-		request.Events[i].Learn = request.Learn
 	}
-	return s.queueValidationEvents(request.Events, "sequence")
+	return s.queueValidationEvents(request.Events, "sequence", request.Learn, request.Reason)
 }
 
-func (s *Server) queueValidationEvents(requests []contract.CGEValidationEventRequest, kind string) (map[string]any, error) {
+func (s *Server) queueValidationEvents(requests []contract.CGEValidationEventRequest, kind string, inheritedLearn ...any) (map[string]any, error) {
 	if s.state == nil || s.ingestEvent == nil {
 		return nil, contract.NewAPIError(contract.ErrorInternal, "event ingestion unavailable")
 	}
+	learn := false
+	sequenceReason := ""
+	if len(inheritedLearn) > 0 {
+		learn, _ = inheritedLearn[0].(bool)
+	}
+	if len(inheritedLearn) > 1 {
+		sequenceReason, _ = inheritedLearn[1].(string)
+	}
 	validationID := idgen.New("validation")
 	base := time.Now().UTC()
-	results := make([]map[string]any, 0, len(requests))
+	log.Printf("core: validation sequence received validation_id=%s events=%d learn=%t", validationID, len(requests), learn)
+
+	// Validate the complete sequence before enqueueing anything. This avoids a
+	// partially injected validation run when a later item is malformed.
 	for index, request := range requests {
 		rawEventType := strings.ToLower(strings.TrimSpace(request.EventType))
 		if !supportedValidationEventTypes[rawEventType] {
-			return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "unsupported validation event type %q", rawEventType)
+			log.Printf("core: validation sequence rejected reason=unsupported_event_type event_index=%d type=%q", index, rawEventType)
+			return nil, contract.NewAPIErrorWithDetails(contract.ErrorValidationFailed,
+				map[string]any{"event_index": index, "event_type": rawEventType},
+				"unsupported event_type %q at events[%d]", rawEventType, index)
 		}
-		eventType := request.NormalizedEventType()
 		if request.Confidence < 0 || request.Confidence > 1 || math.IsNaN(request.Confidence) || math.IsInf(request.Confidence, 0) {
-			return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "confidence must be between 0 and 1")
+			log.Printf("core: validation sequence rejected reason=invalid_confidence event_index=%d", index)
+			return nil, contract.NewAPIErrorWithDetails(contract.ErrorValidationFailed,
+				map[string]any{"event_index": index, "field": "confidence"},
+				"confidence must be between 0 and 1 at events[%d]", index)
 		}
 		hint := strings.ToLower(strings.TrimSpace(request.DangerLevelHint))
 		switch hint {
-		case "", "none", "low", "medium", "high", "critical":
+		case "", "none", "low", "medium", "medium_high", "high", "critical":
 		default:
-			return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "danger_level_hint must be none, low, medium, high or critical")
+			log.Printf("core: validation sequence rejected reason=invalid_danger_level_hint event_index=%d hint=%q", index, hint)
+			return nil, contract.NewAPIErrorWithDetails(contract.ErrorValidationFailed,
+				map[string]any{"event_index": index, "field": "danger_level_hint", "value": hint},
+				"invalid danger_level_hint %q at events[%d]", hint, index)
 		}
+	}
+
+	results := make([]map[string]any, 0, len(requests))
+	for index, request := range requests {
+		eventType := request.NormalizedEventType()
+		hint := strings.ToLower(strings.TrimSpace(request.DangerLevelHint))
+		eventLearn := request.LearnEnabled(learn)
 		eventID := idgen.New("evt")
 		reason := strings.TrimSpace(request.Reason)
+		if reason == "" {
+			reason = strings.TrimSpace(sequenceReason)
+		}
 		if reason == "" {
 			reason = "controlled real CGE validation"
 		}
 		metadata := map[string]any{
 			"validation": true, "source_type": contract.SourceValidation,
 			"test_mode":     contract.ValidationTestModeControlledReal,
-			"validation_id": validationID, "event_id": eventID, "learn": request.Learn, "reason": reason,
+			"validation_id": validationID, "event_id": eventID, "learn": eventLearn, "reason": reason,
+			"event_index": index,
 		}
 		payload := map[string]any{
 			"event_id": eventID, "device_id": strings.TrimSpace(request.DeviceID),
 			"node_id": strings.TrimSpace(request.NodeID), "identity": strings.TrimSpace(request.Identity),
 			"confidence": request.Confidence, "activation_id": validationID, "sequence_key": validationID,
+			"event_index": index, "clip_index": index,
 			"metadata": metadata, "reason": reason,
-			"validation": true, "test_mode": contract.ValidationTestModeControlledReal,
+			"source_type": contract.SourceValidation, "validation": true, "test_mode": contract.ValidationTestModeControlledReal,
 		}
 		if hint != "" {
 			payload["danger_level_hint"] = hint
@@ -94,24 +126,26 @@ func (s *Server) queueValidationEvents(requests []contract.CGEValidationEventReq
 		switch strings.ToLower(strings.TrimSpace(request.DangerLevelHint)) {
 		case "critical":
 			priority = contract.PriorityCritical
-		case "high":
+		case "high", "medium_high":
 			priority = contract.PriorityHigh
 		}
 		event := &contract.Event{
 			ID: eventID, Type: eventType, Source: contract.SourceValidation, Timestamp: at,
 			Payload: payload, DeviceID: strings.TrimSpace(request.DeviceID), NodeID: strings.TrimSpace(request.NodeID),
 			Identity: strings.TrimSpace(request.Identity), Confidence: request.Confidence,
-			Priority: priority, ActivationID: validationID, SequenceKey: validationID,
+			Priority: priority, ActivationID: validationID, SequenceKey: validationID, ClipIndex: index,
 		}
+		log.Printf("core: validation sequence event index=%d type=%s event_id=%s", index, eventType, eventID)
 		s.state.AddValidationEvent(event)
 		s.ingestEvent(event)
+		log.Printf("core: validation sequence queued event_id=%s", eventID)
 		results = append(results, map[string]any{
 			"event_id": eventID, "validation_id": validationID, "event_type": eventType,
 			"source_type": contract.SourceValidation, "test_mode": contract.ValidationTestModeControlledReal,
-			"learn": request.Learn, "queued_at": at,
+			"learn": eventLearn, "event_index": index, "clip_index": index, "queued_at": at,
 		})
 	}
-	return map[string]any{"status": "queued", "kind": firstNonEmpty(kind, "event"), "validation_id": validationID, "events": results}, nil
+	return map[string]any{"status": "queued", "kind": firstNonEmpty(kind, "event"), "validation_id": validationID, "activation_id": validationID, "sequence_key": validationID, "events": results}, nil
 }
 
 func (s *Server) cgeValidationHistory(_ contract.Message) (any, error) {

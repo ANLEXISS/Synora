@@ -71,7 +71,7 @@ function firstBoolean(...values: unknown[]): boolean | null {
 function normalizeLevel(value: unknown): DashboardDanger["level"] | null {
   if (typeof value !== "string") return null;
   const level = value.trim().toLowerCase();
-  return ["none", "low", "medium", "high", "critical"].includes(level)
+  return ["none", "low", "medium", "medium_high", "high", "critical"].includes(level)
     ? level as DangerLevel
     : null;
 }

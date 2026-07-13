@@ -21,8 +21,9 @@ const (
 // APIError is created by Core and transported through RPC. The HTTP layer only
 // maps its stable code to a status; it does not contain domain validation logic.
 type APIError struct {
-	Code    string `json:"error"`
-	Message string `json:"message,omitempty"`
+	Code    string         `json:"error"`
+	Message string         `json:"message,omitempty"`
+	Details map[string]any `json:"details,omitempty"`
 }
 
 func (e *APIError) Error() string {
@@ -41,6 +42,14 @@ func NewAPIError(code string, format string, args ...any) error {
 		code = ErrorInternal
 	}
 	return &APIError{Code: code, Message: fmt.Sprintf(format, args...)}
+}
+
+func NewAPIErrorWithDetails(code string, details map[string]any, format string, args ...any) error {
+	err := NewAPIError(code, format, args...)
+	if typed, ok := err.(*APIError); ok {
+		typed.Details = details
+	}
+	return err
 }
 
 func APIErrorCode(err error) string {

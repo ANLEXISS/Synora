@@ -28,7 +28,7 @@ function dangerTone(score: number): "success" | "warning" | "danger" {
 
 function levelTone(level: DashboardDanger["level"]): "neutral" | "success" | "warning" | "danger" {
   if (level === "high" || level === "critical") return "danger";
-  if (level === "medium") return "warning";
+  if (level === "medium" || level === "medium_high") return "warning";
   if (level === "low" || level === "none") return "success";
   return "neutral";
 }

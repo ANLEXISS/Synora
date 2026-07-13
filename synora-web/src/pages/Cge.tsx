@@ -133,6 +133,7 @@ const validationEventOptions = [
   ["vision.unknown", "Présence inconnue"],
   ["vision.identity", "Résident reconnu"],
   ["vision.uncertain", "Identité incertaine"],
+  ["vision.motion", "Mouvement contextuel"],
   ["vision.weapon", "Arme détectée"],
   ["vision.fall", "Chute détectée"],
   ["device.offline", "Périphérique hors ligne"],
@@ -315,6 +316,6 @@ function CgeFeedbackCard({ item, memories }: { item: CgeEvaluationFeedback | Cge
   </article>;
 }
 
-function dangerOptions() { return [<option key="none" value="none">Aucun</option>, <option key="low" value="low">Faible</option>, <option key="medium" value="medium">Moyen</option>, <option key="high" value="high">Élevé</option>, <option key="critical" value="critical">Critique</option>]; }
+function dangerOptions() { return [<option key="none" value="none">Aucun</option>, <option key="low" value="low">Faible</option>, <option key="medium" value="medium">Moyen</option>, <option key="medium_high" value="medium_high">Moyen élevé</option>, <option key="high" value="high">Élevé</option>, <option key="critical" value="critical">Critique</option>]; }
 function securityLabel(key: string) { return { require_human_confirmation_for_siren: "Confirmer humainement la sirène", allow_automatic_lights: "Autoriser les lumières automatiques", allow_automatic_recording: "Autoriser l’enregistrement automatique", allow_automatic_notifications: "Autoriser les notifications automatiques" }[key] || key; }
 function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("fr-FR"); }

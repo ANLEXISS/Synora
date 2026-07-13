@@ -857,10 +857,12 @@ func dangerRankForState(level contract.DangerLevel) int {
 		return 5
 	case contract.DangerHigh:
 		return 4
-	case contract.DangerMedium:
+	case contract.DangerMediumHigh:
 		return 3
-	case contract.DangerLow:
+	case contract.DangerMedium:
 		return 2
+	case contract.DangerLow:
+		return 1
 	default:
 		return 0
 	}

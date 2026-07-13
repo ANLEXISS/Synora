@@ -12,11 +12,12 @@ const (
 type DangerLevel string
 
 const (
-	DangerNone     DangerLevel = "none"
-	DangerLow      DangerLevel = "low"
-	DangerMedium   DangerLevel = "medium"
-	DangerHigh     DangerLevel = "high"
-	DangerCritical DangerLevel = "critical"
+	DangerNone       DangerLevel = "none"
+	DangerLow        DangerLevel = "low"
+	DangerMedium     DangerLevel = "medium"
+	DangerMediumHigh DangerLevel = "medium_high"
+	DangerHigh       DangerLevel = "high"
+	DangerCritical   DangerLevel = "critical"
 )
 
 // PublicEvent is the redacted event representation exposed as part of a
@@ -141,7 +142,7 @@ type CriticalChainMemory struct {
 }
 
 func NormalizeCriticalChainMemory(memory CriticalChainMemory) CriticalChainMemory {
-	if memory.MaxDangerLevel != string(DangerNone) && memory.MaxDangerLevel != string(DangerLow) && memory.MaxDangerLevel != string(DangerMedium) && memory.MaxDangerLevel != string(DangerHigh) && memory.MaxDangerLevel != string(DangerCritical) {
+	if memory.MaxDangerLevel != string(DangerNone) && memory.MaxDangerLevel != string(DangerLow) && memory.MaxDangerLevel != string(DangerMedium) && memory.MaxDangerLevel != string(DangerMediumHigh) && memory.MaxDangerLevel != string(DangerHigh) && memory.MaxDangerLevel != string(DangerCritical) {
 		memory.MaxDangerLevel = string(DangerNone)
 	}
 	if memory.MaxDangerScore < 0 {

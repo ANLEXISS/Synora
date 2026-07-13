@@ -222,7 +222,7 @@ export type SynoraWsMessage = {
   [key: string]: unknown;
 };
 
-export type DangerLevel = "none" | "low" | "medium" | "high" | "critical";
+export type DangerLevel = "none" | "low" | "medium" | "medium_high" | "high" | "critical";
 export type ChainStatus = "open" | "closed";
 
 export type EventChainEvent = {

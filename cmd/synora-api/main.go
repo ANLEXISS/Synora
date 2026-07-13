@@ -1059,10 +1059,14 @@ func writeError(
 	if code == contract.ErrorInternal {
 		message = "internal server error"
 	}
-	writeJSON(w, apiErrorStatus(code), map[string]any{
+	response := map[string]any{
 		"error":   code,
 		"message": message,
-	})
+	}
+	if typed, ok := err.(*contract.APIError); ok && typed.Details != nil {
+		response["details"] = typed.Details
+	}
+	writeJSON(w, apiErrorStatus(code), response)
 }
 
 func apiErrorStatus(code string) int {

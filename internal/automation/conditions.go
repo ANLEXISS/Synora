@@ -202,10 +202,12 @@ func dangerLevelRank(value any) (int, bool) {
 		return 1, true
 	case string(contract.DangerMedium):
 		return 2, true
-	case string(contract.DangerHigh):
+	case string(contract.DangerMediumHigh):
 		return 3, true
-	case string(contract.DangerCritical):
+	case string(contract.DangerHigh):
 		return 4, true
+	case string(contract.DangerCritical):
+		return 5, true
 	default:
 		return 0, false
 	}

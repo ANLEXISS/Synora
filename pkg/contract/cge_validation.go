@@ -14,12 +14,25 @@ type CGEValidationEventRequest struct {
 	Identity        string  `json:"identity,omitempty"`
 	Confidence      float64 `json:"confidence,omitempty"`
 	DangerLevelHint string  `json:"danger_level_hint,omitempty"`
-	Learn           bool    `json:"learn,omitempty"`
+	Learn           *bool   `json:"learn,omitempty"`
 	Reason          string  `json:"reason,omitempty"`
+}
+
+func (r CGEValidationEventRequest) LearnEnabled(inherited bool) bool {
+	if r.Learn != nil {
+		return *r.Learn
+	}
+	return inherited
 }
 
 func (r CGEValidationEventRequest) NormalizedEventType() string {
 	switch strings.ToLower(strings.TrimSpace(r.EventType)) {
+	case "motion.detected":
+		return EventVisionMotion
+	case "weapon.detected":
+		return EventVisionWeapon
+	case "fall.detected":
+		return EventVisionFall
 	case "camera.offline":
 		return EventDiscoveryCameraOffline
 	case "camera.tampered":

@@ -722,6 +722,17 @@ func TestPublicSnapshotJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPublicSnapshotProvidesNonNullSecurityContext(t *testing.T) {
+	snapshot := PublicSnapshotFromCoreState(map[string]any{"system": map[string]any{"last_state": "idle"}})
+	if snapshot.System["security_mode"] != string(SecurityModeHome) || snapshot.System["security_armed"] != false || snapshot.System["expected_occupancy"] != string(ExpectedOccupancyUnknown) {
+		t.Fatalf("security context defaults=%#v", snapshot.System)
+	}
+	security, ok := snapshot.System["security"].(map[string]any)
+	if !ok || security["mode"] != string(SecurityModeHome) || security["armed"] != false {
+		t.Fatalf("security projection=%#v", snapshot.System["security"])
+	}
+}
+
 func TestDocumentedEventTypesNormalize(t *testing.T) {
 	documented := []string{
 		EventVisionIdentity,

@@ -118,6 +118,10 @@ func runtimeDiagnosticsResponse(snapshot *contract.PublicSnapshot, runtimeHealth
 		"vision_ingress_status":          "disabled",
 		"actions_status":                 "unavailable",
 		"security":                       contract.DefaultSecurityModeState(now),
+		"security_mode":                  string(contract.SecurityModeHome),
+		"security_armed":                 false,
+		"expected_occupancy":             string(contract.ExpectedOccupancyUnknown),
+		"occupancy_expected":             string(contract.ExpectedOccupancyUnknown),
 	}
 	if stateErr != nil {
 		response["state_error"] = stateErr.Error()
@@ -183,12 +187,25 @@ func populateSnapshotDiagnostics(response map[string]any, snapshot *contract.Pub
 			response["test_danger_level"] = state["manual_risk_level"]
 		}
 		response["manual_risk_expires_at"] = state["manual_risk_expires_at"]
+		securityState := contract.DefaultSecurityModeState(time.Now().UTC())
 		if security, ok := state["security"].(map[string]any); ok {
 			response["security"] = security
-			response["security_mode"] = security["mode"]
-			response["security_armed"] = security["armed"]
-			response["occupancy_expected"] = security["expected_occupancy"]
+			if mode, ok := security["mode"].(string); ok {
+				securityState.Mode = contract.SecurityMode(mode)
+			}
+			if armed, ok := security["armed"].(bool); ok {
+				securityState.Armed = armed
+			}
+			if occupancy, ok := security["expected_occupancy"].(string); ok {
+				securityState.ExpectedOccupancy = contract.ExpectedOccupancy(occupancy)
+			}
 		}
+		securityState = contract.NormalizeSecurityModeState(securityState, time.Now().UTC())
+		response["security"] = securityState
+		response["security_mode"] = string(securityState.Mode)
+		response["security_armed"] = securityState.Armed
+		response["expected_occupancy"] = string(securityState.ExpectedOccupancy)
+		response["occupancy_expected"] = string(securityState.ExpectedOccupancy)
 		if blocked, ok := state["blocked_actions_recent"].([]any); ok {
 			response["blocked_actions_recent"] = blocked
 		} else if blocked, ok := state["blocked_actions_recent"].([]map[string]any); ok {

@@ -117,7 +117,7 @@ func ClassifyEventForChain(event *contract.Event) ChainRole {
 		"door.opened", "window.opened", "sensor.door.open", "sensor.window.open",
 		"presence.changed", "security.armed_changed", "automation.action_failed":
 		return ChainRoleSignificant
-	case contract.EventVisionMotion, "camera.heartbeat", "camera.clip_received",
+	case contract.EventVisionMotion, contract.EventDiscoveryCameraOnline, "camera.heartbeat", "camera.clip_received",
 		"camera.clip_started", "camera.clip_finished", "camera.online", "stream.started",
 		"stream.frame", "sensor.noise", "vision.end":
 		return ChainRoleContextual
@@ -842,8 +842,10 @@ func normalizeDangerLevel(value string, score float64) contract.DangerLevel {
 		return contract.DangerCritical
 	case "high":
 		return contract.DangerHigh
-	case "medium", "medium_high":
+	case "medium":
 		return contract.DangerMedium
+	case "medium_high":
+		return contract.DangerMediumHigh
 	case "low":
 		return contract.DangerLow
 	case "none":
@@ -866,11 +868,13 @@ func normalizeDangerLevel(value string, score float64) contract.DangerLevel {
 func dangerRank(level contract.DangerLevel) int {
 	switch level {
 	case contract.DangerCritical:
-		return 4
+		return 5
 	case contract.DangerHigh:
-		return 3
+		return 4
 	case contract.DangerMedium:
 		return 2
+	case contract.DangerMediumHigh:
+		return 3
 	case contract.DangerLow:
 		return 1
 	default:

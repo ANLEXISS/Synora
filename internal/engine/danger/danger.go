@@ -413,6 +413,8 @@ func manualRiskLevel(event *contract.Event) (int, float64) {
 		return 2, 0.25
 	case "high":
 		return 4, 0.75
+	case "medium_high":
+		return 3, 0.60
 	case "critical":
 		return 5, 0.95
 	default:

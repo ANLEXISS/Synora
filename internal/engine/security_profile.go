@@ -203,6 +203,8 @@ func dangerLevelNumber(level contract.DangerLevel) int {
 	case contract.DangerHigh:
 		return 4
 	case contract.DangerMedium:
+		return 2
+	case contract.DangerMediumHigh:
 		return 3
 	case contract.DangerLow:
 		return 1
@@ -218,7 +220,7 @@ func dangerLevelName(level int) string {
 	case level >= 4:
 		return string(contract.DangerHigh)
 	case level >= 3:
-		return string(contract.DangerMedium)
+		return string(contract.DangerMediumHigh)
 	case level >= 1:
 		return string(contract.DangerLow)
 	default:

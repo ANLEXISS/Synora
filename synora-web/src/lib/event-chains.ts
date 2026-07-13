@@ -155,6 +155,7 @@ export function formatDangerLevel(level: DangerLevel | string | undefined) {
     case "none": return "Aucun";
     case "low": return "Faible";
     case "medium": return "Moyen";
+    case "medium_high": return "Moyen élevé";
     case "high": return "Élevé";
     case "critical": return "Critique";
     default: return level?.trim() || "Inconnu";
@@ -166,6 +167,7 @@ export function dangerTone(level: DangerLevel | string | undefined): "success" |
     case "critical":
     case "high": return "danger";
     case "medium": return "warning";
+    case "medium_high": return "warning";
     case "low": return "success";
     default: return "neutral";
   }

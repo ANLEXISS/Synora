@@ -113,7 +113,7 @@ export function disarmSecurity(payload: { reason?: string } = {}) {
   return synoraFetch<unknown>("/api/security/disarm", { method: "POST", body: JSON.stringify(payload) }).then(normalizeSecurityMode);
 }
 
-export function setManualRisk(payload: { danger_level: "low" | "medium" | "high" | "critical"; duration_seconds: number; test?: boolean; reason?: string }) {
+export function setManualRisk(payload: { danger_level: "low" | "medium" | "medium_high" | "high" | "critical"; duration_seconds: number; test?: boolean; reason?: string }) {
   return synoraFetch<Record<string, unknown>>("/api/cge/manual-risk", { method: "POST", body: JSON.stringify(payload) });
 }
 

@@ -19,7 +19,7 @@ import {
 } from "./normalize";
 
 const SECURITY_MODES: CgeSecurityMode[] = ["relaxed", "balanced", "strict", "paranoid"];
-const DANGER_LEVELS: DangerLevel[] = ["none", "low", "medium", "high", "critical"];
+const DANGER_LEVELS: DangerLevel[] = ["none", "low", "medium", "medium_high", "high", "critical"];
 
 function boundedNumber(value: unknown, fallback: number, minimum: number, maximum: number) {
   const number = typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -201,6 +201,7 @@ export function dangerLevelOptions(): Array<{ value: DangerLevel; label: string 
     { value: "none", label: "Aucun" },
     { value: "low", label: "Faible" },
     { value: "medium", label: "Moyen" },
+    { value: "medium_high", label: "Moyen élevé" },
     { value: "high", label: "Élevé" },
     { value: "critical", label: "Critique" },
   ];

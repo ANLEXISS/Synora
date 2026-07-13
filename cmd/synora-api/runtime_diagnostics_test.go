@@ -76,6 +76,13 @@ func TestRuntimeDiagnosticsExposesSecurityModeAndManualRisk(t *testing.T) {
 	}
 }
 
+func TestRuntimeDiagnosticsDefaultsSecurityFields(t *testing.T) {
+	response := runtimeDiagnosticsResponse(&contract.PublicSnapshot{System: map[string]any{}}, nil, nil, nil)
+	if response["security_mode"] != "home" || response["security_armed"] != false || response["expected_occupancy"] != "unknown" {
+		t.Fatalf("runtime security defaults=%#v", response)
+	}
+}
+
 func TestSystemHealthMarksServingAPIAndReachableBus(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	core := diagnosticFakeCore{health: &contract.RuntimeHealth{Status: "degraded", Services: map[string]contract.RuntimeServiceHealth{
