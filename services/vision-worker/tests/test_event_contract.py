@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -14,6 +15,7 @@ from core.events import ALLOWED_EVENT_TYPES, EventBuilder
 from core.pipeline import VisionPipeline
 from modules.face.FaceRecognizer import FaceRecognizer
 from worker import build_dry_run_event
+from worker import VisionWorker
 
 
 class DummyMetrics:
@@ -218,6 +220,23 @@ class EventContractTests(unittest.TestCase):
             self.assertFalse(recognizer.available)
             self.assertEqual(recognizer.capability()["status"], "unavailable")
             self.assertIsNone(recognizer.embed(np.zeros((112, 112, 3), dtype=np.uint8)))
+
+    def test_missing_flask_disables_debug_api_without_crashing_worker(self):
+        worker = VisionWorker.__new__(VisionWorker)
+        worker.debug_http_error = None
+
+        real_import = __import__
+
+        def import_without_flask(name, *args, **kwargs):
+            if name == "flask":
+                raise ImportError("flask intentionally unavailable")
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=import_without_flask):
+            app = worker.create_debug_app()
+
+        self.assertIsNone(app)
+        self.assertEqual(worker.debug_http_error, "flask_not_installed")
 
 
 if __name__ == "__main__":

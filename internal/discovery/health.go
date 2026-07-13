@@ -21,9 +21,17 @@ type discoveryHealth struct {
 	VisionWorkerStatus string `json:"vision_worker_status"`
 
 	VisionWorkerError string `json:"vision_worker_error,omitempty"`
+
+	VisionIngressStatus string `json:"vision_ingress_status"`
+
+	VisionIngressError string `json:"vision_ingress_error,omitempty"`
 }
 
-var healthState = &discoveryHealth{}
+var healthState = &discoveryHealth{
+	NetworkStatus:       "unknown",
+	VisionWorkerStatus:  "unknown",
+	VisionIngressStatus: "unknown",
+}
 
 func startHealthServer() {
 
@@ -38,7 +46,10 @@ func startHealthServer() {
 				time.Since(status.LastSuccess) < 15*time.Second &&
 				status.NetworkStatus != "degraded" &&
 				status.VisionWorkerStatus != "unavailable" &&
-				status.VisionWorkerStatus != "error"
+				status.VisionWorkerStatus != "error" &&
+				status.VisionIngressStatus != "disabled" &&
+				status.VisionIngressStatus != "degraded" &&
+				status.VisionIngressStatus != "error"
 
 		payload := map[string]any{
 			"service":       "discovery",
@@ -51,6 +62,9 @@ func startHealthServer() {
 			"vision_worker": map[string]any{
 				"status": status.VisionWorkerStatus,
 			},
+			"vision_ingress": map[string]any{
+				"status": status.VisionIngressStatus,
+			},
 		}
 
 		if status.LastError != "" {
@@ -58,6 +72,9 @@ func startHealthServer() {
 		}
 		if status.VisionWorkerError != "" {
 			payload["vision_worker"].(map[string]any)["message"] = status.VisionWorkerError
+		}
+		if status.VisionIngressError != "" {
+			payload["vision_ingress"].(map[string]any)["message"] = status.VisionIngressError
 		}
 
 		if !healthy {
@@ -114,17 +131,26 @@ func (h *discoveryHealth) setVisionWorker(status, message string) {
 	h.VisionWorkerError = message
 }
 
+func (h *discoveryHealth) setVisionIngress(status, message string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.VisionIngressStatus = status
+	h.VisionIngressError = message
+}
+
 func (h *discoveryHealth) snapshot() discoveryHealth {
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
 	return discoveryHealth{
-		KnownCams:          h.KnownCams,
-		LastSuccess:        h.LastSuccess,
-		LastError:          h.LastError,
-		NetworkStatus:      h.NetworkStatus,
-		VisionWorkerStatus: h.VisionWorkerStatus,
-		VisionWorkerError:  h.VisionWorkerError,
+		KnownCams:           h.KnownCams,
+		LastSuccess:         h.LastSuccess,
+		LastError:           h.LastError,
+		NetworkStatus:       h.NetworkStatus,
+		VisionWorkerStatus:  h.VisionWorkerStatus,
+		VisionWorkerError:   h.VisionWorkerError,
+		VisionIngressStatus: h.VisionIngressStatus,
+		VisionIngressError:  h.VisionIngressError,
 	}
 }

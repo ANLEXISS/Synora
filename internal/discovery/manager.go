@@ -1,8 +1,11 @@
 package discovery
 
 import (
+	"encoding/json"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"synora/internal/bus"
@@ -12,6 +15,7 @@ import (
 	discoveryruntime "synora/internal/discovery/runtime"
 	"synora/internal/discovery/vision"
 	"synora/internal/security"
+	"synora/pkg/contract"
 )
 
 type Manager struct {
@@ -132,6 +136,11 @@ func (m *Manager) Start() {
 			err,
 		)
 		healthState.setNetwork("degraded", err.Error())
+		m.publishDiagnostic(contract.EventDiscoveryNetworkDegraded, map[string]any{
+			"component": "network",
+			"status":    "degraded",
+			"reason":    err.Error(),
+		})
 
 	} else {
 
@@ -146,6 +155,11 @@ func (m *Manager) Start() {
 	if err != nil {
 		log.Printf("vision worker degraded mode enabled err=%v", err)
 		healthState.setVisionWorker("unavailable", err.Error())
+		m.publishDiagnostic(contract.EventDiscoveryVisionWorkerUnavailable, map[string]any{
+			"component": "vision_worker",
+			"status":    "unavailable",
+			"reason":    err.Error(),
+		})
 	} else {
 		healthState.setVisionWorker("ok", "")
 	}
@@ -161,7 +175,93 @@ func (m *Manager) Start() {
 		Authenticator: m,
 		Devices:       m.devices,
 		Queue:         m.pool,
+		AllowInsecure: allowInsecureIngress(),
+		OnStatus: func(status, reason string) {
+			healthState.setVisionIngress(status, reason)
+			m.publishDiagnostic(contract.EventDiscoveryVisionIngressStatus, map[string]any{
+				"component": "vision_ingress",
+				"status":    status,
+				"reason":    reason,
+			})
+		},
 	})
+	m.publishRuntimeStatus()
+}
+
+func allowInsecureIngress() bool {
+	value := strings.TrimSpace(os.Getenv("SYNORA_ALLOW_INSECURE_INGRESS"))
+	allowed, _ := strconv.ParseBool(value)
+	return allowed
+}
+
+func (m *Manager) publishDiagnostic(eventType string, payload map[string]any) {
+	if m == nil || m.bus == nil {
+		return
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	if err := m.bus.Send(contract.Message{
+		Type:      eventType,
+		Kind:      contract.KindEvent,
+		Source:    "discovery",
+		Timestamp: time.Now().UTC(),
+		Payload:   body,
+	}); err != nil {
+		log.Printf("discovery diagnostic publish failed type=%s err=%v", eventType, err)
+	}
+}
+
+func (m *Manager) publishRuntimeStatus() {
+	status := healthState.snapshot()
+	models := map[string]any{}
+	missingModel := false
+	for name, path := range map[string]string{
+		"arcface": "/var/lib/synora/models/arcface_w600k_r50.rknn",
+		"scrfd":   "/var/lib/synora/models/det_10g.rknn",
+		"yolo":    "/var/lib/synora/models/yolov8.rknn",
+		"weapon":  "/var/lib/synora/models/weapon.rknn",
+	} {
+		modelStatus := "present"
+		if !regularFilePath(path) {
+			modelStatus = "missing"
+			missingModel = true
+		}
+		models[name] = map[string]any{"status": modelStatus, "path": path}
+	}
+	workerStatus := status.VisionWorkerStatus
+	if workerStatus == "ok" && missingModel {
+		workerStatus = "degraded"
+		healthState.setVisionWorker("degraded", "model_missing")
+		status.VisionWorkerStatus = workerStatus
+	}
+	discoveryStatus := statusForDiscovery(status)
+	m.publishDiagnostic(contract.EventDiscoveryRuntimeStatus, map[string]any{
+		"component": "discovery",
+		"status":    discoveryStatus,
+		"network":   status.NetworkStatus,
+		"vision_worker": map[string]any{
+			"status": workerStatus,
+		},
+		"vision_ingress": map[string]any{
+			"status": status.VisionIngressStatus,
+			"reason": status.VisionIngressError,
+		},
+		"models": models,
+	})
+}
+
+func regularFilePath(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+func statusForDiscovery(status discoveryHealth) string {
+	if status.NetworkStatus == "degraded" || status.VisionWorkerStatus != "ok" || status.VisionIngressStatus != "ok" {
+		return "degraded"
+	}
+	return "ok"
 }
 
 func (m *Manager) monitorVisionHealth() {
@@ -171,7 +271,11 @@ func (m *Manager) monitorVisionHealth() {
 		snapshot := m.vision.Snapshot()
 		switch snapshot.Status {
 		case vision.WorkerStatusRunning:
-			healthState.setVisionWorker("ok", "")
+			if missingVisionModel() {
+				healthState.setVisionWorker("degraded", "model_missing")
+			} else {
+				healthState.setVisionWorker("ok", "")
+			}
 		case vision.WorkerStatusStarting, vision.WorkerStatusBackoff:
 			healthState.setVisionWorker("degraded", snapshot.Status)
 		case vision.WorkerStatusCrashed, vision.WorkerStatusStopped:
@@ -181,4 +285,18 @@ func (m *Manager) monitorVisionHealth() {
 			healthState.setVisionWorker("unknown", snapshot.Status)
 		}
 	}
+}
+
+func missingVisionModel() bool {
+	for _, path := range []string{
+		"/var/lib/synora/models/arcface_w600k_r50.rknn",
+		"/var/lib/synora/models/det_10g.rknn",
+		"/var/lib/synora/models/yolov8.rknn",
+		"/var/lib/synora/models/weapon.rknn",
+	} {
+		if !regularFilePath(path) {
+			return true
+		}
+	}
+	return false
 }

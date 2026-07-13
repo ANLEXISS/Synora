@@ -800,7 +800,7 @@ func errorMessage(err error) string {
 
 func degradedRuntimeHealth(message string) *contract.RuntimeHealth {
 	now := time.Now().UTC()
-	return &contract.RuntimeHealth{
+	health := contract.RuntimeHealth{
 		Status:      "degraded",
 		GeneratedAt: now,
 		Services: map[string]contract.RuntimeServiceHealth{
@@ -809,9 +809,11 @@ func degradedRuntimeHealth(message string) *contract.RuntimeHealth {
 		},
 		Network:   contract.RuntimeNetworkHealth{Status: "unknown"},
 		MediaMTX:  contract.RuntimeMediaMTXHealth{Status: "unknown"},
-		Disk:      contract.RuntimeDiskHealth{Status: "unknown", Error: message},
+		Disk:      contract.RuntimeDiskHealth{Path: "/var/lib/synora", Status: "unavailable", Error: message},
 		Timestamp: now,
 	}
+	normalized := contract.NormalizeRuntimeHealth(health, now)
+	return &normalized
 }
 
 func handleValidations(

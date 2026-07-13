@@ -29,6 +29,7 @@ type RuntimeServiceHealth struct {
 	Active  bool      `json:"active"`
 	Checked time.Time `json:"checked_at"`
 	Error   string    `json:"error,omitempty"`
+	Message string    `json:"message,omitempty"`
 }
 
 type RuntimeNetworkHealth struct {
@@ -96,4 +97,136 @@ type ManualRiskRequest struct {
 	Reason          string `json:"reason"`
 	Test            bool   `json:"test,omitempty"`
 	CreatedBy       string `json:"created_by,omitempty"`
+}
+
+// NormalizeRuntimeHealth keeps the JSON health contract useful when a
+// component did not answer the probe. Missing component objects are explicit
+// degraded records instead of zero-value JSON objects.
+func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if health.GeneratedAt.IsZero() {
+		health.GeneratedAt = now
+	}
+	if health.Timestamp.IsZero() {
+		health.Timestamp = now
+	}
+	if health.Services == nil {
+		health.Services = map[string]RuntimeServiceHealth{}
+	}
+	for _, name := range []string{"synora-api", "synora-bus", "synora-core", "synora-actions", "synora-discovery", "mediamtx"} {
+		if _, ok := health.Services[name]; !ok {
+			health.Services[name] = unavailableRuntimeService(name, now, "health probe unavailable")
+		}
+	}
+	for name, item := range health.Services {
+		if item.Name == "" {
+			item.Name = name
+		}
+		if item.Status == "" {
+			item.Status = "degraded"
+		}
+		if item.Checked.IsZero() {
+			item.Checked = now
+		}
+		if item.Message == "" {
+			item.Message = item.Error
+		}
+		health.Services[name] = item
+	}
+	if health.Components == nil {
+		health.Components = map[string]RuntimeServiceHealth{}
+	}
+	for _, mapping := range []struct{ alias, service string }{
+		{alias: "api", service: "synora-api"}, {alias: "bus", service: "synora-bus"},
+		{alias: "core", service: "synora-core"}, {alias: "actions", service: "synora-actions"},
+		{alias: "discovery", service: "synora-discovery"},
+	} {
+		if _, ok := health.Components[mapping.alias]; !ok {
+			item := health.Services[mapping.service]
+			item.Name = mapping.alias
+			item.Status = componentRuntimeStatus(item.Status, item.Active)
+			health.Components[mapping.alias] = item
+		}
+	}
+	if _, ok := health.Components["vision_worker"]; !ok {
+		item := health.Services["synora-discovery"]
+		item.Name = "vision_worker"
+		if item.Active {
+			item.Status = "degraded"
+			item.Message = "detailed capability status is reported by discovery"
+		}
+		health.Components["vision_worker"] = item
+	}
+	if _, ok := health.Components["vision_ingress"]; !ok {
+		item := health.Services["synora-discovery"]
+		item.Name = "vision_ingress"
+		if item.Active {
+			item.Status = "degraded"
+			item.Message = "TLS ingress status is reported by discovery"
+		}
+		health.Components["vision_ingress"] = item
+	}
+	if health.Network.HostAPD.Name == "" {
+		health.Network.HostAPD = unavailableRuntimeService("hostapd", now, "network health unavailable")
+	}
+	if health.Network.DNSMasq.Name == "" {
+		health.Network.DNSMasq = unavailableRuntimeService("dnsmasq", now, "network health unavailable")
+	}
+	if health.Network.Status == "" || health.Network.Status == "unknown" {
+		health.Network.Status = combinedRuntimeStatus(health.Network.HostAPD, health.Network.DNSMasq)
+	}
+	if health.MediaMTX.Service.Name == "" {
+		health.MediaMTX.Service = health.Services["mediamtx"]
+		health.MediaMTX.Service.Name = "mediamtx"
+	}
+	if health.MediaMTX.Status == "" || health.MediaMTX.Status == "unknown" {
+		health.MediaMTX.Status = health.MediaMTX.Service.Status
+	}
+	if health.Disk.Path == "" {
+		health.Disk.Path = "/var/lib/synora"
+	}
+	if health.Disk.Status == "" {
+		health.Disk.Status = "unavailable"
+	}
+	if health.Status == "" || health.Status == "unknown" {
+		health.Status = "ok"
+		for _, item := range health.Services {
+			if !item.Active {
+				health.Status = "degraded"
+				break
+			}
+		}
+		if health.Network.Status != "ok" || health.Disk.Status == "critical" {
+			health.Status = "degraded"
+		}
+	}
+	return health
+}
+
+func componentRuntimeStatus(status string, active bool) string {
+	switch status {
+	case "active", "ok":
+		if active || status == "ok" {
+			return "ok"
+		}
+	case "inactive", "failed", "unknown", "":
+		return "degraded"
+	}
+	return status
+}
+
+func unavailableRuntimeService(name string, checked time.Time, message string) RuntimeServiceHealth {
+	return RuntimeServiceHealth{Name: name, Status: "unavailable", Active: false, Checked: checked, Error: message, Message: message}
+}
+
+func combinedRuntimeStatus(items ...RuntimeServiceHealth) string {
+	for _, item := range items {
+		if item.Active && item.Status == "active" {
+			continue
+		}
+		return "degraded"
+	}
+	return "ok"
 }

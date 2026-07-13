@@ -163,7 +163,11 @@ func (m *Manager) Health(
 		status = "degraded"
 	}
 
-	return contract.RuntimeHealth{
+	uptime := int64(now.Sub(m.startedAt).Seconds())
+	if uptime < 1 {
+		uptime = 1
+	}
+	health := contract.RuntimeHealth{
 		Status:      status,
 		GeneratedAt: now,
 		Services:    services,
@@ -180,12 +184,11 @@ func (m *Manager) Health(
 			Status:  mediaMTX.Status,
 			Service: mediaMTX,
 		},
-		Disk: m.diskHealth(),
-		Uptime: int64(
-			now.Sub(m.startedAt).Seconds(),
-		),
+		Disk:      m.diskHealth(),
+		Uptime:    uptime,
 		Timestamp: now,
 	}
+	return contract.NormalizeRuntimeHealth(health, now)
 }
 
 func (m *Manager) RestartService(
@@ -402,6 +405,7 @@ func (m *Manager) serviceHealth(
 
 	if err != nil {
 		health.Error = err.Error()
+		health.Message = err.Error()
 	}
 
 	return health

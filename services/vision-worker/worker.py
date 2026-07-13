@@ -34,6 +34,7 @@ class VisionWorker:
 
         self.dry_run = dry_run
         self.pipeline_error = None
+        self.debug_http_error = None
 
         if dry_run:
             self.face_recognizer = None
@@ -59,25 +60,31 @@ class VisionWorker:
                 log.exception("VISION PIPELINE degraded during initialization")
 
         self.debug_app = self.create_debug_app()
-
-        self.debug_thread = threading.Thread(
-            target=self.debug_app.run,
-            kwargs={
-                "host": "127.0.0.1",
-                "port": 8094,
-                "threaded": True,
-                "use_reloader": False,
-            },
-            daemon=True,
-        )
-
-        self.debug_thread.start()
+        self.debug_thread = None
+        if self.debug_app is not None:
+            self.debug_thread = threading.Thread(
+                target=self.debug_app.run,
+                kwargs={
+                    "host": "127.0.0.1",
+                    "port": 8094,
+                    "threaded": True,
+                    "use_reloader": False,
+                },
+                daemon=True,
+            )
+            self.debug_thread.start()
+        else:
+            log.warning("vision debug API disabled: %s", self.debug_http_error or "unavailable")
 
     # ------------------------------------------------
 
     def create_debug_app(self):
-
-        from flask import Flask, jsonify
+        try:
+            from flask import Flask, jsonify
+        except ImportError as exc:
+            self.debug_http_error = "flask_not_installed"
+            log.warning("debug API disabled: flask not installed (%s)", exc)
+            return None
 
         app = Flask(__name__)
 
@@ -137,6 +144,10 @@ class VisionWorker:
             face_detection = self.pipeline.face_detection_capability()
         return {
             "mode": "degraded" if self.pipeline_error or not any(item.get("status") == "available" for item in (face_capability, object_capability, face_detection)) else "normal",
+            "debug_http": {
+                "status": "unavailable" if self.debug_http_error else "ok",
+                "reason": self.debug_http_error,
+            },
             "capabilities": {
                 "face_detection": face_detection,
                 "face_recognition": face_capability,

@@ -301,6 +301,27 @@ func TestManualRiskPublishesExplicitSimulationMetadata(t *testing.T) {
 	}
 }
 
+func TestManualRiskEnqueuesEventWhenIngestCallbackIsAvailable(t *testing.T) {
+	store := state.NewStore()
+	var ingested *contract.Event
+	server := NewServer(Config{
+		State: store,
+		IngestEvent: func(value *contract.Event) {
+			ingested = value
+		},
+	})
+	result, err := server.Handler(contract.RPCManualRisk)(contract.Message{Payload: []byte(`{"danger_level":"high","duration_seconds":5}`)})
+	if err != nil {
+		t.Fatalf("manual risk error=%v", err)
+	}
+	if ingested == nil || ingested.Type != contract.EventManualRisk || ingested.Source != "admin" {
+		t.Fatalf("ingested=%#v result=%#v", ingested, result)
+	}
+	if result.(map[string]any)["event_id"] != ingested.ID {
+		t.Fatalf("result=%#v event=%#v", result, ingested)
+	}
+}
+
 func TestSystemStateResetKeepsHistoryAndClearsDanger(t *testing.T) {
 	store := state.NewStore()
 	current := store.SystemState()
@@ -314,7 +335,7 @@ func TestSystemStateResetKeepsHistoryAndClearsDanger(t *testing.T) {
 		t.Fatalf("reset error=%v", err)
 	}
 	got := store.SystemState()
-	if got.LastState != "idle" || got.DangerLevel != string(contract.DangerNone) || got.IntrusionActive {
+	if got.LastState != "idle" || got.DangerLevel != string(contract.DangerNone) || got.IntrusionActive || got.ManualRiskActive {
 		t.Fatalf("state after reset=%#v", got)
 	}
 }

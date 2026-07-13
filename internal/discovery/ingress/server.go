@@ -44,11 +44,31 @@ type Config struct {
 	Devices DeviceTracker
 
 	Queue Queue
+
+	AllowInsecure bool
+	OnStatus      func(status, reason string)
 }
 
 func StartServer(
 	cfg Config,
 ) {
+	certMissing := !regularFile(cfg.CertFile)
+	keyMissing := !regularFile(cfg.KeyFile)
+	if certMissing || keyMissing {
+		reason := "tls_cert_missing"
+		if !certMissing && keyMissing {
+			reason = "tls_key_missing"
+		}
+		if !cfg.AllowInsecure {
+			setStatus(cfg, "disabled", reason)
+			log.Printf("vision ingress disabled status=disabled reason=%s cert=%s key=%s", reason, cfg.CertFile, cfg.KeyFile)
+			return
+		}
+		setStatus(cfg, "degraded", reason)
+		log.Printf("vision ingress insecure fallback enabled reason=%s", reason)
+	} else {
+		setStatus(cfg, "ok", "")
+	}
 
 	mux := http.NewServeMux()
 
@@ -307,12 +327,18 @@ func StartServer(
 			cfg.Addr,
 		)
 
-		err := server.ListenAndServeTLS(
-			cfg.CertFile,
-			cfg.KeyFile,
-		)
+		var err error
+		if certMissing || keyMissing {
+			err = server.ListenAndServe()
+		} else {
+			err = server.ListenAndServeTLS(
+				cfg.CertFile,
+				cfg.KeyFile,
+			)
+		}
 
-		if err != nil {
+		if err != nil && err != http.ErrServerClosed {
+			setStatus(cfg, "error", err.Error())
 
 			log.Printf(
 				"vision ingress stopped err=%v",
@@ -320,4 +346,15 @@ func StartServer(
 			)
 		}
 	}()
+}
+
+func regularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+func setStatus(cfg Config, status, reason string) {
+	if cfg.OnStatus != nil {
+		cfg.OnStatus(status, reason)
+	}
 }

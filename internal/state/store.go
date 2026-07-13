@@ -76,11 +76,15 @@ func NewStore(options ...Option) *Store {
 		EventChains:       make(map[string]*contract.EventChain),
 		CriticalChains:    make(map[string]*contract.CriticalChainMemory),
 		System: &SystemState{
-			LastState:           "idle",
-			LastStateTime:       now,
-			DangerLevel:         "unknown",
-			DangerSource:        "unknown",
-			DegradationReasons:  []string{},
+			LastState:            "idle",
+			LastStateTime:        now,
+			DangerLevel:          "unknown",
+			DangerSource:         "unknown",
+			DegradationReasons:   []string{},
+			RuntimeComponents:    map[string]string{},
+			RuntimeComponentInfo: map[string]string{},
+			RuntimeModels:        map[string]string{},
+			BlockingReasons:      []string{},
 		},
 	}
 	for _, option := range options {
@@ -542,6 +546,18 @@ func (s *Store) SystemState() SystemState {
 	if cloned.DegradationReasons == nil {
 		cloned.DegradationReasons = []string{}
 	}
+	if cloned.RuntimeComponents == nil {
+		cloned.RuntimeComponents = map[string]string{}
+	}
+	if cloned.RuntimeComponentInfo == nil {
+		cloned.RuntimeComponentInfo = map[string]string{}
+	}
+	if cloned.BlockingReasons == nil {
+		cloned.BlockingReasons = []string{}
+	}
+	if cloned.RuntimeModels == nil {
+		cloned.RuntimeModels = map[string]string{}
+	}
 	return cloned
 }
 
@@ -560,6 +576,18 @@ func (s *Store) SetSystemState(value SystemState) {
 	}
 	if cloned.DegradationReasons == nil {
 		cloned.DegradationReasons = []string{}
+	}
+	if cloned.RuntimeComponents == nil {
+		cloned.RuntimeComponents = map[string]string{}
+	}
+	if cloned.RuntimeComponentInfo == nil {
+		cloned.RuntimeComponentInfo = map[string]string{}
+	}
+	if cloned.BlockingReasons == nil {
+		cloned.BlockingReasons = []string{}
+	}
+	if cloned.RuntimeModels == nil {
+		cloned.RuntimeModels = map[string]string{}
 	}
 	s.System = &cloned
 }

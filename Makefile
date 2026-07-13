@@ -3,7 +3,7 @@ SHELL := /usr/bin/env bash
 
 .PHONY: build test install update start stop restart doctor delete clean help \
 	check-go install-deps install-dirs install-bins install-config install-models \
-	build-web install-web restart-web web-status rotate-api-token generate-local-cert install-mediamtx install-vision-worker install-face-data install-systemd enable-services
+	build-web install-web restart-web web-status rotate-api-token generate-local-cert generate-discovery-cert install-mediamtx install-vision-worker install-face-data install-systemd enable-services
 
 PREFIX ?= /opt/synora
 BINDIR ?= $(PREFIX)/bin
@@ -17,6 +17,9 @@ FACE_DATA_DIR ?= $(DATA_DIR)/vision/face
 WEBAPP_DIR ?= synora-web
 WEB_DIR ?= /var/lib/synora/web
 TLS_DIR ?= /etc/synora/tls
+DISCOVERY_CERT_DIR ?= /etc/synora/certs
+DISCOVERY_CERT_FILE ?= $(DISCOVERY_CERT_DIR)/server.crt
+DISCOVERY_KEY_FILE ?= $(DISCOVERY_CERT_DIR)/server.key
 TLS_IP ?= 100.80.170.47
 TLS_DNS ?= rock-5-itx
 SYNORA_SECURITY ?= $(CONFIG_DIR)/security.yaml
@@ -69,6 +72,7 @@ help:
 		'  make web-status            Show static webapp files and API reachability' \
 		'  make rotate-api-token      Rotate security.yaml token and restart synora-api' \
 		'  make generate-local-cert  Generate a local self-signed TLS certificate' \
+		'  make generate-discovery-cert  Generate the Discovery vision ingress certificate' \
 		'  make hash-password PASSWORD=... Generate a bcrypt hash for auth.yaml' \
 		'  make update                Rebuild and update deployed runtime without dependency install' \
 		'  make start                 Start runtime services' \
@@ -285,6 +289,20 @@ generate-local-cert:
 	$(SUDO) chmod 0640 "$(TLS_DIR)/synora.key"
 	@echo "Generated $(TLS_DIR)/synora.crt and $(TLS_DIR)/synora.key"
 
+generate-discovery-cert:
+	@if ! command -v openssl >/dev/null 2>&1; then echo "FAIL: openssl is required" >&2; exit 1; fi
+	@if [ -e "$(DISCOVERY_CERT_FILE)" ] || [ -e "$(DISCOVERY_KEY_FILE)" ]; then echo "FAIL: Discovery TLS files already exist; refusing to overwrite them." >&2; exit 1; fi
+	$(SUDO) install -d -m 0750 -o root -g $(SERVICE_USER) $(DISCOVERY_CERT_DIR)
+	$(SUDO) openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+		-keyout "$(DISCOVERY_KEY_FILE)" \
+		-out "$(DISCOVERY_CERT_FILE)" \
+		-subj "/CN=$(TLS_DNS)" \
+		-addext "subjectAltName=DNS:$(TLS_DNS),IP:$(TLS_IP)"
+	$(SUDO) chown root:$(SERVICE_USER) "$(DISCOVERY_CERT_FILE)" "$(DISCOVERY_KEY_FILE)"
+	$(SUDO) chmod 0644 "$(DISCOVERY_CERT_FILE)"
+	$(SUDO) chmod 0640 "$(DISCOVERY_KEY_FILE)"
+	@echo "Generated $(DISCOVERY_CERT_FILE) and $(DISCOVERY_KEY_FILE)"
+
 install-mediamtx: install-dirs
 	@if [ -d tools/mediamtx ]; then \
 		$(SUDO) rsync -a --delete tools/mediamtx/ $(MEDIAMTX_DIR)/; \
@@ -387,6 +405,7 @@ doctor: check-go
 	else \
 		warnf "$(MODELS_DIR) missing"; \
 	fi; \
+	[ -f "$(DISCOVERY_CERT_FILE)" ] && [ -f "$(DISCOVERY_KEY_FILE)" ] && ok "vision ingress TLS certificates present" || warnf "vision ingress TLS cert missing: $(DISCOVERY_CERT_FILE)"; \
 	code="$$(curl -s -o /tmp/synora-health.json -w '%{http_code}' http://127.0.0.1:8080/api/system/health || true)"; \
 	if [ "$$code" = "200" ]; then ok "API health 200"; elif [ "$$code" = "401" ]; then warnf "API protected, provide token"; else warnf "API health unavailable ($$code)"; fi; \
 	vision_code="$$(curl -s -o /tmp/synora-vision-capabilities.json -w '%{http_code}' http://127.0.0.1:8094/capabilities || true)"; \

@@ -115,8 +115,21 @@ func TestHealthUsesRuntimeServiceNames(t *testing.T) {
 	if len(health.Services) != len(RuntimeServices) {
 		t.Fatalf("service count=%d, want %d", len(health.Services), len(RuntimeServices))
 	}
-	if health.Status != "ok" || len(health.Components) != len(RuntimeServices) {
+	if health.Status != "ok" || len(health.Components) < len(RuntimeServices) {
 		t.Fatalf("health status/components=%s/%d", health.Status, len(health.Components))
+	}
+}
+
+func TestHealthMarksMissingHostapdDegradedWithDetails(t *testing.T) {
+	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}}
+	for _, service := range append(RuntimeServices, "dnsmasq") {
+		executor.outputs[commandKey("systemctl", "is-active", service)] = []byte("active\n")
+	}
+	executor.errors[commandKey("systemctl", "is-active", "hostapd")] = errors.New("hostapd inactive")
+	manager := New(Config{Executor: executor, DiskPath: t.TempDir()})
+	health := manager.Health(context.Background())
+	if health.Status != "degraded" || health.Network.HostAPD.Name != "hostapd" || health.Network.HostAPD.Checked.IsZero() {
+		t.Fatalf("health=%#v", health)
 	}
 }
 

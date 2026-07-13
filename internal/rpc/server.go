@@ -8,12 +8,14 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"synora/internal/automation"
 	"synora/internal/cge"
 	"synora/internal/device"
 	"synora/internal/event"
+	"synora/internal/idgen"
 	"synora/internal/security"
 	"synora/internal/snapshot"
 	"synora/internal/state"
@@ -60,6 +62,8 @@ type Server struct {
 	cge            any
 	notify         func(string, string)
 	configMu       sync.Mutex
+	startedAt      time.Time
+	ingestEvent    func(*contract.Event)
 
 	handlers map[string]Handler
 }
@@ -84,6 +88,7 @@ type Config struct {
 	UpdateTopology func(*topology.Topology)
 	CGE            any
 	NotifyMutation func(string, string)
+	IngestEvent    func(*contract.Event)
 }
 
 type MutationPayload struct {
@@ -117,7 +122,9 @@ func NewServer(cfg Config) *Server {
 		pairing:        &security.PairingService{Path: cfg.SecurityPath},
 		cge:            cfg.CGE,
 		notify:         cfg.NotifyMutation,
+		ingestEvent:    cfg.IngestEvent,
 		handlers:       map[string]Handler{},
+		startedAt:      time.Now().UTC(),
 	}
 	if server.devices != nil && strings.TrimSpace(server.devicePath) != "" {
 		server.devices.SetPersistencePath(server.devicePath)
@@ -357,14 +364,18 @@ func (s *Server) systemHealth(_ contract.Message) (any, error) {
 				response.Payload,
 				&health,
 			); decodeErr == nil {
-				return health, nil
+				return contract.NormalizeRuntimeHealth(health, time.Now().UTC()), nil
 			}
 		}
 	}
 
 	now := time.Now().UTC()
 
-	return contract.RuntimeHealth{
+	uptime := int64(time.Since(s.startedAt).Seconds())
+	if uptime < 1 {
+		uptime = 1
+	}
+	health := contract.RuntimeHealth{
 		Status:      "degraded",
 		GeneratedAt: now,
 		Services: map[string]contract.RuntimeServiceHealth{
@@ -387,9 +398,19 @@ func (s *Server) systemHealth(_ contract.Message) (any, error) {
 		Disk: contract.RuntimeDiskHealth{
 			Status: "unknown",
 		},
-		Uptime:    0,
+		Uptime:    uptime,
 		Timestamp: now,
-	}, nil
+	}
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs("/var/lib/synora", &stat); err == nil {
+		health.Disk.TotalBytes = stat.Blocks * uint64(stat.Bsize)
+		health.Disk.FreeBytes = stat.Bavail * uint64(stat.Bsize)
+		health.Disk.UsedBytes = health.Disk.TotalBytes - health.Disk.FreeBytes
+		health.Disk.Status = "ok"
+	} else {
+		health.Disk.Error = err.Error()
+	}
+	return contract.NormalizeRuntimeHealth(health, now), nil
 }
 
 func (s *Server) systemResetIntrusion(msg contract.Message) (any, error) {
@@ -433,6 +454,9 @@ func (s *Server) resetSystemState(request contract.SystemStateResetRequest) (any
 	current.DangerScore = 0
 	current.DangerKnown = true
 	current.DangerSource = "manual"
+	current.ManualRiskActive = false
+	current.ManualRiskExpiresAt = time.Time{}
+	current.BlockingReasons = []string{}
 	current.IntrusionActive = false
 	current.IntrusionTime = time.Time{}
 	current.EmergencyActive = false
@@ -469,9 +493,11 @@ func (s *Server) manualRisk(msg contract.Message) (any, error) {
 		request.Reason = "manual risk test"
 	}
 	now := time.Now().UTC()
+	eventID := idgen.New("evt")
 	payload := map[string]any{
 		"manual": true, "danger_level": request.DangerLevel, "duration_seconds": request.DurationSeconds,
 		"reason": request.Reason, "test": request.Test, "created_by": request.CreatedBy, "timestamp": now,
+		"event_id": eventID,
 	}
 	if request.Test {
 		payload["metadata"] = map[string]any{"simulated": true, "dry_run": true, "manual_test": true}
@@ -479,7 +505,17 @@ func (s *Server) manualRisk(msg contract.Message) (any, error) {
 	if s.publishEvent != nil {
 		s.publishEvent(contract.EventManualRisk, payload, contract.PriorityHigh)
 	}
-	return map[string]any{"status": "queued", "event_type": contract.EventManualRisk, "danger_level": request.DangerLevel, "test": request.Test}, nil
+	if s.ingestEvent != nil {
+		s.ingestEvent(&contract.Event{
+			ID:        eventID,
+			Type:      contract.EventManualRisk,
+			Source:    "admin",
+			Timestamp: now,
+			Payload:   payload,
+			Priority:  contract.PriorityHigh,
+		})
+	}
+	return map[string]any{"status": "queued", "event_type": contract.EventManualRisk, "event_id": eventID, "danger_level": request.DangerLevel, "test": request.Test}, nil
 }
 
 func (s *Server) devicePairingStart(_ contract.Message) (any, error) {

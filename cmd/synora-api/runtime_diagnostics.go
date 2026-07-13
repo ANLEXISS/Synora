@@ -3,10 +3,19 @@ package main
 import (
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"synora/pkg/contract"
 )
+
+const runtimeProbeTimeout = 2 * time.Second
+
+var runtimeDiagnosticsCache struct {
+	sync.RWMutex
+	snapshot *contract.PublicSnapshot
+	health   *contract.RuntimeHealth
+}
 
 // handleRuntimeDiagnostics intentionally derives its read model from the
 // public snapshot and the bounded runtime health probe. It does not expose
@@ -43,17 +52,35 @@ func handleRuntimeDiagnostics(core interface {
 		var snapshot *contract.PublicSnapshot
 		var runtimeHealth *contract.RuntimeHealth
 		var stateErr, healthErr error
-		select {
-		case result := <-stateCh:
-			snapshot, stateErr = result.value, result.err
-		case <-time.After(500 * time.Millisecond):
-			stateErr = errRuntimeProbeTimeout
+		stateDone, healthDone := false, false
+		deadline := time.NewTimer(runtimeProbeTimeout)
+		defer deadline.Stop()
+		for !stateDone || !healthDone {
+			select {
+			case result := <-stateCh:
+				snapshot, stateErr, stateDone = result.value, result.err, true
+				if result.err == nil && result.value != nil {
+					cacheRuntimeSnapshot(result.value)
+				}
+			case result := <-healthCh:
+				runtimeHealth, healthErr, healthDone = result.value, result.err, true
+				if result.err == nil && result.value != nil {
+					cacheRuntimeHealth(result.value)
+				}
+			case <-deadline.C:
+				if !stateDone {
+					stateErr, stateDone = errRuntimeProbeTimeout, true
+				}
+				if !healthDone {
+					healthErr, healthDone = errRuntimeProbeTimeout, true
+				}
+			}
 		}
-		select {
-		case result := <-healthCh:
-			runtimeHealth, healthErr = result.value, result.err
-		case <-time.After(500 * time.Millisecond):
-			healthErr = errRuntimeProbeTimeout
+		if snapshot == nil {
+			snapshot = cachedRuntimeSnapshot()
+		}
+		if runtimeHealth == nil {
+			runtimeHealth = cachedRuntimeHealth()
 		}
 
 		response := runtimeDiagnosticsResponse(snapshot, runtimeHealth, stateErr, healthErr)
@@ -97,9 +124,10 @@ func runtimeDiagnosticsResponse(snapshot *contract.PublicSnapshot, runtimeHealth
 	}
 	if runtimeHealth != nil {
 		response["runtime"] = runtimeHealth
-		response["discovery_status"] = healthServiceStatus(runtimeHealth, "synora-discovery")
-		response["vision_worker_status"] = healthServiceStatus(runtimeHealth, "synora-discovery")
-		response["actions_status"] = healthServiceStatus(runtimeHealth, "synora-actions")
+		response["discovery_status"] = runtimeComponentStatus(response, runtimeHealth, "discovery", "synora-discovery")
+		response["vision_worker_status"] = runtimeComponentStatus(response, runtimeHealth, "vision_worker", "synora-discovery")
+		response["vision_ingress_status"] = runtimeComponentStatus(response, runtimeHealth, "vision_ingress", "synora-discovery")
+		response["actions_status"] = runtimeComponentStatus(response, runtimeHealth, "actions", "synora-actions")
 		if runtimeHealth.Status == "ok" && stateErr == nil {
 			response["status"] = "ok"
 		}
@@ -128,6 +156,21 @@ func populateSnapshotDiagnostics(response map[string]any, snapshot *contract.Pub
 		}
 		response["last_real_significant_event_at"] = firstDiagnosticValue(state["last_real_event_at"])
 		response["last_action_request_at"] = firstDiagnosticValue(state["last_action_at"])
+		response["last_action_request_at"] = firstDiagnosticValue(state["last_action_request_at"], response["last_action_request_at"])
+		response["last_action_result_at"] = firstDiagnosticValue(state["last_action_at"])
+		response["manual_risk_active"] = state["manual_risk_active"]
+		response["manual_risk_expires_at"] = state["manual_risk_expires_at"]
+		if reasons, ok := state["blocking_reasons"].([]any); ok {
+			response["blocking_reasons"] = reasons
+		} else if reasons, ok := state["blocking_reasons"].([]string); ok {
+			response["blocking_reasons"] = reasons
+		}
+		if components, ok := state["runtime_components"].(map[string]any); ok {
+			response["runtime_components"] = components
+		}
+		if models, ok := state["runtime_models"].(map[string]any); ok {
+			response["model_status"] = models
+		}
 	}
 	chains := snapshot.EventChains
 	if chains != nil {
@@ -146,11 +189,13 @@ func populateSnapshotDiagnostics(response map[string]any, snapshot *contract.Pub
 		last := snapshot.ActionResults[len(snapshot.ActionResults)-1]
 		response["last_action_at"] = firstDiagnosticValue(last["finished_at"], last["timestamp"], last["started_at"])
 	}
-	if len(snapshot.Events) > 0 {
-		response["last_real_event_at"] = snapshot.Events[len(snapshot.Events)-1]["timestamp"]
+	if len(snapshot.Events) > 0 && response["last_real_significant_event_at"] == nil {
+		response["last_real_significant_event_at"] = snapshot.Events[len(snapshot.Events)-1]["timestamp"]
 	}
 	if len(snapshot.CGE) > 0 {
-		response["model_status"] = snapshot.CGE["model_status"]
+		if value := snapshot.CGE["model_status"]; value != nil {
+			response["model_status"] = value
+		}
 	}
 }
 
@@ -166,10 +211,61 @@ func firstDiagnosticString(values ...any) string {
 func healthServiceStatus(health *contract.RuntimeHealth, service string) string {
 	if health != nil {
 		if item, ok := health.Services[service]; ok && strings.TrimSpace(item.Status) != "" {
-			return item.Status
+			return diagnosticStatus(item.Status, item.Active)
 		}
 	}
 	return "unknown"
+}
+
+func runtimeComponentStatus(response map[string]any, health *contract.RuntimeHealth, component, service string) string {
+	if components, ok := response["runtime_components"].(map[string]any); ok {
+		if value, ok := components[component].(string); ok && value != "" {
+			return value
+		}
+	}
+	if health != nil {
+		if item, ok := health.Components[component]; ok && item.Status != "" {
+			return diagnosticStatus(item.Status, item.Active)
+		}
+	}
+	return healthServiceStatus(health, service)
+}
+
+func diagnosticStatus(status string, active bool) string {
+	if status == "active" {
+		return "ok"
+	}
+	if status == "inactive" || status == "unknown" || status == "" {
+		if !active {
+			return "degraded"
+		}
+		return "unknown"
+	}
+	return status
+}
+
+func cacheRuntimeSnapshot(snapshot *contract.PublicSnapshot) {
+	runtimeDiagnosticsCache.Lock()
+	runtimeDiagnosticsCache.snapshot = snapshot
+	runtimeDiagnosticsCache.Unlock()
+}
+
+func cacheRuntimeHealth(health *contract.RuntimeHealth) {
+	runtimeDiagnosticsCache.Lock()
+	runtimeDiagnosticsCache.health = health
+	runtimeDiagnosticsCache.Unlock()
+}
+
+func cachedRuntimeSnapshot() *contract.PublicSnapshot {
+	runtimeDiagnosticsCache.RLock()
+	defer runtimeDiagnosticsCache.RUnlock()
+	return runtimeDiagnosticsCache.snapshot
+}
+
+func cachedRuntimeHealth() *contract.RuntimeHealth {
+	runtimeDiagnosticsCache.RLock()
+	defer runtimeDiagnosticsCache.RUnlock()
+	return runtimeDiagnosticsCache.health
 }
 
 func firstDiagnosticValue(values ...any) any {

@@ -57,6 +57,8 @@ const (
 	EventDiscoveryWorkerCrashed           = "discovery.worker.crashed"
 	EventDiscoveryVisionWorkerUnavailable = "discovery.vision_worker.unavailable"
 	EventDiscoveryNetworkDegraded         = "discovery.network.degraded"
+	EventDiscoveryVisionIngressStatus     = "discovery.vision_ingress.status"
+	EventDiscoveryRuntimeStatus           = "discovery.runtime.status"
 	EventRuntimeComponentFlapping         = "runtime.component.flapping"
 	EventRuntimeModelMissing              = "runtime.model.missing"
 
@@ -237,6 +239,8 @@ func EventCategory(eventType string) string {
 		EventDiscoveryWorkerCrashed,
 		EventDiscoveryVisionWorkerUnavailable,
 		EventDiscoveryNetworkDegraded,
+		EventDiscoveryVisionIngressStatus,
+		EventDiscoveryRuntimeStatus,
 		EventRuntimeComponentFlapping,
 		EventRuntimeModelMissing,
 		EventDiscoveryCameraOnline,
@@ -318,6 +322,8 @@ func NormalizeEventType(raw string) string {
 		EventDiscoveryWorkerCrashed,
 		EventDiscoveryVisionWorkerUnavailable,
 		EventDiscoveryNetworkDegraded,
+		EventDiscoveryVisionIngressStatus,
+		EventDiscoveryRuntimeStatus,
 		EventRuntimeComponentFlapping,
 		EventRuntimeModelMissing,
 		EventSystemStateChanged,

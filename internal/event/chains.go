@@ -422,6 +422,40 @@ func (m *ChainManager) CloseInactive(now time.Time) []ChainUpdate {
 	return m.closeInactiveLocked(now.UTC())
 }
 
+// CloseManualRiskChains closes the explicit test chain when its requested
+// runtime window expires. It does not touch any raw event history.
+func (m *ChainManager) CloseManualRiskChains(now time.Time) []ChainUpdate {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	updates := make([]ChainUpdate, 0)
+	for _, chain := range m.chains {
+		if chain == nil || chain.Status != contract.EventChainOpen || !chainContainsEventType(chain, contract.EventManualRisk) {
+			continue
+		}
+		closedAt := now.UTC()
+		chain.Status = contract.EventChainClosed
+		chain.ClosedAt = &closedAt
+		chain.ClosedReason = "manual_risk_expired"
+		chain.UpdatedAt = closedAt
+		chain.LastEventAt = closedAt
+		m.syncChainLocked(chain)
+		updates = append(updates, ChainUpdate{Type: "event.chain.closed", Chain: chain})
+	}
+	return updates
+}
+
+func chainContainsEventType(chain *contract.EventChain, eventType string) bool {
+	for _, item := range chain.RecentEvents {
+		if contract.NormalizeEventType(item.Type) == eventType {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *ChainManager) closeInactiveLocked(now time.Time) []ChainUpdate {
 	updates := make([]ChainUpdate, 0)
 	for _, chain := range m.chains {

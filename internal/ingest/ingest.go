@@ -39,6 +39,9 @@ func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
 		Payload:   payload,
 		Priority:  msg.Priority,
 	}
+	if eventID, ok := payload["event_id"].(string); ok && strings.TrimSpace(eventID) != "" {
+		parsed.ID = strings.TrimSpace(eventID)
+	}
 	if parsed.Source == "" {
 		return nil, errors.New("source is required")
 	}

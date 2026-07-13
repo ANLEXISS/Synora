@@ -207,6 +207,7 @@ func main() {
 		UpdateTopology: app.setTopology,
 		CGE:            app.engine,
 		NotifyMutation: app.notifyConfigMutation,
+		IngestEvent:    app.ingestRuntimeEvent,
 	})
 
 	app.seedState()
@@ -243,6 +244,7 @@ func main() {
 	)
 	app.publishStateSnapshot()
 	go app.processLoop()
+	go app.manualRiskLoop()
 	go app.cleanupLoop()
 	go app.chainLoop()
 
@@ -405,6 +407,14 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	stateChanged := stateapply.Apply(a.state, result, stateapply.Callbacks{
 		SyncPresence: a.syncResidentPresence,
 	})
+	if isManualRiskEvent(event) {
+		stateChanged = a.applyManualRiskState(event, stateChanged)
+	} else if result != nil && result.DangerAssessment != nil && !eventIsSimulated(event) {
+		current := a.state.SystemState()
+		current.ManualRiskActive = false
+		current.ManualRiskExpiresAt = time.Time{}
+		a.state.SetSystemState(current)
+	}
 	if presence := stateapply.ApplyVisionIdentity(a.state, event); presence != nil {
 		a.syncResidentPresence(presence)
 	}
@@ -424,6 +434,9 @@ func (a *coreApp) processEvent(event *contract.Event) {
 			log.Printf("core: action blocked event_id=%s reason=%s", event.ID, strings.Join(result.Decision.BlockedActions, ","))
 		} else if len(requests) > 0 {
 			result.Decision.ActionDecision = "requested"
+			current := a.state.SystemState()
+			current.BlockingReasons = []string{}
+			a.state.SetSystemState(current)
 		}
 
 		for _, request := range requests {
@@ -432,7 +445,16 @@ func (a *coreApp) processEvent(event *contract.Event) {
 				result.Decision.ActionDecision = "blocked"
 				result.Decision.BlockedActions = appendUniqueString(result.Decision.BlockedActions, "action_service_unavailable")
 				log.Printf("core: action blocked event_id=%s reason=action_service_unavailable err=%v", event.ID, err)
+			} else {
+				current := a.state.SystemState()
+				current.LastActionRequestAt = time.Now().UTC()
+				a.state.SetSystemState(current)
 			}
+		}
+		if len(result.Decision.BlockedActions) > 0 {
+			current := a.state.SystemState()
+			current.BlockingReasons = append([]string(nil), result.Decision.BlockedActions...)
+			a.state.SetSystemState(current)
 		}
 
 		a.publishEvent(
@@ -475,14 +497,205 @@ func (a *coreApp) recordRuntimeEvent(event *contract.Event) {
 		current.LastActionAt = event.Timestamp.UTC()
 	}
 	switch contract.NormalizeEventType(event.Type) {
-	case contract.EventDiscoveryVisionWorkerUnavailable, contract.EventDiscoveryNetworkDegraded, contract.EventRuntimeComponentFlapping, contract.EventRuntimeModelMissing:
+	case contract.EventDiscoveryVisionWorkerUnavailable, contract.EventDiscoveryNetworkDegraded, contract.EventRuntimeComponentFlapping, contract.EventRuntimeModelMissing, contract.EventDiscoveryVisionIngressStatus:
 		current.Degraded = true
 		current.DegradationReasons = appendUniqueString(current.DegradationReasons, event.Type)
+		if current.RuntimeComponents == nil {
+			current.RuntimeComponents = map[string]string{}
+		}
+		current.RuntimeComponents["discovery"] = "degraded"
+		component := "discovery"
+		status := "degraded"
+		if event.Type == contract.EventDiscoveryVisionWorkerUnavailable {
+			component, status = "vision_worker", "unavailable"
+		} else if event.Type == contract.EventDiscoveryVisionIngressStatus {
+			component, status = "vision_ingress", payloadString(event.Payload, "status")
+		} else if event.Type == contract.EventRuntimeModelMissing {
+			component, status = "models", "degraded"
+		}
+		if status == "" {
+			status = "degraded"
+		}
+		current.RuntimeComponents[component] = status
+		if current.RuntimeComponentInfo == nil {
+			current.RuntimeComponentInfo = map[string]string{}
+		}
+		if reason := payloadString(event.Payload, "reason"); reason != "" {
+			current.RuntimeComponentInfo[component] = reason
+		}
+	case contract.EventDiscoveryRuntimeStatus:
+		applyDiscoveryRuntimeStatus(&current, event.Payload)
 	case contract.EventDiscoveryWorkerStarted, contract.EventDiscoveryCameraOnline:
 		current.DegradationReasons = removeString(current.DegradationReasons, contract.EventDiscoveryVisionWorkerUnavailable)
+		if current.RuntimeComponents == nil {
+			current.RuntimeComponents = map[string]string{}
+		}
+		current.RuntimeComponents["vision_worker"] = "ok"
 		current.Degraded = len(current.DegradationReasons) > 0
 	}
 	a.state.SetSystemState(current)
+}
+
+func applyDiscoveryRuntimeStatus(current *state.SystemState, payload map[string]any) {
+	if current == nil {
+		return
+	}
+	if current.RuntimeComponents == nil {
+		current.RuntimeComponents = map[string]string{}
+	}
+	if current.RuntimeComponentInfo == nil {
+		current.RuntimeComponentInfo = map[string]string{}
+	}
+	if current.RuntimeModels == nil {
+		current.RuntimeModels = map[string]string{}
+	}
+	for _, component := range []string{"discovery", "network"} {
+		if value := payloadString(payload, component); value != "" {
+			current.RuntimeComponents[component] = value
+		}
+	}
+	for _, component := range []string{"vision_worker", "vision_ingress"} {
+		if nested, ok := payload[component].(map[string]any); ok {
+			if value := payloadString(nested, "status"); value != "" {
+				current.RuntimeComponents[component] = value
+			}
+			if reason := payloadString(nested, "reason"); reason != "" {
+				current.RuntimeComponentInfo[component] = reason
+			}
+		}
+	}
+	if models, ok := payload["models"].(map[string]any); ok {
+		for name, value := range models {
+			if item, ok := value.(map[string]any); ok {
+				if status := payloadString(item, "status"); status != "" {
+					current.RuntimeModels[name] = status
+				}
+			}
+		}
+	}
+	if status := payloadString(payload, "status"); status != "" {
+		current.RuntimeComponents["discovery"] = status
+	}
+	current.Degraded = current.RuntimeComponents["discovery"] == "degraded" || current.RuntimeComponents["vision_worker"] != "ok" || current.RuntimeComponents["vision_ingress"] != "ok"
+}
+
+func (a *coreApp) ingestRuntimeEvent(event *contract.Event) {
+	if a == nil || a.ingest == nil || event == nil {
+		return
+	}
+	body, err := json.Marshal(event.Payload)
+	if err != nil {
+		return
+	}
+	a.ingest.Ingest(contract.Message{
+		Type:      event.Type,
+		Kind:      contract.KindEvent,
+		Source:    event.Source,
+		Timestamp: event.Timestamp,
+		Priority:  event.Priority,
+		Payload:   body,
+	})
+}
+
+func isManualRiskEvent(event *contract.Event) bool {
+	return event != nil && contract.NormalizeEventType(event.Type) == contract.EventManualRisk
+}
+
+func (a *coreApp) applyManualRiskState(event *contract.Event, changed bool) bool {
+	if a == nil || a.state == nil || event == nil {
+		return changed
+	}
+	current := a.state.SystemState()
+	level := strings.ToLower(strings.TrimSpace(payloadString(event.Payload, "danger_level")))
+	duration := int(payloadNumber(event.Payload, "duration_seconds"))
+	if duration <= 0 {
+		duration = 60
+	}
+	current.ManualRiskActive = true
+	current.ManualRiskExpiresAt = event.Timestamp.UTC().Add(time.Duration(duration) * time.Second)
+	current.DangerSource = "manual"
+	current.DangerKnown = true
+	switch level {
+	case "critical":
+		current.DangerLevel, current.DangerScore = string(contract.DangerCritical), 0.95
+		current.LastState = "intrusion"
+		current.IntrusionActive = true
+		current.IntrusionTime = event.Timestamp.UTC()
+	case "high":
+		current.DangerLevel, current.DangerScore = string(contract.DangerHigh), 0.80
+		current.LastState = "suspicious"
+		current.IntrusionActive = false
+	case "medium", "low":
+		if level == "medium" {
+			current.DangerLevel, current.DangerScore = string(contract.DangerMedium), 0.60
+		} else {
+			current.DangerLevel, current.DangerScore = string(contract.DangerLow), 0.40
+		}
+		current.LastState = "activity"
+		current.IntrusionActive = false
+	}
+	current.LastStateTime = event.Timestamp.UTC()
+	a.state.SetSystemState(current)
+	return changed || current.LastState != "idle"
+}
+
+func (a *coreApp) manualRiskLoop() {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for now := range ticker.C {
+		if !a.expireManualRisk(now.UTC()) {
+			continue
+		}
+		current := a.state.SystemState()
+		a.publishEvent(contract.EventSystemStateChanged, current, contract.PriorityNormal)
+		if a.chains != nil {
+			a.publishChainUpdates(a.chains.CloseManualRiskChains(now.UTC()))
+		}
+		a.triggerSnapshot()
+	}
+}
+
+func (a *coreApp) expireManualRisk(now time.Time) bool {
+	if a == nil || a.state == nil {
+		return false
+	}
+	current := a.state.SystemState()
+	if !current.ManualRiskActive || current.DangerSource != "manual" || current.ManualRiskExpiresAt.IsZero() || now.Before(current.ManualRiskExpiresAt) {
+		return false
+	}
+	current.ManualRiskActive = false
+	current.ManualRiskExpiresAt = time.Time{}
+	current.PreviousState = current.LastState
+	current.LastState = "idle"
+	current.LastStateTime = now.UTC()
+	current.DangerLevel = string(contract.DangerNone)
+	current.DangerScore = 0
+	current.DangerKnown = true
+	current.DangerSource = "manual"
+	current.IntrusionActive = false
+	current.IntrusionTime = time.Time{}
+	a.state.SetSystemState(current)
+	return true
+}
+
+func payloadString(payload map[string]any, key string) string {
+	if value, ok := payload[key].(string); ok {
+		return value
+	}
+	return ""
+}
+
+func payloadNumber(payload map[string]any, key string) float64 {
+	switch value := payload[key].(type) {
+	case int:
+		return float64(value)
+	case int64:
+		return float64(value)
+	case float64:
+		return value
+	default:
+		return 0
+	}
 }
 
 func eventIsSimulated(event *contract.Event) bool {
