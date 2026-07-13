@@ -184,6 +184,9 @@ func BuildResult(
 	if assessment != nil {
 		decision.State = systemStateFromAssessment(decisionResult, assessment)
 		decision.Alert = assessment.Level >= 4
+		decision.DangerLevel = assessment.RiskLevel
+		decision.DangerScore = assessment.Score
+		decision.DangerSource = decisionDangerSource(event, assessment)
 	}
 
 	return &Result{
@@ -196,6 +199,24 @@ func BuildResult(
 		Situations:       decisionResult.Situations,
 		DangerAssessment: assessment,
 	}
+}
+
+func decisionDangerSource(event *contract.Event, assessment *contract.DangerAssessment) string {
+	if event != nil {
+		if source := strings.TrimSpace(resolvePayloadString(event.Payload, "danger_source")); source != "" {
+			return source
+		}
+		if contract.NormalizeEventType(event.Type) == contract.EventManualRisk {
+			return "manual"
+		}
+	}
+	if assessment != nil && assessment.Simulated {
+		return "simulation"
+	}
+	if assessment != nil {
+		return "real"
+	}
+	return ""
 }
 
 func buildNodeStates(

@@ -21,6 +21,10 @@ type Decision struct {
 	State  string `json:"state,omitempty"`
 	NodeID string `json:"node_id,omitempty"`
 
+	DangerLevel  string  `json:"danger_level,omitempty"`
+	DangerScore  float64 `json:"danger_score,omitempty"`
+	DangerSource string  `json:"danger_source,omitempty"`
+
 	ClipID      string `json:"clip_id,omitempty"`
 	TrackID     string `json:"track_id,omitempty"`
 	GroupKey    string `json:"group_key,omitempty"`
@@ -46,6 +50,9 @@ type decisionJSON struct {
 	Reason             string    `json:"reason,omitempty"`
 	State              string    `json:"state,omitempty"`
 	NodeID             string    `json:"node_id,omitempty"`
+	DangerLevel        string    `json:"danger_level,omitempty"`
+	DangerScore        float64   `json:"danger_score,omitempty"`
+	DangerSource       string    `json:"danger_source,omitempty"`
 	ClipID             string    `json:"clip_id,omitempty"`
 	TrackID            string    `json:"track_id,omitempty"`
 	GroupKey           string    `json:"group_key,omitempty"`
@@ -77,6 +84,9 @@ func (d *Decision) UnmarshalJSON(data []byte) error {
 		Reason:             decoded.Reason,
 		State:              decoded.State,
 		NodeID:             decoded.NodeID,
+		DangerLevel:        decoded.DangerLevel,
+		DangerScore:        decoded.DangerScore,
+		DangerSource:       decoded.DangerSource,
 		ClipID:             decoded.ClipID,
 		TrackID:            decoded.TrackID,
 		GroupKey:           decoded.GroupKey,

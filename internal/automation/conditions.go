@@ -12,26 +12,49 @@ import (
 )
 
 func evaluateConditions(conds []Condition, logic string, event contract.Event, decision *contract.Decision, now time.Time) bool {
+	matched, _ := evaluateConditionsDetailed(conds, logic, event, decision, now)
+	return matched
+}
+
+type conditionEvaluation struct {
+	condition Condition
+	actual    any
+	exists    bool
+	result    bool
+}
+
+func evaluateConditionsDetailed(conds []Condition, logic string, event contract.Event, decision *contract.Decision, now time.Time) (bool, []conditionEvaluation) {
+	evaluations := make([]conditionEvaluation, 0, len(conds))
 	if strings.EqualFold(logic, "any") {
 		for _, c := range conds {
-			if evaluateCondition(c, event, decision, now) {
-				return true
+			evaluation := evaluateConditionDetailed(c, event, decision, now)
+			evaluations = append(evaluations, evaluation)
+			if evaluation.result {
+				return true, evaluations
 			}
 		}
-		return len(conds) == 0
+		return len(conds) == 0, evaluations
 	}
 	for _, c := range conds {
-		if !evaluateCondition(c, event, decision, now) {
-			return false
+		evaluation := evaluateConditionDetailed(c, event, decision, now)
+		evaluations = append(evaluations, evaluation)
+		if !evaluation.result {
+			return false, evaluations
 		}
 	}
 
-	return true
+	return true, evaluations
 }
 
 func evaluateCondition(c Condition, event contract.Event, decision *contract.Decision, now time.Time) bool {
+	return evaluateConditionDetailed(c, event, decision, now).result
+}
+
+func evaluateConditionDetailed(c Condition, event contract.Event, decision *contract.Decision, now time.Time) conditionEvaluation {
+	evaluation := conditionEvaluation{condition: c}
 	result := false
-	switch c.Field {
+	field := strings.ToLower(strings.TrimSpace(c.Field))
+	switch field {
 	case "time_after":
 		v, ok := c.Value.(string)
 		result = ok && afterClock(now, v)
@@ -39,29 +62,37 @@ func evaluateCondition(c Condition, event contract.Event, decision *contract.Dec
 		v, ok := c.Value.(string)
 		result = ok && beforeClock(now, v)
 	default:
-		actual, exists := conditionValue(c.Field, event, decision)
-		result = compareCondition(c.Op, actual, exists, c.Value)
+		actual, exists := conditionValue(field, event, decision)
+		evaluation.actual = actual
+		evaluation.exists = exists
+		if isDangerLevelField(field) {
+			result = compareDangerLevel(c.Op, actual, exists, c.Value)
+		} else {
+			result = compareCondition(c.Op, actual, exists, c.Value)
+		}
 	}
 	if c.Negate {
-		return !result
+		result = !result
 	}
-	return result
+	evaluation.result = result
+	return evaluation
 }
 
 func conditionValue(field string, event contract.Event, decision *contract.Decision) (any, bool) {
+	field = strings.ToLower(strings.TrimSpace(field))
 	switch field {
-	case "device", "device_id":
+	case "device", "device.id", "device_id":
 		return event.DeviceID, event.DeviceID != ""
-	case "node", "node_id":
+	case "node", "node.id", "node_id":
 		if event.NodeID != "" {
 			return event.NodeID, true
 		}
 		if decision != nil && decision.NodeID != "" {
 			return decision.NodeID, true
 		}
-	case "type", "event_type":
+	case "type", "event.type", "event_type":
 		return event.Type, event.Type != ""
-	case "state", "decision_state":
+	case "state", "decision_state", "system.state", "system_state", "current_state":
 		if decision != nil {
 			return decision.State, decision.State != ""
 		}
@@ -69,6 +100,25 @@ func conditionValue(field string, event contract.Event, decision *contract.Decis
 		if decision != nil {
 			return decision.EffectiveScore, true
 		}
+	case "danger.level", "danger_level", "cge.danger_level":
+		if decision != nil && decision.DangerLevel != "" {
+			return decision.DangerLevel, true
+		}
+		return eventPayloadValue(event, "danger_level", "danger.level")
+	case "danger.score", "danger_score":
+		if decision != nil && (decision.DangerLevel != "" || decision.DangerScore != 0) {
+			return decision.DangerScore, true
+		}
+		if decision != nil {
+			return decision.EffectiveScore, true
+		}
+	case "danger.source", "danger_source":
+		if decision != nil && decision.DangerSource != "" {
+			return decision.DangerSource, true
+		}
+		return eventPayloadValue(event, "danger_source", "danger.source")
+	case "test", "simulated", "dry_run":
+		return eventMetadataValue(event, field)
 	case "clip_id":
 		if decision != nil && decision.ClipID != "" {
 			return decision.ClipID, true
@@ -82,6 +132,9 @@ func conditionValue(field string, event contract.Event, decision *contract.Decis
 		if strings.HasPrefix(field, "payload.") {
 			return nestedValue(event.Payload, strings.TrimPrefix(field, "payload."))
 		}
+		if value, ok := nestedValue(event.Payload, field); ok {
+			return value, true
+		}
 		if event.Payload != nil {
 			if value, ok := event.Payload[field]; ok {
 				return value, true
@@ -89,6 +142,89 @@ func conditionValue(field string, event contract.Event, decision *contract.Decis
 		}
 	}
 	return nil, false
+}
+
+func isDangerLevelField(field string) bool {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "danger.level", "danger_level", "cge.danger_level":
+		return true
+	default:
+		return false
+	}
+}
+
+func compareDangerLevel(op string, actual any, exists bool, expected any) bool {
+	if op == "" {
+		op = "=="
+	}
+	if op == "exists" {
+		return exists
+	}
+	if op == "not_exists" {
+		return !exists
+	}
+	left, lok := dangerLevelRank(actual)
+	right, rok := dangerLevelRank(expected)
+	if !exists || !lok || !rok {
+		return false
+	}
+	switch op {
+	case "==":
+		return left == right
+	case "!=":
+		return left != right
+	case ">":
+		return left > right
+	case ">=":
+		return left >= right
+	case "<":
+		return left < right
+	case "<=":
+		return left <= right
+	default:
+		return false
+	}
+}
+
+func dangerLevelRank(value any) (int, bool) {
+	switch strings.ToLower(strings.TrimSpace(fmt.Sprint(value))) {
+	case string(contract.DangerNone):
+		return 0, true
+	case string(contract.DangerLow):
+		return 1, true
+	case string(contract.DangerMedium):
+		return 2, true
+	case string(contract.DangerHigh):
+		return 3, true
+	case string(contract.DangerCritical):
+		return 4, true
+	default:
+		return 0, false
+	}
+}
+
+func eventPayloadValue(event contract.Event, keys ...string) (any, bool) {
+	for _, key := range keys {
+		if value, ok := event.Payload[key]; ok {
+			return value, true
+		}
+		if value, ok := nestedValue(event.Payload, key); ok {
+			return value, true
+		}
+	}
+	return nil, false
+}
+
+func eventMetadataValue(event contract.Event, key string) (any, bool) {
+	if value, ok := eventPayloadValue(event, key); ok {
+		return value, true
+	}
+	metadata, ok := event.Payload["metadata"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	value, ok := metadata[key]
+	return value, ok
 }
 
 func nestedValue(root map[string]any, path string) (any, bool) {

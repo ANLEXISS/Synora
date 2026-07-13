@@ -83,6 +83,76 @@ func TestEvaluateRequestsConditionOperators(t *testing.T) {
 	}
 }
 
+func TestEvaluateRequestsManualRiskWithoutConditionMatches(t *testing.T) {
+	engine := NewEngine(t.TempDir() + "/manual-risk.yaml")
+	mustAddRule(t, engine, Rule{
+		ID:        "manual-any-danger",
+		Enabled:   true,
+		EventType: contract.EventManualRisk,
+		Actions:   []AutomationAction{testAction("push")},
+	})
+
+	if got := engine.EvaluateRequests(manualRiskEvent("high"), manualRiskDecision("high")); len(got) != 1 {
+		t.Fatalf("manual risk without condition should match, got %#v", got)
+	}
+}
+
+func TestEvaluateRequestsManualRiskDangerLevelConditions(t *testing.T) {
+	tests := []struct {
+		name      string
+		field     string
+		op        string
+		expected  string
+		level     string
+		wantMatch bool
+	}{
+		{name: "high above medium", field: "danger.level", op: ">", expected: "medium", level: "high", wantMatch: true},
+		{name: "low not above medium", field: "danger.level", op: ">", expected: "medium", level: "low", wantMatch: false},
+		{name: "high at least high", field: "danger.level", op: ">=", expected: "high", level: "high", wantMatch: true},
+		{name: "critical at least high", field: "danger.level", op: ">=", expected: "high", level: "critical", wantMatch: true},
+		{name: "critical is not high", field: "danger.level", op: "==", expected: "high", level: "critical", wantMatch: false},
+		{name: "danger level alias", field: "danger_level", op: ">", expected: "medium", level: "high", wantMatch: true},
+		{name: "system state alias", field: "system.state", op: "==", expected: "suspicious", level: "high", wantMatch: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			engine := NewEngine(t.TempDir() + "/condition.yaml")
+			mustAddRule(t, engine, Rule{
+				ID:        "manual-" + test.name,
+				Enabled:   true,
+				EventType: contract.EventManualRisk,
+				Conditions: []Condition{{
+					Field: test.field, Op: test.op, Value: test.expected,
+				}},
+				Actions: []AutomationAction{testAction("push")},
+			})
+
+			got := engine.EvaluateRequests(manualRiskEvent(test.level), manualRiskDecision(test.level))
+			if matched := len(got) == 1; matched != test.wantMatch {
+				t.Fatalf("condition field=%s op=%s expected=%s level=%s matched=%t, want %t", test.field, test.op, test.expected, test.level, matched, test.wantMatch)
+			}
+		})
+	}
+}
+
+func TestCompareDangerLevelUsesBusinessOrder(t *testing.T) {
+	for _, test := range []struct {
+		actual, op, expected string
+		want                 bool
+	}{
+		{actual: "none", op: "<", expected: "low", want: true},
+		{actual: "medium", op: ">", expected: "high", want: false},
+		{actual: "high", op: "!=", expected: "critical", want: true},
+		{actual: "critical", op: ">", expected: "high", want: true},
+		{actual: "high", op: "<=", expected: "high", want: true},
+	} {
+		if got := compareDangerLevel(test.op, test.actual, true, test.expected); got != test.want {
+			t.Fatalf("compareDangerLevel(%q, %q, %q)=%t, want %t", test.actual, test.op, test.expected, got, test.want)
+		}
+	}
+}
+
 func TestEvaluateRequestsCooldownBlocksSecondTrigger(t *testing.T) {
 	now := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 	engine := NewEngine(t.TempDir() + "/cooldown.yaml")
@@ -199,5 +269,33 @@ func testDecision() *contract.Decision {
 		NodeID:         "entry",
 		ClipID:         "clip-decision",
 		EffectiveScore: 0.8,
+	}
+}
+
+func manualRiskEvent(level string) *contract.Event {
+	return &contract.Event{
+		ID:      "manual-" + level,
+		Type:    contract.EventManualRisk,
+		Source:  "admin",
+		Payload: map[string]any{"danger_level": level, "danger_source": "manual"},
+	}
+}
+
+func manualRiskDecision(level string) *contract.Decision {
+	state := "activity"
+	score := 0.5
+	if level == "high" {
+		state, score = "suspicious", 0.75
+	}
+	if level == "critical" {
+		state, score = "intrusion", 0.95
+	}
+	return &contract.Decision{
+		Type:           "engine.decision",
+		State:          state,
+		DangerLevel:    level,
+		DangerScore:    score,
+		DangerSource:   "manual",
+		EffectiveScore: score,
 	}
 }

@@ -4,10 +4,74 @@ import (
 	"testing"
 	"time"
 
+	"synora/internal/automation"
 	"synora/internal/event"
 	"synora/internal/state"
 	"synora/pkg/contract"
 )
+
+func TestManualRiskDangerLevelConditionDispatchesActionRequest(t *testing.T) {
+	app, bus := newTestCoreApp(t)
+	if err := app.automation.Add(automation.Rule{
+		ID:        "manual-high-push",
+		Enabled:   true,
+		EventType: contract.EventManualRisk,
+		Conditions: []automation.Condition{{
+			Field: "danger.level", Op: ">", Value: "medium",
+		}},
+		Actions: []automation.AutomationAction{{
+			Type:    "push",
+			Target:  "owner",
+			Enabled: true,
+		}},
+	}); err != nil {
+		t.Fatalf("add manual risk automation: %v", err)
+	}
+
+	app.processEvent(&contract.Event{
+		ID:        "evt-manual-high",
+		Type:      contract.EventManualRisk,
+		Source:    "admin",
+		Timestamp: time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC),
+		Payload:   map[string]any{"danger_level": "high", "duration_seconds": 60},
+	})
+
+	requests := bus.messagesOfType(contract.EventActionRequest)
+	if len(requests) != 1 {
+		t.Fatalf("expected one action.request for manual high danger, got %d", len(requests))
+	}
+	if current := app.state.SystemState(); len(current.BlockingReasons) != 0 {
+		t.Fatalf("matched automation should not leave blocking reasons: %#v", current.BlockingReasons)
+	}
+}
+
+func TestManualRiskNoMatchingAutomationKeepsReason(t *testing.T) {
+	app, _ := newTestCoreApp(t)
+	if err := app.automation.Add(automation.Rule{
+		ID:        "manual-critical-only",
+		Enabled:   true,
+		EventType: contract.EventManualRisk,
+		Conditions: []automation.Condition{{
+			Field: "danger.level", Op: ">", Value: "critical",
+		}},
+		Actions: []automation.AutomationAction{{Type: "push", Target: "owner", Enabled: true}},
+	}); err != nil {
+		t.Fatalf("add manual risk automation: %v", err)
+	}
+
+	app.processEvent(&contract.Event{
+		ID:        "evt-manual-high-no-match",
+		Type:      contract.EventManualRisk,
+		Source:    "admin",
+		Timestamp: time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC),
+		Payload:   map[string]any{"danger_level": "high", "duration_seconds": 60},
+	})
+
+	current := app.state.SystemState()
+	if len(current.BlockingReasons) != 1 || current.BlockingReasons[0] != "no_matching_automation" {
+		t.Fatalf("unexpected no-match blocking reasons: %#v", current.BlockingReasons)
+	}
+}
 
 func TestManualRiskStateIsVisibleAndExpires(t *testing.T) {
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)

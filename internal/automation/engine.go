@@ -2,6 +2,7 @@ package automation
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -239,7 +240,9 @@ func (e *Engine) EvaluateRequests(event *contract.Event, decision *contract.Deci
 		if rule.RequiresValidation && !strings.EqualFold(rule.Status, contract.AutomationStatusApproved) {
 			continue
 		}
-		if !matchesTrigger(rule, event, decision) {
+		triggerMatch := matchesTrigger(rule, event, decision)
+		log.Printf("automation evaluate id=%s trigger_match=%t", rule.ID, triggerMatch)
+		if !triggerMatch {
 			continue
 		}
 		if rule.Node != "" && rule.Node != decision.NodeID {
@@ -254,13 +257,34 @@ func (e *Engine) EvaluateRequests(event *contract.Event, decision *contract.Deci
 		if rule.Schedule != nil && !isWithinSchedule(rule.Schedule, now) {
 			continue
 		}
-		if len(rule.Conditions) > 0 && !evaluateConditions(rule.Conditions, rule.ConditionLogic, *event, decision, now) {
-			continue
+		if len(rule.Conditions) > 0 {
+			conditionsMatch, evaluations := evaluateConditionsDetailed(rule.Conditions, rule.ConditionLogic, *event, decision, now)
+			for _, evaluation := range evaluations {
+				log.Printf(
+					"automation condition id=%s field=%s op=%s expected=%v actual=%v result=%t",
+					rule.ID,
+					evaluation.condition.Field,
+					evaluation.condition.Op,
+					evaluation.condition.Value,
+					conditionLogValue(evaluation.actual, evaluation.exists),
+					evaluation.result,
+				)
+			}
+			if !conditionsMatch {
+				for _, evaluation := range evaluations {
+					if !evaluation.result {
+						log.Printf("automation skipped id=%s reason=condition_failed field=%s", rule.ID, evaluation.condition.Field)
+						break
+					}
+				}
+				continue
+			}
 		}
 		ruleCooldownKey := "automation:" + rule.ID
 		if rule.CooldownMs > 0 && e.cooldownActive(ruleCooldownKey, now) {
 			continue
 		}
+		log.Printf("automation matched id=%s", rule.ID)
 		actions := append([]AutomationAction(nil), rule.Actions...)
 		sort.SliceStable(actions, func(i, j int) bool {
 			return actions[i].Order < actions[j].Order
@@ -285,6 +309,13 @@ func (e *Engine) EvaluateRequests(event *contract.Event, decision *contract.Deci
 		}
 	}
 	return matched
+}
+
+func conditionLogValue(value any, exists bool) any {
+	if !exists {
+		return "<missing>"
+	}
+	return value
 }
 
 func (e *Engine) Process(event *contract.Event, decision *contract.Decision) []contract.Action {
