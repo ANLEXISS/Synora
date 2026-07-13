@@ -57,3 +57,6 @@ build/
 *.mp4
 yolo_debug.txt
 tools/mediamtx/mediamtx
+
+# Local system-test reports
+artifacts/system-test/

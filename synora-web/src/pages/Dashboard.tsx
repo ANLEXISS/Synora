@@ -20,12 +20,6 @@ import { securityModeLabel, type SecurityMode } from "../lib/security-mode";
 import { useAuth } from "../hooks/useAuth";
 import type { CriticalChainMemory, SynoraDevice, SynoraEvent } from "../lib/synora-types";
 
-function dangerTone(score: number): "success" | "warning" | "danger" {
-  if (score >= 0.75) return "danger";
-  if (score >= 0.35) return "warning";
-  return "success";
-}
-
 function levelTone(level: DashboardDanger["level"]): "neutral" | "success" | "warning" | "danger" {
   if (level === "high" || level === "critical") return "danger";
   if (level === "medium" || level === "medium_high") return "warning";
@@ -170,12 +164,28 @@ export function Dashboard() {
 
   return (
     <div className="dashboard-grid">
-      <StatCard
-        title="État système"
-        value={systemState}
-        label={data.error ? "Données partielles" : "Statut courant"}
-        tone={systemTone(systemState)}
-      />
+      <div className="dashboard-overview">
+        <StatCard
+          title="État système"
+          value={systemState}
+          label={data.error ? "Données partielles" : "Statut courant"}
+          tone={systemTone(systemState)}
+        />
+
+        <StatCard
+          title="Devices"
+          value={`${devicesActive}/${devicesTotal}`}
+          label={`${devicesEnabled} activés · ${devicesOnline} en ligne · ${devicesOffline} hors ligne`}
+          tone={deviceToneValue}
+        />
+
+        <StatCard
+          title="Résidents"
+          value={`${residents.present}/${residents.known}`}
+          label={`Présents maintenant · ${residents.known} connus`}
+          tone={residents.present > 0 ? "success" : "warning"}
+        />
+      </div>
 
       <Panel title="Contrôle sécurité" className="card-full">
         {controlError && <div className="auth-error" role="alert">{controlError}</div>}
@@ -205,30 +215,9 @@ export function Dashboard() {
         </> : <small>Lecture seule : les contrôles de sécurité sont réservés aux administrateurs.</small>}
       </Panel>
 
-      <StatCard
-        title="Danger"
-        value={danger.score.toFixed(2)}
-        label={`${formatDangerLevel(danger.level)}${danger.manualRiskActive ? " · Manuel" : ""}`}
-        tone={danger.level === "high" || danger.level === "critical" ? "danger" : dangerTone(danger.score)}
-      />
-
-      <StatCard
-        title="Devices"
-        value={`${devicesActive}/${devicesTotal}`}
-        label={`${devicesEnabled} activés · ${devicesOnline} en ligne · ${devicesOffline} hors ligne`}
-        tone={deviceToneValue}
-      />
-
-      <StatCard
-        title="Résidents"
-        value={`${residents.present}/${residents.known}`}
-        label={`Présents maintenant · ${residents.known} connus`}
-        tone={residents.present > 0 ? "success" : "warning"}
-      />
-
       <Panel
         title="Événements récents"
-        className="card-wide"
+        className="dashboard-events card-wide"
         action={
           <div className="dashboard-panel-actions">
             <button type="button" className="text-button" onClick={() => setShowDiagnostics((value) => !value)}>
@@ -258,7 +247,7 @@ export function Dashboard() {
         </div>
       </Panel>
 
-      <Panel title="CGE Risk" className="card-side">
+      <Panel title="CGE Risk" className="dashboard-risk card-side">
         <div className={`risk-card risk-${cgeRiskActive ? levelTone(danger.level) : "success"}`}>
           <div className="risk-score">
             <ShieldAlert size={22} />
