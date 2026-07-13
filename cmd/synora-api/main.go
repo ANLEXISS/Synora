@@ -51,6 +51,7 @@ type runtimeControlProvider interface {
 	ResetIntrusion(json.RawMessage) (map[string]any, error)
 	ResetSystemState(json.RawMessage) (map[string]any, error)
 	ManualRisk(json.RawMessage) (map[string]any, error)
+	ClearManualRisk(json.RawMessage) (map[string]any, error)
 }
 
 type validationProvider interface {
@@ -185,6 +186,10 @@ func main() {
 	apiMux.HandleFunc("/api/intrusion/reset", handleIntrusionReset(core))
 	apiMux.HandleFunc("/api/system/state/reset", handleSystemStateReset(core))
 	apiMux.HandleFunc("/api/cge/manual-risk", handleManualRisk(core))
+	apiMux.HandleFunc("/api/cge/manual-risk/clear", handleManualRiskClear(core))
+	apiMux.HandleFunc("/api/security/mode", handleSecurityMode(core))
+	apiMux.HandleFunc("/api/security/arm", handleSecurityArm(core))
+	apiMux.HandleFunc("/api/security/disarm", handleSecurityDisarm(core))
 	apiMux.HandleFunc("/api/runtime/diagnostics", handleRuntimeDiagnostics(core))
 	apiMux.HandleFunc("/api/cge/runtime-status", handleRuntimeDiagnostics(core))
 	apiMux.HandleFunc("/api/snapshot", handleSnapshot(core))
@@ -533,7 +538,9 @@ func requiredAPIPermission(r *http.Request) string {
 		return webapi.PermissionSettingsRead
 	case path == "/api/intrusion/reset" || path == "/api/system/state/reset":
 		return webapi.PermissionSecurityAdmin
-	case path == "/api/cge/manual-risk":
+	case path == "/api/security/mode" && readOnly:
+		return webapi.PermissionStateRead
+	case path == "/api/security/mode" || path == "/api/security/arm" || path == "/api/security/disarm" || path == "/api/cge/manual-risk" || path == "/api/cge/manual-risk/clear":
 		return webapi.PermissionSecurityAdmin
 	case path == "/api/runtime/diagnostics" || path == "/api/cge/runtime-status":
 		return webapi.PermissionCGERead

@@ -65,6 +65,17 @@ func TestRuntimeDiagnosticsUsesCoreStateAndRuntimeComponents(t *testing.T) {
 	}
 }
 
+func TestRuntimeDiagnosticsExposesSecurityModeAndManualRisk(t *testing.T) {
+	response := runtimeDiagnosticsResponse(&contract.PublicSnapshot{System: map[string]any{
+		"security":           map[string]any{"mode": "high_security", "armed": true, "expected_occupancy": "empty"},
+		"manual_risk_active": true, "manual_risk_level": "high", "manual_risk_score": 0.75,
+		"danger_level": "high", "danger_source": "manual", "danger_known": true,
+	}}, nil, nil, nil)
+	if response["security_mode"] != "high_security" || response["security_armed"] != true || response["manual_risk_active"] != true {
+		t.Fatalf("runtime security projection=%#v", response)
+	}
+}
+
 func TestSystemHealthMarksServingAPIAndReachableBus(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	core := diagnosticFakeCore{health: &contract.RuntimeHealth{Status: "degraded", Services: map[string]contract.RuntimeServiceHealth{

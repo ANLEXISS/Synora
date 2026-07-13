@@ -97,3 +97,27 @@ func handleManualRisk(core runtimeControlProvider) http.HandlerFunc {
 		writeJSON(w, http.StatusAccepted, result)
 	}
 }
+
+func handleManualRiskClear(core interface {
+	ClearManualRisk(json.RawMessage) (map[string]any, error)
+}) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireMethod(w, r, http.MethodPost) {
+			return
+		}
+		if !isAdminRequest(r) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden", "message": "admin access required"})
+			return
+		}
+		body, ok := readJSONObject(w, r, true)
+		if !ok {
+			return
+		}
+		result, err := core.ClearManualRisk(body)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}

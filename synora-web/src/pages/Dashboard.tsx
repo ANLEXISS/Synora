@@ -5,6 +5,7 @@ import { Panel } from "../components/Panel";
 import { StatCard } from "../components/StatCard";
 import { useSynoraData } from "../hooks/useSynoraData";
 import { getCriticalChains } from "../lib/synora-api";
+import { armSecurity, clearManualRisk, disarmSecurity, setManualRisk } from "../lib/synora-api";
 import {
   filterDashboardEvents,
   normalizeDashboardDanger,
@@ -15,6 +16,8 @@ import {
 import { formatDateTime } from "../lib/format";
 import { getHumanCriticalChainSummary, getHumanCriticalChainTitle, normalizeCriticalChainMemory } from "../lib/cge";
 import { formatDangerLevel } from "../lib/event-chains";
+import { securityModeLabel, type SecurityMode } from "../lib/security-mode";
+import { useAuth } from "../hooks/useAuth";
 import type { CriticalChainMemory, SynoraDevice, SynoraEvent } from "../lib/synora-types";
 
 function dangerTone(score: number): "success" | "warning" | "danger" {
@@ -89,10 +92,14 @@ function riskDescription(danger: DashboardDanger, systemState: string) {
 
 export function Dashboard() {
   const data = useSynoraData();
+  const auth = useAuth();
   const [criticalChains, setCriticalChains] = useState<CriticalChainMemory[]>([]);
   const [criticalError, setCriticalError] = useState<string | null>(null);
   const [criticalLoading, setCriticalLoading] = useState(true);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [controlBusy, setControlBusy] = useState(false);
+  const [controlError, setControlError] = useState<string | null>(null);
+  const [manualDuration, setManualDuration] = useState(60);
 
   async function refreshCriticalChains() {
     setCriticalLoading(true);
@@ -133,6 +140,34 @@ export function Dashboard() {
   const hiddenSimulationCount = criticalChains.length - realCriticalChains.length;
   const cgeRiskActive = danger.level !== "none" && danger.level !== "unknown";
 
+  async function runControl(action: () => Promise<unknown>, confirmation?: string) {
+    if (confirmation && !window.confirm(confirmation)) return;
+    setControlBusy(true);
+    setControlError(null);
+    try {
+      await action();
+      await data.refresh();
+    } catch (cause) {
+      setControlError(cause instanceof Error ? cause.message : "Contrôle sécurité impossible.");
+    } finally {
+      setControlBusy(false);
+    }
+  }
+
+  function arm(mode: Exclude<SecurityMode, "home">) {
+    void runControl(
+      () => armSecurity({ mode, reason: mode === "high_security" ? "Sécurité élevée activée depuis le Dashboard" : "Mode sécurité activé depuis le Dashboard" }),
+      mode === "high_security" ? "Armer la sécurité élevée ? Personne n’est censé être présent." : undefined,
+    );
+  }
+
+  function triggerManualRisk(level: "low" | "medium" | "high" | "critical") {
+    void runControl(
+      () => setManualRisk({ danger_level: level, duration_seconds: manualDuration, reason: `Risque manuel ${level} depuis le Dashboard` }),
+      level === "high" || level === "critical" ? `Injecter un danger manuel ${level} pendant ${manualDuration}s ?` : undefined,
+    );
+  }
+
   return (
     <div className="dashboard-grid">
       <StatCard
@@ -141,6 +176,29 @@ export function Dashboard() {
         label={data.error ? "Données partielles" : "Statut courant"}
         tone={systemTone(systemState)}
       />
+
+      <Panel title="Contrôle sécurité" className="card-full">
+        {controlError && <div className="auth-error" role="alert">{controlError}</div>}
+        <div className="security-control-status">
+          <div><span>Mode</span><strong>{securityModeLabel(data.securityMode.mode)}</strong></div>
+          <div><span>Armé</span><strong>{data.securityMode.armed ? "Oui" : "Non"}</strong></div>
+          <div><span>Occupation attendue</span><strong>{data.securityMode.expected_occupancy === "empty" ? "Personne" : data.securityMode.expected_occupancy === "occupied" ? "Occupé" : "Inconnue"}</strong></div>
+          <div><span>Danger manuel</span><strong>{danger.manualRiskActive ? `${formatDangerLevel(danger.level)}${data.runtimeStatus?.manual_risk_expires_at ? ` · jusqu’à ${formatDateTime(String(data.runtimeStatus.manual_risk_expires_at))}` : ""}` : "Inactif"}</strong></div>
+        </div>
+        {auth.isAdmin ? <>
+          <div className="security-control-actions">
+            <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => void runControl(() => disarmSecurity({ reason: "Désarmement depuis le Dashboard" }))}>Repos / Désarmer</button>
+            <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => arm("night")}>Mode nuit</button>
+            <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => arm("away")}>Absent</button>
+            <button type="button" className="primary-button" disabled={controlBusy} onClick={() => arm("high_security")}>Sécurité élevée</button>
+          </div>
+          <div className="security-control-actions">
+            <label>Durée danger manuel <select value={manualDuration} disabled={controlBusy} onChange={(event) => setManualDuration(Number(event.target.value))}><option value={30}>30 s</option><option value={60}>60 s</option><option value={300}>5 min</option><option value={900}>15 min</option></select></label>
+            {(["low", "medium", "high", "critical"] as const).map((level) => <button key={level} type="button" className={level === "high" || level === "critical" ? "danger-button" : "secondary-button"} disabled={controlBusy} onClick={() => triggerManualRisk(level)}>Danger {formatDangerLevel(level)}</button>)}
+            <button type="button" className="secondary-button" disabled={controlBusy || !danger.manualRiskActive} onClick={() => void runControl(() => clearManualRisk({ reason: "Annulation depuis le Dashboard" }))}>Annuler danger manuel</button>
+          </div>
+        </> : <small>Lecture seule : les contrôles de sécurité sont réservés aux administrateurs.</small>}
+      </Panel>
 
       <StatCard
         title="Danger"

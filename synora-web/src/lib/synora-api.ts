@@ -6,6 +6,7 @@ import { normalizeEventChain } from "./event-chains";
 import { normalizeArray, normalizeBoolean, normalizeCollection, normalizeDateString, normalizeNumber, normalizeString, normalizeStringArray, isRecord } from "./normalize";
 import { normalizeTopologyResponse } from "./topology";
 import type { DashboardRuntimeStatus } from "./dashboard";
+import { normalizeSecurityMode, type SecurityModeState } from "./security-mode";
 import type {
   SynoraFacePhoto,
   SynoraFaceProfile,
@@ -97,6 +98,28 @@ export function getRuntimeStatus(signal?: AbortSignal) {
     isRecord(value) ? value : {}
   ));
 }
+
+export function getSecurityMode(signal?: AbortSignal) {
+  return synoraFetch<unknown>("/api/security/mode", { signal }).then(normalizeSecurityMode);
+}
+
+export function armSecurity(payload: { mode: "night" | "away" | "high_security"; reason?: string; duration_seconds?: number }) {
+  return synoraFetch<unknown>("/api/security/arm", { method: "POST", body: JSON.stringify(payload) }).then(normalizeSecurityMode);
+}
+
+export function disarmSecurity(payload: { reason?: string } = {}) {
+  return synoraFetch<unknown>("/api/security/disarm", { method: "POST", body: JSON.stringify(payload) }).then(normalizeSecurityMode);
+}
+
+export function setManualRisk(payload: { danger_level: "low" | "medium" | "high" | "critical"; duration_seconds: number; test?: boolean; reason?: string }) {
+  return synoraFetch<Record<string, unknown>>("/api/cge/manual-risk", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function clearManualRisk(payload: { reason?: string } = {}) {
+  return synoraFetch<Record<string, unknown>>("/api/cge/manual-risk/clear", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export type { SecurityModeState };
 
 export function getDevices(signal?: AbortSignal) {
   return synoraFetch<unknown>("/api/devices", { signal }).then((value) => normalizeCollection<unknown>(value).map(normalizeDevice).filter((device) => device.id));

@@ -117,6 +117,7 @@ func runtimeDiagnosticsResponse(snapshot *contract.PublicSnapshot, runtimeHealth
 		"vision_worker_status":           "unavailable",
 		"vision_ingress_status":          "disabled",
 		"actions_status":                 "unavailable",
+		"security":                       contract.DefaultSecurityModeState(now),
 	}
 	if stateErr != nil {
 		response["state_error"] = stateErr.Error()
@@ -182,6 +183,12 @@ func populateSnapshotDiagnostics(response map[string]any, snapshot *contract.Pub
 			response["test_danger_level"] = state["manual_risk_level"]
 		}
 		response["manual_risk_expires_at"] = state["manual_risk_expires_at"]
+		if security, ok := state["security"].(map[string]any); ok {
+			response["security"] = security
+			response["security_mode"] = security["mode"]
+			response["security_armed"] = security["armed"]
+			response["occupancy_expected"] = security["expected_occupancy"]
+		}
 		if blocked, ok := state["blocked_actions_recent"].([]any); ok {
 			response["blocked_actions_recent"] = blocked
 		} else if blocked, ok := state["blocked_actions_recent"].([]map[string]any); ok {

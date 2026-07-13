@@ -145,6 +145,10 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
           const message = JSON.parse(event.data) as SynoraWsMessage;
           const nextSnapshot = extractSnapshot(message);
 
+          if (message.type === "security.mode.changed" || message.topic === "security.mode.changed") {
+            void refresh();
+          }
+
           setLastMessageAt(new Date());
 
           if (nextSnapshot) {

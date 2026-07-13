@@ -12,6 +12,11 @@ const (
 	RPCRuntimeRollback       = "runtime.rollback"
 	RPCSystemResetState      = "system.reset_state"
 	RPCManualRisk            = "system.manual_risk"
+	RPCManualRiskClear       = "system.manual_risk.clear"
+	RPCSecurityMode          = "system.security_mode"
+	RPCSecurityModeUpdate    = "system.security_mode.update"
+	RPCSecurityArm           = "system.security_mode.arm"
+	RPCSecurityDisarm        = "system.security_mode.disarm"
 )
 
 type RuntimeHealth struct {

@@ -86,6 +86,25 @@ func buildAutomationCatalog(snapshot *contract.PublicSnapshot) automationCatalog
 				Values:      automationSystemStateOptions(),
 			},
 			{
+				Kind: "security.mode", Label: "Mode sécurité", Description: "Mode durable du système de sécurité.",
+				Operators: automationOperators("==", "!="), Values: []catalogOption{
+					{Value: "home", Label: "Maison"}, {Value: "night", Label: "Nuit"},
+					{Value: "away", Label: "Absent"}, {Value: "high_security", Label: "Sécurité élevée"},
+				},
+			},
+			{
+				Kind: "security.armed", Label: "Sécurité armée", Description: "Indique si le mode de sécurité est armé.",
+				Operators: automationOperators("==", "!="), Values: []catalogOption{{Value: "true", Label: "Armée"}, {Value: "false", Label: "Désarmée"}},
+			},
+			{
+				Kind: "occupancy.expected", Label: "Occupation attendue", Description: "Présence attendue selon le mode de sécurité.",
+				Operators: automationOperators("==", "!="), Values: []catalogOption{{Value: "unknown", Label: "Inconnue"}, {Value: "occupied", Label: "Présence attendue"}, {Value: "empty", Label: "Personne attendue"}},
+			},
+			{
+				Kind: "manual_risk.active", Label: "Risque manuel actif", Description: "Indique si un risque temporaire a été injecté manuellement.",
+				Operators: automationOperators("==", "!="), Values: []catalogOption{{Value: "true", Label: "Actif"}, {Value: "false", Label: "Inactif"}},
+			},
+			{
 				Kind:        "node.id",
 				Label:       "Pièce",
 				Description: "Pièce ou zone concernée.",
@@ -96,7 +115,7 @@ func buildAutomationCatalog(snapshot *contract.PublicSnapshot) automationCatalog
 				Kind:        "danger.level",
 				Label:       "Niveau de danger",
 				Description: "Niveau de risque estimé.",
-				Operators:   automationOperators("==", "!=", ">", "<"),
+				Operators:   automationOperators("==", "!=", ">", ">=", "<", "<="),
 				Values:      automationDangerLevelOptions(),
 			},
 			{
@@ -163,6 +182,10 @@ func automationOperatorLabel(value string) string {
 		return "est supérieur à"
 	case "<":
 		return "est inférieur à"
+	case ">=":
+		return "est supérieur ou égal à"
+	case "<=":
+		return "est inférieur ou égal à"
 	default:
 		return value
 	}

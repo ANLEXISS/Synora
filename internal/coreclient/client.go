@@ -218,6 +218,46 @@ func (c *Client) ManualRisk(data json.RawMessage) (map[string]any, error) {
 	return result, nil
 }
 
+func (c *Client) ClearManualRisk(data json.RawMessage) (map[string]any, error) {
+	var result map[string]any
+	if err := c.callRaw(contract.RPCManualRiskClear, data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) SecurityMode() (contract.SecurityModeState, error) {
+	var result contract.SecurityModeState
+	if err := c.call(contract.RPCSecurityMode, nil, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (c *Client) SetSecurityMode(data json.RawMessage) (contract.SecurityModeState, error) {
+	var result contract.SecurityModeState
+	if err := c.callRaw(contract.RPCSecurityModeUpdate, data, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (c *Client) ArmSecurity(data json.RawMessage) (contract.SecurityModeState, error) {
+	var result contract.SecurityModeState
+	if err := c.callRaw(contract.RPCSecurityArm, data, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (c *Client) DisarmSecurity(data json.RawMessage) (contract.SecurityModeState, error) {
+	var result contract.SecurityModeState
+	if err := c.callRaw(contract.RPCSecurityDisarm, data, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
 func (c *Client) Validations() ([]contract.ValidationRequest, error) {
 	var validations []contract.ValidationRequest
 	if err := c.call("validations.list", nil, &validations); err != nil {

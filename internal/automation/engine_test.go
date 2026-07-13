@@ -153,6 +153,56 @@ func TestCompareDangerLevelUsesBusinessOrder(t *testing.T) {
 	}
 }
 
+func TestEvaluateRequestsSecurityContextAliases(t *testing.T) {
+	for _, field := range []string{"security.mode", "security_mode", "mode"} {
+		engine := NewEngine(t.TempDir() + "/security.yaml")
+		mustAddRule(t, engine, Rule{ID: field, Enabled: true, EventType: contract.EventManualRisk, Conditions: []Condition{{Field: field, Op: "==", Value: "high_security"}}, Actions: []AutomationAction{testAction("a1")}})
+		event := manualRiskEvent("high")
+		event.Payload["security"] = map[string]any{"mode": "high_security", "armed": true}
+		if got := engine.EvaluateRequests(event, manualRiskDecision("high")); len(got) != 1 {
+			t.Fatalf("security mode field %q did not match: %#v", field, got)
+		}
+	}
+	for _, test := range []struct {
+		field string
+		value any
+	}{
+		{field: "security.armed", value: true}, {field: "occupancy.expected", value: "empty"}, {field: "manual_risk.active", value: true},
+	} {
+		engine := NewEngine(t.TempDir() + "/security-alias.yaml")
+		mustAddRule(t, engine, Rule{ID: test.field, Enabled: true, EventType: contract.EventManualRisk, Conditions: []Condition{{Field: test.field, Op: "==", Value: test.value}}, Actions: []AutomationAction{testAction("a1")}})
+		event := manualRiskEvent("high")
+		event.Payload["security"] = map[string]any{"armed": true}
+		event.Payload["occupancy"] = map[string]any{"expected": "empty"}
+		event.Payload["manual_risk"] = map[string]any{"active": true}
+		if got := engine.EvaluateRequests(event, manualRiskDecision("high")); len(got) != 1 {
+			t.Fatalf("security field %q did not match: %#v", test.field, got)
+		}
+	}
+}
+
+func TestEvaluateRequestsHighSecurityManualRiskContext(t *testing.T) {
+	engine := NewEngine(t.TempDir() + "/high-security.yaml")
+	mustAddRule(t, engine, Rule{
+		ID: "high-security-risk", Enabled: true, EventType: contract.EventManualRisk,
+		Conditions: []Condition{
+			{Field: "security.mode", Op: "==", Value: "high_security"},
+			{Field: "manual_risk.active", Op: "==", Value: true},
+			{Field: "danger.level", Op: ">=", Value: "high"},
+		}, Actions: []AutomationAction{testAction("a1")},
+	})
+	event := manualRiskEvent("high")
+	event.Payload["security"] = map[string]any{"mode": "high_security", "armed": true}
+	event.Payload["manual_risk"] = map[string]any{"active": true}
+	if got := engine.EvaluateRequests(event, manualRiskDecision("high")); len(got) != 1 {
+		t.Fatalf("high security context should match: %#v", got)
+	}
+	event.Payload["security"] = map[string]any{"mode": "home", "armed": false}
+	if got := engine.EvaluateRequests(event, manualRiskDecision("high")); len(got) != 0 {
+		t.Fatalf("home must not match high_security rule: %#v", got)
+	}
+}
+
 func TestEvaluateRequestsCooldownBlocksSecondTrigger(t *testing.T) {
 	now := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 	engine := NewEngine(t.TempDir() + "/cooldown.yaml")

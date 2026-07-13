@@ -86,6 +86,7 @@ func NewStore(options ...Option) *Store {
 			RuntimeModels:        map[string]string{},
 			BlockingReasons:      []string{},
 			BlockedActionsRecent: []map[string]any{},
+			Security:             contract.DefaultSecurityModeState(now),
 		},
 	}
 	for _, option := range options {
@@ -562,6 +563,7 @@ func (s *Store) SystemState() SystemState {
 	if cloned.BlockedActionsRecent == nil {
 		cloned.BlockedActionsRecent = []map[string]any{}
 	}
+	cloned.Security = contract.NormalizeSecurityModeState(cloned.Security, time.Now().UTC())
 	return cloned
 }
 
@@ -596,6 +598,7 @@ func (s *Store) SetSystemState(value SystemState) {
 	if cloned.BlockedActionsRecent == nil {
 		cloned.BlockedActionsRecent = []map[string]any{}
 	}
+	cloned.Security = contract.NormalizeSecurityModeState(cloned.Security, time.Now().UTC())
 	s.System = &cloned
 }
 
@@ -1095,6 +1098,9 @@ func (s *Store) applyPersistedState(persisted *PersistedState) {
 			s.CriticalChains[id] = cloned
 		}
 	}
+	if persisted.System != nil {
+		s.System = persisted.System
+	}
 }
 
 func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
@@ -1145,6 +1151,8 @@ func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
 			persisted.CriticalChains[id] = *cloneCriticalChainMemory(value)
 		}
 	}
+	system := s.SystemState()
+	persisted.System = &system
 	return persisted
 }
 

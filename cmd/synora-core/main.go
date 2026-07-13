@@ -363,6 +363,9 @@ func (a *coreApp) processEvent(event *contract.Event) {
 		a.triggerSnapshot()
 		return
 	}
+	if event.Type == contract.EventSecurityModeChanged {
+		a.applyAutomationContext(event)
+	}
 
 	started := time.Now()
 	chainRole := eventpkg.ClassifyEventForChain(event)
@@ -374,7 +377,10 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	)
 
 	var result *engine.Result
-	if chainRole == eventpkg.ChainRoleContextual {
+	if event.Type == contract.EventSecurityModeChanged {
+		// Mode changes provide automation context; they are not CGE danger input.
+		result = nil
+	} else if chainRole == eventpkg.ChainRoleContextual {
 		// Keep the legacy engine.decision notification for existing consumers;
 		// this path only observes graph continuity and does not run CGE danger,
 		// validation, state-transition, or action-planning evaluation.
@@ -422,14 +428,18 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	if presence := stateapply.ApplyVisionIdentity(a.state, event); presence != nil {
 		a.syncResidentPresence(presence)
 	}
+	a.applyAutomationContext(event)
 
-	if result != nil &&
-		result.Decision != nil {
-		requests := a.automation.EvaluateRequests(
-			event,
-			result.Decision,
-		)
-		if len(requests) == 0 && result.DangerAssessment != nil && result.DangerAssessment.Level >= 3 {
+	if (result != nil && result.Decision != nil) || event.Type == contract.EventSecurityModeChanged {
+		decision := (*contract.Decision)(nil)
+		if result != nil {
+			decision = result.Decision
+		}
+		if decision == nil {
+			decision = a.automationContextDecision(event)
+		}
+		requests := a.automation.EvaluateRequests(event, decision)
+		if result != nil && result.Decision != nil && len(requests) == 0 && result.DangerAssessment != nil && result.DangerAssessment.Level >= 3 {
 			result.Decision.ActionDecision = "blocked"
 			result.Decision.BlockedActions = appendUniqueString(result.Decision.BlockedActions, "no_matching_automation")
 			if eventIsSimulated(event) {
@@ -437,7 +447,9 @@ func (a *coreApp) processEvent(event *contract.Event) {
 			}
 			log.Printf("core: action blocked event_id=%s reason=%s", event.ID, strings.Join(result.Decision.BlockedActions, ","))
 		} else if len(requests) > 0 {
-			result.Decision.ActionDecision = "requested"
+			if result != nil && result.Decision != nil {
+				result.Decision.ActionDecision = "requested"
+			}
 			current := a.state.SystemState()
 			current.BlockingReasons = []string{}
 			a.state.SetSystemState(current)
@@ -446,8 +458,10 @@ func (a *coreApp) processEvent(event *contract.Event) {
 		for _, request := range requests {
 
 			if err := a.actionDispatcher.DispatchRequest(request); err != nil {
-				result.Decision.ActionDecision = "blocked"
-				result.Decision.BlockedActions = appendUniqueString(result.Decision.BlockedActions, "action_service_unavailable")
+				if result != nil && result.Decision != nil {
+					result.Decision.ActionDecision = "blocked"
+					result.Decision.BlockedActions = appendUniqueString(result.Decision.BlockedActions, "action_service_unavailable")
+				}
 				log.Printf("core: action blocked event_id=%s reason=action_service_unavailable err=%v", event.ID, err)
 			} else {
 				current := a.state.SystemState()
@@ -455,7 +469,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 				a.state.SetSystemState(current)
 			}
 		}
-		if len(result.Decision.BlockedActions) > 0 {
+		if result != nil && result.Decision != nil && len(result.Decision.BlockedActions) > 0 {
 			current := a.state.SystemState()
 			current.BlockingReasons = append([]string(nil), result.Decision.BlockedActions...)
 			for _, reason := range result.Decision.BlockedActions {
@@ -469,11 +483,13 @@ func (a *coreApp) processEvent(event *contract.Event) {
 			a.state.SetSystemState(current)
 		}
 
-		a.publishEvent(
-			"engine.decision",
-			result.Decision,
-			result.Decision.Priority,
-		)
+		if result != nil && result.Decision != nil {
+			a.publishEvent(
+				"engine.decision",
+				result.Decision,
+				result.Decision.Priority,
+			)
+		}
 	}
 
 	if stateChanged {
@@ -555,6 +571,31 @@ func (a *coreApp) recordRuntimeEvent(event *contract.Event) {
 		current.Degraded = len(current.DegradationReasons) > 0
 	}
 	a.state.SetSystemState(current)
+}
+
+func (a *coreApp) applyAutomationContext(event *contract.Event) {
+	if a == nil || a.state == nil || event == nil {
+		return
+	}
+	if event.Payload == nil {
+		event.Payload = map[string]any{}
+	}
+	system := a.state.SystemState()
+	event.Payload["security"] = map[string]any{"mode": system.Security.Mode, "armed": system.Security.Armed}
+	event.Payload["occupancy"] = map[string]any{"expected": system.Security.ExpectedOccupancy}
+	event.Payload["manual_risk"] = map[string]any{"active": system.ManualRiskActive}
+	event.Payload["current_state"] = system.LastState
+	event.Payload["danger_source"] = system.DangerSource
+}
+
+func (a *coreApp) automationContextDecision(event *contract.Event) *contract.Decision {
+	system := a.state.SystemState()
+	return &contract.Decision{
+		ID: event.ID, EventID: event.ID, Type: event.Type, Source: "system",
+		Timestamp: event.Timestamp, Priority: event.Priority, State: system.LastState,
+		DangerLevel: system.DangerLevel, DangerScore: system.DangerScore,
+		DangerSource: system.DangerSource, EffectiveScore: system.DangerScore,
+	}
 }
 
 func applyDiscoveryRuntimeStatus(current *state.SystemState, payload map[string]any) {
@@ -690,16 +731,42 @@ func (a *coreApp) manualRiskLoop() {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for now := range ticker.C {
-		if !a.expireManualRisk(now.UTC()) {
-			continue
+		changed := a.expireManualRisk(now.UTC())
+		if changed {
+			current := a.state.SystemState()
+			a.publishEvent(contract.EventSystemStateChanged, current, contract.PriorityNormal)
+			if a.chains != nil {
+				a.publishChainUpdates(a.chains.CloseManualRiskChains(now.UTC()))
+			}
+			a.triggerSnapshot()
 		}
-		current := a.state.SystemState()
-		a.publishEvent(contract.EventSystemStateChanged, current, contract.PriorityNormal)
-		if a.chains != nil {
-			a.publishChainUpdates(a.chains.CloseManualRiskChains(now.UTC()))
+		if a.expireSecurityMode(now.UTC()) {
+			a.triggerSnapshot()
 		}
-		a.triggerSnapshot()
 	}
+}
+
+func (a *coreApp) expireSecurityMode(now time.Time) bool {
+	if a == nil || a.state == nil {
+		return false
+	}
+	current := a.state.SystemState()
+	if current.Security.Mode == contract.SecurityModeHome || current.Security.ExpiresAt == nil || now.Before(*current.Security.ExpiresAt) {
+		return false
+	}
+	old := current.Security
+	next := contract.DefaultSecurityModeState(now)
+	next.Reason = "security mode duration expired"
+	current.Security = next
+	current.Armed = false
+	a.state.SetSystemState(current)
+	if err := a.state.SaveNow(); err != nil {
+		log.Printf("core: security mode persistence warning: %v", err)
+	}
+	payload := map[string]any{"old_mode": old.Mode, "new_mode": next.Mode, "armed": next.Armed, "expected_occupancy": next.ExpectedOccupancy, "source": "system", "reason": next.Reason, "security": next}
+	a.publishEvent(contract.EventSecurityModeChanged, payload, contract.PriorityNormal)
+	a.ingestRuntimeEvent(&contract.Event{ID: idgen.New("evt"), Type: contract.EventSecurityModeChanged, Source: "system", Timestamp: now, Payload: payload, Priority: contract.PriorityNormal})
+	return true
 }
 
 func (a *coreApp) expireManualRisk(now time.Time) bool {

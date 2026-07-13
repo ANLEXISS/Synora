@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getAutomations, getDevices, getResidents, getRuntimeStatus, getTopology } from "./synora-api";
+import { getAutomations, getDevices, getResidents, getRuntimeStatus, getSecurityMode, getTopology } from "./synora-api";
+import { normalizeSecurityMode, type SecurityModeState } from "./security-mode";
 import {
   isRecognizedTopologyResponse,
   normalizeTopologyResponse,
@@ -92,12 +93,14 @@ export function useSynoraData() {
   const [remoteError, setRemoteError] = useState<string | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<DashboardRuntimeStatus | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [securityMode, setSecurityMode] = useState<SecurityModeState>(normalizeSecurityMode(null));
 
   const loadRuntimeStatus = useCallback(async (signal?: AbortSignal) => {
     try {
-      const value = await getRuntimeStatus(signal);
+      const [value, mode] = await Promise.all([getRuntimeStatus(signal), getSecurityMode(signal)]);
       if (signal?.aborted) return;
       setRuntimeStatus(value);
+      setSecurityMode(mode);
       setRuntimeError(null);
     } catch (cause) {
       if (signal?.aborted) return;
@@ -113,10 +116,11 @@ export function useSynoraData() {
       getAutomations(signal),
       getTopology(signal),
       getRuntimeStatus(signal),
+      getSecurityMode(signal),
     ]);
     if (signal?.aborted) return;
 
-    const [devices, residents, automations, topology, runtime] = results;
+    const [devices, residents, automations, topology, runtime, security] = results;
     const failed = results.slice(0, 4).find((result) => result.status === "rejected");
     setRemoteError(failed?.status === "rejected"
       ? failed.reason instanceof Error ? failed.reason.message : "Impossible de charger les données de configuration."
@@ -144,6 +148,7 @@ export function useSynoraData() {
       setRuntimeStatus(null);
       setRuntimeError(runtime.reason instanceof Error ? runtime.reason.message : "Impossible de charger le statut runtime du CGE.");
     }
+    if (security.status === "fulfilled") setSecurityMode(security.value);
   }, []);
 
   useEffect(() => {
@@ -236,5 +241,6 @@ export function useSynoraData() {
     topology,
     topologySource,
     runtimeStatus,
+    securityMode,
   };
 }

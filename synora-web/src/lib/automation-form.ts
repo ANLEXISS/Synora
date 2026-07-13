@@ -65,6 +65,10 @@ const knownConditionKinds: AutomationConditionKind[] = [
   "system.state",
   "node.id",
   "danger.level",
+  "security.mode",
+  "security.armed",
+  "occupancy.expected",
+  "manual_risk.active",
   "device.id",
 ];
 
@@ -108,7 +112,7 @@ function conditionKind(
 
 function conditionOperator(condition: SynoraAutomationCondition): AutomationOperator {
   const raw = text(condition.op || (condition as Record<string, unknown>).operator, "==");
-  return raw === "!=" || raw === ">" || raw === "<" || raw === "==" ? raw : "==";
+  return raw === "!=" || raw === ">" || raw === ">=" || raw === "<" || raw === "<=" || raw === "==" ? raw : "==";
 }
 
 function actionKind(action: SynoraAutomationAction): AutomationActionKind {
@@ -256,7 +260,9 @@ export function formStateToAutomationPayload(
       id: condition.id,
       field: condition.kind,
       op: condition.operator,
-      value: condition.value,
+      value: ["security.armed", "manual_risk.active"].includes(condition.kind)
+        ? condition.value === "true"
+        : condition.value,
     })),
     actions: state.actions.map(actionPayload),
   };

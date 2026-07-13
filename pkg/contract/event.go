@@ -74,9 +74,10 @@ const (
 	EventActionResult         = "action.result"
 	EventActionServiceStarted = "action.service.started"
 	// EventAutomationAction is the temporary legacy action command emitted by older automations.
-	EventAutomationAction = "automation.action"
-	EventManualRisk       = "manual.risk"
-	EventSystemStateReset = "system.state.reset"
+	EventAutomationAction    = "automation.action"
+	EventManualRisk          = "manual.risk"
+	EventSystemStateReset    = "system.state.reset"
+	EventSecurityModeChanged = "security.mode.changed"
 )
 
 /*
@@ -257,7 +258,7 @@ func EventCategory(eventType string) string {
 		EventVisionFight,
 		EventVisionTamper:
 		return EventCategorySecurity
-	case EventManualRisk:
+	case EventManualRisk, EventSecurityModeChanged:
 		return EventCategorySecurity
 	case EventVisionIdentity,
 		EventVisionMotion:
@@ -334,7 +335,8 @@ func NormalizeEventType(raw string) string {
 		EventAutomationAction,
 		EventActionRequest,
 		EventActionServiceStarted,
-		EventManualRisk:
+		EventManualRisk,
+		EventSecurityModeChanged:
 		return raw
 
 	case EventActionResult:

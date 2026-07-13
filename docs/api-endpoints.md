@@ -24,10 +24,16 @@ rôle `admin` complet.
 | GET | `/health` | `cmd/synora-api/main.go` | non | legacy | non | Pointe santé process locale. |
 | GET | `/api/system/health` | `cmd/synora-api/main.go` | oui, sauf si `PublicSystemHealth` est activé | stable | futur | Santé système publique. |
 | GET | `/api/runtime/diagnostics` | `cmd/synora-api/runtime_diagnostics.go` | CGE read | stable | futur | Diagnostic runtime borné. |
-| GET | `/api/cge/runtime-status` | `cmd/synora-api/runtime_diagnostics.go` | CGE read | alias | futur | Alias du diagnostic runtime. |
+| GET | `/api/cge/runtime-status` | `cmd/synora-api/runtime_diagnostics.go` | CGE read | alias | oui | Alias du diagnostic runtime, danger/manual-risk et contexte sécurité. |
 | POST | `/api/intrusion/reset` | `cmd/synora-api/runtime_controls.go` | admin | stable | futur | Réinitialise l'état sans supprimer l'historique. |
 | POST | `/api/system/state/reset` | `cmd/synora-api/runtime_controls.go` | admin | stable | futur | Réinitialise vers `idle`, avec audit. |
-| POST | `/api/cge/manual-risk` | `cmd/synora-api/runtime_controls.go` | admin | stable | futur | Risque manuel ; `test:true` est simulé/dry-run. |
+| POST | `/api/cge/manual-risk` | `cmd/synora-api/runtime_controls.go` | admin | stable | oui | Risque manuel ; `test:true` est simulé/dry-run. |
+| POST | `/api/cge/manual-risk/clear` | `cmd/synora-api/runtime_controls.go` | admin | stable | oui | Annule le risque manuel actif sans supprimer l’historique. |
+| GET | `/api/security/mode` | `cmd/synora-api/security_mode.go` | state read | stable | oui | Mode durable courant ; lecture seule pour resident/guest. |
+| POST | `/api/security/mode` | `cmd/synora-api/security_mode.go` | admin | stable | oui | Définit `home`, `night`, `away` ou `high_security`. |
+| PATCH | `/api/security/mode` | `cmd/synora-api/security_mode.go` | admin | stable | futur | Mise à jour partielle du mode. |
+| POST | `/api/security/arm` | `cmd/synora-api/security_mode.go` | admin | stable | oui | Arme `night`, `away` ou `high_security`, avec durée optionnelle. |
+| POST | `/api/security/disarm` | `cmd/synora-api/security_mode.go` | admin | stable | oui | Revient à `home`, désarmé. |
 | GET | `/api/state` | `cmd/synora-api/main.go` | oui | stable | oui | Source principale de `useSynoraSnapshot()`. |
 | GET | `/api/snapshot` | `cmd/synora-api/main.go` | oui | stable | futur | Snapshot public compact. |
 | GET | `/api/devices` | `cmd/synora-api/config_handlers.go` | oui | stable | oui | Liste des devices. |
@@ -151,7 +157,8 @@ Les chaînes d’événements sont accessibles via `GET /api/events/chains` et `
 
 - `/api/devices` POST/PATCH (client disponible, formulaires create/edit à compléter)
 - `/api/residents/:id/face/review*` (validation admin des crops ; l’alias `pending*` est conservé)
-- `/api/automations/catalog` (catalogue dynamique non encore utilisé par le builder)
+- `/api/automations/catalog` (catalogue backend disponible ; le builder conserve
+  ses options statiques de compatibilité et expose aussi les champs sécurité)
 - `/api/cge/*`
 - `/api/simulation/*`
 - `/api/system/health`

@@ -65,7 +65,7 @@ func TestAutomationCatalogEndpointReturnsControlledOptions(t *testing.T) {
 			t.Fatalf("operators missing for %v", item["kind"])
 		}
 	}
-	for _, kind := range []string{"event.type", "system.state", "node.id", "danger.level", "device.id"} {
+	for _, kind := range []string{"event.type", "system.state", "security.mode", "security.armed", "occupancy.expected", "manual_risk.active", "node.id", "danger.level", "device.id"} {
 		if !seen[kind] {
 			t.Fatalf("missing condition kind %q", kind)
 		}

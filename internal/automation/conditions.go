@@ -117,6 +117,14 @@ func conditionValue(field string, event contract.Event, decision *contract.Decis
 			return decision.DangerSource, true
 		}
 		return eventPayloadValue(event, "danger_source", "danger.source")
+	case "security.mode", "security_mode", "mode":
+		return eventPayloadValue(event, "security.mode", "security_mode", "mode")
+	case "security.armed", "armed", "is_armed":
+		return eventPayloadValue(event, "security.armed", "security_armed", "armed", "is_armed")
+	case "occupancy.expected", "expected_occupancy":
+		return eventPayloadValue(event, "occupancy.expected", "expected_occupancy")
+	case "manual_risk.active", "manual_risk_active":
+		return eventPayloadValue(event, "manual_risk.active", "manual_risk_active")
 	case "test", "simulated", "dry_run":
 		return eventMetadataValue(event, field)
 	case "clip_id":
@@ -278,12 +286,32 @@ func compareCondition(op string, actual any, exists bool, expected any) bool {
 }
 
 func valuesEqual(actual any, expected any) bool {
+	if left, ok := asBool(actual); ok {
+		if right, ok := asBool(expected); ok {
+			return left == right
+		}
+	}
 	if left, ok := asFloat(actual); ok {
 		if right, ok := asFloat(expected); ok {
 			return left == right
 		}
 	}
 	return fmt.Sprint(actual) == fmt.Sprint(expected) || reflect.DeepEqual(actual, expected)
+}
+
+func asBool(value any) (bool, bool) {
+	switch v := value.(type) {
+	case bool:
+		return v, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "true", "1", "yes", "on":
+			return true, true
+		case "false", "0", "no", "off":
+			return false, true
+		}
+	}
+	return false, false
 }
 
 func asFloat(value any) (float64, bool) {

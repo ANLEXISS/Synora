@@ -194,6 +194,11 @@ func (s *Server) register() {
 	s.handlers["system.reset_intrusion"] = s.systemResetIntrusion
 	s.handlers[contract.RPCSystemResetState] = s.systemResetState
 	s.handlers[contract.RPCManualRisk] = s.manualRisk
+	s.handlers[contract.RPCManualRiskClear] = s.manualRiskClear
+	s.handlers[contract.RPCSecurityMode] = s.securityMode
+	s.handlers[contract.RPCSecurityModeUpdate] = s.securityModeUpdate
+	s.handlers[contract.RPCSecurityArm] = s.securityArm
+	s.handlers[contract.RPCSecurityDisarm] = s.securityDisarm
 	s.handlers["device.list"] = s.deviceConfigList
 	s.handlers["device.get"] = s.deviceConfigGet
 	s.handlers["device.create"] = s.deviceConfigCreate
@@ -501,6 +506,36 @@ func (s *Server) manualRisk(msg contract.Message) (any, error) {
 		})
 	}
 	return map[string]any{"status": "queued", "event_type": contract.EventManualRisk, "event_id": eventID, "danger_level": request.DangerLevel, "test": request.Test, "expires_at": expiresAt}, nil
+}
+
+func (s *Server) manualRiskClear(msg contract.Message) (any, error) {
+	var request struct {
+		Reason string `json:"reason"`
+	}
+	if len(msg.Payload) > 0 && json.Unmarshal(msg.Payload, &request) != nil {
+		return nil, contract.NewAPIError(contract.ErrorInvalidJSON, "invalid manual risk clear payload")
+	}
+	current := s.state.SystemState()
+	current.ManualRiskActive = false
+	current.ManualRiskTest = false
+	current.ManualRiskLevel = ""
+	current.ManualRiskScore = 0
+	current.ManualRiskExpiresAt = time.Time{}
+	current.LastState = "idle"
+	current.LastStateTime = time.Now().UTC()
+	current.DangerLevel = string(contract.DangerNone)
+	current.DangerScore = 0
+	current.DangerKnown = true
+	current.DangerSource = "none"
+	current.IntrusionActive = false
+	s.state.SetSystemState(current)
+	if err := s.state.SaveNow(); err != nil {
+		return nil, err
+	}
+	if s.publishEvent != nil {
+		s.publishEvent(contract.EventSystemStateChanged, map[string]any{"reason": request.Reason, "manual_risk_cleared": true, "state": current}, contract.PriorityHigh)
+	}
+	return map[string]any{"status": "cleared", "reason": request.Reason}, nil
 }
 
 func (s *Server) devicePairingStart(_ contract.Message) (any, error) {

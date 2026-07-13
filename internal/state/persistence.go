@@ -38,6 +38,7 @@ type PersistedState struct {
 	Presence          map[string]PresenceState                `json:"presence,omitempty"`
 	EventChains       map[string]contract.EventChain          `json:"event_chains,omitempty"`
 	CriticalChains    map[string]contract.CriticalChainMemory `json:"critical_chain_memories,omitempty"`
+	System            *SystemState                            `json:"system,omitempty"`
 }
 
 type PersistedSummary struct {

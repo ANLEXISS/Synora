@@ -502,6 +502,48 @@ button {
   grid-column: span 12;
 }
 
+.security-control-status,
+.security-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.security-control-status {
+  margin-bottom: 14px;
+}
+
+.security-control-status > div {
+  min-width: 145px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+
+.security-control-status span,
+.security-control-status strong {
+  display: block;
+}
+
+.security-control-status span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.security-control-actions + .security-control-actions {
+  margin-top: 12px;
+}
+
+.security-control-actions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .stat-card {
   position: relative;
 }

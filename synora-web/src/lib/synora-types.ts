@@ -6,6 +6,17 @@ export type SynoraSystemState =
   | "break-in"
   | string;
 
+export type SynoraSecurityModeState = {
+  mode: "home" | "night" | "away" | "high_security" | string;
+  armed: boolean;
+  expected_occupancy: "unknown" | "occupied" | "empty" | string;
+  set_by?: string;
+  reason?: string;
+  since?: string | null;
+  expires_at?: string | null;
+  source?: string;
+};
+
 export type SynoraDevice = {
   id: string;
   node_id?: string;
