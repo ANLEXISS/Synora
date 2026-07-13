@@ -112,7 +112,11 @@ type SystemState struct {
 	LastActionRequestAt  time.Time         `json:"last_action_request_at,omitempty"`
 	LastActionAt         time.Time         `json:"last_action_at,omitempty"`
 	BlockingReasons      []string          `json:"blocking_reasons"`
+	BlockedActionsRecent []map[string]any  `json:"blocked_actions_recent"`
 	ManualRiskActive     bool              `json:"manual_risk_active"`
+	ManualRiskTest       bool              `json:"manual_risk_test"`
+	ManualRiskLevel      string            `json:"manual_risk_level,omitempty"`
+	ManualRiskScore      float64           `json:"manual_risk_score,omitempty"`
 	ManualRiskExpiresAt  time.Time         `json:"manual_risk_expires_at,omitempty"`
 	IntrusionActive      bool              `json:"intrusion_active"`
 	IntrusionTime        time.Time         `json:"intrusion_time"`

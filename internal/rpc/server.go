@@ -364,7 +364,7 @@ func (s *Server) systemHealth(_ contract.Message) (any, error) {
 				response.Payload,
 				&health,
 			); decodeErr == nil {
-				return contract.NormalizeRuntimeHealth(health, time.Now().UTC()), nil
+				return s.mergeStateRuntimeHealth(health), nil
 			}
 		}
 	}
@@ -406,11 +406,23 @@ func (s *Server) systemHealth(_ contract.Message) (any, error) {
 		health.Disk.TotalBytes = stat.Blocks * uint64(stat.Bsize)
 		health.Disk.FreeBytes = stat.Bavail * uint64(stat.Bsize)
 		health.Disk.UsedBytes = health.Disk.TotalBytes - health.Disk.FreeBytes
+		health.Disk.UsedPercent = int((health.Disk.UsedBytes * 100) / health.Disk.TotalBytes)
+		if health.Disk.UsedBytes > 0 && health.Disk.UsedPercent == 0 {
+			health.Disk.UsedPercent = 1
+		}
 		health.Disk.Status = "ok"
 	} else {
 		health.Disk.Error = err.Error()
 	}
-	return contract.NormalizeRuntimeHealth(health, now), nil
+	return s.mergeStateRuntimeHealth(health), nil
+}
+
+func (s *Server) mergeStateRuntimeHealth(health contract.RuntimeHealth) contract.RuntimeHealth {
+	now := time.Now().UTC()
+	if s != nil && s.state != nil {
+		return contract.MergeRuntimeComponentStatus(health, s.state.SystemState().RuntimeComponents, now)
+	}
+	return contract.NormalizeRuntimeHealth(health, now)
 }
 
 func (s *Server) systemResetIntrusion(msg contract.Message) (any, error) {
@@ -455,6 +467,9 @@ func (s *Server) resetSystemState(request contract.SystemStateResetRequest) (any
 	current.DangerKnown = true
 	current.DangerSource = "manual"
 	current.ManualRiskActive = false
+	current.ManualRiskTest = false
+	current.ManualRiskLevel = ""
+	current.ManualRiskScore = 0
 	current.ManualRiskExpiresAt = time.Time{}
 	current.BlockingReasons = []string{}
 	current.IntrusionActive = false
@@ -494,10 +509,12 @@ func (s *Server) manualRisk(msg contract.Message) (any, error) {
 	}
 	now := time.Now().UTC()
 	eventID := idgen.New("evt")
+	expiresAt := now.Add(time.Duration(request.DurationSeconds) * time.Second)
 	payload := map[string]any{
 		"manual": true, "danger_level": request.DangerLevel, "duration_seconds": request.DurationSeconds,
 		"reason": request.Reason, "test": request.Test, "created_by": request.CreatedBy, "timestamp": now,
-		"event_id": eventID,
+		"event_id":   eventID,
+		"expires_at": expiresAt,
 	}
 	if request.Test {
 		payload["metadata"] = map[string]any{"simulated": true, "dry_run": true, "manual_test": true}
@@ -515,7 +532,7 @@ func (s *Server) manualRisk(msg contract.Message) (any, error) {
 			Priority:  contract.PriorityHigh,
 		})
 	}
-	return map[string]any{"status": "queued", "event_type": contract.EventManualRisk, "event_id": eventID, "danger_level": request.DangerLevel, "test": request.Test}, nil
+	return map[string]any{"status": "queued", "event_type": contract.EventManualRisk, "event_id": eventID, "danger_level": request.DangerLevel, "test": request.Test, "expires_at": expiresAt}, nil
 }
 
 func (s *Server) devicePairingStart(_ contract.Message) (any, error) {

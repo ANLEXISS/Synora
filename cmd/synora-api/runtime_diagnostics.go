@@ -101,6 +101,7 @@ func runtimeDiagnosticsResponse(snapshot *contract.PublicSnapshot, runtimeHealth
 		"generated_at":                   now,
 		"current_state":                  "unknown",
 		"danger_level":                   "unknown",
+		"danger_source":                  "unknown",
 		"danger_score":                   nil,
 		"open_chains_count":              0,
 		"real_open_chains_count":         0,
@@ -112,6 +113,10 @@ func runtimeDiagnosticsResponse(snapshot *contract.PublicSnapshot, runtimeHealth
 		"dry_run_mode":                   false,
 		"blocked_actions_recent":         []any{},
 		"blocking_reasons":               []string{},
+		"discovery_status":               "degraded",
+		"vision_worker_status":           "unavailable",
+		"vision_ingress_status":          "disabled",
+		"actions_status":                 "unavailable",
 	}
 	if stateErr != nil {
 		response["state_error"] = stateErr.Error()
@@ -123,6 +128,10 @@ func runtimeDiagnosticsResponse(snapshot *contract.PublicSnapshot, runtimeHealth
 		populateSnapshotDiagnostics(response, snapshot)
 	}
 	if runtimeHealth != nil {
+		mergedHealth := contract.MergeRuntimeComponentStatus(*runtimeHealth, snapshotRuntimeComponents(snapshot), time.Now().UTC())
+		runtimeHealth = &mergedHealth
+		markServingHealth(runtimeHealth, stateErr == nil || healthErr == nil)
+		response["runtime_components"] = componentStatusSummary(runtimeHealth)
 		response["runtime"] = runtimeHealth
 		response["discovery_status"] = runtimeComponentStatus(response, runtimeHealth, "discovery", "synora-discovery")
 		response["vision_worker_status"] = runtimeComponentStatus(response, runtimeHealth, "vision_worker", "synora-discovery")
@@ -150,6 +159,7 @@ func populateSnapshotDiagnostics(response map[string]any, snapshot *contract.Pub
 		if known, ok := state["danger_known"].(bool); ok && known {
 			response["danger_level"] = firstDiagnosticString(state["danger_level"], "unknown")
 			response["danger_score"] = state["danger_score"]
+			response["danger_source"] = firstDiagnosticString(state["danger_source"], "unknown")
 		}
 		if degraded, ok := state["degraded"].(bool); ok {
 			response["degraded"] = degraded
@@ -159,7 +169,18 @@ func populateSnapshotDiagnostics(response map[string]any, snapshot *contract.Pub
 		response["last_action_request_at"] = firstDiagnosticValue(state["last_action_request_at"], response["last_action_request_at"])
 		response["last_action_result_at"] = firstDiagnosticValue(state["last_action_at"])
 		response["manual_risk_active"] = state["manual_risk_active"]
+		response["manual_risk_test"] = state["manual_risk_test"]
+		response["manual_risk_level"] = state["manual_risk_level"]
+		response["manual_risk_score"] = state["manual_risk_score"]
+		if test, ok := state["manual_risk_test"].(bool); ok && test {
+			response["test_danger_level"] = state["manual_risk_level"]
+		}
 		response["manual_risk_expires_at"] = state["manual_risk_expires_at"]
+		if blocked, ok := state["blocked_actions_recent"].([]any); ok {
+			response["blocked_actions_recent"] = blocked
+		} else if blocked, ok := state["blocked_actions_recent"].([]map[string]any); ok {
+			response["blocked_actions_recent"] = blocked
+		}
 		if reasons, ok := state["blocking_reasons"].([]any); ok {
 			response["blocking_reasons"] = reasons
 		} else if reasons, ok := state["blocking_reasons"].([]string); ok {
@@ -184,6 +205,10 @@ func populateSnapshotDiagnostics(response map[string]any, snapshot *contract.Pub
 		}
 		response["critical_open_count"] = chains["critical_open_count"]
 		response["recent_closed_count"] = chains["recent_closed_count"]
+		response["test_open_chains_count"] = chains["simulated_open_count"]
+		if active, ok := response["manual_risk_test"].(bool); ok && active && response["test_open_chains_count"] == 0 {
+			response["test_open_chains_count"] = 1
+		}
 	}
 	if len(snapshot.ActionResults) > 0 {
 		last := snapshot.ActionResults[len(snapshot.ActionResults)-1]
@@ -229,6 +254,41 @@ func runtimeComponentStatus(response map[string]any, health *contract.RuntimeHea
 		}
 	}
 	return healthServiceStatus(health, service)
+}
+
+func snapshotRuntimeComponents(snapshot *contract.PublicSnapshot) map[string]string {
+	result := map[string]string{}
+	if snapshot == nil || snapshot.System == nil {
+		return result
+	}
+	if values, ok := snapshot.System["runtime_components"].(map[string]any); ok {
+		for name, value := range values {
+			if status, ok := value.(string); ok && status != "" {
+				result[name] = status
+			}
+		}
+	}
+	if values, ok := snapshot.System["runtime_components"].(map[string]string); ok {
+		for name, status := range values {
+			if status != "" {
+				result[name] = status
+			}
+		}
+	}
+	return result
+}
+
+func componentStatusSummary(health *contract.RuntimeHealth) map[string]string {
+	result := map[string]string{}
+	if health == nil {
+		return result
+	}
+	for _, name := range []string{"api", "bus", "core", "actions", "discovery", "vision_worker", "vision_ingress"} {
+		if item, ok := health.Components[name]; ok && item.Status != "" {
+			result[name] = diagnosticStatus(item.Status, item.Active)
+		}
+	}
+	return result
 }
 
 func diagnosticStatus(status string, active bool) string {

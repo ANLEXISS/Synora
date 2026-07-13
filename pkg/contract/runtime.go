@@ -117,7 +117,7 @@ func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
 	}
 	for _, name := range []string{"synora-api", "synora-bus", "synora-core", "synora-actions", "synora-discovery", "mediamtx"} {
 		if _, ok := health.Services[name]; !ok {
-			health.Services[name] = unavailableRuntimeService(name, now, "health probe unavailable")
+			health.Services[name] = unavailableRuntimeService(name, now, missingServiceMessage(name))
 		}
 	}
 	for name, item := range health.Services {
@@ -156,6 +156,8 @@ func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
 		if item.Active {
 			item.Status = "degraded"
 			item.Message = "detailed capability status is reported by discovery"
+		} else if item.Message == "health probe unavailable" {
+			item.Message = "discovery capability status unavailable"
 		}
 		health.Components["vision_worker"] = item
 	}
@@ -165,6 +167,8 @@ func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
 		if item.Active {
 			item.Status = "degraded"
 			item.Message = "TLS ingress status is reported by discovery"
+		} else if item.Message == "health probe unavailable" {
+			item.Message = "discovery ingress status unavailable"
 		}
 		health.Components["vision_ingress"] = item
 	}
@@ -190,6 +194,12 @@ func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
 	if health.Disk.Status == "" {
 		health.Disk.Status = "unavailable"
 	}
+	if health.Disk.TotalBytes > 0 && health.Disk.UsedBytes > 0 && health.Disk.UsedPercent == 0 {
+		health.Disk.UsedPercent = int((health.Disk.UsedBytes * 100) / health.Disk.TotalBytes)
+		if health.Disk.UsedPercent == 0 {
+			health.Disk.UsedPercent = 1
+		}
+	}
 	if health.Status == "" || health.Status == "unknown" {
 		health.Status = "ok"
 		for _, item := range health.Services {
@@ -201,6 +211,58 @@ func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
 		if health.Network.Status != "ok" || health.Disk.Status == "critical" {
 			health.Status = "degraded"
 		}
+	}
+	return health
+}
+
+// MergeRuntimeComponentStatus applies the component state observed by Core
+// over generic service probes. A concrete runtime event is more informative
+// than a missing health endpoint and must be reflected consistently in both
+// services and components.
+func MergeRuntimeComponentStatus(health RuntimeHealth, runtimeComponents map[string]string, now time.Time) RuntimeHealth {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	health = NormalizeRuntimeHealth(health, now)
+	if len(runtimeComponents) == 0 {
+		return health
+	}
+	for component, status := range runtimeComponents {
+		if status == "" {
+			continue
+		}
+		item := health.Components[component]
+		item.Name = component
+		item.Status = status
+		item.Active = status != "unavailable" && status != "disabled" && status != "error"
+		if item.Checked.IsZero() {
+			item.Checked = now
+		}
+		if item.Message == "" {
+			item.Message = "last runtime component status"
+		}
+		health.Components[component] = item
+		switch component {
+		case "discovery":
+			service := health.Services["synora-discovery"]
+			service.Name = "synora-discovery"
+			service.Status = status
+			service.Active = item.Active
+			service.Checked = item.Checked
+			service.Message = item.Message
+			health.Services["synora-discovery"] = service
+		case "actions":
+			service := health.Services["synora-actions"]
+			service.Name = "synora-actions"
+			service.Status = status
+			service.Active = item.Active
+			service.Checked = item.Checked
+			service.Message = item.Message
+			health.Services["synora-actions"] = service
+		}
+	}
+	if health.Network.Status == "ok" && health.Components["discovery"].Status == "degraded" {
+		health.Status = "degraded"
 	}
 	return health
 }
@@ -219,6 +281,21 @@ func componentRuntimeStatus(status string, active bool) string {
 
 func unavailableRuntimeService(name string, checked time.Time, message string) RuntimeServiceHealth {
 	return RuntimeServiceHealth{Name: name, Status: "unavailable", Active: false, Checked: checked, Error: message, Message: message}
+}
+
+func missingServiceMessage(name string) string {
+	switch name {
+	case "mediamtx":
+		return "optional component not running"
+	case "synora-actions":
+		return "action service status unavailable"
+	case "synora-discovery":
+		return "discovery status unavailable"
+	case "synora-bus":
+		return "bus status unavailable"
+	default:
+		return "service status unavailable"
+	}
 }
 
 func combinedRuntimeStatus(items ...RuntimeServiceHealth) string {

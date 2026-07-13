@@ -23,7 +23,7 @@ func TestManualRiskStateIsVisibleAndExpires(t *testing.T) {
 			"duration_seconds": 2,
 		},
 	}
-	if !app.applyManualRiskState(eventValue, false) {
+	if !app.applyManualRiskState(eventValue, false, store.SystemState()) {
 		t.Fatal("manual risk should change the state")
 	}
 	current := store.SystemState()
@@ -39,6 +39,36 @@ func TestManualRiskStateIsVisibleAndExpires(t *testing.T) {
 	current = store.SystemState()
 	if current.LastState != "idle" || current.DangerLevel != string(contract.DangerNone) || current.ManualRiskActive {
 		t.Fatalf("expired manual state=%#v", current)
+	}
+}
+
+func TestManualRiskTestDoesNotChangeRealDanger(t *testing.T) {
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	store := state.NewStore()
+	previous := store.SystemState()
+	previous.LastState = "activity"
+	previous.DangerLevel = string(contract.DangerLow)
+	previous.DangerScore = 0.4
+	previous.DangerKnown = true
+	previous.DangerSource = "real"
+	store.SetSystemState(previous)
+	app := &coreApp{state: store}
+	eventValue := &contract.Event{Type: contract.EventManualRisk, Timestamp: now, Payload: map[string]any{
+		"danger_level":     "high",
+		"duration_seconds": 2,
+		"metadata":         map[string]any{"simulated": true, "dry_run": true},
+	}}
+	app.applyManualRiskState(eventValue, false, previous)
+	current := store.SystemState()
+	if !current.ManualRiskTest || current.ManualRiskLevel != "high" || current.LastState != "activity" || current.DangerLevel != string(contract.DangerLow) || current.DangerSource != "real" {
+		t.Fatalf("test risk changed real state=%#v", current)
+	}
+	if !app.expireManualRisk(now.Add(3 * time.Second)) {
+		t.Fatal("test risk should expire")
+	}
+	current = store.SystemState()
+	if current.LastState != "activity" || current.DangerLevel != string(contract.DangerLow) || current.ManualRiskActive {
+		t.Fatalf("real state after test expiration=%#v", current)
 	}
 }
 

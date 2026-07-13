@@ -53,3 +53,8 @@ d'état.
 Le retour contient un `event_id`. Après le délai demandé, le risque manuel
 repasse à `idle/none` et sa chaîne est fermée avec la raison
 `manual_risk_expired`.
+
+Avec `test:true`, le danger réel reste inchangé ; le diagnostic expose
+`manual_risk_test=true`, `test_danger_level`, `manual_risk_expires_at` et le
+compteur de chaînes simulées. Avec `test:false`, le niveau manuel devient le
+danger courant pendant la durée demandée.

@@ -21,3 +21,28 @@ func TestNormalizeRuntimeHealthFillsUnavailableComponents(t *testing.T) {
 		t.Fatalf("components=%#v", health.Components)
 	}
 }
+
+func TestNormalizeRuntimeHealthComputesDiskUsagePercent(t *testing.T) {
+	health := NormalizeRuntimeHealth(RuntimeHealth{Disk: RuntimeDiskHealth{
+		Path: "/var/lib/synora", TotalBytes: 1000, UsedBytes: 250,
+	}}, time.Now().UTC())
+	if health.Disk.UsedPercent != 25 {
+		t.Fatalf("disk=%#v", health.Disk)
+	}
+}
+
+func TestMergeRuntimeComponentStatusOverridesGenericProbe(t *testing.T) {
+	now := time.Now().UTC()
+	health := NormalizeRuntimeHealth(RuntimeHealth{}, now)
+	merged := MergeRuntimeComponentStatus(health, map[string]string{
+		"discovery":      "degraded",
+		"vision_worker":  "unavailable",
+		"vision_ingress": "disabled",
+	}, now)
+	if merged.Components["discovery"].Status != "degraded" || merged.Services["synora-discovery"].Status != "degraded" {
+		t.Fatalf("discovery mismatch=%#v/%#v", merged.Components["discovery"], merged.Services["synora-discovery"])
+	}
+	if merged.Components["vision_worker"].Status != "unavailable" || merged.Components["vision_ingress"].Status != "disabled" {
+		t.Fatalf("component mismatch=%#v", merged.Components)
+	}
+}

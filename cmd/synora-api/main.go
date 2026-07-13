@@ -761,12 +761,14 @@ func handleSystemHealth(
 			resultCh <- healthResult{health: health, err: err}
 		}()
 		var health *contract.RuntimeHealth
+		probeOK := false
 		select {
 		case result := <-resultCh:
 			if result.err != nil || result.health == nil {
 				health = degradedRuntimeHealth("runtime health unavailable: " + errorMessage(result.err))
 			} else {
 				health = result.health
+				probeOK = true
 			}
 		case <-time.After(500 * time.Millisecond):
 			health = degradedRuntimeHealth("runtime health probe timed out")
@@ -774,6 +776,7 @@ func handleSystemHealth(
 		if health.Status == "" {
 			health.Status = "degraded"
 		}
+		markServingHealth(health, probeOK)
 
 		webHealth := webapi.WebHealth{Status: "disabled"}
 		if webServer != nil {
@@ -788,6 +791,30 @@ func handleSystemHealth(
 			Web:           webHealth,
 			Server:        transportHealth,
 		})
+	}
+}
+
+func markServingHealth(health *contract.RuntimeHealth, coreProbeOK bool) {
+	if health == nil {
+		return
+	}
+	now := time.Now().UTC()
+	if health.Services == nil {
+		health.Services = map[string]contract.RuntimeServiceHealth{}
+	}
+	if health.Components == nil {
+		health.Components = map[string]contract.RuntimeServiceHealth{}
+	}
+	api := contract.RuntimeServiceHealth{Name: "synora-api", Status: "ok", Active: true, Checked: now, Message: "serving"}
+	health.Services["synora-api"] = api
+	health.Components["api"] = contract.RuntimeServiceHealth{Name: "api", Status: "ok", Active: true, Checked: now, Message: "serving"}
+	if coreProbeOK {
+		bus := contract.RuntimeServiceHealth{Name: "synora-bus", Status: "ok", Active: true, Checked: now, Message: "reachable through core RPC"}
+		health.Services["synora-bus"] = bus
+		health.Components["bus"] = contract.RuntimeServiceHealth{Name: "bus", Status: diagnosticStatus(bus.Status, bus.Active), Active: bus.Active, Checked: bus.Checked, Message: bus.Message}
+		core := contract.RuntimeServiceHealth{Name: "synora-core", Status: "ok", Active: true, Checked: now, Message: "RPC responded"}
+		health.Services["synora-core"] = core
+		health.Components["core"] = contract.RuntimeServiceHealth{Name: "core", Status: diagnosticStatus(core.Status, core.Active), Active: core.Active, Checked: core.Checked, Message: core.Message}
 	}
 }
 

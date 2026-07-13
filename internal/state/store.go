@@ -85,6 +85,7 @@ func NewStore(options ...Option) *Store {
 			RuntimeComponentInfo: map[string]string{},
 			RuntimeModels:        map[string]string{},
 			BlockingReasons:      []string{},
+			BlockedActionsRecent: []map[string]any{},
 		},
 	}
 	for _, option := range options {
@@ -558,6 +559,9 @@ func (s *Store) SystemState() SystemState {
 	if cloned.RuntimeModels == nil {
 		cloned.RuntimeModels = map[string]string{}
 	}
+	if cloned.BlockedActionsRecent == nil {
+		cloned.BlockedActionsRecent = []map[string]any{}
+	}
 	return cloned
 }
 
@@ -588,6 +592,9 @@ func (s *Store) SetSystemState(value SystemState) {
 	}
 	if cloned.RuntimeModels == nil {
 		cloned.RuntimeModels = map[string]string{}
+	}
+	if cloned.BlockedActionsRecent == nil {
+		cloned.BlockedActionsRecent = []map[string]any{}
 	}
 	s.System = &cloned
 }

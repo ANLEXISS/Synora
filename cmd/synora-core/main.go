@@ -404,14 +404,18 @@ func (a *coreApp) processEvent(event *contract.Event) {
 
 	latency := time.Since(started)
 
+	previousSystemState := a.state.SystemState()
 	stateChanged := stateapply.Apply(a.state, result, stateapply.Callbacks{
 		SyncPresence: a.syncResidentPresence,
 	})
 	if isManualRiskEvent(event) {
-		stateChanged = a.applyManualRiskState(event, stateChanged)
+		stateChanged = a.applyManualRiskState(event, stateChanged, previousSystemState)
 	} else if result != nil && result.DangerAssessment != nil && !eventIsSimulated(event) {
 		current := a.state.SystemState()
 		current.ManualRiskActive = false
+		current.ManualRiskTest = false
+		current.ManualRiskLevel = ""
+		current.ManualRiskScore = 0
 		current.ManualRiskExpiresAt = time.Time{}
 		a.state.SetSystemState(current)
 	}
@@ -454,6 +458,14 @@ func (a *coreApp) processEvent(event *contract.Event) {
 		if len(result.Decision.BlockedActions) > 0 {
 			current := a.state.SystemState()
 			current.BlockingReasons = append([]string(nil), result.Decision.BlockedActions...)
+			for _, reason := range result.Decision.BlockedActions {
+				current.BlockedActionsRecent = append(current.BlockedActionsRecent, map[string]any{
+					"reason": reason, "event_id": event.ID, "timestamp": time.Now().UTC(),
+				})
+			}
+			if len(current.BlockedActionsRecent) > 20 {
+				current.BlockedActionsRecent = current.BlockedActionsRecent[len(current.BlockedActionsRecent)-20:]
+			}
 			a.state.SetSystemState(current)
 		}
 
@@ -601,18 +613,29 @@ func isManualRiskEvent(event *contract.Event) bool {
 	return event != nil && contract.NormalizeEventType(event.Type) == contract.EventManualRisk
 }
 
-func (a *coreApp) applyManualRiskState(event *contract.Event, changed bool) bool {
+func (a *coreApp) applyManualRiskState(event *contract.Event, changed bool, previous state.SystemState) bool {
 	if a == nil || a.state == nil || event == nil {
 		return changed
 	}
+	test := eventIsSimulated(event)
 	current := a.state.SystemState()
+	if test {
+		current = previous
+	}
 	level := strings.ToLower(strings.TrimSpace(payloadString(event.Payload, "danger_level")))
 	duration := int(payloadNumber(event.Payload, "duration_seconds"))
 	if duration <= 0 {
 		duration = 60
 	}
 	current.ManualRiskActive = true
+	current.ManualRiskTest = test
+	current.ManualRiskLevel = level
 	current.ManualRiskExpiresAt = event.Timestamp.UTC().Add(time.Duration(duration) * time.Second)
+	current.ManualRiskScore = manualRiskScore(level)
+	if test {
+		a.state.SetSystemState(current)
+		return changed && previous.LastState != current.LastState
+	}
 	current.DangerSource = "manual"
 	current.DangerKnown = true
 	switch level {
@@ -639,6 +662,21 @@ func (a *coreApp) applyManualRiskState(event *contract.Event, changed bool) bool
 	return changed || current.LastState != "idle"
 }
 
+func manualRiskScore(level string) float64 {
+	switch level {
+	case "critical":
+		return 0.95
+	case "high":
+		return 0.80
+	case "medium":
+		return 0.60
+	case "low":
+		return 0.40
+	default:
+		return 0
+	}
+}
+
 func (a *coreApp) manualRiskLoop() {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
@@ -660,11 +698,19 @@ func (a *coreApp) expireManualRisk(now time.Time) bool {
 		return false
 	}
 	current := a.state.SystemState()
-	if !current.ManualRiskActive || current.DangerSource != "manual" || current.ManualRiskExpiresAt.IsZero() || now.Before(current.ManualRiskExpiresAt) {
+	if !current.ManualRiskActive || current.ManualRiskExpiresAt.IsZero() || now.Before(current.ManualRiskExpiresAt) {
 		return false
 	}
 	current.ManualRiskActive = false
+	wasTest := current.ManualRiskTest
+	current.ManualRiskTest = false
+	current.ManualRiskLevel = ""
+	current.ManualRiskScore = 0
 	current.ManualRiskExpiresAt = time.Time{}
+	if wasTest {
+		a.state.SetSystemState(current)
+		return true
+	}
 	current.PreviousState = current.LastState
 	current.LastState = "idle"
 	current.LastStateTime = now.UTC()
