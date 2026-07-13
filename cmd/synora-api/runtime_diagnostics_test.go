@@ -83,3 +83,26 @@ func TestSystemHealthMarksServingAPIAndReachableBus(t *testing.T) {
 		t.Fatalf("services=%#v", response["services"])
 	}
 }
+
+func TestRuntimeDiagnosticsKeepsExplicitManualExpirationState(t *testing.T) {
+	response := runtimeDiagnosticsResponse(
+		&contract.PublicSnapshot{
+			System: map[string]any{
+				"danger_known":  true,
+				"danger_level":  "none",
+				"danger_score":  0.0,
+				"danger_source": "none",
+				"last_state":    "idle",
+			},
+			EventChains: map[string]any{
+				"highest_real_danger_level": "critical",
+			},
+		},
+		nil,
+		nil,
+		nil,
+	)
+	if response["danger_level"] != "none" || response["danger_source"] != "none" || response["danger_score"] != 0.0 {
+		t.Fatalf("stale chain danger overwrote state: %#v", response)
+	}
+}

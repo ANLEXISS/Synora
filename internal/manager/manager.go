@@ -493,7 +493,7 @@ func (m *Manager) mediaMTXServiceHealth(
 }
 
 func defaultMediaMTXProbe(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:9997/v1/paths/list", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:9997/v3/paths/list", nil)
 	if err != nil {
 		return err
 	}

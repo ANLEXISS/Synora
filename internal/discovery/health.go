@@ -124,18 +124,22 @@ func (h *discoveryHealth) setNetwork(status, message string) {
 	}
 }
 
-func (h *discoveryHealth) setVisionWorker(status, message string) {
+func (h *discoveryHealth) setVisionWorker(status, message string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	changed := h.VisionWorkerStatus != status || h.VisionWorkerError != message
 	h.VisionWorkerStatus = status
 	h.VisionWorkerError = message
+	return changed
 }
 
-func (h *discoveryHealth) setVisionIngress(status, message string) {
+func (h *discoveryHealth) setVisionIngress(status, message string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	changed := h.VisionIngressStatus != status || h.VisionIngressError != message
 	h.VisionIngressStatus = status
 	h.VisionIngressError = message
+	return changed
 }
 
 func (h *discoveryHealth) snapshot() discoveryHealth {

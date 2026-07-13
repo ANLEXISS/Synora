@@ -205,6 +205,9 @@ func populateSnapshotDiagnostics(response map[string]any, snapshot *contract.Pub
 			"open_count": "open_chains_count", "real_open_count": "real_open_chains_count",
 			"simulated_open_count": "simulated_open_chains_count", "highest_real_danger_level": "danger_level",
 		} {
+			if target == "danger_level" && response["danger_level"] != "unknown" {
+				continue
+			}
 			if value, exists := chains[source]; exists {
 				response[target] = value
 			}

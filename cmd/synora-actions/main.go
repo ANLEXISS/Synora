@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"os"
+	"time"
 
 	"synora/internal/actions"
 	"synora/internal/actions/devicecmd"
@@ -19,6 +21,20 @@ func main() {
 	busClient, err := bus.NewClient(getenv("SYNORA_BUS", "/run/synora/bus.sock"), "actions")
 	if err != nil {
 		log.Fatal(err)
+	}
+	startupPayload, _ := json.Marshal(map[string]any{
+		"component": "actions",
+		"status":    "ok",
+		"message":   "bus client registered",
+	})
+	if err := busClient.Send(contract.Message{
+		Type:      contract.EventActionServiceStarted,
+		Kind:      contract.KindEvent,
+		Source:    "actions",
+		Timestamp: time.Now().UTC(),
+		Payload:   startupPayload,
+	}); err != nil {
+		log.Printf("actions: startup status publish failed: %v", err)
 	}
 
 	mqttAdapter := actionmqtt.Adapter{}

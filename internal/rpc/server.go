@@ -2,13 +2,13 @@ package rpc
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"synora/internal/automation"
@@ -16,6 +16,7 @@ import (
 	"synora/internal/device"
 	"synora/internal/event"
 	"synora/internal/idgen"
+	"synora/internal/manager"
 	"synora/internal/security"
 	"synora/internal/snapshot"
 	"synora/internal/state"
@@ -369,52 +370,12 @@ func (s *Server) systemHealth(_ contract.Message) (any, error) {
 		}
 	}
 
-	now := time.Now().UTC()
-
-	uptime := int64(time.Since(s.startedAt).Seconds())
-	if uptime < 1 {
-		uptime = 1
-	}
-	health := contract.RuntimeHealth{
-		Status:      "degraded",
-		GeneratedAt: now,
-		Services: map[string]contract.RuntimeServiceHealth{
-			"synora-core": {
-				Name:    "synora-core",
-				Status:  "ok",
-				Active:  true,
-				Checked: now,
-			},
-		},
-		Components: map[string]contract.RuntimeServiceHealth{
-			"synora-core": {Name: "synora-core", Status: "ok", Active: true, Checked: now},
-		},
-		Network: contract.RuntimeNetworkHealth{
-			Status: "unknown",
-		},
-		MediaMTX: contract.RuntimeMediaMTXHealth{
-			Status: "unknown",
-		},
-		Disk: contract.RuntimeDiskHealth{
-			Status: "unknown",
-		},
-		Uptime:    uptime,
-		Timestamp: now,
-	}
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs("/var/lib/synora", &stat); err == nil {
-		health.Disk.TotalBytes = stat.Blocks * uint64(stat.Bsize)
-		health.Disk.FreeBytes = stat.Bavail * uint64(stat.Bsize)
-		health.Disk.UsedBytes = health.Disk.TotalBytes - health.Disk.FreeBytes
-		health.Disk.UsedPercent = int((health.Disk.UsedBytes * 100) / health.Disk.TotalBytes)
-		if health.Disk.UsedBytes > 0 && health.Disk.UsedPercent == 0 {
-			health.Disk.UsedPercent = 1
-		}
-		health.Disk.Status = "ok"
-	} else {
-		health.Disk.Error = err.Error()
-	}
-	return s.mergeStateRuntimeHealth(health), nil
+	// Keep health useful when the optional runtime-manager process is not
+	// running. The same manager implementation is used locally as a bounded
+	// fallback, so active systemd services are not downgraded to synthetic
+	// unavailable records merely because the RPC probe failed.
+	localHealth := manager.New(manager.Config{}).Health(context.Background())
+	return s.mergeStateRuntimeHealth(localHealth), nil
 }
 
 func (s *Server) mergeStateRuntimeHealth(health contract.RuntimeHealth) contract.RuntimeHealth {

@@ -215,7 +215,36 @@ func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
 			health.Status = "degraded"
 		}
 	}
+	normalizeRuntimeStatusMessages(&health)
 	return health
+}
+
+func normalizeRuntimeStatusMessages(health *RuntimeHealth) {
+	if health == nil {
+		return
+	}
+	clean := func(item *RuntimeServiceHealth) {
+		if item == nil {
+			return
+		}
+		if item.Status == "ok" || item.Status == "active" {
+			item.Error = ""
+		}
+		if item.Status == "degraded" && strings.Contains(strings.ToLower(item.Error), "status unavailable") {
+			item.Error = "runtime_component_degraded"
+		}
+	}
+	for name, item := range health.Services {
+		clean(&item)
+		health.Services[name] = item
+	}
+	for name, item := range health.Components {
+		clean(&item)
+		health.Components[name] = item
+	}
+	clean(&health.Network.HostAPD)
+	clean(&health.Network.DNSMasq)
+	clean(&health.MediaMTX.Service)
 }
 
 // MergeRuntimeComponentStatus applies the component state observed by Core
@@ -256,6 +285,7 @@ func MergeRuntimeComponentStatusDetailed(
 			item.Checked = now
 		}
 		item.Message = runtimeComponentMessage(component, status, item.Message, health, runtimeComponents, runtimeComponentInfo, runtimeModels)
+		item.Error = runtimeComponentError(component, status, runtimeComponentInfo, runtimeModels)
 		health.Components[component] = item
 		switch component {
 		case "discovery":
@@ -265,6 +295,7 @@ func MergeRuntimeComponentStatusDetailed(
 			service.Active = item.Active
 			service.Checked = item.Checked
 			service.Message = item.Message
+			service.Error = item.Error
 			health.Services["synora-discovery"] = service
 		case "actions":
 			service := health.Services["synora-actions"]
@@ -273,6 +304,7 @@ func MergeRuntimeComponentStatusDetailed(
 			service.Active = item.Active
 			service.Checked = item.Checked
 			service.Message = item.Message
+			service.Error = item.Error
 			health.Services["synora-actions"] = service
 		}
 	}
@@ -280,6 +312,48 @@ func MergeRuntimeComponentStatusDetailed(
 		health.Status = "degraded"
 	}
 	return health
+}
+
+func runtimeComponentError(component, status string, info, models map[string]string) string {
+	if status == "ok" || status == "active" {
+		return ""
+	}
+	reason := strings.ToLower(strings.TrimSpace(info[component]))
+	if status == "disabled" {
+		if strings.Contains(reason, "tls_cert_missing") {
+			return "tls_cert_missing"
+		}
+		if strings.Contains(reason, "tls_key_missing") {
+			return "tls_key_missing"
+		}
+	}
+	if status == "unavailable" && reason != "" {
+		return reason
+	}
+	if component == "discovery" && status == "degraded" {
+		if strings.Contains(strings.ToLower(info["discovery"]), "hostapd") {
+			return "hostapd_failed"
+		}
+		for _, modelStatus := range models {
+			if modelStatus == "missing" || modelStatus == "unavailable" || modelStatus == "disabled" {
+				return "models_missing"
+			}
+		}
+		return "discovery_degraded"
+	}
+	if component == "vision_worker" && status == "degraded" && strings.Contains(reason, "model") {
+		return "models_missing"
+	}
+	if status == "degraded" {
+		return component + "_degraded"
+	}
+	if status == "error" {
+		return component + "_error"
+	}
+	if status == "unavailable" {
+		return component + "_unavailable"
+	}
+	return ""
 }
 
 func runtimeComponentMessage(
@@ -291,21 +365,30 @@ func runtimeComponentMessage(
 	info map[string]string,
 	models map[string]string,
 ) string {
-	if reason := strings.TrimSpace(info[component]); reason != "" {
-		if component == "vision_ingress" && strings.Contains(strings.ToLower(reason), "tls_cert_missing") {
-			if status == "disabled" {
-				return "disabled: tls_cert_missing"
-			}
+	if component == "discovery" && status == "degraded" {
+		reasons := discoveryDegradationReasons(health, runtimeComponents, info, models)
+		if len(reasons) > 0 {
+			return "running degraded: " + strings.Join(reasons, ", ")
 		}
-		if component == "vision_ingress" && strings.Contains(strings.ToLower(reason), "listening insecure") {
+		return "running degraded: runtime component degraded"
+	}
+	if component == "vision_worker" && status == "degraded" && strings.Contains(strings.ToLower(info[component]), "model") {
+		return "running with missing models"
+	}
+	if component == "vision_ingress" {
+		reason := strings.ToLower(strings.TrimSpace(info[component]))
+		if status == "disabled" && (strings.Contains(reason, "tls_cert_missing") || strings.Contains(reason, "tls_key_missing")) {
+			return "disabled: tls_cert_missing"
+		}
+		if strings.Contains(reason, "listening insecure") {
 			return "listening insecure local mode"
 		}
-		if component == "vision_ingress" && status == "ok" {
+		if status == "ok" {
 			return "listening"
 		}
-		if current == "" || current == "last runtime component status" {
-			return reason
-		}
+	}
+	if reason := strings.TrimSpace(info[component]); reason != "" {
+		return reason
 	}
 	if component == "vision_ingress" {
 		if status == "disabled" {
@@ -314,13 +397,6 @@ func runtimeComponentMessage(
 		if status == "ok" {
 			return "listening"
 		}
-	}
-	if component == "discovery" && status == "degraded" {
-		reasons := discoveryDegradationReasons(health, runtimeComponents, info, models)
-		if len(reasons) > 0 {
-			return "running degraded: " + strings.Join(reasons, ", ")
-		}
-		return "running degraded: runtime component degraded"
 	}
 	if current != "" && current != "last runtime component status" {
 		return current

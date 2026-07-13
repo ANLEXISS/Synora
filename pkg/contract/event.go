@@ -71,7 +71,8 @@ const (
 	// EventActionRequest asks the Actions service to execute an action.
 	EventActionRequest = "action.request"
 	// EventActionResult reports the outcome of an action request.
-	EventActionResult = "action.result"
+	EventActionResult         = "action.result"
+	EventActionServiceStarted = "action.service.started"
 	// EventAutomationAction is the temporary legacy action command emitted by older automations.
 	EventAutomationAction = "automation.action"
 	EventManualRisk       = "manual.risk"
@@ -263,7 +264,8 @@ func EventCategory(eventType string) string {
 		return EventCategoryVision
 	case EventActionRequest,
 		EventActionResult,
-		EventAutomationAction:
+		EventAutomationAction,
+		EventActionServiceStarted:
 		return EventCategoryAction
 	default:
 		if IsSystemEvent(eventType) || strings.HasPrefix(NormalizeEventType(eventType), "discovery.") {
@@ -331,6 +333,7 @@ func NormalizeEventType(raw string) string {
 		EventSystemStateReset,
 		EventAutomationAction,
 		EventActionRequest,
+		EventActionServiceStarted,
 		EventManualRisk:
 		return raw
 

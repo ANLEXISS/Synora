@@ -509,6 +509,15 @@ func (a *coreApp) recordRuntimeEvent(event *contract.Event) {
 		current.LastActionAt = event.Timestamp.UTC()
 	}
 	switch contract.NormalizeEventType(event.Type) {
+	case contract.EventActionServiceStarted:
+		if current.RuntimeComponents == nil {
+			current.RuntimeComponents = map[string]string{}
+		}
+		current.RuntimeComponents["actions"] = "ok"
+		if current.RuntimeComponentInfo == nil {
+			current.RuntimeComponentInfo = map[string]string{}
+		}
+		current.RuntimeComponentInfo["actions"] = "bus client registered"
 	case contract.EventDiscoveryVisionWorkerUnavailable, contract.EventDiscoveryNetworkDegraded, contract.EventRuntimeComponentFlapping, contract.EventRuntimeModelMissing, contract.EventDiscoveryVisionIngressStatus:
 		current.Degraded = true
 		current.DegradationReasons = appendUniqueString(current.DegradationReasons, event.Type)
@@ -711,17 +720,83 @@ func (a *coreApp) expireManualRisk(now time.Time) bool {
 		a.state.SetSystemState(current)
 		return true
 	}
+	if chain := a.highestActiveRealChainExcludingManual(); chain != nil {
+		current.LastState = chain.CurrentState
+		if current.LastState == "" {
+			current.LastState = "suspicious"
+		}
+		current.LastStateTime = now.UTC()
+		current.DangerLevel = string(chain.DangerLevel)
+		current.DangerScore = chain.DangerScore
+		if current.DangerScore <= 0 {
+			current.DangerScore = chain.MaxDangerScore
+		}
+		current.DangerKnown = true
+		current.DangerSource = "real"
+		current.IntrusionActive = current.LastState == "intrusion"
+		a.state.SetSystemState(current)
+		return true
+	}
 	current.PreviousState = current.LastState
 	current.LastState = "idle"
 	current.LastStateTime = now.UTC()
 	current.DangerLevel = string(contract.DangerNone)
 	current.DangerScore = 0
 	current.DangerKnown = true
-	current.DangerSource = "manual"
+	current.DangerSource = "none"
 	current.IntrusionActive = false
 	current.IntrusionTime = time.Time{}
 	a.state.SetSystemState(current)
 	return true
+}
+
+func (a *coreApp) highestActiveRealChainExcludingManual() *contract.EventChain {
+	if a == nil || a.chains == nil {
+		return nil
+	}
+	simulated := false
+	var highest *contract.EventChain
+	for _, chain := range a.chains.List(eventpkg.ChainFilter{Status: string(contract.EventChainOpen), Simulated: &simulated}) {
+		if chain == nil || manualRiskChain(chain) {
+			continue
+		}
+		if highest == nil || dangerRankForState(chain.DangerLevel) > dangerRankForState(highest.DangerLevel) {
+			highest = chain
+		}
+	}
+	return highest
+}
+
+func manualRiskChain(chain *contract.EventChain) bool {
+	if chain == nil {
+		return false
+	}
+	for _, eventType := range chain.SignificantEventTypes {
+		if contract.NormalizeEventType(eventType) == contract.EventManualRisk {
+			return true
+		}
+	}
+	for _, recent := range chain.RecentEvents {
+		if contract.NormalizeEventType(recent.Type) == contract.EventManualRisk {
+			return true
+		}
+	}
+	return false
+}
+
+func dangerRankForState(level contract.DangerLevel) int {
+	switch level {
+	case contract.DangerCritical:
+		return 5
+	case contract.DangerHigh:
+		return 4
+	case contract.DangerMedium:
+		return 3
+	case contract.DangerLow:
+		return 2
+	default:
+		return 0
+	}
 }
 
 func payloadString(payload map[string]any, key string) string {

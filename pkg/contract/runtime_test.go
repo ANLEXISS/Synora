@@ -98,3 +98,45 @@ func TestMergeRuntimeComponentStatusDetailedExplainsIngressMode(t *testing.T) {
 		t.Fatalf("secure=%#v", secure.Components["vision_ingress"])
 	}
 }
+
+func TestNormalizeRuntimeHealthClearsErrorForHealthyComponent(t *testing.T) {
+	health := NormalizeRuntimeHealth(RuntimeHealth{
+		Components: map[string]RuntimeServiceHealth{
+			"vision_ingress": {
+				Name: "vision_ingress", Status: "ok", Active: true,
+				Message: "listening", Error: "discovery status unavailable",
+			},
+		},
+	}, time.Now().UTC())
+	if health.Components["vision_ingress"].Error != "" {
+		t.Fatalf("healthy component kept stale error: %#v", health.Components["vision_ingress"])
+	}
+}
+
+func TestMergeRuntimeComponentStatusDetailedUsesShortDegradedError(t *testing.T) {
+	health := MergeRuntimeComponentStatusDetailed(
+		RuntimeHealth{},
+		map[string]string{"discovery": "degraded"},
+		map[string]string{"discovery": "hostapd init failed"},
+		nil,
+		time.Now().UTC(),
+	)
+	item := health.Services["synora-discovery"]
+	if item.Status != "degraded" || item.Error != "hostapd_failed" || strings.Contains(item.Error, "status unavailable") {
+		t.Fatalf("discovery health=%#v", item)
+	}
+}
+
+func TestMergeRuntimeComponentStatusDetailedClearsActionProbeFallback(t *testing.T) {
+	health := MergeRuntimeComponentStatusDetailed(
+		RuntimeHealth{},
+		map[string]string{"actions": "ok"},
+		map[string]string{"actions": "bus client registered"},
+		nil,
+		time.Now().UTC(),
+	)
+	item := health.Services["synora-actions"]
+	if item.Status != "ok" || !item.Active || item.Message != "bus client registered" || item.Error != "" {
+		t.Fatalf("actions health=%#v", item)
+	}
+}

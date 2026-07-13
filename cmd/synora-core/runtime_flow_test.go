@@ -37,8 +37,22 @@ func TestManualRiskStateIsVisibleAndExpires(t *testing.T) {
 		t.Fatal("manual risk should expire")
 	}
 	current = store.SystemState()
-	if current.LastState != "idle" || current.DangerLevel != string(contract.DangerNone) || current.ManualRiskActive {
+	if current.LastState != "idle" || current.DangerLevel != string(contract.DangerNone) || current.DangerSource != "none" || current.DangerScore != 0 || current.ManualRiskActive {
 		t.Fatalf("expired manual state=%#v", current)
+	}
+}
+
+func TestActionServiceStartedUpdatesRuntimeComponent(t *testing.T) {
+	store := state.NewStore()
+	app := &coreApp{state: store}
+	app.recordRuntimeEvent(&contract.Event{
+		Type:    contract.EventActionServiceStarted,
+		Source:  "actions",
+		Payload: map[string]any{"status": "ok"},
+	})
+	current := store.SystemState()
+	if current.RuntimeComponents["actions"] != "ok" || current.RuntimeComponentInfo["actions"] != "bus client registered" {
+		t.Fatalf("runtime actions=%#v info=%#v", current.RuntimeComponents, current.RuntimeComponentInfo)
 	}
 }
 
@@ -69,6 +83,40 @@ func TestManualRiskTestDoesNotChangeRealDanger(t *testing.T) {
 	current = store.SystemState()
 	if current.LastState != "activity" || current.DangerLevel != string(contract.DangerLow) || current.ManualRiskActive {
 		t.Fatalf("real state after test expiration=%#v", current)
+	}
+}
+
+func TestManualRiskExpirationPreservesOtherRealChain(t *testing.T) {
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	store := state.NewStore()
+	chains := event.NewChainManager(event.DefaultChainConfig())
+	app := &coreApp{state: store, chains: chains}
+	chains.Process(&contract.Event{
+		ID:        "real-risk",
+		Type:      contract.EventVisionUnknown,
+		Timestamp: now,
+		Payload:   map[string]any{"activation_id": "real"},
+	}, &contract.ChainEvaluation{
+		State:       "intrusion",
+		DangerLevel: "critical",
+		DangerScore: 0.95,
+	})
+	manual := &contract.Event{
+		ID:        "manual-risk",
+		Type:      contract.EventManualRisk,
+		Timestamp: now.Add(time.Second),
+		Payload: map[string]any{
+			"danger_level":     "high",
+			"duration_seconds": 2,
+		},
+	}
+	app.applyManualRiskState(manual, false, store.SystemState())
+	if !app.expireManualRisk(now.Add(4 * time.Second)) {
+		t.Fatal("manual risk should expire")
+	}
+	current := store.SystemState()
+	if current.DangerLevel != string(contract.DangerCritical) || current.DangerSource != "real" || current.LastState != "intrusion" {
+		t.Fatalf("real chain was lost on expiration: %#v", current)
 	}
 }
 

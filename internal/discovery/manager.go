@@ -233,7 +233,7 @@ func (m *Manager) publishRuntimeStatus() {
 	workerStatus := status.VisionWorkerStatus
 	if workerStatus == "ok" && missingModel {
 		workerStatus = "degraded"
-		healthState.setVisionWorker("degraded", "model_missing")
+		healthState.setVisionWorker("degraded", "running with missing models")
 		status.VisionWorkerStatus = workerStatus
 	}
 	discoveryStatus := statusForDiscovery(status)
@@ -269,21 +269,30 @@ func (m *Manager) monitorVisionHealth() {
 	defer ticker.Stop()
 	for range ticker.C {
 		snapshot := m.vision.Snapshot()
-		switch snapshot.Status {
-		case vision.WorkerStatusRunning:
-			if missingVisionModel() {
-				healthState.setVisionWorker("degraded", "model_missing")
-			} else {
-				healthState.setVisionWorker("ok", "")
-			}
-		case vision.WorkerStatusStarting, vision.WorkerStatusBackoff:
-			healthState.setVisionWorker("degraded", snapshot.Status)
-		case vision.WorkerStatusCrashed, vision.WorkerStatusStopped:
-			healthState.setVisionWorker("unavailable", snapshot.Status)
+		status, reason := classifyVisionWorkerStatus(snapshot, missingVisionModel())
+		changed := healthState.setVisionWorker(status, reason)
+		if status == "unavailable" {
 			m.vision.PublishUnavailable(snapshot.Status)
-		default:
-			healthState.setVisionWorker("unknown", snapshot.Status)
 		}
+		if changed {
+			m.publishRuntimeStatus()
+		}
+	}
+}
+
+func classifyVisionWorkerStatus(snapshot vision.WorkerSnapshot, modelsMissing bool) (string, string) {
+	switch snapshot.Status {
+	case vision.WorkerStatusRunning:
+		if modelsMissing {
+			return "degraded", "running with missing models"
+		}
+		return "ok", ""
+	case vision.WorkerStatusStarting, vision.WorkerStatusBackoff:
+		return "degraded", snapshot.Status
+	case vision.WorkerStatusCrashed, vision.WorkerStatusStopped:
+		return "unavailable", snapshot.Status
+	default:
+		return "unknown", snapshot.Status
 	}
 }
 
