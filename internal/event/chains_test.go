@@ -99,6 +99,29 @@ func TestContextualEventDoesNotCreateChainByDefault(t *testing.T) {
 	}
 }
 
+func TestRuntimeDiagnosticsDoNotCreateSecurityChains(t *testing.T) {
+	for _, eventType := range []string{
+		contract.EventDiscoveryWorkerStarted,
+		contract.EventDiscoveryWorkerCrashed,
+		contract.EventDiscoveryVisionWorkerUnavailable,
+		contract.EventRuntimeComponentFlapping,
+		contract.EventRuntimeModelMissing,
+	} {
+		if role := ClassifyEventForChain(testChainEvent(eventType, "", chainTestStart)); role != ChainRoleIgnored {
+			t.Fatalf("event %s role=%s, want ignored", eventType, role)
+		}
+	}
+}
+
+func TestManualRiskCreatesSignificantChain(t *testing.T) {
+	manager := NewChainManager(DefaultChainConfig())
+	event := testChainEvent(contract.EventManualRisk, "manual-risk", chainTestStart)
+	manager.Process(event, testEvaluation(event.ID, "manual-risk", "high", 0.8))
+	if got := manager.List(ChainFilter{Status: "open"}); len(got) != 1 {
+		t.Fatalf("manual risk chains=%#v", got)
+	}
+}
+
 func TestMotionDoesNotExtendChain(t *testing.T) {
 	manager := NewChainManager(DefaultChainConfig())
 	first := testChainEvent(contract.EventVisionUnknown, "activation-1", chainTestStart)

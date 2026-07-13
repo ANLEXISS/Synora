@@ -50,6 +50,8 @@ type ChainEvaluation struct {
 	Reasons            []string  `json:"reasons,omitempty"`
 	Hypotheses         []string  `json:"hypotheses,omitempty"`
 	RecommendedActions []string  `json:"recommended_actions,omitempty"`
+	ActionDecision     string    `json:"action_decision,omitempty"`
+	BlockedActions     []string  `json:"blocked_actions,omitempty"`
 	EngineVersion      string    `json:"engine_version,omitempty"`
 }
 

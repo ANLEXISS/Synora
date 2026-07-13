@@ -296,6 +296,19 @@ func buildSystemState(
 	current := store.SystemState()
 	next := current
 	next.LastState = systemStateFromAssessment(result, assessment)
+	if next.LastState != current.LastState {
+		next.PreviousState = current.LastState
+	}
+	if assessment != nil {
+		next.DangerKnown = true
+		next.DangerLevel = firstNonEmpty(assessment.RiskLevel, "unknown")
+		next.DangerScore = assessment.Score
+		if assessment.Simulated {
+			next.DangerSource = "simulation"
+		} else {
+			next.DangerSource = "real"
+		}
+	}
 	next.IntrusionActive = next.LastState == "intrusion"
 	next.EmergencyActive = next.LastState == "emergency"
 
@@ -318,6 +331,15 @@ func buildSystemState(
 	}
 
 	return &next
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func subjectFromEvent(event *contract.Event) (cgecontracts.SubjectType, string) {

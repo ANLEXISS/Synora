@@ -15,6 +15,9 @@ RestartSec=2
 
 NoNewPrivileges=true
 
+RuntimeDirectory=synora
+RuntimeDirectoryMode=0770
+
 LimitNOFILE=65536
 
 [Install]

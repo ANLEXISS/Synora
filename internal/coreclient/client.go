@@ -194,6 +194,30 @@ func (c *Client) SystemHealth() (*contract.RuntimeHealth, error) {
 	return &health, nil
 }
 
+func (c *Client) ResetIntrusion(data json.RawMessage) (map[string]any, error) {
+	var result map[string]any
+	if err := c.callRaw("system.reset_intrusion", data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) ResetSystemState(data json.RawMessage) (map[string]any, error) {
+	var result map[string]any
+	if err := c.callRaw(contract.RPCSystemResetState, data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) ManualRisk(data json.RawMessage) (map[string]any, error) {
+	var result map[string]any
+	if err := c.callRaw(contract.RPCManualRisk, data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (c *Client) Validations() ([]contract.ValidationRequest, error) {
 	var validations []contract.ValidationRequest
 	if err := c.call("validations.list", nil, &validations); err != nil {

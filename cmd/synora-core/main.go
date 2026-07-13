@@ -342,6 +342,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	}
 
 	stateapply.TouchDeviceState(a.state, a.device, event)
+	a.recordRuntimeEvent(event)
 
 	a.eventStore.Add(event)
 	a.state.SetRecentEvents(a.eventStore.List())
@@ -410,14 +411,27 @@ func (a *coreApp) processEvent(event *contract.Event) {
 
 	if result != nil &&
 		result.Decision != nil {
-
-		for _, request := range a.automation.EvaluateRequests(
+		requests := a.automation.EvaluateRequests(
 			event,
 			result.Decision,
-		) {
+		)
+		if len(requests) == 0 && result.DangerAssessment != nil && result.DangerAssessment.Level >= 3 {
+			result.Decision.ActionDecision = "blocked"
+			result.Decision.BlockedActions = appendUniqueString(result.Decision.BlockedActions, "no_matching_automation")
+			if eventIsSimulated(event) {
+				result.Decision.BlockedActions = appendUniqueString(result.Decision.BlockedActions, "simulated_input")
+			}
+			log.Printf("core: action blocked event_id=%s reason=%s", event.ID, strings.Join(result.Decision.BlockedActions, ","))
+		} else if len(requests) > 0 {
+			result.Decision.ActionDecision = "requested"
+		}
+
+		for _, request := range requests {
 
 			if err := a.actionDispatcher.DispatchRequest(request); err != nil {
-				log.Println("core: action dispatch error", err)
+				result.Decision.ActionDecision = "blocked"
+				result.Decision.BlockedActions = appendUniqueString(result.Decision.BlockedActions, "action_service_unavailable")
+				log.Printf("core: action blocked event_id=%s reason=action_service_unavailable err=%v", event.ID, err)
 			}
 		}
 
@@ -447,6 +461,60 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	}
 
 	a.triggerSnapshot()
+}
+
+func (a *coreApp) recordRuntimeEvent(event *contract.Event) {
+	if a == nil || a.state == nil || event == nil {
+		return
+	}
+	current := a.state.SystemState()
+	if !eventIsSimulated(event) && eventpkg.ClassifyEventForChain(event) != eventpkg.ChainRoleIgnored {
+		current.LastRealEventAt = event.Timestamp.UTC()
+	}
+	if contract.NormalizeEventType(event.Type) == contract.EventActionResult {
+		current.LastActionAt = event.Timestamp.UTC()
+	}
+	switch contract.NormalizeEventType(event.Type) {
+	case contract.EventDiscoveryVisionWorkerUnavailable, contract.EventDiscoveryNetworkDegraded, contract.EventRuntimeComponentFlapping, contract.EventRuntimeModelMissing:
+		current.Degraded = true
+		current.DegradationReasons = appendUniqueString(current.DegradationReasons, event.Type)
+	case contract.EventDiscoveryWorkerStarted, contract.EventDiscoveryCameraOnline:
+		current.DegradationReasons = removeString(current.DegradationReasons, contract.EventDiscoveryVisionWorkerUnavailable)
+		current.Degraded = len(current.DegradationReasons) > 0
+	}
+	a.state.SetSystemState(current)
+}
+
+func eventIsSimulated(event *contract.Event) bool {
+	if event == nil || event.Payload == nil {
+		return false
+	}
+	if metadata, ok := event.Payload["metadata"].(map[string]any); ok {
+		if value, ok := metadata["simulated"].(bool); ok && value {
+			return true
+		}
+	}
+	value, _ := event.Payload["simulated"].(bool)
+	return value
+}
+
+func appendUniqueString(values []string, value string) []string {
+	for _, current := range values {
+		if current == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func removeString(values []string, value string) []string {
+	out := values[:0]
+	for _, current := range values {
+		if current != value {
+			out = append(out, current)
+		}
+	}
+	return out
 }
 
 func (a *coreApp) chainLoop() {
@@ -516,6 +584,8 @@ func chainEvaluation(event *contract.Event, result *engine.Result) *contract.Cha
 			}
 		}
 	}
+	evaluation.ActionDecision = result.Decision.ActionDecision
+	evaluation.BlockedActions = append([]string(nil), result.Decision.BlockedActions...)
 	if len(evaluation.Reasons) == 1 && evaluation.Reasons[0] == "" {
 		evaluation.Reasons = nil
 	}

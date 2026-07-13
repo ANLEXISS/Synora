@@ -120,32 +120,53 @@ func (m *Manager) Health(
 	ctx context.Context,
 ) contract.RuntimeHealth {
 	now := m.now()
-
-	services := map[string]contract.RuntimeServiceHealth{}
-	for _, service := range RuntimeServices {
-		services[service] = m.serviceHealth(
-			ctx,
-			service,
-			now,
-		)
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
-	hostapd := m.serviceHealth(
-		ctx,
-		"hostapd",
-		now,
-	)
-
-	dnsmasq := m.serviceHealth(
-		ctx,
-		"dnsmasq",
-		now,
-	)
+	services := map[string]contract.RuntimeServiceHealth{}
+	components := map[string]contract.RuntimeServiceHealth{}
+	allServices := append(append([]string{}, RuntimeServices...), "hostapd", "dnsmasq")
+	type result struct {
+		name   string
+		health contract.RuntimeServiceHealth
+	}
+	results := make(chan result, len(allServices))
+	for _, service := range allServices {
+		go func(name string) {
+			results <- result{name: name, health: m.serviceHealth(ctx, name, now)}
+		}(service)
+	}
+	var hostapd, dnsmasq contract.RuntimeServiceHealth
+	for range allServices {
+		item := <-results
+		switch item.name {
+		case "hostapd":
+			hostapd = item.health
+		case "dnsmasq":
+			dnsmasq = item.health
+		default:
+			services[item.name] = item.health
+			components[item.name] = item.health
+		}
+	}
 
 	mediaMTX := services["mediamtx"]
+	status := "ok"
+	for _, service := range services {
+		if !service.Active {
+			status = "degraded"
+			break
+		}
+	}
+	if hostapd.Status != "active" || dnsmasq.Status != "active" {
+		status = "degraded"
+	}
 
 	return contract.RuntimeHealth{
-		Services: services,
+		Status:      status,
+		GeneratedAt: now,
+		Services:    services,
 		Network: contract.RuntimeNetworkHealth{
 			Status: combinedStatus(
 				hostapd,
@@ -154,6 +175,7 @@ func (m *Manager) Health(
 			HostAPD: hostapd,
 			DNSMasq: dnsmasq,
 		},
+		Components: components,
 		MediaMTX: contract.RuntimeMediaMTXHealth{
 			Status:  mediaMTX.Status,
 			Service: mediaMTX,
@@ -350,8 +372,10 @@ func (m *Manager) serviceHealth(
 	service string,
 	now time.Time,
 ) contract.RuntimeServiceHealth {
+	checkCtx, cancel := context.WithTimeout(ctx, 350*time.Millisecond)
+	defer cancel()
 	output, err := m.executor.Run(
-		ctx,
+		checkCtx,
 		"systemctl",
 		"is-active",
 		service,

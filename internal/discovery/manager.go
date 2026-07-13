@@ -3,6 +3,7 @@ package discovery
 import (
 	"log"
 	"os"
+	"time"
 
 	"synora/internal/bus"
 	"synora/internal/device"
@@ -130,20 +131,26 @@ func (m *Manager) Start() {
 			"network degraded mode enabled err=%v",
 			err,
 		)
+		healthState.setNetwork("degraded", err.Error())
 
 	} else {
 
 		log.Printf(
 			"private network ready",
 		)
+		healthState.setNetwork("ok", "")
 	}
 
 	err = m.vision.Start()
 
 	if err != nil {
-
-		log.Fatal(err)
+		log.Printf("vision worker degraded mode enabled err=%v", err)
+		healthState.setVisionWorker("unavailable", err.Error())
+	} else {
+		healthState.setVisionWorker("ok", "")
 	}
+	healthState.setSuccess(0)
+	go m.monitorVisionHealth()
 
 	ingress.StartServer(ingress.Config{
 		Addr:          VisionHTTPSAddr,
@@ -155,4 +162,23 @@ func (m *Manager) Start() {
 		Devices:       m.devices,
 		Queue:         m.pool,
 	})
+}
+
+func (m *Manager) monitorVisionHealth() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		snapshot := m.vision.Snapshot()
+		switch snapshot.Status {
+		case vision.WorkerStatusRunning:
+			healthState.setVisionWorker("ok", "")
+		case vision.WorkerStatusStarting, vision.WorkerStatusBackoff:
+			healthState.setVisionWorker("degraded", snapshot.Status)
+		case vision.WorkerStatusCrashed, vision.WorkerStatusStopped:
+			healthState.setVisionWorker("unavailable", snapshot.Status)
+			m.vision.PublishUnavailable(snapshot.Status)
+		default:
+			healthState.setVisionWorker("unknown", snapshot.Status)
+		}
+	}
 }

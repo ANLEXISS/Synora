@@ -26,9 +26,11 @@ type Decision struct {
 	GroupKey    string `json:"group_key,omitempty"`
 	SequenceKey string `json:"sequence_key,omitempty"`
 
-	GraphUsed          bool   `json:"graph_used,omitempty"`
-	ValidationRequired bool   `json:"validation_required,omitempty"`
-	ValidationReason   string `json:"validation_reason,omitempty"`
+	GraphUsed          bool     `json:"graph_used,omitempty"`
+	ValidationRequired bool     `json:"validation_required,omitempty"`
+	ValidationReason   string   `json:"validation_reason,omitempty"`
+	ActionDecision     string   `json:"action_decision,omitempty"`
+	BlockedActions     []string `json:"blocked_actions,omitempty"`
 }
 
 type decisionJSON struct {
@@ -51,6 +53,8 @@ type decisionJSON struct {
 	GraphUsed          bool      `json:"graph_used,omitempty"`
 	ValidationRequired bool      `json:"validation_required,omitempty"`
 	ValidationReason   string    `json:"validation_reason,omitempty"`
+	ActionDecision     string    `json:"action_decision,omitempty"`
+	BlockedActions     []string  `json:"blocked_actions,omitempty"`
 }
 
 func (d *Decision) UnmarshalJSON(data []byte) error {
@@ -80,6 +84,8 @@ func (d *Decision) UnmarshalJSON(data []byte) error {
 		GraphUsed:          decoded.GraphUsed,
 		ValidationRequired: decoded.ValidationRequired,
 		ValidationReason:   decoded.ValidationReason,
+		ActionDecision:     decoded.ActionDecision,
+		BlockedActions:     decoded.BlockedActions,
 	}
 	return nil
 }

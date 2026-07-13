@@ -343,6 +343,13 @@ class VisionPipeline:
 
         return self.metrics.snapshot()
 
+    def face_detection_capability(self):
+        detector = getattr(self, "face_detector", None)
+        runner = getattr(detector, "detector", None)
+        if runner is None:
+            return {"status": "unavailable", "error": "face detector unavailable"}
+        return runner.capability()
+
     # ------------------------------------------------
 
     def face_quality(

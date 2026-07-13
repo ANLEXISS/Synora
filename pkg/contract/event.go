@@ -50,11 +50,15 @@ const (
 	EventDeviceOffline = "device.offline"
 
 	// Discovery events
-	EventDiscoveryCameraOnline  = "discovery.camera.online"
-	EventDiscoveryCameraOffline = "discovery.camera.offline"
-	EventDiscoveryWorkerStarted = "discovery.worker.started"
-	EventDiscoveryWorkerStopped = "discovery.worker.stopped"
-	EventDiscoveryWorkerCrashed = "discovery.worker.crashed"
+	EventDiscoveryCameraOnline            = "discovery.camera.online"
+	EventDiscoveryCameraOffline           = "discovery.camera.offline"
+	EventDiscoveryWorkerStarted           = "discovery.worker.started"
+	EventDiscoveryWorkerStopped           = "discovery.worker.stopped"
+	EventDiscoveryWorkerCrashed           = "discovery.worker.crashed"
+	EventDiscoveryVisionWorkerUnavailable = "discovery.vision_worker.unavailable"
+	EventDiscoveryNetworkDegraded         = "discovery.network.degraded"
+	EventRuntimeComponentFlapping         = "runtime.component.flapping"
+	EventRuntimeModelMissing              = "runtime.model.missing"
 
 	// System events
 	// EventSystemStateChanged reports a state transition published by the Core.
@@ -68,6 +72,8 @@ const (
 	EventActionResult = "action.result"
 	// EventAutomationAction is the temporary legacy action command emitted by older automations.
 	EventAutomationAction = "automation.action"
+	EventManualRisk       = "manual.risk"
+	EventSystemStateReset = "system.state.reset"
 )
 
 /*
@@ -229,6 +235,10 @@ func EventCategory(eventType string) string {
 	case EventDiscoveryWorkerStarted,
 		EventDiscoveryWorkerStopped,
 		EventDiscoveryWorkerCrashed,
+		EventDiscoveryVisionWorkerUnavailable,
+		EventDiscoveryNetworkDegraded,
+		EventRuntimeComponentFlapping,
+		EventRuntimeModelMissing,
 		EventDiscoveryCameraOnline,
 		EventDiscoveryCameraOffline,
 		EventDeviceOffline,
@@ -241,6 +251,8 @@ func EventCategory(eventType string) string {
 		EventVisionFall,
 		EventVisionFight,
 		EventVisionTamper:
+		return EventCategorySecurity
+	case EventManualRisk:
 		return EventCategorySecurity
 	case EventVisionIdentity,
 		EventVisionMotion:
@@ -304,10 +316,16 @@ func NormalizeEventType(raw string) string {
 		EventDiscoveryWorkerStarted,
 		EventDiscoveryWorkerStopped,
 		EventDiscoveryWorkerCrashed,
+		EventDiscoveryVisionWorkerUnavailable,
+		EventDiscoveryNetworkDegraded,
+		EventRuntimeComponentFlapping,
+		EventRuntimeModelMissing,
 		EventSystemStateChanged,
 		EventSystemPresence,
+		EventSystemStateReset,
 		EventAutomationAction,
-		EventActionRequest:
+		EventActionRequest,
+		EventManualRisk:
 		return raw
 
 	case EventActionResult:

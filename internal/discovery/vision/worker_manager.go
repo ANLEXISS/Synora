@@ -149,10 +149,15 @@ type WorkerManager struct {
 
 	status string
 
-	backoffUntil    time.Time
-	nextBackoff     time.Duration
-	lastCrashEvent  time.Time
-	crashEventLimit time.Duration
+	backoffUntil         time.Time
+	nextBackoff          time.Duration
+	lastCrashEvent       time.Time
+	crashEventLimit      time.Duration
+	lastStartEvent       time.Time
+	crashWindowStart     time.Time
+	crashCount           int
+	lastFlappingEvent    time.Time
+	lastUnavailableEvent time.Time
 
 	expectedStop bool
 
@@ -273,15 +278,17 @@ func (m *WorkerManager) Start(
 	startedAt := m.lastStart
 	m.mu.Unlock()
 
-	m.publish(
-		contract.EventDiscoveryWorkerStarted,
-		cameraID,
-		map[string]any{
-			"pid":        pid,
-			"last_start": startedAt,
-			"status":     WorkerStatusRunning,
-		},
-	)
+	if m.shouldPublishStartEvent(now) {
+		m.publish(
+			contract.EventDiscoveryWorkerStarted,
+			cameraID,
+			map[string]any{
+				"pid":        pid,
+				"last_start": startedAt,
+				"status":     WorkerStatusRunning,
+			},
+		)
+	}
 
 	go m.monitor(
 		process,
@@ -442,23 +449,76 @@ func (m *WorkerManager) monitor(
 		payload["error"] = err.Error()
 	}
 
-	if eventType != contract.EventDiscoveryWorkerCrashed || m.shouldPublishCrashEvent(now) {
+	if eventType != contract.EventDiscoveryWorkerCrashed {
 		m.publish(
 			eventType,
 			"",
 			payload,
 		)
+		return
 	}
+
+	crashEvent, crashCount := m.crashEventDecision(now)
+	if crashEvent == "" {
+		return
+	}
+	if crashEvent == contract.EventRuntimeComponentFlapping {
+		payload["component"] = "vision_worker"
+		payload["count"] = crashCount
+		payload["window_seconds"] = int(m.crashEventLimit.Seconds())
+	}
+	m.publish(crashEvent, "", payload)
 }
 
-func (m *WorkerManager) shouldPublishCrashEvent(now time.Time) bool {
+func (m *WorkerManager) shouldPublishStartEvent(now time.Time) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !m.lastCrashEvent.IsZero() && now.Sub(m.lastCrashEvent) < m.crashEventLimit {
+	if !m.lastStartEvent.IsZero() && now.Sub(m.lastStartEvent) < m.crashEventLimit {
 		return false
 	}
-	m.lastCrashEvent = now
+	m.lastStartEvent = now
 	return true
+}
+
+func (m *WorkerManager) crashEventDecision(now time.Time) (string, int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.crashWindowStart.IsZero() || now.Sub(m.crashWindowStart) >= m.crashEventLimit {
+		m.crashWindowStart = now
+		m.crashCount = 0
+		m.lastCrashEvent = time.Time{}
+		m.lastFlappingEvent = time.Time{}
+	}
+	m.crashCount++
+	count := m.crashCount
+	if count >= 2 {
+		if !m.lastFlappingEvent.IsZero() && now.Sub(m.lastFlappingEvent) < m.crashEventLimit {
+			return "", count
+		}
+		m.lastFlappingEvent = now
+		return contract.EventRuntimeComponentFlapping, count
+	}
+	if !m.lastCrashEvent.IsZero() && now.Sub(m.lastCrashEvent) < m.crashEventLimit {
+		return "", count
+	}
+	m.lastCrashEvent = now
+	return contract.EventDiscoveryWorkerCrashed, count
+}
+
+func (m *WorkerManager) PublishUnavailable(reason string) {
+	now := m.now()
+	m.mu.Lock()
+	if !m.lastUnavailableEvent.IsZero() && now.Sub(m.lastUnavailableEvent) < m.crashEventLimit {
+		m.mu.Unlock()
+		return
+	}
+	m.lastUnavailableEvent = now
+	m.mu.Unlock()
+	m.publish(contract.EventDiscoveryVisionWorkerUnavailable, "", map[string]any{
+		"component": "vision_worker",
+		"status":    "unavailable",
+		"reason":    reason,
+	})
 }
 
 func (m *WorkerManager) cameraLock(

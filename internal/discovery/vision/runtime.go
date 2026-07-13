@@ -10,7 +10,9 @@ import (
 )
 
 const (
-	SocketPath = "/run/synora/vision-worker.sock"
+	SocketPath      = "/run/synora/vision-worker.sock"
+	connectAttempts = 5
+	connectDelay    = 100 * time.Millisecond
 )
 
 type Runtime struct {
@@ -80,7 +82,11 @@ func (v *Runtime) Start() error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
-	return v.connect()
+	if err := v.connect(); err != nil {
+		v.manager.PublishUnavailable(err.Error())
+		return err
+	}
+	return nil
 }
 
 func (v *Runtime) connect() error {
@@ -91,7 +97,7 @@ func (v *Runtime) connect() error {
 	var conn net.Conn
 	var err error
 
-	for i := 0; i < 50; i++ {
+	for i := 0; i < connectAttempts; i++ {
 
 		conn, err = net.Dial(
 			"unix",
@@ -102,9 +108,7 @@ func (v *Runtime) connect() error {
 			break
 		}
 
-		time.Sleep(
-			100 * time.Millisecond,
-		)
+		time.Sleep(connectDelay)
 	}
 
 	if err != nil {
@@ -122,6 +126,20 @@ func (v *Runtime) connect() error {
 	)
 
 	return nil
+}
+
+func (v *Runtime) Snapshot() WorkerSnapshot {
+	if v == nil || v.manager == nil {
+		return WorkerSnapshot{Status: WorkerStatusStopped}
+	}
+	return v.manager.Snapshot()
+}
+
+func (v *Runtime) PublishUnavailable(reason string) {
+	if v == nil || v.manager == nil {
+		return
+	}
+	v.manager.PublishUnavailable(reason)
 }
 
 func (v *Runtime) Process(

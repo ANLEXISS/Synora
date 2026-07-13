@@ -29,6 +29,8 @@ GO ?= $(shell if command -v go >/dev/null 2>&1; then command -v go; elif [ -x /u
 PYTHON ?= python3
 GOCACHE ?= /tmp/synora-gocache
 
+EXPECTED_RKNN_MODELS := arcface_w600k_r50.rknn det_10g.rknn yolov8.rknn weapon.rknn
+
 ifeq ($(shell id -u),0)
 SUDO :=
 else
@@ -171,6 +173,10 @@ install-models: install-dirs
 	else \
 		echo "WARN: models directory missing; no RKNN models installed."; \
 	fi
+	@for model in $(EXPECTED_RKNN_MODELS); do \
+		if [ -f "$(MODELS_DIR)/$$model" ]; then echo "Model present: $(MODELS_DIR)/$$model"; \
+		else echo "WARN: expected RKNN model missing: $(MODELS_DIR)/$$model"; fi; \
+	done
 
 install-vision-worker: install-dirs
 	$(PYTHON) -m compileall -q services/vision-worker
@@ -374,15 +380,22 @@ doctor: check-go
 	[ -d "$(DATA_DIR)/state" ] && ok "$(DATA_DIR)/state exists" || failf "$(DATA_DIR)/state missing"; \
 	if [ -d "$(MODELS_DIR)" ]; then \
 		find "$(MODELS_DIR)" -type f -name '*.rknn' | grep -q . && ok "RKNN models present" || warnf "no RKNN models found"; \
+		for model in $(EXPECTED_RKNN_MODELS); do \
+			[ -f "$(MODELS_DIR)/$$model" ] && ok "model $$model present" || warnf "model $$model missing; capability will be degraded"; \
+		done; \
 		find "$(MODELS_DIR)" -type f \( -name '*.onnx' -o -name '*.pt' -o -name '*.torchscript' -o -name '*.engine' \) | grep -q . && failf "forbidden model files installed" || ok "no forbidden model files"; \
 	else \
 		warnf "$(MODELS_DIR) missing"; \
 	fi; \
 	code="$$(curl -s -o /tmp/synora-health.json -w '%{http_code}' http://127.0.0.1:8080/api/system/health || true)"; \
 	if [ "$$code" = "200" ]; then ok "API health 200"; elif [ "$$code" = "401" ]; then warnf "API protected, provide token"; else warnf "API health unavailable ($$code)"; fi; \
+	vision_code="$$(curl -s -o /tmp/synora-vision-capabilities.json -w '%{http_code}' http://127.0.0.1:8094/capabilities || true)"; \
+	[ "$$vision_code" = "200" ] && ok "vision capabilities 200" || warnf "vision capabilities unavailable ($$vision_code)"; \
 	if [ -n "$${SYNORA_API_TOKEN:-}" ]; then \
 		code="$$(curl -s -o /tmp/synora-state.json -w '%{http_code}' -H "Authorization: Bearer $$SYNORA_API_TOKEN" http://127.0.0.1:8080/api/state || true)"; \
 		[ "$$code" = "200" ] && ok "API state 200" || warnf "API state returned $$code"; \
+		code="$$(curl -s -o /tmp/synora-runtime-diagnostics.json -w '%{http_code}' -H "Authorization: Bearer $$SYNORA_API_TOKEN" http://127.0.0.1:8080/api/runtime/diagnostics || true)"; \
+		[ "$$code" = "200" ] && ok "runtime diagnostics 200" || warnf "runtime diagnostics returned $$code"; \
 	fi; \
 	find . -name '*_test.go' | grep -q . && ok "Go tests present" || failf "no Go tests found"; \
 		go_test_log="$$(mktemp /tmp/synora-go-test.XXXXXX.log)"; \

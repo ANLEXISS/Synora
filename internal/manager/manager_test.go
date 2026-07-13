@@ -115,6 +115,9 @@ func TestHealthUsesRuntimeServiceNames(t *testing.T) {
 	if len(health.Services) != len(RuntimeServices) {
 		t.Fatalf("service count=%d, want %d", len(health.Services), len(RuntimeServices))
 	}
+	if health.Status != "ok" || len(health.Components) != len(RuntimeServices) {
+		t.Fatalf("health status/components=%s/%d", health.Status, len(health.Components))
+	}
 }
 
 func TestRestartServiceRejectsServiceOutsideAllowlist(t *testing.T) {

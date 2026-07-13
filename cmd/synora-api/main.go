@@ -47,6 +47,12 @@ type systemHealthProvider interface {
 	SystemHealth() (*contract.RuntimeHealth, error)
 }
 
+type runtimeControlProvider interface {
+	ResetIntrusion(json.RawMessage) (map[string]any, error)
+	ResetSystemState(json.RawMessage) (map[string]any, error)
+	ManualRisk(json.RawMessage) (map[string]any, error)
+}
+
 type validationProvider interface {
 	Validations() ([]contract.ValidationRequest, error)
 	ResolveValidation(string, json.RawMessage) (*contract.ValidationRequest, error)
@@ -176,6 +182,11 @@ func main() {
 		TLSKeyPresent:  regularFile(tlsKeyFile),
 	}
 	apiMux.HandleFunc("/api/system/health", handleSystemHealth(core, webServer, serverHealth))
+	apiMux.HandleFunc("/api/intrusion/reset", handleIntrusionReset(core))
+	apiMux.HandleFunc("/api/system/state/reset", handleSystemStateReset(core))
+	apiMux.HandleFunc("/api/cge/manual-risk", handleManualRisk(core))
+	apiMux.HandleFunc("/api/runtime/diagnostics", handleRuntimeDiagnostics(core))
+	apiMux.HandleFunc("/api/cge/runtime-status", handleRuntimeDiagnostics(core))
 	apiMux.HandleFunc("/api/snapshot", handleSnapshot(core))
 
 	handler := buildServerHandlerWithAuth(
@@ -520,6 +531,12 @@ func requiredAPIPermission(r *http.Request) string {
 		return webapi.PermissionStateRead
 	case path == "/api/system/health":
 		return webapi.PermissionSettingsRead
+	case path == "/api/intrusion/reset" || path == "/api/system/state/reset":
+		return webapi.PermissionSecurityAdmin
+	case path == "/api/cge/manual-risk":
+		return webapi.PermissionSecurityAdmin
+	case path == "/api/runtime/diagnostics" || path == "/api/cge/runtime-status":
+		return webapi.PermissionCGERead
 	case strings.HasPrefix(path, "/api/devices"):
 		if readOnly {
 			return webapi.PermissionDevicesRead
@@ -734,11 +751,28 @@ func handleSystemHealth(
 			return
 		}
 
-		health, err := core.SystemHealth()
-
-		if err != nil {
-			writeError(w, err)
-			return
+		type healthResult struct {
+			health *contract.RuntimeHealth
+			err    error
+		}
+		resultCh := make(chan healthResult, 1)
+		go func() {
+			health, err := core.SystemHealth()
+			resultCh <- healthResult{health: health, err: err}
+		}()
+		var health *contract.RuntimeHealth
+		select {
+		case result := <-resultCh:
+			if result.err != nil || result.health == nil {
+				health = degradedRuntimeHealth("runtime health unavailable: " + errorMessage(result.err))
+			} else {
+				health = result.health
+			}
+		case <-time.After(500 * time.Millisecond):
+			health = degradedRuntimeHealth("runtime health probe timed out")
+		}
+		if health.Status == "" {
+			health.Status = "degraded"
 		}
 
 		webHealth := webapi.WebHealth{Status: "disabled"}
@@ -754,6 +788,29 @@ func handleSystemHealth(
 			Web:           webHealth,
 			Server:        transportHealth,
 		})
+	}
+}
+
+func errorMessage(err error) string {
+	if err == nil {
+		return "unknown error"
+	}
+	return err.Error()
+}
+
+func degradedRuntimeHealth(message string) *contract.RuntimeHealth {
+	now := time.Now().UTC()
+	return &contract.RuntimeHealth{
+		Status:      "degraded",
+		GeneratedAt: now,
+		Services: map[string]contract.RuntimeServiceHealth{
+			"synora-api":  {Name: "synora-api", Status: "ok", Active: true, Checked: now},
+			"synora-core": {Name: "synora-core", Status: "degraded", Active: false, Checked: now, Error: message},
+		},
+		Network:   contract.RuntimeNetworkHealth{Status: "unknown"},
+		MediaMTX:  contract.RuntimeMediaMTXHealth{Status: "unknown"},
+		Disk:      contract.RuntimeDiskHealth{Status: "unknown", Error: message},
+		Timestamp: now,
 	}
 }
 

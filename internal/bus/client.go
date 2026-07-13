@@ -140,6 +140,18 @@ func (c *Client) Request(
 	payload []byte,
 	target string,
 ) (*contract.Message, error) {
+	return c.RequestWithTimeout(msgType, source, payload, target, 5*time.Second)
+}
+
+// RequestWithTimeout is used by health and diagnostics probes so an unhealthy
+// component cannot hold an HTTP request for the legacy five-second RPC limit.
+func (c *Client) RequestWithTimeout(
+	msgType string,
+	source string,
+	payload []byte,
+	target string,
+	timeout time.Duration,
+) (*contract.Message, error) {
 	id := uuid.New().String()
 
 	msg := contract.Message{
@@ -162,7 +174,10 @@ func (c *Client) Request(
 		return nil, err
 	}
 
-	timer := time.NewTimer(5 * time.Second)
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
 	select {

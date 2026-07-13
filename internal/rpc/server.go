@@ -184,6 +184,8 @@ func (s *Server) register() {
 	s.handlers["cge.feedback.chain"] = s.cgeFeedbackChain
 	s.handlers["system.health"] = s.systemHealth
 	s.handlers["system.reset_intrusion"] = s.systemResetIntrusion
+	s.handlers[contract.RPCSystemResetState] = s.systemResetState
+	s.handlers[contract.RPCManualRisk] = s.manualRisk
 	s.handlers["device.list"] = s.deviceConfigList
 	s.handlers["device.get"] = s.deviceConfigGet
 	s.handlers["device.create"] = s.deviceConfigCreate
@@ -339,12 +341,15 @@ func (s *Server) criticalChain(msg contract.Message) (any, error) {
 
 func (s *Server) systemHealth(_ contract.Message) (any, error) {
 	if requester, ok := s.bus.(Requester); ok {
-		response, err := requester.Request(
-			contract.RPCRuntimeHealth,
-			"core",
-			nil,
-			"runtime-manager",
-		)
+		var response *contract.Message
+		var err error
+		if bounded, supportsBounded := s.bus.(interface {
+			RequestWithTimeout(string, string, []byte, string, time.Duration) (*contract.Message, error)
+		}); supportsBounded {
+			response, err = bounded.RequestWithTimeout(contract.RPCRuntimeHealth, "core", nil, "runtime-manager", 400*time.Millisecond)
+		} else {
+			response, err = requester.Request(contract.RPCRuntimeHealth, "core", nil, "runtime-manager")
+		}
 
 		if err == nil && response != nil && len(response.Payload) > 0 {
 			var health contract.RuntimeHealth
@@ -360,6 +365,8 @@ func (s *Server) systemHealth(_ contract.Message) (any, error) {
 	now := time.Now().UTC()
 
 	return contract.RuntimeHealth{
+		Status:      "degraded",
+		GeneratedAt: now,
 		Services: map[string]contract.RuntimeServiceHealth{
 			"synora-core": {
 				Name:    "synora-core",
@@ -367,6 +374,9 @@ func (s *Server) systemHealth(_ contract.Message) (any, error) {
 				Active:  true,
 				Checked: now,
 			},
+		},
+		Components: map[string]contract.RuntimeServiceHealth{
+			"synora-core": {Name: "synora-core", Status: "ok", Active: true, Checked: now},
 		},
 		Network: contract.RuntimeNetworkHealth{
 			Status: "unknown",
@@ -382,17 +392,94 @@ func (s *Server) systemHealth(_ contract.Message) (any, error) {
 	}, nil
 }
 
-func (s *Server) systemResetIntrusion(_ contract.Message) (any, error) {
+func (s *Server) systemResetIntrusion(msg contract.Message) (any, error) {
+	var request contract.SystemStateResetRequest
+	if len(msg.Payload) > 0 {
+		if err := json.Unmarshal(msg.Payload, &request); err != nil {
+			return nil, contract.NewAPIError(contract.ErrorInvalidJSON, "invalid intrusion reset payload")
+		}
+	}
+	request.TargetState = "idle"
+	if request.Reason == "" {
+		request.Reason = "manual_intrusion_reset"
+	}
+	return s.resetSystemState(request)
+}
+
+func (s *Server) systemResetState(msg contract.Message) (any, error) {
+	var request contract.SystemStateResetRequest
+	if len(msg.Payload) > 0 {
+		if err := json.Unmarshal(msg.Payload, &request); err != nil {
+			return nil, contract.NewAPIError(contract.ErrorInvalidJSON, "invalid state reset payload")
+		}
+	}
+	if request.TargetState == "" {
+		request.TargetState = "idle"
+	}
+	if request.Reason == "" {
+		request.Reason = "manual_admin_reset"
+	}
+	if request.TargetState != "idle" {
+		return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "only idle state reset is supported")
+	}
+	return s.resetSystemState(request)
+}
+
+func (s *Server) resetSystemState(request contract.SystemStateResetRequest) (any, error) {
 	current := s.state.SystemState()
 	current.LastState = "idle"
 	current.LastStateTime = time.Now().UTC()
+	current.DangerLevel = string(contract.DangerNone)
+	current.DangerScore = 0
+	current.DangerKnown = true
+	current.DangerSource = "manual"
 	current.IntrusionActive = false
 	current.IntrusionTime = time.Time{}
+	current.EmergencyActive = false
+	current.EmergencyTime = time.Time{}
 	s.state.SetSystemState(current)
 	if s.publishEvent != nil {
+		s.publishEvent(contract.EventSystemStateReset, map[string]any{
+			"manual": true, "reason": request.Reason, "created_by": request.CreatedBy,
+			"target_state": request.TargetState,
+		}, contract.PriorityHigh)
 		s.publishEvent(contract.EventSystemStateChanged, current, contract.PriorityHigh)
 	}
-	return map[string]any{"status": "ok"}, nil
+	return map[string]any{"status": "ok", "target_state": "idle", "reason": request.Reason}, nil
+}
+
+func (s *Server) manualRisk(msg contract.Message) (any, error) {
+	var request contract.ManualRiskRequest
+	if err := json.Unmarshal(msg.Payload, &request); err != nil {
+		return nil, contract.NewAPIError(contract.ErrorInvalidJSON, "invalid manual risk payload")
+	}
+	request.DangerLevel = strings.ToLower(strings.TrimSpace(request.DangerLevel))
+	switch request.DangerLevel {
+	case "low", "medium", "high", "critical":
+	default:
+		return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "danger_level must be low, medium, high or critical")
+	}
+	if request.DurationSeconds <= 0 {
+		request.DurationSeconds = 60
+	}
+	if request.DurationSeconds > 3600 {
+		return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "duration_seconds exceeds one hour")
+	}
+	if strings.TrimSpace(request.Reason) == "" {
+		request.Reason = "manual risk test"
+	}
+	now := time.Now().UTC()
+	payload := map[string]any{
+		"manual": true, "danger_level": request.DangerLevel, "duration_seconds": request.DurationSeconds,
+		"reason": request.Reason, "test": request.Test, "created_by": request.CreatedBy, "timestamp": now,
+	}
+	if request.Test {
+		payload["metadata"] = map[string]any{"simulated": true, "dry_run": true, "manual_test": true}
+	}
+	if s.publishEvent != nil {
+		s.publishEvent(contract.EventManualRisk, payload, contract.PriorityHigh)
+	}
+	return map[string]any{"status": "queued", "event_type": contract.EventManualRisk, "danger_level": request.DangerLevel, "test": request.Test}, nil
 }
 
 func (s *Server) devicePairingStart(_ contract.Message) (any, error) {

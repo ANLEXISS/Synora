@@ -23,6 +23,11 @@ rôle `admin` complet.
 |---|---|---|---|---|---|---|
 | GET | `/health` | `cmd/synora-api/main.go` | non | legacy | non | Pointe santé process locale. |
 | GET | `/api/system/health` | `cmd/synora-api/main.go` | oui, sauf si `PublicSystemHealth` est activé | stable | futur | Santé système publique. |
+| GET | `/api/runtime/diagnostics` | `cmd/synora-api/runtime_diagnostics.go` | CGE read | stable | futur | Diagnostic runtime borné. |
+| GET | `/api/cge/runtime-status` | `cmd/synora-api/runtime_diagnostics.go` | CGE read | alias | futur | Alias du diagnostic runtime. |
+| POST | `/api/intrusion/reset` | `cmd/synora-api/runtime_controls.go` | admin | stable | futur | Réinitialise l'état sans supprimer l'historique. |
+| POST | `/api/system/state/reset` | `cmd/synora-api/runtime_controls.go` | admin | stable | futur | Réinitialise vers `idle`, avec audit. |
+| POST | `/api/cge/manual-risk` | `cmd/synora-api/runtime_controls.go` | admin | stable | futur | Risque manuel ; `test:true` est simulé/dry-run. |
 | GET | `/api/state` | `cmd/synora-api/main.go` | oui | stable | oui | Source principale de `useSynoraSnapshot()`. |
 | GET | `/api/snapshot` | `cmd/synora-api/main.go` | oui | stable | futur | Snapshot public compact. |
 | GET | `/api/devices` | `cmd/synora-api/config_handlers.go` | oui | stable | oui | Liste des devices. |

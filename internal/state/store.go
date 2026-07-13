@@ -76,8 +76,11 @@ func NewStore(options ...Option) *Store {
 		EventChains:       make(map[string]*contract.EventChain),
 		CriticalChains:    make(map[string]*contract.CriticalChainMemory),
 		System: &SystemState{
-			LastState:     "idle",
-			LastStateTime: now,
+			LastState:           "idle",
+			LastStateTime:       now,
+			DangerLevel:         "unknown",
+			DangerSource:        "unknown",
+			DegradationReasons:  []string{},
 		},
 	}
 	for _, option := range options {
@@ -527,6 +530,18 @@ func (s *Store) SystemState() SystemState {
 		return SystemState{}
 	}
 	cloned := *s.System
+	if cloned.LastState == "" {
+		cloned.LastState = "idle"
+	}
+	if cloned.DangerLevel == "" {
+		cloned.DangerLevel = "unknown"
+	}
+	if cloned.DangerSource == "" {
+		cloned.DangerSource = "unknown"
+	}
+	if cloned.DegradationReasons == nil {
+		cloned.DegradationReasons = []string{}
+	}
 	return cloned
 }
 
@@ -534,6 +549,18 @@ func (s *Store) SetSystemState(value SystemState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cloned := value
+	if cloned.LastState == "" {
+		cloned.LastState = "idle"
+	}
+	if cloned.DangerLevel == "" {
+		cloned.DangerLevel = "unknown"
+	}
+	if cloned.DangerSource == "" {
+		cloned.DangerSource = "unknown"
+	}
+	if cloned.DegradationReasons == nil {
+		cloned.DegradationReasons = []string{}
+	}
 	s.System = &cloned
 }
 

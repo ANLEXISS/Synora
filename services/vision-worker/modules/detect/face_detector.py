@@ -4,7 +4,7 @@ import numpy as np
 import os
 import time
 
-from core.model_runner import create_model_runner
+from core.model_runner import create_model_runner, ModelUnavailableError, model_status
 
 
 log = logging.getLogger(
@@ -31,9 +31,22 @@ class SCRFDFaceRunner:
         model_path=MODEL_PATH,
     ):
 
-        self.runner = create_model_runner(
-            model_path
-        )
+        self.model_path = model_path
+        self.runner = None
+        self.available = False
+        self.error = None
+        self.capability_status = model_status(model_path)
+        try:
+            self.runner = create_model_runner(model_path)
+            self.available = True
+        except ModelUnavailableError as exc:
+            self.error = exc.message
+            self.capability_status = exc.as_dict()
+            log.error("SCRFD unavailable code=%s model=%s error=%s", exc.code, model_path, exc.message)
+        except Exception as exc:
+            self.error = str(exc)
+            self.capability_status = {"status": "unavailable", "code": "rknn_runtime_error", "path": model_path, "error": self.error}
+            log.exception("SCRFD unavailable model=%s", model_path)
 
         self.input_size = 640
 
@@ -51,11 +64,20 @@ class SCRFDFaceRunner:
 
         self.debug_counter = 0
 
-        log.info(
-            "SCRFD backend=%s model=%s",
-            self.runner.backend,
-            model_path,
-        )
+        if self.available:
+            log.info(
+                "SCRFD backend=%s model=%s",
+                self.runner.backend,
+                model_path,
+            )
+
+    def capability(self):
+        status = dict(getattr(self, "capability_status", {}) or {})
+        status.setdefault("path", getattr(self, "model_path", ""))
+        status["status"] = "available" if getattr(self, "available", False) else "unavailable"
+        if getattr(self, "error", None):
+            status["error"] = self.error
+        return status
 
     # ------------------------------------------------
     # LETTERBOX PREPROCESS
@@ -281,6 +303,9 @@ class SCRFDFaceRunner:
         self,
         frame,
     ):
+
+        if not self.available or self.runner is None:
+            return np.empty((0, 5)), None
 
         orig_h, orig_w = frame.shape[:2]
 

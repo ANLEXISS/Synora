@@ -272,6 +272,53 @@ func TestSystemHealthUsesRuntimeManager(t *testing.T) {
 	}
 }
 
+func TestManualRiskPublishesExplicitSimulationMetadata(t *testing.T) {
+	store := state.NewStore()
+	var published []contract.Message
+	server := NewServer(Config{
+		State: store,
+		PublishEvent: func(eventType string, payload any, priority int) {
+			body, _ := json.Marshal(payload)
+			published = append(published, contract.Message{Type: eventType, Payload: body, Priority: priority})
+		},
+	})
+
+	payload := []byte(`{"danger_level":"high","duration_seconds":30,"reason":"pipeline test","test":true}`)
+	result, err := server.Handler(contract.RPCManualRisk)(contract.Message{Payload: payload})
+	if err != nil {
+		t.Fatalf("manual risk error=%v", err)
+	}
+	if result.(map[string]any)["test"] != true || len(published) != 1 || published[0].Type != contract.EventManualRisk {
+		t.Fatalf("result/events=%#v/%#v", result, published)
+	}
+	var eventPayload map[string]any
+	if err := json.Unmarshal(published[0].Payload, &eventPayload); err != nil {
+		t.Fatal(err)
+	}
+	metadata, ok := eventPayload["metadata"].(map[string]any)
+	if !ok || metadata["simulated"] != true || metadata["dry_run"] != true {
+		t.Fatalf("manual risk metadata=%#v", eventPayload)
+	}
+}
+
+func TestSystemStateResetKeepsHistoryAndClearsDanger(t *testing.T) {
+	store := state.NewStore()
+	current := store.SystemState()
+	current.LastState = "intrusion"
+	current.DangerLevel = string(contract.DangerCritical)
+	current.DangerKnown = true
+	store.SetSystemState(current)
+	server := NewServer(Config{State: store})
+
+	if _, err := server.Handler(contract.RPCSystemResetState)(contract.Message{Payload: []byte(`{"target_state":"idle","reason":"admin test"}`)}); err != nil {
+		t.Fatalf("reset error=%v", err)
+	}
+	got := store.SystemState()
+	if got.LastState != "idle" || got.DangerLevel != string(contract.DangerNone) || got.IntrusionActive {
+		t.Fatalf("state after reset=%#v", got)
+	}
+}
+
 func TestValidationRPCListAndResolve(t *testing.T) {
 	store := state.NewStore()
 	store.SetValidation(&contract.ValidationRequest{

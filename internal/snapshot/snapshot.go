@@ -114,10 +114,13 @@ func (b *Builder) StatePayload() map[string]any {
 func (b *Builder) chainSummary() map[string]any {
 	if b == nil || b.Chains == nil {
 		return map[string]any{
-			"open_count":           0,
-			"critical_open_count":  0,
-			"recent_closed_count":  0,
-			"highest_danger_level": contract.DangerNone,
+			"open_count":                0,
+			"real_open_count":           0,
+			"simulated_open_count":      0,
+			"critical_open_count":       0,
+			"recent_closed_count":       0,
+			"highest_danger_level":      contract.DangerNone,
+			"highest_real_danger_level": contract.DangerNone,
 		}
 	}
 	return b.Chains.Summary()

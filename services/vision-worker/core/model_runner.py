@@ -14,8 +14,25 @@ log = logging.getLogger(
     "synora.vision.model_runner"
 )
 
-def rknn_available():
 
+class ModelUnavailableError(RuntimeError):
+    """A model cannot be used, but this is not a worker-fatal error."""
+
+    def __init__(self, code, model_path, message):
+        super().__init__(message)
+        self.code = code
+        self.model_path = model_path
+        self.message = message
+
+    def as_dict(self):
+        return {
+            "status": "unavailable",
+            "code": self.code,
+            "path": self.model_path,
+            "error": self.message,
+        }
+
+def rknn_available():
     if RKNNLite is None:
         return False
 
@@ -23,9 +40,21 @@ def rknn_available():
         test = RKNNLite()
         del test
         return True
-
     except Exception:
         return False
+
+
+def model_status(model_path):
+    """Return a cheap startup diagnostic without loading the model."""
+    if not model_path:
+        return {"status": "missing", "path": model_path or "", "error": "model path is empty"}
+    if not os.path.isfile(model_path):
+        return {"status": "missing", "path": model_path, "error": "model file is missing"}
+    if not model_path.endswith(".rknn"):
+        return {"status": "invalid", "path": model_path, "error": "RKNN model extension required"}
+    if RKNNLite is None:
+        return {"status": "unavailable", "path": model_path, "error": f"RKNNLite unavailable: {_RKNN_IMPORT_ERROR}"}
+    return {"status": "present", "path": model_path}
 
 class ModelRunner:
 
@@ -52,8 +81,10 @@ class RKNNRunner(ModelRunner):
     ):
 
         if RKNNLite is None:
-            raise RuntimeError(
-                "RKNNLite unavailable"
+            raise ModelUnavailableError(
+                "backend_unavailable",
+                model_path,
+                f"RKNNLite unavailable: {_RKNN_IMPORT_ERROR}",
             )
 
         self.model_path = model_path
@@ -67,8 +98,10 @@ class RKNNRunner(ModelRunner):
         )
 
         if ret != 0:
-            raise RuntimeError(
-                f"RKNN load failed ret={ret}"
+            raise ModelUnavailableError(
+                "invalid_model",
+                model_path,
+                f"RKNN load failed ret={ret}",
             )
 
         ret = self.rknn.init_runtime(
@@ -76,8 +109,10 @@ class RKNNRunner(ModelRunner):
         )
 
         if ret != 0:
-            raise RuntimeError(
-                f"RKNN init runtime failed ret={ret}"
+            raise ModelUnavailableError(
+                "rknn_runtime_error",
+                model_path,
+                f"RKNN init runtime failed ret={ret}",
             )
 
         log.warning(
@@ -154,20 +189,33 @@ def create_model_runner(
         "auto",
         "rknn",
     ):
-        raise RuntimeError(
-            f"Unsupported backend: {backend}; RKNN is required"
+        raise ModelUnavailableError(
+            "backend_unavailable",
+            model_path,
+            f"Unsupported backend: {backend}; RKNN is required",
         )
 
     if not model_path.endswith(
         ".rknn"
     ):
-        raise RuntimeError(
-            f"RKNN model required: {model_path}"
+        raise ModelUnavailableError(
+            "invalid_model",
+            model_path,
+            f"RKNN model required: {model_path}",
+        )
+
+    if not os.path.isfile(model_path):
+        raise ModelUnavailableError(
+            "missing_file",
+            model_path,
+            f"RKNN model file missing: {model_path}",
         )
 
     if RKNNLite is None:
-        raise RuntimeError(
-            f"RKNNLite unavailable: {_RKNN_IMPORT_ERROR}"
+        raise ModelUnavailableError(
+            "backend_unavailable",
+            model_path,
+            f"RKNNLite unavailable: {_RKNN_IMPORT_ERROR}",
         )
 
     core_mask = getattr(

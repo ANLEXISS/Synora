@@ -97,6 +97,16 @@ type ClipState struct {
 type SystemState struct {
 	LastState       string    `json:"last_state"`
 	LastStateTime   time.Time `json:"last_state_time"`
+	PreviousState   string    `json:"previous_state,omitempty"`
+	DangerLevel     string    `json:"danger_level"`
+	DangerScore     float64   `json:"danger_score"`
+	DangerKnown     bool      `json:"danger_known"`
+	DangerSource    string    `json:"danger_source"`
+	Armed           bool      `json:"armed"`
+	Degraded        bool      `json:"degraded"`
+	DegradationReasons []string `json:"degradation_reasons"`
+	LastRealEventAt time.Time `json:"last_real_event_at,omitempty"`
+	LastActionAt    time.Time `json:"last_action_at,omitempty"`
 	IntrusionActive bool      `json:"intrusion_active"`
 	IntrusionTime   time.Time `json:"intrusion_time"`
 	EmergencyActive bool      `json:"emergency_active"`

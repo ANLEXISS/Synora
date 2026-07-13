@@ -333,6 +333,16 @@ func ComputeDangerScore(event *contract.Event, context Context) scoreResult {
 			explanation: "A runtime component became available.",
 			reasons:     []string{"component_online"},
 		}
+	case contract.EventManualRisk:
+		level, score := manualRiskLevel(event)
+		result = scoreResult{
+			level: level, score: score, category: contract.DangerCategorySecurity,
+			title:            "Manual risk signal",
+			explanation:      "A manual risk signal was submitted for runtime verification.",
+			reasons:          []string{"manual_risk", "manual_input"},
+			validation:       level >= 3,
+			validationReason: "manual_risk_signal",
+		}
 	case contract.EventActionResult:
 		result = scoreResult{
 			level:       0,
@@ -383,6 +393,25 @@ func ComputeDangerScore(event *contract.Event, context Context) scoreResult {
 		result.validationReason = ""
 	}
 	return result
+}
+
+func manualRiskLevel(event *contract.Event) (int, float64) {
+	level := "medium"
+	if event != nil && event.Payload != nil {
+		if value, ok := event.Payload["danger_level"].(string); ok && strings.TrimSpace(value) != "" {
+			level = strings.ToLower(strings.TrimSpace(value))
+		}
+	}
+	switch level {
+	case "low":
+		return 2, 0.40
+	case "high":
+		return 4, 0.80
+	case "critical":
+		return 5, 0.95
+	default:
+		return 3, 0.60
+	}
 }
 
 func levelForScore(score float64) int {

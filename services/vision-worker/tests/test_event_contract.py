@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 import unittest
 
 import numpy as np
@@ -205,6 +206,18 @@ class EventContractTests(unittest.TestCase):
 
         self.assertEqual(embedding.shape, (512,))
         self.assertTrue(np.all(embedding == 1.0))
+
+    def test_missing_arcface_is_unavailable_without_raising(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recognizer = FaceRecognizer(
+                model_path=os.path.join(directory, "missing.rknn"),
+                faces_dir=os.path.join(directory, "faces"),
+                debug_dir=os.path.join(directory, "debug"),
+            )
+
+            self.assertFalse(recognizer.available)
+            self.assertEqual(recognizer.capability()["status"], "unavailable")
+            self.assertIsNone(recognizer.embed(np.zeros((112, 112, 3), dtype=np.uint8)))
 
 
 if __name__ == "__main__":

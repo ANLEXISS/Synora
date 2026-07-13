@@ -4,7 +4,7 @@ import os
 import logging
 import time
 
-from core.model_runner import create_model_runner
+from core.model_runner import create_model_runner, ModelUnavailableError, model_status
 
 
 log = logging.getLogger(
@@ -39,23 +39,48 @@ class FaceRecognizer:
 
         self.debug_dir = debug_dir
 
+        self.model_path = model_path
+        self.available = False
+        self.error = None
+        self.capability_status = model_status(model_path)
+
         os.makedirs(
             self.debug_dir,
             exist_ok=True,
         )
 
-        self.runner = create_model_runner(
-            model_path
-        )
+        self.runner = None
+        try:
+            self.runner = create_model_runner(model_path)
+            self.available = True
+        except ModelUnavailableError as exc:
+            self.error = exc.message
+            self.capability_status = exc.as_dict()
+            log.error(
+                "ARCFACE unavailable code=%s model=%s error=%s",
+                exc.code,
+                model_path,
+                exc.message,
+            )
+        except Exception as exc:
+            self.error = str(exc)
+            self.capability_status = {
+                "status": "unavailable",
+                "code": "rknn_runtime_error",
+                "path": model_path,
+                "error": self.error,
+            }
+            log.exception("ARCFACE unavailable model=%s", model_path)
 
         self.embedding_dim = 512
 
-        log.info(
-            "ARCFACE MODEL READY dim=%d backend=%s model=%s",
-            self.embedding_dim,
-            self.runner.backend,
-            model_path,
-        )
+        if self.available:
+            log.info(
+                "ARCFACE MODEL READY dim=%d backend=%s model=%s",
+                self.embedding_dim,
+                self.runner.backend,
+                model_path,
+            )
 
         self.resident_embeddings = {}
 
@@ -66,6 +91,14 @@ class FaceRecognizer:
         self.load_faces(
             faces_dir
         )
+
+    def capability(self):
+        status = dict(self.capability_status or {})
+        status.setdefault("path", self.model_path)
+        status["status"] = "available" if self.available else "unavailable"
+        if self.error:
+            status["error"] = self.error
+        return status
 
     # ------------------------------------------------
     # DEBUG SAVE
@@ -169,6 +202,9 @@ class FaceRecognizer:
         face,
     ):
 
+        if not getattr(self, "available", True) or self.runner is None:
+            return None
+
         face = cv2.cvtColor(
             face,
             cv2.COLOR_BGR2RGB,
@@ -240,6 +276,9 @@ class FaceRecognizer:
         self,
         face,
     ):
+
+        if not getattr(self, "available", True) or self.runner is None:
+            return None
 
         if face is None:
 

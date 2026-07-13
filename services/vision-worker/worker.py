@@ -8,6 +8,7 @@ import sys
 import threading
 
 from core.events import ALLOWED_EVENT_TYPES, EventBuilder
+from core.model_runner import model_status
 
 
 SOCKET_PATH = "/run/synora/vision-worker.sock"
@@ -32,28 +33,30 @@ class VisionWorker:
         )
 
         self.dry_run = dry_run
+        self.pipeline_error = None
 
         if dry_run:
             self.face_recognizer = None
             self.person_detector = None
             self.pipeline = None
         else:
-            from core.pipeline import VisionPipeline
-            from modules.detect.person_detector import PersonDetector
-            from modules.face.FaceRecognizer import FaceRecognizer
+            try:
+                from core.pipeline import VisionPipeline
+                from modules.detect.person_detector import PersonDetector
+                from modules.face.FaceRecognizer import FaceRecognizer
 
-            self.face_recognizer = (
-                FaceRecognizer()
-            )
-
-            self.person_detector = (
-                PersonDetector()
-            )
-
-            self.pipeline = VisionPipeline(
-                self.face_recognizer,
-                self.person_detector,
-            )
+                self.face_recognizer = FaceRecognizer()
+                self.person_detector = PersonDetector()
+                self.pipeline = VisionPipeline(
+                    self.face_recognizer,
+                    self.person_detector,
+                )
+            except Exception as exc:
+                self.pipeline_error = str(exc)
+                self.face_recognizer = None
+                self.person_detector = None
+                self.pipeline = None
+                log.exception("VISION PIPELINE degraded during initialization")
 
         self.debug_app = self.create_debug_app()
 
@@ -78,6 +81,21 @@ class VisionWorker:
 
         app = Flask(__name__)
 
+        @app.get("/healthz")
+        def healthz():
+            capabilities = self.capabilities()
+            available = any(item.get("status") == "available" for item in capabilities["capabilities"].values())
+            return jsonify({
+                "service": "vision-worker",
+                "status": "ok" if available else "degraded",
+                "mode": "dry_run" if self.dry_run else "normal",
+                "capabilities": capabilities,
+            })
+
+        @app.get("/capabilities")
+        def capabilities():
+            return jsonify(self.capabilities())
+
         @app.get("/debug/pipeline")
         def pipeline_debug():
             if self.pipeline is None:
@@ -90,6 +108,45 @@ class VisionWorker:
             )
 
         return app
+
+    def capabilities(self):
+        if self.dry_run:
+            available = {"status": "available", "mode": "dry_run"}
+            return {
+                "mode": "dry_run",
+                "capabilities": {
+                    "face_detection": dict(available),
+                    "face_recognition": dict(available),
+                    "object_detection": dict(available),
+                    "weapon_detection": dict(available),
+                    "fall_detection": dict(available),
+                },
+                "models": {},
+            }
+
+        models = {
+            "arcface": model_status("/var/lib/synora/models/arcface_w600k_r50.rknn"),
+            "scrfd": model_status("/var/lib/synora/models/det_10g.rknn"),
+            "yolo": model_status("/var/lib/synora/models/yolov8.rknn"),
+            "weapon": model_status("/var/lib/synora/models/weapon.rknn"),
+        }
+        face_capability = self.face_recognizer.capability() if self.face_recognizer is not None else {"status": "unavailable", "error": self.pipeline_error or "face recognizer unavailable"}
+        object_capability = self.person_detector.capability() if self.person_detector is not None else {"status": "unavailable", "error": self.pipeline_error or "person detector unavailable"}
+        face_detection = {"status": "unavailable", "error": "face detector unavailable"}
+        if self.pipeline is not None:
+            face_detection = self.pipeline.face_detection_capability()
+        return {
+            "mode": "degraded" if self.pipeline_error or not any(item.get("status") == "available" for item in (face_capability, object_capability, face_detection)) else "normal",
+            "capabilities": {
+                "face_detection": face_detection,
+                "face_recognition": face_capability,
+                "object_detection": object_capability,
+                "weapon_detection": {"status": "unavailable", "error": "weapon detector is not enabled in the clip pipeline"},
+                "fall_detection": {"status": "unavailable", "error": "fall detector is not enabled in the clip pipeline"},
+            },
+            "models": models,
+            "error": self.pipeline_error,
+        }
 
     # ------------------------------------------------
 
@@ -126,6 +183,16 @@ class VisionWorker:
 
             return {
                 "error": "missing clip_path"
+            }
+
+        if not self.dry_run and (
+            self.pipeline is None or
+            not any(item.get("status") == "available" for item in self.capabilities()["capabilities"].values())
+        ):
+            return {
+                "error": "no_models_available",
+                "message": self.pipeline_error or "vision pipeline unavailable",
+                "capabilities": self.capabilities(),
             }
 
         log.info(
@@ -195,13 +262,10 @@ class VisionWorker:
 
     def start(self):
 
-        if os.path.exists(
-            SOCKET_PATH
-        ):
+        os.makedirs(os.path.dirname(SOCKET_PATH), exist_ok=True)
 
-            os.remove(
-                SOCKET_PATH
-            )
+        if os.path.exists(SOCKET_PATH):
+            os.remove(SOCKET_PATH)
 
         server = socket.socket(
             socket.AF_UNIX,

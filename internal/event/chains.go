@@ -113,6 +113,7 @@ func ClassifyEventForChain(event *contract.Event) ChainRole {
 		contract.EventVisionFall, contract.EventVisionFight,
 		contract.EventVisionTamper, contract.EventDeviceOffline,
 		contract.EventDiscoveryCameraOffline, "camera.offline",
+		contract.EventManualRisk,
 		"door.opened", "window.opened", "sensor.door.open", "sensor.window.open",
 		"presence.changed", "security.armed_changed", "automation.action_failed":
 		return ChainRoleSignificant
@@ -996,11 +997,17 @@ func (m *ChainManager) CriticalMemory(id string) (*contract.CriticalChainMemory,
 
 func (m *ChainManager) Summary() map[string]any {
 	items := m.List(ChainFilter{Status: "all"})
-	open, critical, closed := 0, 0, 0
+	open, realOpen, simulatedOpen, critical, closed := 0, 0, 0, 0, 0
 	highest := contract.DangerNone
+	highestReal := contract.DangerNone
 	for _, item := range items {
 		if item.Status == contract.EventChainOpen {
 			open++
+			if item.Simulated {
+				simulatedOpen++
+			} else {
+				realOpen++
+			}
 			if item.Critical {
 				critical++
 			}
@@ -1010,6 +1017,13 @@ func (m *ChainManager) Summary() map[string]any {
 		if dangerRank(item.DangerLevel) > dangerRank(highest) {
 			highest = item.DangerLevel
 		}
+		if !item.Simulated && dangerRank(item.DangerLevel) > dangerRank(highestReal) {
+			highestReal = item.DangerLevel
+		}
 	}
-	return map[string]any{"open_count": open, "critical_open_count": critical, "recent_closed_count": closed, "highest_danger_level": highest}
+	return map[string]any{
+		"open_count": open, "real_open_count": realOpen, "simulated_open_count": simulatedOpen,
+		"critical_open_count": critical, "recent_closed_count": closed,
+		"highest_danger_level": highest, "highest_real_danger_level": highestReal,
+	}
 }

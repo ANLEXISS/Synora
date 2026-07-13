@@ -4,7 +4,7 @@ import os
 import numpy as np
 import time
 
-from core.model_runner import create_model_runner
+from core.model_runner import create_model_runner, ModelUnavailableError, model_status
 
 DEBUG_LOG = "/tmp/yolo_debug.txt"
 log = logging.getLogger(
@@ -34,18 +34,22 @@ class PersonDetector:
         model_path = (
             "/var/lib/synora/models/yolov8.rknn"
         )
-
-        if not os.path.exists(
-            model_path
-        ):
-
-            raise RuntimeError(
-                f"model missing {model_path}"
-            )
-
-        self.runner = create_model_runner(
-            model_path
-        )
+        self.model_path = model_path
+        self.available = False
+        self.error = None
+        self.capability_status = model_status(model_path)
+        self.runner = None
+        try:
+            self.runner = create_model_runner(model_path)
+            self.available = True
+        except ModelUnavailableError as exc:
+            self.error = exc.message
+            self.capability_status = exc.as_dict()
+            log.error("YOLO unavailable code=%s model=%s error=%s", exc.code, model_path, exc.message)
+        except Exception as exc:
+            self.error = str(exc)
+            self.capability_status = {"status": "unavailable", "code": "rknn_runtime_error", "path": model_path, "error": self.error}
+            log.exception("YOLO unavailable model=%s", model_path)
 
         self.input_size = 640
 
@@ -66,11 +70,20 @@ class PersonDetector:
 
         self.debug_counter = 0
 
-        log.info(
-            "PERSON DETECTOR READY backend=%s model=%s",
-            self.runner.backend,
-            model_path,
-        )
+        if self.available:
+            log.info(
+                "PERSON DETECTOR READY backend=%s model=%s",
+                self.runner.backend,
+                model_path,
+            )
+
+    def capability(self):
+        status = dict(self.capability_status or {})
+        status.setdefault("path", self.model_path)
+        status["status"] = "available" if self.available else "unavailable"
+        if self.error:
+            status["error"] = self.error
+        return status
 
     # ------------------------------------------------
 
@@ -214,6 +227,9 @@ class PersonDetector:
         self,
         frame,
     ):
+
+        if not self.available or self.runner is None:
+            return []
 
         blob, meta = self.preprocess(
             frame

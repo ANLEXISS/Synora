@@ -296,6 +296,38 @@ func TestWorkerManagerRateLimitsCrashEvents(t *testing.T) {
 	}
 }
 
+func TestWorkerManagerCoalescesUnavailableEvents(t *testing.T) {
+	publisher := &fakePublisher{}
+	current := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	manager := NewWorkerManager(publisher, WorkerManagerConfig{
+		Executor:        &fakeExecutor{},
+		Now:             func() time.Time { return current },
+		CrashEventLimit: time.Minute,
+	})
+
+	manager.PublishUnavailable("missing socket")
+	manager.PublishUnavailable("worker crashed")
+	if got := countPublished(publisher, contract.EventDiscoveryVisionWorkerUnavailable); got != 1 {
+		t.Fatalf("unavailable events=%d, want 1", got)
+	}
+
+	current = current.Add(2 * time.Minute)
+	manager.PublishUnavailable("still unavailable")
+	if got := countPublished(publisher, contract.EventDiscoveryVisionWorkerUnavailable); got != 2 {
+		t.Fatalf("unavailable events after window=%d, want 2", got)
+	}
+}
+
+func countPublished(publisher *fakePublisher, eventType string) int {
+	count := 0
+	for _, current := range publisher.types() {
+		if current == eventType {
+			count++
+		}
+	}
+	return count
+}
+
 func TestWorkerManagerSerializesSameCamera(t *testing.T) {
 	executor := &fakeExecutor{}
 
