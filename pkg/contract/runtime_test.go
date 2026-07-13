@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -44,5 +45,56 @@ func TestMergeRuntimeComponentStatusOverridesGenericProbe(t *testing.T) {
 	}
 	if merged.Components["vision_worker"].Status != "unavailable" || merged.Components["vision_ingress"].Status != "disabled" {
 		t.Fatalf("component mismatch=%#v", merged.Components)
+	}
+}
+
+func TestMergeRuntimeComponentStatusDetailedExplainsDiscoveryDegradation(t *testing.T) {
+	now := time.Now().UTC()
+	health := RuntimeHealth{
+		Network: RuntimeNetworkHealth{HostAPD: RuntimeServiceHealth{
+			Name: "hostapd", Status: "degraded", Active: false,
+		}},
+	}
+	merged := MergeRuntimeComponentStatusDetailed(
+		health,
+		map[string]string{
+			"discovery":     "degraded",
+			"network":       "degraded",
+			"vision_worker": "unavailable",
+		},
+		map[string]string{"vision_worker": "model_missing"},
+		map[string]string{"arcface": "missing"},
+		now,
+	)
+	message := merged.Services["synora-discovery"].Message
+	if merged.Components["discovery"].Status != "degraded" || !merged.Components["discovery"].Active {
+		t.Fatalf("discovery=%#v", merged.Components["discovery"])
+	}
+	if !strings.Contains(message, "hostapd") || !strings.Contains(message, "models missing") {
+		t.Fatalf("message=%q", message)
+	}
+}
+
+func TestMergeRuntimeComponentStatusDetailedExplainsIngressMode(t *testing.T) {
+	now := time.Now().UTC()
+	disabled := MergeRuntimeComponentStatusDetailed(
+		RuntimeHealth{},
+		map[string]string{"discovery": "degraded", "vision_ingress": "disabled"},
+		map[string]string{"vision_ingress": "tls_cert_missing"},
+		nil,
+		now,
+	)
+	if disabled.Components["vision_ingress"].Message != "disabled: tls_cert_missing" {
+		t.Fatalf("disabled=%#v", disabled.Components["vision_ingress"])
+	}
+	secure := MergeRuntimeComponentStatusDetailed(
+		RuntimeHealth{},
+		map[string]string{"vision_ingress": "ok"},
+		map[string]string{"vision_ingress": "listening"},
+		nil,
+		now,
+	)
+	if secure.Components["vision_ingress"].Message != "listening" {
+		t.Fatalf("secure=%#v", secure.Components["vision_ingress"])
 	}
 }

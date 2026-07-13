@@ -107,6 +107,28 @@ func TestSimulatedAssessmentMarked(t *testing.T) {
 	}
 }
 
+func TestManualRiskPreservesRequestedLevelThroughProfileMultipliers(t *testing.T) {
+	event := testEvent(contract.EventManualRisk, "entry", 0)
+	event.Payload["danger_level"] = "high"
+	assessment := AssessEvent(event, Context{
+		Now:               testTime(12),
+		ProfileEnabled:    true,
+		GlobalSensitivity: 0.9,
+		NightMultiplier:   2,
+		ArmedMultiplier:   2,
+		HomeMode:          "armed",
+	})
+	if assessment.Level != 4 || assessment.RiskLevel != "high" || assessment.Score != 0.75 {
+		t.Fatalf("manual high was rewritten: %#v", assessment)
+	}
+
+	event.Payload["danger_level"] = "critical"
+	assessment = AssessEvent(event, Context{Now: testTime(12), ProfileEnabled: true, GlobalSensitivity: 0.9})
+	if assessment.Level != 5 || assessment.RiskLevel != "critical" || assessment.Score != 0.95 {
+		t.Fatalf("manual critical was rewritten: %#v", assessment)
+	}
+}
+
 func TestDangerAssessmentCarriesPersistenceMetadata(t *testing.T) {
 	assessment := AssessEvent(testEvent(contract.EventVisionWeapon, "entry", 0.90), Context{Now: testTime(12)})
 	if assessment.RiskLevel == "" || assessment.ExpectedState == "" || assessment.LastSeen.IsZero() {

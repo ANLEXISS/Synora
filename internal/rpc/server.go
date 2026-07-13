@@ -420,7 +420,14 @@ func (s *Server) systemHealth(_ contract.Message) (any, error) {
 func (s *Server) mergeStateRuntimeHealth(health contract.RuntimeHealth) contract.RuntimeHealth {
 	now := time.Now().UTC()
 	if s != nil && s.state != nil {
-		return contract.MergeRuntimeComponentStatus(health, s.state.SystemState().RuntimeComponents, now)
+		current := s.state.SystemState()
+		return contract.MergeRuntimeComponentStatusDetailed(
+			health,
+			current.RuntimeComponents,
+			current.RuntimeComponentInfo,
+			current.RuntimeModels,
+			now,
+		)
 	}
 	return contract.NormalizeRuntimeHealth(health, now)
 }

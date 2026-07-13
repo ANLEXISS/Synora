@@ -82,6 +82,12 @@ func TestHealthUsesRuntimeServiceNames(t *testing.T) {
 		Config{
 			Executor: executor,
 			DiskPath: t.TempDir(),
+			ProbeActions: func(context.Context) error {
+				return nil
+			},
+			ProbeMediaMTX: func(context.Context) error {
+				return nil
+			},
 			Now: func() time.Time {
 				return time.Date(
 					2026,
@@ -107,7 +113,11 @@ func TestHealthUsesRuntimeServiceNames(t *testing.T) {
 			t.Fatalf("service %s missing from health", service)
 		}
 
-		if !current.Active || current.Status != "active" {
+		wantStatus := "active"
+		if service == "synora-actions" || service == "mediamtx" {
+			wantStatus = "ok"
+		}
+		if !current.Active || current.Status != wantStatus {
 			t.Fatalf("service %s health=%#v", service, current)
 		}
 	}
@@ -117,6 +127,47 @@ func TestHealthUsesRuntimeServiceNames(t *testing.T) {
 	}
 	if health.Status != "ok" || len(health.Components) < len(RuntimeServices) {
 		t.Fatalf("health status/components=%s/%d", health.Status, len(health.Components))
+	}
+}
+
+func TestHealthKeepsActiveActionsAndMediaMTXDegradedWithUsefulMessages(t *testing.T) {
+	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}}
+	for _, service := range append(RuntimeServices, "hostapd", "dnsmasq") {
+		executor.outputs[commandKey("systemctl", "is-active", service)] = []byte("active\n")
+	}
+	manager := New(Config{Executor: executor, DiskPath: t.TempDir()})
+	health := manager.Health(context.Background())
+	actions := health.Services["synora-actions"]
+	if actions.Status != "degraded" || !actions.Active || actions.Message != "service active, no health probe" {
+		t.Fatalf("actions=%#v", actions)
+	}
+	media := health.Services["mediamtx"]
+	if media.Status != "degraded" || !media.Active || media.Message != "service active, api probe unavailable" {
+		t.Fatalf("mediamtx=%#v", media)
+	}
+	if health.Status != "degraded" {
+		t.Fatalf("health status=%q", health.Status)
+	}
+}
+
+func TestHealthMarksInactiveOptionalServicesUnavailable(t *testing.T) {
+	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}}
+	for _, service := range append(RuntimeServices, "hostapd", "dnsmasq") {
+		executor.outputs[commandKey("systemctl", "is-active", service)] = []byte("active\n")
+	}
+	executor.outputs[commandKey("systemctl", "is-active", "synora-actions")] = []byte("inactive\n")
+	executor.outputs[commandKey("systemctl", "is-active", "mediamtx")] = []byte("inactive\n")
+	manager := New(Config{Executor: executor, DiskPath: t.TempDir()})
+	health := manager.Health(context.Background())
+	for _, name := range []string{"synora-actions", "mediamtx"} {
+		item := health.Services[name]
+		wantMessage := "service inactive"
+		if name == "mediamtx" {
+			wantMessage = "optional component inactive"
+		}
+		if item.Status != "unavailable" || item.Active || item.Message != wantMessage {
+			t.Fatalf("%s=%#v", name, item)
+		}
 	}
 }
 

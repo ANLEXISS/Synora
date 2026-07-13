@@ -384,6 +384,12 @@ func ComputeDangerScore(event *contract.Event, context Context) scoreResult {
 		result.score = math.Max(0, math.Min(1, result.score*multiplier))
 		result.level = maxInt(result.level, levelForScore(result.score))
 	}
+	// A manual-risk request is an explicit operator-selected level. Security
+	// profile multipliers may affect ordinary detections, but must not silently
+	// turn a requested high test into critical (or otherwise rewrite intent).
+	if eventType == contract.EventManualRisk {
+		result.level, result.score = manualRiskLevel(event)
+	}
 
 	if context.Simulated && result.category != contract.DangerCategorySystemHealth {
 		result.reasons = append(result.reasons, "simulated_input")
@@ -404,13 +410,13 @@ func manualRiskLevel(event *contract.Event) (int, float64) {
 	}
 	switch level {
 	case "low":
-		return 2, 0.40
+		return 2, 0.25
 	case "high":
-		return 4, 0.80
+		return 4, 0.75
 	case "critical":
 		return 5, 0.95
 	default:
-		return 3, 0.60
+		return 3, 0.50
 	}
 }
 

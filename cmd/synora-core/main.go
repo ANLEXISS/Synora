@@ -645,14 +645,14 @@ func (a *coreApp) applyManualRiskState(event *contract.Event, changed bool, prev
 		current.IntrusionActive = true
 		current.IntrusionTime = event.Timestamp.UTC()
 	case "high":
-		current.DangerLevel, current.DangerScore = string(contract.DangerHigh), 0.80
+		current.DangerLevel, current.DangerScore = string(contract.DangerHigh), 0.75
 		current.LastState = "suspicious"
 		current.IntrusionActive = false
 	case "medium", "low":
 		if level == "medium" {
-			current.DangerLevel, current.DangerScore = string(contract.DangerMedium), 0.60
+			current.DangerLevel, current.DangerScore = string(contract.DangerMedium), 0.50
 		} else {
-			current.DangerLevel, current.DangerScore = string(contract.DangerLow), 0.40
+			current.DangerLevel, current.DangerScore = string(contract.DangerLow), 0.25
 		}
 		current.LastState = "activity"
 		current.IntrusionActive = false
@@ -667,11 +667,11 @@ func manualRiskScore(level string) float64 {
 	case "critical":
 		return 0.95
 	case "high":
-		return 0.80
+		return 0.75
 	case "medium":
-		return 0.60
+		return 0.50
 	case "low":
-		return 0.40
+		return 0.25
 	default:
 		return 0
 	}

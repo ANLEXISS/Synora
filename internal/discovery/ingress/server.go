@@ -2,11 +2,13 @@ package ingress
 
 import (
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -64,10 +66,7 @@ func StartServer(
 			log.Printf("vision ingress disabled status=disabled reason=%s cert=%s key=%s", reason, cfg.CertFile, cfg.KeyFile)
 			return
 		}
-		setStatus(cfg, "degraded", reason)
 		log.Printf("vision ingress insecure fallback enabled reason=%s", reason)
-	} else {
-		setStatus(cfg, "ok", "")
 	}
 
 	mux := http.NewServeMux()
@@ -321,20 +320,28 @@ func StartServer(
 	}
 
 	go func() {
-
-		log.Printf(
-			"vision ingress listening addr=%s",
-			cfg.Addr,
-		)
-
-		var err error
+		listener, err := net.Listen("tcp", cfg.Addr)
+		if err != nil {
+			setStatus(cfg, "error", err.Error())
+			log.Printf("vision ingress stopped err=%v", err)
+			return
+		}
 		if certMissing || keyMissing {
-			err = server.ListenAndServe()
+			setStatus(cfg, "degraded", "listening insecure local mode")
+			log.Printf("vision ingress listening addr=%s mode=insecure-local", cfg.Addr)
+			err = server.Serve(listener)
 		} else {
-			err = server.ListenAndServeTLS(
-				cfg.CertFile,
-				cfg.KeyFile,
-			)
+			certificate, loadErr := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+			if loadErr != nil {
+				listener.Close()
+				setStatus(cfg, "error", loadErr.Error())
+				log.Printf("vision ingress stopped err=%v", loadErr)
+				return
+			}
+			setStatus(cfg, "ok", "listening")
+			log.Printf("vision ingress listening addr=%s", cfg.Addr)
+			server.TLSConfig = &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12}
+			err = server.ServeTLS(listener, "", "")
 		}
 
 		if err != nil && err != http.ErrServerClosed {

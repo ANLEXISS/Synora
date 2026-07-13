@@ -128,7 +128,13 @@ func runtimeDiagnosticsResponse(snapshot *contract.PublicSnapshot, runtimeHealth
 		populateSnapshotDiagnostics(response, snapshot)
 	}
 	if runtimeHealth != nil {
-		mergedHealth := contract.MergeRuntimeComponentStatus(*runtimeHealth, snapshotRuntimeComponents(snapshot), time.Now().UTC())
+		mergedHealth := contract.MergeRuntimeComponentStatusDetailed(
+			*runtimeHealth,
+			snapshotRuntimeComponents(snapshot),
+			snapshotRuntimeComponentInfo(snapshot),
+			snapshotRuntimeModels(snapshot),
+			time.Now().UTC(),
+		)
 		runtimeHealth = &mergedHealth
 		markServingHealth(runtimeHealth, stateErr == nil || healthErr == nil)
 		response["runtime_components"] = componentStatusSummary(runtimeHealth)
@@ -272,6 +278,37 @@ func snapshotRuntimeComponents(snapshot *contract.PublicSnapshot) map[string]str
 		for name, status := range values {
 			if status != "" {
 				result[name] = status
+			}
+		}
+	}
+	return result
+}
+
+func snapshotRuntimeComponentInfo(snapshot *contract.PublicSnapshot) map[string]string {
+	return snapshotRuntimeStringMap(snapshot, "runtime_component_info")
+}
+
+func snapshotRuntimeModels(snapshot *contract.PublicSnapshot) map[string]string {
+	return snapshotRuntimeStringMap(snapshot, "runtime_models")
+}
+
+func snapshotRuntimeStringMap(snapshot *contract.PublicSnapshot, key string) map[string]string {
+	result := map[string]string{}
+	if snapshot == nil || snapshot.System == nil {
+		return result
+	}
+	values, ok := snapshot.System[key].(map[string]any)
+	if ok {
+		for name, value := range values {
+			if status, ok := value.(string); ok && status != "" {
+				result[name] = status
+			}
+		}
+	}
+	if values, ok := snapshot.System[key].(map[string]string); ok {
+		for name, value := range values {
+			if value != "" {
+				result[name] = value
 			}
 		}
 	}

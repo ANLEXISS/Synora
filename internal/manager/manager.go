@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -52,6 +53,12 @@ func (OSExecutor) Run(
 type Config struct {
 	Executor Executor
 
+	// ProbeActions and ProbeMediaMTX are optional transport-level probes. They
+	// are deliberately injectable so health tests do not depend on local
+	// services being installed.
+	ProbeActions  func(context.Context) error
+	ProbeMediaMTX func(context.Context) error
+
 	ConfigDir   string
 	SnapshotDir string
 	DiskPath    string
@@ -61,6 +68,9 @@ type Config struct {
 
 type Manager struct {
 	executor Executor
+
+	probeActions  func(context.Context) error
+	probeMediaMTX func(context.Context) error
 
 	configDir   string
 	snapshotDir string
@@ -104,6 +114,9 @@ func New(
 
 	return &Manager{
 		executor: cfg.Executor,
+
+		probeActions:  cfg.ProbeActions,
+		probeMediaMTX: cfg.ProbeMediaMTX,
 
 		configDir:   cfg.ConfigDir,
 		snapshotDir: cfg.SnapshotDir,
@@ -152,9 +165,14 @@ func (m *Manager) Health(
 	}
 
 	mediaMTX := services["mediamtx"]
+	services["synora-actions"] = m.actionServiceHealth(ctx, services["synora-actions"], now)
+	components["synora-actions"] = services["synora-actions"]
+	mediaMTX = m.mediaMTXServiceHealth(ctx, mediaMTX, now)
+	services["mediamtx"] = mediaMTX
+	components["mediamtx"] = mediaMTX
 	status := "ok"
 	for _, service := range services {
-		if !service.Active {
+		if !service.Active || (service.Status != "active" && service.Status != "ok") {
 			status = "degraded"
 			break
 		}
@@ -409,6 +427,82 @@ func (m *Manager) serviceHealth(
 	}
 
 	return health
+}
+
+func (m *Manager) actionServiceHealth(
+	ctx context.Context,
+	health contract.RuntimeServiceHealth,
+	now time.Time,
+) contract.RuntimeServiceHealth {
+	health.Name = "synora-actions"
+	if !health.Active {
+		health.Status = "unavailable"
+		health.Message = "service inactive"
+		return health
+	}
+	if m.probeActions == nil {
+		health.Status = "degraded"
+		health.Message = "service active, no health probe"
+		health.Error = ""
+		health.Checked = now
+		return health
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 350*time.Millisecond)
+	defer cancel()
+	if err := m.probeActions(probeCtx); err != nil {
+		health.Status = "degraded"
+		health.Message = "service active, health probe failed"
+		health.Error = err.Error()
+	} else {
+		health.Status = "ok"
+		health.Message = "action service reachable"
+		health.Error = ""
+	}
+	health.Checked = now
+	return health
+}
+
+func (m *Manager) mediaMTXServiceHealth(
+	ctx context.Context,
+	health contract.RuntimeServiceHealth,
+	now time.Time,
+) contract.RuntimeServiceHealth {
+	health.Name = "mediamtx"
+	if !health.Active {
+		health.Status = "unavailable"
+		health.Message = "optional component inactive"
+		return health
+	}
+	probe := m.probeMediaMTX
+	if probe == nil {
+		probe = defaultMediaMTXProbe
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 350*time.Millisecond)
+	defer cancel()
+	if err := probe(probeCtx); err != nil {
+		health.Status = "degraded"
+		health.Message = "service active, api probe unavailable"
+		health.Error = err.Error()
+	} else {
+		health.Status = "ok"
+		health.Message = "api reachable"
+		health.Error = ""
+	}
+	health.Checked = now
+	return health
+}
+
+func defaultMediaMTXProbe(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:9997/v1/paths/list", nil)
+	if err != nil {
+		return err
+	}
+	response, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	return nil
 }
 
 func (m *Manager) diskHealth() contract.RuntimeDiskHealth {
