@@ -3,7 +3,8 @@ SHELL := /usr/bin/env bash
 
 .PHONY: build test install update start stop restart doctor delete clean help \
 	check-go install-deps install-dirs install-bins install-config install-models \
-	build-web install-web restart-web web-status rotate-api-token generate-local-cert generate-discovery-cert install-mediamtx install-vision-worker install-face-data install-systemd enable-services
+	build-web install-web restart-web web-status rotate-api-token generate-local-cert generate-discovery-cert install-mediamtx install-vision-worker install-face-data install-systemd enable-services \
+	system-test-smoke system-test-full system-test-readonly system-test-stress-lite
 
 PREFIX ?= /opt/synora
 BINDIR ?= $(PREFIX)/bin
@@ -219,6 +220,18 @@ build-web:
 	else \
 		echo "WARN: $(WEBAPP_DIR)/package.json not found; skipping webapp build."; \
 	fi
+
+system-test-smoke:
+	@./tools/synora_system_test.sh --target local --base-url "$${BASE_URL:-http://127.0.0.1:8080}" --mode smoke $${SYNORA_SYSTEM_TEST_EXTRA_ARGS:-}
+
+system-test-full:
+	@./tools/synora_system_test.sh --target local --base-url "$${BASE_URL:-http://127.0.0.1:8080}" --mode full $${SYNORA_SYSTEM_TEST_EXTRA_ARGS:-}
+
+system-test-readonly:
+	@./tools/synora_system_test.sh --target local --base-url "$${BASE_URL:-http://127.0.0.1:8080}" --mode readonly $${SYNORA_SYSTEM_TEST_EXTRA_ARGS:-}
+
+system-test-stress-lite:
+	@./tools/synora_system_test.sh --target local --base-url "$${BASE_URL:-http://127.0.0.1:8080}" --mode stress-lite $${SYNORA_SYSTEM_TEST_EXTRA_ARGS:-}
 
 install-web: build-web
 	@if [ ! -d "$(WEBAPP_DIR)" ]; then \
