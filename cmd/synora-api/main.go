@@ -77,10 +77,14 @@ func main() {
 	}
 	serverConfig := securityConfig.Server
 	httpAddr := getenv("SYNORA_HTTP_ADDR", serverConfig.HTTPAddr)
-	httpsEnabled := getenvBool("SYNORA_HTTPS_ENABLED", serverConfig.HTTPSEnabled)
+	httpsConfigured := getenvBool("SYNORA_HTTPS_ENABLED", serverConfig.HTTPSEnabled)
 	httpsAddr := getenv("SYNORA_HTTPS_ADDR", serverConfig.HTTPSAddr)
 	tlsCertFile := getenv("SYNORA_TLS_CERT_FILE", serverConfig.TLSCertFile)
 	tlsKeyFile := getenv("SYNORA_TLS_KEY_FILE", serverConfig.TLSKeyFile)
+	httpsEnabled := httpsConfigured && regularFile(tlsCertFile) && regularFile(tlsKeyFile)
+	if httpsConfigured && !httpsEnabled {
+		log.Printf("synora-api https degraded: TLS certificate or key missing; HTTP remains available")
+	}
 
 	sessionTTL := getenvDuration("SYNORA_SESSION_TTL", webapi.DefaultSessionTTL)
 	sessions, err := webapi.NewSessionStore(
@@ -168,6 +172,8 @@ func main() {
 	apiMux.HandleFunc("/api/validations", handleValidationCollection(core))
 	apiMux.HandleFunc("/api/validations/", handleValidationItem(core))
 	apiMux.HandleFunc("/api/devices", handleDeviceCollection(core))
+	apiMux.HandleFunc("/api/streams", handleStreams(core))
+	apiMux.HandleFunc("/api/streams/", handleStreams(core))
 	apiMux.HandleFunc("/api/devices/pairing/start", handlePairingStart(core))
 	apiMux.HandleFunc("/api/devices/pairing/complete", handlePairingComplete(core))
 	synoraCameraPairing := newSynoraCameraPairingStore()
@@ -184,7 +190,7 @@ func main() {
 	apiMux.HandleFunc("/api/topology/", handleTopologySubroute())
 	serverHealth := webapi.ServerHealth{
 		HTTPAddr:       httpAddr,
-		HTTPSEnabled:   httpsEnabled,
+		HTTPSEnabled:   httpsConfigured,
 		HTTPSAddr:      httpsAddr,
 		TLSCertPresent: regularFile(tlsCertFile),
 		TLSKeyPresent:  regularFile(tlsKeyFile),
@@ -561,6 +567,8 @@ func requiredAPIPermission(r *http.Request) string {
 			return webapi.PermissionDevicesRead
 		}
 		return webapi.PermissionSecurityAdmin
+	case strings.HasPrefix(path, "/api/streams"):
+		return webapi.PermissionDevicesRead
 	case strings.HasPrefix(path, "/api/residents"):
 		residentPath := strings.TrimPrefix(path, "/api/residents/")
 		if strings.Contains(residentPath, "/face") {
@@ -805,6 +813,7 @@ func handleSystemHealth(
 		if len(serverHealth) > 0 {
 			transportHealth = serverHealth[0]
 		}
+		health.Components["https_api"] = httpsHealth(transportHealth, time.Now().UTC())
 		writeJSON(w, http.StatusOK, systemHealthResponse{
 			RuntimeHealth: health,
 			Web:           webHealth,
@@ -835,6 +844,20 @@ func markServingHealth(health *contract.RuntimeHealth, coreProbeOK bool) {
 		health.Services["synora-core"] = core
 		health.Components["core"] = contract.RuntimeServiceHealth{Name: "core", Status: diagnosticStatus(core.Status, core.Active), Active: core.Active, Checked: core.Checked, Message: core.Message}
 	}
+}
+
+func httpsHealth(server webapi.ServerHealth, now time.Time) contract.RuntimeServiceHealth {
+	item := contract.RuntimeServiceHealth{Name: "https_api", Checked: now}
+	if !server.HTTPSEnabled {
+		item.Status, item.Message = "disabled", "HTTPS API disabled"
+		return item
+	}
+	if !server.TLSCertPresent || !server.TLSKeyPresent {
+		item.Status, item.Message = "degraded", "HTTPS configured but local certificate is missing"
+		return item
+	}
+	item.Status, item.Active, item.Message = "ok", true, "HTTPS API available on 8443"
+	return item
 }
 
 func errorMessage(err error) string {

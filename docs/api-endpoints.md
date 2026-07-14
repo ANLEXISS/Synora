@@ -41,6 +41,8 @@ rôle `admin` complet.
 | GET | `/api/state` | `cmd/synora-api/main.go` | oui | stable | oui | Source principale de `useSynoraSnapshot()`. |
 | GET | `/api/snapshot` | `cmd/synora-api/main.go` | oui | stable | futur | Snapshot public compact. |
 | GET | `/api/devices` | `cmd/synora-api/config_handlers.go` | oui | stable | oui | Liste des devices. |
+| GET | `/api/streams` | `cmd/synora-api/streams.go` | devices read | préparatoire | oui | Descripteurs caméra RTSP + WebRTC/HLS ; RTSP n'est pas une URL navigateur. |
+| GET | `/api/streams/:device_id` | `cmd/synora-api/streams.go` | devices read | préparatoire | oui | Descripteur live d'une caméra. |
 | GET | `/api/devices/:id` | `cmd/synora-api/config_handlers.go` | oui | stable | futur |  |
 | POST | `/api/devices` | `cmd/synora-api/config_handlers.go` | oui | stable | partiel | Client disponible, formulaire web à compléter. |
 | PATCH | `/api/devices/:id` | `cmd/synora-api/config_handlers.go` | oui | stable | partiel | Client disponible, édition web à compléter. |

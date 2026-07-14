@@ -13,6 +13,11 @@ pas activés par l’API.
 5. L’interface relit `/api/devices` et vérifie que le nouvel `device_id` est
    présent avant d’afficher le succès.
 
+Sur SynoraNet, l'API de pairing est joignable via
+`https://10.77.0.1:8443`. L'upload de clips utilise encore l'ingress Discovery
+HTTPS existant `https://10.77.0.1:7070/vision` ; la caméra doit accepter le
+certificat local de la centrale après pairing.
+
 ## Payload QR
 
 ```json

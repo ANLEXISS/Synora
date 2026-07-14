@@ -16,7 +16,7 @@ import {
   Wifi,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Panel } from "../components/Panel";
 import { DevicePlacementMap } from "../components/DevicePlacementMap";
 import { SynoraCameraPairingWizard } from "../components/SynoraCameraPairingWizard";
@@ -24,10 +24,10 @@ import { useSynoraData } from "../hooks/useSynoraData";
 import { useAuth } from "../hooks/useAuth";
 import { SynoraApiError } from "../lib/api";
 import { buildDeviceMutationPayload, deviceToEditForm, type DeviceEditForm } from "../lib/device-form";
-import { deleteDevice, getDevices, updateDevice } from "../lib/synora-api";
+import { deleteDevice, getDevices, getStreams, updateDevice } from "../lib/synora-api";
 import { normalizeTopologyDevices } from "../lib/topology";
 import { getRoomLabel, getTopologyRooms } from "../lib/topology";
-import type { SynoraDevice } from "../lib/synora-types";
+import type { SynoraDevice, SynoraStreamDescriptor } from "../lib/synora-types";
 import type { TopologyDevice } from "../data/demo";
 
 type DeviceStatus = TopologyDevice["status"];
@@ -104,6 +104,7 @@ export function Devices() {
   const [editError, setEditError] = useState<string | null>(null);
   const [togglingDeviceID, setTogglingDeviceID] = useState<string | null>(null);
   const [enabledOverrides, setEnabledOverrides] = useState<Record<string, boolean>>({});
+  const [streams, setStreams] = useState<SynoraStreamDescriptor[]>([]);
 
   const data = useSynoraData();
   const auth = useAuth();
@@ -111,6 +112,7 @@ export function Devices() {
   const editRooms = useMemo(() => getTopologyRooms(data.topology), [data.topology]);
   const devices: TopologyDevice[] = normalizeTopologyDevices(data.devices, topology);
   const visibleDevices = devices;
+  useEffect(() => { void getStreams().then(setStreams).catch(() => setStreams([])); }, []);
 
   const filteredDevices = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -435,6 +437,7 @@ export function Devices() {
             const sourceDevice = data.devices.find((item) => item.id === device.id);
             const enabled = enabledOverrides[device.id] ?? device.enabled !== false;
             const toggling = togglingDeviceID === device.id;
+            const stream = streams.find((item) => item.device_id === device.id);
 
             return (
               <article className={`device-card device-${tone}`} key={device.id}>
@@ -471,6 +474,8 @@ export function Devices() {
                       .join(" · ")}
                   </div>
                 )}
+
+                {device.type === "camera" && <div className="device-card-details">{stream?.live_available ? <a href={stream.webrtc_url || stream.hls_url} target="_blank" rel="noreferrer">Live disponible</a> : "Live indisponible : WebRTC/HLS non configuré"}<br /><small>Publication RTSP : {stream?.rtsp_publish_url ?? `rtsp://10.77.0.1:8554/${device.id}`}</small></div>}
 
                 <div className="device-health">
                   <div className="device-health-row">

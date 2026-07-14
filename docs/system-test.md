@@ -59,6 +59,12 @@ Le script échoue notamment si :
 Discovery, Actions et MediaMTX peuvent être dégradés en mode normal. Utiliser
 `--strict-services` pour rendre les services optionnels bloquants.
 
+Le smoke test vérifie aussi `/api/streams` et la présence de SynoraNet dans
+`/api/system/health`. Un SynoraNet désactivé produit un `WARN` attendu et ne
+fait pas échouer un environnement sans carte Wi-Fi. Lorsque `enabled=true`,
+un statut AP `unavailable` produit un `FAIL`; un fallback 2,4 GHz est accepté
+comme `degraded` utilisable.
+
 ## Rapport JSON
 
 Chaque exécution écrit :

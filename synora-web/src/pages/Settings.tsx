@@ -1,8 +1,8 @@
-import { Plus, RefreshCw, RotateCcw, Send, ShieldAlert, Trash2 } from "lucide-react";
+import { Plus, RefreshCw, RotateCcw, Send, ShieldAlert, Trash2, Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { Panel } from "../components/Panel";
-import { getActionPolicy, resetActionPolicy, testAction, updateActionPolicy } from "../lib/synora-api";
+import { getActionPolicy, getSystemHealth, resetActionPolicy, testAction, updateActionPolicy } from "../lib/synora-api";
 import type { ActionPolicy, ActionPolicyEntry, DangerLevel } from "../lib/synora-types";
 
 const levels: DangerLevel[] = ["low", "medium", "medium_high", "high", "critical"];
@@ -22,12 +22,14 @@ export function Settings() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [health, setHealth] = useState<Record<string, unknown> | null>(null);
 
   async function load() {
     setBusy(true); setError(null);
     try { setPolicy(clonePolicy(await getActionPolicy())); } catch (cause) { setError(cause instanceof Error ? cause.message : "Policy indisponible."); } finally { setBusy(false); }
   }
   useEffect(() => { void load(); }, []);
+  useEffect(() => { void getSystemHealth().then(setHealth).catch(() => setHealth(null)); }, []);
 
   function updateLevel(level: DangerLevel, change: Partial<NonNullable<ActionPolicy["levels"][DangerLevel]>>) {
     setPolicy((current) => current ? { ...current, levels: { ...current.levels, [level]: { ...current.levels[level], ...change } } } : current);
@@ -65,10 +67,14 @@ export function Settings() {
 
   if (!policy) return <section className="page-placeholder"><h2>Actions & notifications</h2>{error ? <p className="auth-error">{error}</p> : <p>Chargement…</p>}</section>;
   const whatsapp = policy.notifications?.whatsapp;
+  const network = (health?.network ?? {}) as Record<string, any>;
+  const synoranet = (network.synoranet ?? {}) as Record<string, any>;
+  const activeBand = String(network.active_band ?? (synoranet.status === "disabled" ? "disabled" : "unknown"));
   return <div className="cge-page">
     <div className="cge-page-heading"><div className="cge-page-heading-icon"><ShieldAlert size={22} /></div><div><h2>Actions & notifications</h2><p>Les paliers rendent la réaction du moteur lisible ; les Automations restent prioritaires pour le contexte précis.</p></div></div>
     {!auth.isAdmin && <div className="readonly-label">Lecture seule — les réglages sont réservés aux administrateurs.</div>}
     {error && <div className="auth-error" role="alert">{error}</div>}{message && <div className="cge-success" role="status">{message}</div>}
+    <Panel title="SynoraNet"><div className="action-policy-whatsapp"><div><strong><Wifi size={15} /> {String((health?.network as any)?.gateway_ip ?? "10.77.0.1")}</strong><p>SSID : SynoraNet · Bande active : {activeBand === "2.4GHz" ? "2,4 GHz fallback" : activeBand}</p><small>DHCP 10.77.0.50–10.77.0.200 · HTTPS : {String((health?.components as any)?.https_api?.status ?? "unknown")} · RTSP : {String((health?.components as any)?.mediamtx_rtsp?.status ?? "unknown")}</small></div><div><span className={`badge ${activeBand === "2.4GHz" ? "warning" : activeBand === "disabled" ? "neutral" : "success"}`}>{synoranet.message ?? "État réseau indisponible"}</span></div></div></Panel>
     <Panel title="Paliers d’action" action={<div><button className="secondary-button" type="button" onClick={() => void load()} disabled={busy}><RefreshCw size={14} /> Actualiser</button> <button className="secondary-button" type="button" onClick={() => void reset()} disabled={busy || !auth.isAdmin}><RotateCcw size={14} /> Defaults sûrs</button></div>}>
       <p>Une policy propose et explique. Elle n’active pas automatiquement la sirène ; les actions physiques doivent être explicitement activées.</p>
       <div className="action-policy-levels">{levels.map((level) => { const item = policy.levels[level] ?? { danger_level: level, enabled: false, actions: [] }; return <section className="action-policy-level" key={level}><header><div><h3>{label(level)}</h3><small><code>{level}</code></small></div><label className="checkbox-line"><input type="checkbox" checked={item.enabled} disabled={!auth.isAdmin || busy} onChange={(event) => updateLevel(level, { enabled: event.target.checked })} /> Palier actif</label></header><div className="action-policy-actions">{item.actions.map((action, index) => <div className="action-policy-row" key={`${action.id}-${index}`}><input aria-label="Identifiant action" value={action.id} disabled={!auth.isAdmin || busy} onChange={(event) => updateAction(level, index, { id: event.target.value })} /><select aria-label="Commande action" value={action.command} disabled={!auth.isAdmin || busy} onChange={(event) => updateAction(level, index, { command: event.target.value })}>{commands.map((command) => <option key={command} value={command}>{command}</option>)}</select><input aria-label="Cible action" placeholder="cible" value={action.target ?? ""} disabled={!auth.isAdmin || busy} onChange={(event) => updateAction(level, index, { target: event.target.value })} /><input aria-label="Priorité action" type="number" min="0" max="100" value={action.priority} disabled={!auth.isAdmin || busy} onChange={(event) => updateAction(level, index, { priority: Number(event.target.value) })} /><input aria-label="Cooldown secondes" type="number" min="0" value={action.cooldown_seconds ?? 0} disabled={!auth.isAdmin || busy} onChange={(event) => updateAction(level, index, { cooldown_seconds: Number(event.target.value) })} /><label className="checkbox-line"><input type="checkbox" checked={action.enabled} disabled={!auth.isAdmin || busy} onChange={(event) => updateAction(level, index, { enabled: event.target.checked })} /> actif</label><button className="icon-button danger-icon" type="button" aria-label="Supprimer l’action" disabled={!auth.isAdmin || busy} onClick={() => removeAction(level, index)}><Trash2 size={15} /></button></div>)}{item.actions.length === 0 && <small>Aucune action proposée.</small>}</div><button className="secondary-button" type="button" disabled={!auth.isAdmin || busy} onClick={() => addAction(level)}><Plus size={14} /> Ajouter une action</button></section>; })}</div>

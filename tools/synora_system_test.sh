@@ -433,6 +433,61 @@ critical_endpoints() {
   request "${prefix} GET /api/events/chains" GET /api/events/chains 200 true || true
 }
 
+check_synoranet() {
+  local prefix="${1:-SynoraNet}" health_body enabled status band
+  request "${prefix} GET /api/system/health" GET /api/system/health 200 true || true
+  health_body="$LAST_BODY"
+  if [[ ! -s "$health_body" ]] || ! jq -e . "$health_body" >/dev/null 2>&1; then
+    record_check warn "${prefix} health" "$LAST_CODE" "$LAST_DURATION" "health response unavailable; AP diagnostics skipped" '{}' false
+    return
+  fi
+  enabled="$(jq -r '.network.enabled // false' "$health_body")"
+  status="$(jq -r '.network.synoranet.status // .network.status // "unknown"' "$health_body")"
+  band="$(jq -r '.network.active_band // ""' "$health_body")"
+  if [[ "$enabled" != "true" ]]; then
+    record_check warn "${prefix}" 200 "" "disabled; AP-specific checks skipped" "{\"status\":\"$status\"}" false
+    request "${prefix} GET /api/streams" GET /api/streams 200 true '' true || true
+    return
+  fi
+  if [[ "$status" != "ok" && "$status" != "degraded" ]]; then
+    record_check fail "${prefix} enabled health" 200 "" "enabled SynoraNet is unavailable" "{\"status\":\"$status\",\"active_band\":\"$band\"}" true
+  else
+    record_check pass "${prefix} enabled health" 200 "" "status=$status band=${band:-unknown}" "{\"status\":\"$status\",\"active_band\":\"$band\"}" false
+    check_synoranet_local "$prefix"
+  fi
+  request "${prefix} GET /api/streams" GET /api/streams 200 true '' true || true
+}
+
+check_synoranet_local() {
+  local prefix="${1:-SynoraNet}" port
+  [[ "$TARGET" == "local" ]] || return 0
+  if command -v ip >/dev/null 2>&1; then
+    if ip -4 addr show synorabr0 2>/dev/null | grep -q '10\.77\.0\.1/24'; then
+      record_check pass "${prefix} gateway IP" '' '' "10.77.0.1/24 on synorabr0" '{}' false
+    else
+      record_check fail "${prefix} gateway IP" '' '' "10.77.0.1/24 missing on synorabr0" '{}' true
+    fi
+  else
+    record_check warn "${prefix} gateway IP" '' '' "ip command unavailable" '{}' false
+  fi
+  for port in 8554 8443; do
+    if command -v nc >/dev/null 2>&1 && nc -z -w 2 127.0.0.1 "$port" >/dev/null 2>&1; then
+      record_check pass "${prefix} TCP port $port" '' '' "listening on localhost" '{}' false
+    elif timeout 2 bash -c "</dev/tcp/127.0.0.1/$port" >/dev/null 2>&1; then
+      record_check pass "${prefix} TCP port $port" '' '' "listening on localhost" '{}' false
+    else
+      record_check fail "${prefix} TCP port $port" '' '' "enabled SynoraNet service port is not reachable" '{}' true
+    fi
+  done
+  for process in hostapd dnsmasq; do
+    if command -v pgrep >/dev/null 2>&1 && pgrep -x "$process" >/dev/null 2>&1; then
+      record_check pass "${prefix} process $process" '' '' "process present" '{}' false
+    else
+      record_check fail "${prefix} process $process" '' '' "enabled SynoraNet process is not present" '{}' true
+    fi
+  done
+}
+
 check_runtime_status() {
   local body="$1"
   local mode armed occupancy danger score state score_present
@@ -724,6 +779,7 @@ fi
 
 check_services
 critical_endpoints "smoke"
+check_synoranet "SynoraNet"
 request "smoke GET /api/cge/runtime-status format source" GET /api/cge/runtime-status 200 true || true
 runtime_body="$LAST_BODY"
 request "smoke GET /api/events/chains format source" GET /api/events/chains 200 true || true

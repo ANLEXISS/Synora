@@ -52,8 +52,10 @@ rtspTransports: [tcp]
 # Disable unnecessary protocols (optional but cleaner)
 
 rtmp: no
-hls: no
-webrtc: no
+hls: yes
+hlsAddress: 0.0.0.0:8888
+webrtc: yes
+webrtcAddress: 0.0.0.0:8889
 srt: no
 
 ###############################################

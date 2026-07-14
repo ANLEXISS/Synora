@@ -27,6 +27,12 @@ Les variables `SYNORA_HTTP_ADDR`, `SYNORA_HTTPS_ENABLED`,
 `SYNORA_HTTPS_ADDR`, `SYNORA_TLS_CERT_FILE` et `SYNORA_TLS_KEY_FILE`
 permettent de surcharger la configuration au lancement.
 
+Pour SynoraNet, l'URL caméra est `https://10.77.0.1:8443`. Le certificat doit
+donc contenir `10.77.0.1` dans ses SAN ; pairing, claim, événements et les
+handlers API existants passent par cette adresse. L'ingress clip Discovery
+reste le endpoint HTTPS historique `https://10.77.0.1:7070/vision` tant qu'un
+reverse-proxy dédié n'est pas ajouté.
+
 ## Certificat local
 
 Depuis le repo :

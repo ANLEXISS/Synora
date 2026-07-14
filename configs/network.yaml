@@ -1,0 +1,37 @@
+# SynoraNet is the camera-only local network. The installer copies this file
+# to /etc/synora/network.yaml; the Wi-Fi PSK is generated in passphrase_file.
+synoranet:
+  enabled: true
+  interface: "wlan0"
+  ssid: "SynoraNet"
+  country_code: "FR"
+  subnet_cidr: "10.77.0.0/24"
+  gateway_ip: "10.77.0.1"
+  dhcp_start: "10.77.0.50"
+  dhcp_end: "10.77.0.200"
+  dhcp_lease_time: "12h"
+
+  dns:
+    enabled: true
+    names:
+      synora.local: "10.77.0.1"
+      hub.synora.local: "10.77.0.1"
+      api.synora.local: "10.77.0.1"
+      rtsp.synora.local: "10.77.0.1"
+
+  ap:
+    preferred_band: "5GHz"
+    fallback_band: "2.4GHz"
+    mode: "fallback"
+    channel_5ghz: 36
+    channel_2ghz: 6
+    width_5ghz: 40
+    hidden: false
+    wpa: "wpa2"
+    passphrase_file: "/etc/synora/secrets/synoranet_psk"
+
+  services:
+    https_api_url: "https://10.77.0.1:8443"
+    rtsp_url: "rtsp://10.77.0.1:8554"
+    webrtc_base_url: "http://10.77.0.1:8889"
+    hls_base_url: "http://10.77.0.1:8888"

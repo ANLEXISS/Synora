@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"synora/internal/discovery/network"
 	"synora/pkg/contract"
 )
 
@@ -59,9 +60,10 @@ type Config struct {
 	ProbeActions  func(context.Context) error
 	ProbeMediaMTX func(context.Context) error
 
-	ConfigDir   string
-	SnapshotDir string
-	DiskPath    string
+	ConfigDir         string
+	SnapshotDir       string
+	DiskPath          string
+	NetworkConfigPath string
 
 	Now func() time.Time
 }
@@ -72,9 +74,10 @@ type Manager struct {
 	probeActions  func(context.Context) error
 	probeMediaMTX func(context.Context) error
 
-	configDir   string
-	snapshotDir string
-	diskPath    string
+	configDir         string
+	snapshotDir       string
+	diskPath          string
+	networkConfigPath string
 
 	allowlist map[string]struct{}
 
@@ -100,6 +103,9 @@ func New(
 	if cfg.DiskPath == "" {
 		cfg.DiskPath = DefaultDiskPath
 	}
+	if cfg.NetworkConfigPath == "" {
+		cfg.NetworkConfigPath = network.DefaultConfigPath
+	}
 
 	if cfg.Now == nil {
 		cfg.Now = func() time.Time {
@@ -118,9 +124,10 @@ func New(
 		probeActions:  cfg.ProbeActions,
 		probeMediaMTX: cfg.ProbeMediaMTX,
 
-		configDir:   cfg.ConfigDir,
-		snapshotDir: cfg.SnapshotDir,
-		diskPath:    cfg.DiskPath,
+		configDir:         cfg.ConfigDir,
+		snapshotDir:       cfg.SnapshotDir,
+		diskPath:          cfg.DiskPath,
+		networkConfigPath: cfg.NetworkConfigPath,
 
 		allowlist: allowlist,
 
@@ -170,6 +177,32 @@ func (m *Manager) Health(
 	mediaMTX = m.mediaMTXServiceHealth(ctx, mediaMTX, now)
 	services["mediamtx"] = mediaMTX
 	components["mediamtx"] = mediaMTX
+	networkStatus := combinedStatus(hostapd, dnsmasq)
+	networkHealth := contract.RuntimeNetworkHealth{Status: networkStatus, HostAPD: hostapd, DNSMasq: dnsmasq, Details: map[string]contract.RuntimeServiceHealth{}}
+	networkHealth.Details["mediamtx_rtsp"] = contract.RuntimeServiceHealth{Name: "mediamtx_rtsp", Status: mediaMTX.Status, Active: mediaMTX.Active, Checked: now, Message: "RTSP endpoint 8554"}
+	networkHealth.Details["mediamtx_webrtc_hls"] = contract.RuntimeServiceHealth{Name: "mediamtx_webrtc_hls", Status: mediaMTX.Status, Active: mediaMTX.Active, Checked: now, Message: "browser live endpoints 8888/8889"}
+	networkHealth.Details["https_api"] = runtimeHTTPSHealth(now)
+	components["mediamtx_rtsp"] = networkHealth.Details["mediamtx_rtsp"]
+	components["mediamtx_webrtc_hls"] = networkHealth.Details["mediamtx_webrtc_hls"]
+	components["https_api"] = networkHealth.Details["https_api"]
+	snapshot, statusErr := network.LoadStatus(os.Getenv("SYNORA_NETWORK_STATUS_FILE"))
+	if statusErr != nil {
+		if cfg, configErr := network.LoadConfig(m.networkConfigPath); configErr == nil && !cfg.SynoraNet.Enabled {
+			disabled := network.RuntimePart{Status: "disabled", Message: "SynoraNet disabled"}
+			snapshot = network.Status{Status: "disabled", SynoraNet: disabled, AP5GHz: disabled, AP2GHz: disabled, DHCP: disabled, DNS: disabled}
+			statusErr = nil
+		}
+	}
+	if statusErr == nil {
+		networkHealth = mergeSynoraNetHealth(networkHealth, snapshot, now)
+		networkHealth.Details["https_api"] = runtimeHTTPSHealth(now)
+		networkHealth.Details["mediamtx_rtsp"] = contract.RuntimeServiceHealth{Name: "mediamtx_rtsp", Status: mediaMTX.Status, Active: mediaMTX.Active, Checked: now, Message: "RTSP endpoint 8554"}
+		networkHealth.Details["mediamtx_webrtc_hls"] = contract.RuntimeServiceHealth{Name: "mediamtx_webrtc_hls", Status: mediaMTX.Status, Active: mediaMTX.Active, Checked: now, Message: "browser live endpoints 8888/8889"}
+		for name, item := range networkHealth.Details {
+			components[name] = item
+		}
+		components["synoranet"] = networkHealth.SynoraNet
+	}
 	status := "ok"
 	for _, service := range services {
 		if !service.Active || (service.Status != "active" && service.Status != "ok") {
@@ -177,7 +210,7 @@ func (m *Manager) Health(
 			break
 		}
 	}
-	if hostapd.Status != "active" || dnsmasq.Status != "active" {
+	if networkHealth.Status != "ok" && networkHealth.Status != "disabled" {
 		status = "degraded"
 	}
 
@@ -189,15 +222,8 @@ func (m *Manager) Health(
 		Status:      status,
 		GeneratedAt: now,
 		Services:    services,
-		Network: contract.RuntimeNetworkHealth{
-			Status: combinedStatus(
-				hostapd,
-				dnsmasq,
-			),
-			HostAPD: hostapd,
-			DNSMasq: dnsmasq,
-		},
-		Components: components,
+		Network:     networkHealth,
+		Components:  components,
 		MediaMTX: contract.RuntimeMediaMTXHealth{
 			Status:  mediaMTX.Status,
 			Service: mediaMTX,
@@ -207,6 +233,61 @@ func (m *Manager) Health(
 		Timestamp: now,
 	}
 	return contract.NormalizeRuntimeHealth(health, now)
+}
+
+func runtimeHTTPSHealth(now time.Time) contract.RuntimeServiceHealth {
+	cert := os.Getenv("SYNORA_TLS_CERT_FILE")
+	key := os.Getenv("SYNORA_TLS_KEY_FILE")
+	if cert == "" {
+		cert = "/etc/synora/tls/synora.crt"
+	}
+	if key == "" {
+		key = "/etc/synora/tls/synora.key"
+	}
+	item := contract.RuntimeServiceHealth{Name: "https_api", Checked: now}
+	if _, certErr := os.Stat(cert); certErr != nil {
+		item.Status, item.Message = "degraded", "HTTPS configured but local certificate is missing"
+		return item
+	}
+	if _, keyErr := os.Stat(key); keyErr != nil {
+		item.Status, item.Message = "degraded", "HTTPS configured but local key is missing"
+		return item
+	}
+	item.Status, item.Active, item.Message = "ok", true, "HTTPS API available on 8443"
+	return item
+}
+
+func mergeSynoraNetHealth(base contract.RuntimeNetworkHealth, snapshot network.Status, now time.Time) contract.RuntimeNetworkHealth {
+	part := func(name string, value network.RuntimePart) contract.RuntimeServiceHealth {
+		status := value.Status
+		if status == "" {
+			status = "unavailable"
+		}
+		return contract.RuntimeServiceHealth{Name: name, Status: status, Active: value.Active, Checked: now, Message: value.Message}
+	}
+	base.SynoraNet = part("synoranet", snapshot.SynoraNet)
+	base.Enabled = snapshot.Enabled
+	base.AP5GHz = part("ap_5ghz", snapshot.AP5GHz)
+	base.AP2GHz = part("ap_2ghz", snapshot.AP2GHz)
+	base.DHCP = part("dhcp", snapshot.DHCP)
+	base.DNS = part("dns", snapshot.DNS)
+	base.ActiveBand = snapshot.ActiveBand
+	base.GatewayIP = "10.77.0.1"
+	base.Details["synoranet"] = base.SynoraNet
+	base.Details["ap_5ghz"] = base.AP5GHz
+	base.Details["ap_2ghz"] = base.AP2GHz
+	base.Details["dhcp"] = base.DHCP
+	base.Details["dns"] = base.DNS
+	base.Details["https_api"] = part("https_api", snapshot.HTTPSAPI)
+	base.Details["mediamtx_rtsp"] = part("mediamtx_rtsp", snapshot.MediaMTX)
+	base.Status = snapshot.Status
+	if base.Status == "" {
+		base.Status = "degraded"
+	}
+	if !snapshot.Enabled {
+		base.Status = "disabled"
+	}
+	return base
 }
 
 func (m *Manager) RestartService(

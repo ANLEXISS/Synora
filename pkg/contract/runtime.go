@@ -45,10 +45,18 @@ type RuntimeServiceHealth struct {
 }
 
 type RuntimeNetworkHealth struct {
-	Status  string                          `json:"status"`
-	HostAPD RuntimeServiceHealth            `json:"hostapd"`
-	DNSMasq RuntimeServiceHealth            `json:"dnsmasq"`
-	Details map[string]RuntimeServiceHealth `json:"details,omitempty"`
+	Enabled    bool                            `json:"enabled"`
+	Status     string                          `json:"status"`
+	HostAPD    RuntimeServiceHealth            `json:"hostapd"`
+	DNSMasq    RuntimeServiceHealth            `json:"dnsmasq"`
+	SynoraNet  RuntimeServiceHealth            `json:"synoranet"`
+	AP5GHz     RuntimeServiceHealth            `json:"ap_5ghz"`
+	AP2GHz     RuntimeServiceHealth            `json:"ap_2ghz"`
+	DHCP       RuntimeServiceHealth            `json:"dhcp"`
+	DNS        RuntimeServiceHealth            `json:"dns"`
+	ActiveBand string                          `json:"active_band,omitempty"`
+	GatewayIP  string                          `json:"gateway_ip,omitempty"`
+	Details    map[string]RuntimeServiceHealth `json:"details,omitempty"`
 }
 
 type RuntimeMediaMTXHealth struct {
@@ -189,6 +197,21 @@ func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
 	}
 	if health.Network.DNSMasq.Name == "" {
 		health.Network.DNSMasq = unavailableRuntimeService("dnsmasq", now, "network health unavailable")
+	}
+	if health.Network.SynoraNet.Name == "" {
+		health.Network.SynoraNet = unavailableRuntimeService("synoranet", now, "SynoraNet status unavailable")
+	}
+	if health.Network.AP5GHz.Name == "" {
+		health.Network.AP5GHz = unavailableRuntimeService("ap_5ghz", now, "5 GHz AP status unavailable")
+	}
+	if health.Network.AP2GHz.Name == "" {
+		health.Network.AP2GHz = unavailableRuntimeService("ap_2ghz", now, "2.4 GHz AP status unavailable")
+	}
+	if health.Network.DHCP.Name == "" {
+		health.Network.DHCP = unavailableRuntimeService("dhcp", now, "DHCP status unavailable")
+	}
+	if health.Network.DNS.Name == "" {
+		health.Network.DNS = unavailableRuntimeService("dns", now, "DNS status unavailable")
 	}
 	if health.Network.Status == "" || health.Network.Status == "unknown" {
 		health.Network.Status = combinedRuntimeStatus(health.Network.HostAPD, health.Network.DNSMasq)
