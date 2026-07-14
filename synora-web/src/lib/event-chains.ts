@@ -110,6 +110,12 @@ function normalizeChainEvaluation(raw: unknown) {
     reasons: normalizeStringArray(source.reasons),
     hypotheses: normalizeStringArray(source.hypotheses),
     recommended_actions: normalizeStringArray(source.recommended_actions),
+    recommended_actions_from_cge: normalizeStringArray(source.recommended_actions_from_cge),
+    recommended_actions_from_policy: normalizeStringArray(source.recommended_actions_from_policy),
+    policy_actions: Array.isArray(source.policy_actions) ? source.policy_actions as ChainEvaluation["policy_actions"] : [],
+    final_action_plan: Array.isArray(source.final_action_plan) ? source.final_action_plan as ChainEvaluation["final_action_plan"] : [],
+    action_decision_reason: normalizeString(source.action_decision_reason),
+    blocked_actions: normalizeStringArray(source.blocked_actions),
     engine_version: normalizeString(source.engine_version),
   };
 }

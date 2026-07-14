@@ -1,6 +1,7 @@
 package cge
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -54,5 +55,23 @@ func TestFeedbackStoreRejectsUnknownPreferredAction(t *testing.T) {
 		PreferredActions: []string{"rewrite_engine"},
 	}); err == nil {
 		t.Fatal("unknown preferred action should be rejected")
+	}
+}
+
+func TestFeedbackStoreAcceptsStructuredSuggestedActionsAndLegacyStrings(t *testing.T) {
+	var feedback contract.CgeChainFeedback
+	if err := json.Unmarshal([]byte(`{"chain_id":"chain-1","correction_type":"reaction_too_weak","scope":"apply_to_similar_future_chains","preferred_actions":[{"command":"notify.whatsapp","target":"owner","enabled":true}],"blocked_actions":[{"command":"siren","reason":"too_aggressive"}]}`), &feedback); err != nil {
+		t.Fatal(err)
+	}
+	if len(feedback.PreferredActionDetails) != 1 || feedback.PreferredActions[0] != "notify.whatsapp" || len(feedback.BlockedActions) != 1 {
+		t.Fatalf("structured feedback not normalized: %#v", feedback)
+	}
+	store := NewFeedbackStore(filepath.Join(t.TempDir(), "feedback.json"))
+	created, err := store.AddChain(feedback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(created.PreferredActions) != 1 {
+		t.Fatalf("legacy-compatible action missing: %#v", created)
 	}
 }

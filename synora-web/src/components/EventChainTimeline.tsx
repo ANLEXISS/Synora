@@ -223,6 +223,10 @@ function EventEvaluation({ evaluation }: { evaluation?: ChainEvaluation }) {
       <div className="event-evaluation-state"><span>État</span><strong>{stateLabel(evaluation.state)}</strong></div>
       {evaluation.reasons && evaluation.reasons.length > 0 && <div><h4>Raisons moteur</h4><ul>{evaluation.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div>}
       {evaluation.recommended_actions && evaluation.recommended_actions.length > 0 && <div><h4>Actions recommandées</h4><ul>{evaluation.recommended_actions.map((action) => <li key={action}>{action}</li>)}</ul></div>}
+      {evaluation.recommended_actions_from_policy && evaluation.recommended_actions_from_policy.length > 0 && <div><h4>Plan proposé par l’Action Policy</h4><ul>{evaluation.recommended_actions_from_policy.map((action) => <li key={action}>{action}</li>)}</ul></div>}
+      {evaluation.final_action_plan && evaluation.final_action_plan.length > 0 && <div><h4>Plan final</h4><ul>{evaluation.final_action_plan.map((action, index) => <li key={`${action.command}-${index}`}><strong>{action.command}</strong> → {action.target || "—"} <small>({action.source}, priorité {action.priority})</small></li>)}</ul></div>}
+      {evaluation.blocked_actions && evaluation.blocked_actions.length > 0 && <div><h4>Actions bloquées</h4><ul>{evaluation.blocked_actions.map((action) => <li key={action}>{action}</li>)}</ul></div>}
+      {evaluation.action_decision_reason && <p><small>Pourquoi : {evaluation.action_decision_reason}</small></p>}
     </section>
   );
 }

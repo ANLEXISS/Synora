@@ -14,6 +14,7 @@ type feedbackHint struct {
 	correctedState   string
 	correctedLevel   contract.DangerLevel
 	preferredActions []string
+	blockedActions   []contract.CgeBlockedAction
 }
 
 func (e *Engine) SetSecurityProfile(profile *contract.CgeSecurityProfile) {
@@ -63,6 +64,7 @@ func (e *Engine) AddEvaluationFeedback(feedback contract.CgeEvaluationFeedback, 
 			correctedState:   feedback.CorrectedState,
 			correctedLevel:   feedback.CorrectedDangerLevel,
 			preferredActions: append([]string(nil), feedback.PreferredActions...),
+			blockedActions:   append([]contract.CgeBlockedAction(nil), feedback.BlockedActions...),
 		})
 		if len(e.feedbackHints) > 200 {
 			e.feedbackHints = e.feedbackHints[len(e.feedbackHints)-200:]
@@ -91,6 +93,7 @@ func (e *Engine) AddChainFeedback(feedback contract.CgeChainFeedback, chain *con
 			correctionType:   feedback.CorrectionType,
 			correctedLevel:   feedback.CorrectedFinalDangerLevel,
 			preferredActions: append([]string(nil), feedback.PreferredActions...),
+			blockedActions:   append([]contract.CgeBlockedAction(nil), feedback.BlockedActions...),
 		})
 	}
 	if len(e.feedbackHints) > 200 {
@@ -168,6 +171,12 @@ func (e *Engine) applyFeedbackHint(event *contract.Event, result *Result) {
 			continue
 		}
 		assessment.RecommendedSystemActions = append(assessment.RecommendedSystemActions, contract.SystemActionRecommendation{Type: action, Target: event.NodeID, Reason: "admin_feedback_applied"})
+	}
+	for _, action := range matched.blockedActions {
+		if strings.TrimSpace(action.Command) == "" {
+			continue
+		}
+		decision.BlockedActions = appendUnique(decision.BlockedActions, action.Command+":"+action.Reason)
 	}
 }
 

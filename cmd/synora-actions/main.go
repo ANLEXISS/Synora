@@ -11,6 +11,7 @@ import (
 	"synora/internal/actions/devicecmd"
 	actionmqtt "synora/internal/actions/mqtt"
 	actionrecorder "synora/internal/actions/recorder"
+	actionwhatsapp "synora/internal/actions/whatsapp"
 	"synora/internal/bus"
 	"synora/pkg/contract"
 )
@@ -38,6 +39,10 @@ func main() {
 	}
 
 	mqttAdapter := actionmqtt.Adapter{}
+	whatsappAdapter := actionwhatsapp.Adapter{Config: actionwhatsapp.ConfigFromEnv()}
+	if whatsappAdapter.Config.Enabled {
+		log.Printf("actions: whatsapp provider enabled dry_run=%t", whatsappAdapter.Config.DryRun)
+	}
 	if broker := os.Getenv("SYNORA_ACTIONS_MQTT_BROKER"); broker != "" {
 		publisher, err := actionmqtt.NewPahoPublisher(
 			broker,
@@ -57,6 +62,7 @@ func main() {
 			MQTT:      mqttAdapter,
 			DeviceCmd: devicecmd.Adapter{},
 			Recorder:  actionrecorder.Adapter{},
+			WhatsApp:  whatsappAdapter,
 			Fallback:  actions.DryRunExecutor{Adapter: "dry_run"},
 		},
 		Deduper: actions.NewDeduper(),

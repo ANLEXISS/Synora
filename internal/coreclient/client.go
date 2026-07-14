@@ -129,6 +129,46 @@ func (c *Client) UpdateCGESecurityProfile(data json.RawMessage) (map[string]any,
 	return result, nil
 }
 
+func (c *Client) ActionPolicy() (map[string]any, error) {
+	var result map[string]any
+	if err := c.call("actions.policy", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) UpdateActionPolicy(data json.RawMessage) (map[string]any, error) {
+	var result map[string]any
+	if err := c.callRaw("actions.policy.update", data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) ResetActionPolicy() (map[string]any, error) {
+	var result map[string]any
+	if err := c.call("actions.policy.reset", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) ActionCatalog() ([]map[string]any, error) {
+	var result []map[string]any
+	if err := c.call("actions.catalog", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) TestAction(data json.RawMessage) (map[string]any, error) {
+	var result map[string]any
+	if err := c.callRaw("actions.test", data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (c *Client) SubmitCgeEvaluationFeedback(data json.RawMessage) (map[string]any, error) {
 	var result map[string]any
 	if err := c.callRaw("cge.feedback.evaluation", data, &result); err != nil {

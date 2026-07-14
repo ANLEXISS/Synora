@@ -29,3 +29,20 @@ Les anciens champs (`corrected_state`, `corrected_danger_level`, `final_outcome`
 ## Simulations
 
 Les simulations restent visibles dans Live CGE avec leur badge `Simulation`. Les mémoires critiques exposent `source` (`real`, `simulation` ou `mixed`) ainsi que les compteurs réel/simulation. L’onglet Chaînes connues masque les mémoires uniquement simulées par défaut ; le filtre « Inclure les simulations » permet de les afficher.
+## Réaction suggérée
+
+Une correction peut conserver l’ancien format `preferred_actions: string[]` et accepter en plus :
+
+```json
+{
+  "preferred_action_details": [
+    {"command": "notify.whatsapp", "target": "owner", "enabled": true},
+    {"command": "record.clip", "target": "primary_device", "enabled": true}
+  ],
+  "blocked_actions": [
+    {"command": "siren", "reason": "too_aggressive_for_this_case"}
+  ]
+}
+```
+
+Les deux formats sont normalisés sans casser les anciens feedbacks. Pour une portée `apply_to_similar_future_chains`, les commandes préférées alimentent la mémoire de chaîne et les commandes bloquées sont conservées avec leur raison. L’UI CGE permet de choisir des commandes comme `notify.whatsapp`, `record.clip` et `mark_intrusion_candidate`.

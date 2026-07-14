@@ -38,6 +38,10 @@ const actionOptions: Array<{ value: CgePreferredAction; label: string }> = [
   { value: "request_user_validation", label: "Demander validation utilisateur" },
   { value: "ignore_pattern", label: "Ignorer ce pattern" },
   { value: "activate_related_automation", label: "Activer une automation liée" },
+  { value: "notify.whatsapp", label: "Suggérer notify.whatsapp" },
+  { value: "record.clip", label: "Suggérer record.clip" },
+  { value: "mark_intrusion_candidate", label: "Marquer candidat intrusion" },
+  { value: "store_evidence", label: "Conserver la preuve" },
 ];
 
 const actionLabels = Object.fromEntries(actionOptions.map((item) => [item.value, item.label])) as Record<CgePreferredAction, string>;
@@ -88,7 +92,7 @@ export function CgeFeedbackBuilder({
     setSaving(true);
     setError(null);
     try {
-      const common = { correction_type: correctionType, scope, preferred_actions: actions, admin_note: adminNote.trim() || undefined };
+      const common = { correction_type: correctionType, scope, preferred_actions: actions, preferred_action_details: actions.map((command) => ({ command, target: command.includes("notify") ? "owner" : undefined, enabled: true })), admin_note: adminNote.trim() || undefined };
       if (mode === "evaluation") {
         await onSubmit({ ...common, chain_id: chainId, event_id: eventId as string, evaluation_index: evaluationIndex });
       } else {

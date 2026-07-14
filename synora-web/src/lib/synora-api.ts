@@ -26,8 +26,29 @@ import type {
   CgeValidationEventPayload,
   CgeValidationHistoryItem,
   ResidentCreatePayload,
-  ResidentMutationPayload,
+	ResidentMutationPayload,
+	ActionPolicy,
 } from "./synora-types";
+
+export function getActionPolicy(signal?: AbortSignal) {
+	return synoraFetch<ActionPolicy>("/api/actions/policy", { signal });
+}
+
+export function updateActionPolicy(policy: ActionPolicy) {
+	return synoraFetch<ActionPolicy>("/api/actions/policy", { method: "PATCH", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ levels: policy.levels }) });
+}
+
+export function resetActionPolicy() {
+	return synoraFetch<ActionPolicy>("/api/actions/policy/reset", { method: "POST", cache: "no-store" });
+}
+
+export function getActionCatalog(signal?: AbortSignal) {
+	return synoraFetch<Array<Record<string, unknown>>>("/api/actions/catalog", { signal });
+}
+
+export function testAction(payload: { command: string; target?: string; message?: string; template?: string; dry_run: boolean }) {
+	return synoraFetch<Record<string, unknown>>("/api/actions/test", { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
 
 export type SynoraCameraQRPayload = {
   type: "synora.camera";

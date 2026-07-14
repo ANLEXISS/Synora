@@ -114,3 +114,6 @@ Ce harnais complète les tests unitaires et les builds ; il ne les remplace pas.
 Il ne remplace pas non plus une vraie passe de charge longue durée, une analyse
 de crash/restart, ni les tests dédiés du pipeline vision Python, qui sont
 explicitement exclus.
+## Action Policy et WhatsApp
+
+Après authentification admin, vérifier `GET /api/actions/policy`, notamment les six niveaux et `critical.actions` avec `siren.enabled=false`. Tester ensuite `POST /api/actions/test` avec `dry_run=true`; la réponse ne doit contenir aucun token et le numéro doit être masqué. Le mode actif ne doit être testé qu’après configuration explicite du provider WhatsApp et d’un template approuvé.

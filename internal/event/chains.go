@@ -291,6 +291,12 @@ func (m *ChainManager) ApplyChainFeedback(chainID string, feedback contract.CgeC
 	for _, action := range feedback.PreferredActions {
 		memory.RecommendedActions = appendUniqueString(memory.RecommendedActions, action)
 	}
+	for _, action := range feedback.PreferredActionDetails {
+		memory.RecommendedActions = appendUniqueString(memory.RecommendedActions, action.Command)
+	}
+	for _, action := range feedback.BlockedActions {
+		memory.BlockedActions = appendUniqueString(memory.BlockedActions, action.Command+":"+action.Reason)
+	}
 	switch outcome {
 	case contract.CgeOutcomeFalsePositive, contract.CgeOutcomeNormal:
 		memory.Confidence = maxFloat(0, memory.Confidence*0.8)
@@ -985,6 +991,11 @@ func cloneChain(value *contract.EventChain) *contract.EventChain {
 		cloned.Evaluations[i].Reasons = append([]string(nil), value.Evaluations[i].Reasons...)
 		cloned.Evaluations[i].Hypotheses = append([]string(nil), value.Evaluations[i].Hypotheses...)
 		cloned.Evaluations[i].RecommendedActions = append([]string(nil), value.Evaluations[i].RecommendedActions...)
+		cloned.Evaluations[i].RecommendedActionsFromCGE = append([]string(nil), value.Evaluations[i].RecommendedActionsFromCGE...)
+		cloned.Evaluations[i].RecommendedActionsFromPolicy = append([]string(nil), value.Evaluations[i].RecommendedActionsFromPolicy...)
+		cloned.Evaluations[i].PolicyActions = append([]contract.PolicyActionDecision(nil), value.Evaluations[i].PolicyActions...)
+		cloned.Evaluations[i].FinalActionPlan = append([]contract.ActionPlanItem(nil), value.Evaluations[i].FinalActionPlan...)
+		cloned.Evaluations[i].BlockedActions = append([]string(nil), value.Evaluations[i].BlockedActions...)
 	}
 	if value.Compaction != nil {
 		compaction := *value.Compaction
@@ -1006,6 +1017,7 @@ func cloneMemory(value *contract.CriticalChainMemory) *contract.CriticalChainMem
 	cloned.TypicalStatePath = append([]string{}, cloned.TypicalStatePath...)
 	cloned.TypicalDangerPath = append([]string{}, cloned.TypicalDangerPath...)
 	cloned.RecommendedActions = append([]string{}, cloned.RecommendedActions...)
+	cloned.BlockedActions = append([]string{}, cloned.BlockedActions...)
 	cloned.ActionsTaken = append([]string{}, cloned.ActionsTaken...)
 	cloned.Outcomes = append([]string{}, cloned.Outcomes...)
 	return &cloned

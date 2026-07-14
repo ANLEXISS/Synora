@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"synora/internal/actionpolicy"
 	"synora/internal/automation"
 	"synora/internal/bus"
 	"synora/internal/cge"
@@ -30,6 +31,7 @@ const (
 	developmentCGECriticalChainsPath = "configs/cge_critical_chains.yaml"
 	defaultCGEProfilePath            = "/etc/synora/cge_profile.yaml"
 	defaultCGEFeedbackPath           = "/var/lib/synora/cge/feedback.json"
+	defaultActionPolicyPath          = "/etc/synora/action_policy.yaml"
 )
 
 type coreMetrics struct {
@@ -49,6 +51,7 @@ type coreApp struct {
 	bus        coreBus
 	engine     *engine.Engine
 	automation *automation.Engine
+	policy     *actionpolicy.Store
 	device     *device.Registry
 
 	topology  *topology.Topology
@@ -86,6 +89,7 @@ func main() {
 	securityPath := getenv("SYNORA_SECURITY", "/etc/synora/security.yaml")
 	cgeProfilePath := getenv("SYNORA_CGE_PROFILE", defaultCGEProfilePath)
 	cgeFeedbackPath := getenv("SYNORA_CGE_FEEDBACK", defaultCGEFeedbackPath)
+	actionPolicyPath := getenv("SYNORA_ACTION_POLICY", defaultActionPolicyPath)
 	statePath := getenv("SYNORA_STATE_PATH", "")
 	if statePath == "" {
 		statePath = state.DefaultStatePath()
@@ -144,12 +148,17 @@ func main() {
 	if err := feedbackStore.Load(); err != nil {
 		log.Println("cge feedback load warning:", err)
 	}
+	policyStore := actionpolicy.NewStore(actionPolicyPath)
+	if err := policyStore.Load(); err != nil {
+		log.Println("action policy load warning:", err)
+	}
 	rateController := eventpkg.NewRateController(2*time.Second, 750*time.Millisecond)
 
 	app := &coreApp{
 		bus:          busClient,
 		engine:       engineInstance,
 		automation:   automationEngine,
+		policy:       policyStore,
 		device:       deviceRegistry,
 		topology:     topologyInstance,
 		residents:    residents,
@@ -190,26 +199,28 @@ func main() {
 		Normal: app.normalQueue,
 	}
 	app.rpc = corerpc.NewServer(corerpc.Config{
-		Bus:            app.bus,
-		State:          app.state,
-		Events:         app.eventStore,
-		Chains:         app.chains,
-		Devices:        app.device,
-		Automation:     app.automation,
-		Snapshot:       app.snapshotBuilder,
-		Metrics:        app.metrics,
-		TopologyPath:   topologyPath,
-		ResidentsPath:  residentsPath,
-		DevicePath:     devicePath,
-		AutomationPath: automationPath,
-		SecurityPath:   securityPath,
-		CGEProfile:     profileStore,
-		CGEFeedback:    feedbackStore,
-		PublishEvent:   app.publishEvent,
-		UpdateTopology: app.setTopology,
-		CGE:            app.engine,
-		NotifyMutation: app.notifyConfigMutation,
-		IngestEvent:    app.ingestRuntimeEvent,
+		Bus:              app.bus,
+		State:            app.state,
+		Events:           app.eventStore,
+		Chains:           app.chains,
+		Devices:          app.device,
+		Automation:       app.automation,
+		Snapshot:         app.snapshotBuilder,
+		Metrics:          app.metrics,
+		TopologyPath:     topologyPath,
+		ResidentsPath:    residentsPath,
+		DevicePath:       devicePath,
+		AutomationPath:   automationPath,
+		SecurityPath:     securityPath,
+		CGEProfile:       profileStore,
+		CGEFeedback:      feedbackStore,
+		ActionPolicy:     policyStore,
+		ActionDispatcher: app.actionDispatcher,
+		PublishEvent:     app.publishEvent,
+		UpdateTopology:   app.setTopology,
+		CGE:              app.engine,
+		NotifyMutation:   app.notifyConfigMutation,
+		IngestEvent:      app.ingestRuntimeEvent,
 	})
 
 	app.seedState()
@@ -446,6 +457,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 		a.syncResidentPresence(presence)
 	}
 	a.applyAutomationContext(event)
+	a.applyActionPolicy(event, result)
 
 	if (result != nil && result.Decision != nil) || event.Type == contract.EventSecurityModeChanged {
 		decision := (*contract.Decision)(nil)
@@ -456,7 +468,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 			decision = a.automationContextDecision(event)
 		}
 		requests := a.automation.EvaluateRequests(event, decision)
-		if result != nil && result.Decision != nil && len(requests) == 0 && result.DangerAssessment != nil && result.DangerAssessment.Level >= 3 {
+		if result != nil && result.Decision != nil && len(requests) == 0 && !hasPolicyPlan(result.Decision) && result.DangerAssessment != nil && result.DangerAssessment.Level >= 3 {
 			result.Decision.ActionDecision = "blocked"
 			result.Decision.BlockedActions = appendUniqueString(result.Decision.BlockedActions, "no_matching_automation")
 			if eventIsSimulated(event) {
@@ -464,6 +476,9 @@ func (a *coreApp) processEvent(event *contract.Event) {
 			}
 			log.Printf("core: action blocked event_id=%s reason=%s", event.ID, strings.Join(result.Decision.BlockedActions, ","))
 		} else if len(requests) > 0 {
+			if result != nil {
+				appendAutomationPlan(result.Decision, requests)
+			}
 			if result != nil && result.Decision != nil {
 				result.Decision.ActionDecision = "requested"
 			}
@@ -1010,6 +1025,11 @@ func chainEvaluation(event *contract.Event, result *engine.Result) *contract.Cha
 	}
 	evaluation.ActionDecision = result.Decision.ActionDecision
 	evaluation.BlockedActions = append([]string(nil), result.Decision.BlockedActions...)
+	evaluation.RecommendedActionsFromCGE = append([]string(nil), result.Decision.RecommendedActionsFromCGE...)
+	evaluation.RecommendedActionsFromPolicy = append([]string(nil), result.Decision.RecommendedActionsFromPolicy...)
+	evaluation.PolicyActions = append([]contract.PolicyActionDecision(nil), result.Decision.PolicyActions...)
+	evaluation.FinalActionPlan = append([]contract.ActionPlanItem(nil), result.Decision.FinalActionPlan...)
+	evaluation.ActionDecisionReason = result.Decision.ActionDecisionReason
 	if len(evaluation.Reasons) == 1 && evaluation.Reasons[0] == "" {
 		evaluation.Reasons = nil
 	}

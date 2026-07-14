@@ -12,6 +12,7 @@ type Router struct {
 	MQTT      Executor
 	DeviceCmd Executor
 	Recorder  Executor
+	WhatsApp  Executor
 	Fallback  Executor
 }
 
@@ -37,9 +38,16 @@ func (r Router) executorFor(action contract.Action) Executor {
 		return r.Recorder
 	case isMQTTAction(action):
 		return r.MQTT
+	case isWhatsAppAction(action):
+		return r.WhatsApp
 	default:
 		return r.Fallback
 	}
+}
+
+func isWhatsAppAction(action contract.Action) bool {
+	actionType := strings.ToLower(strings.TrimSpace(action.Type))
+	return actionType == "notify.whatsapp" || actionType == "notify_owner_whatsapp"
 }
 
 func isRecorderAction(action contract.Action) bool {

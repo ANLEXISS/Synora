@@ -74,6 +74,9 @@ func (s *FeedbackStore) AddEvaluation(value contract.CgeEvaluationFeedback) (con
 	if err := validatePreferredActions(value.PreferredActions); err != nil {
 		return contract.CgeEvaluationFeedback{}, err
 	}
+	if err := validateActionDetails(value.PreferredActionDetails, value.BlockedActions); err != nil {
+		return contract.CgeEvaluationFeedback{}, err
+	}
 	value.ID = idgen.New("cge-feedback")
 	value.CreatedAt = time.Now().UTC()
 	s.mu.Lock()
@@ -102,6 +105,9 @@ func (s *FeedbackStore) AddChain(value contract.CgeChainFeedback) (contract.CgeC
 	if err := validatePreferredActions(value.PreferredActions); err != nil {
 		return contract.CgeChainFeedback{}, err
 	}
+	if err := validateActionDetails(value.PreferredActionDetails, value.BlockedActions); err != nil {
+		return contract.CgeChainFeedback{}, err
+	}
 	switch value.FinalOutcome {
 	case contract.CgeOutcomeNormal, contract.CgeOutcomeFalsePositive, contract.CgeOutcomeRealIncident, contract.CgeOutcomeUncertain:
 	case "":
@@ -125,6 +131,13 @@ func normalizeEvaluation(value contract.CgeEvaluationFeedback) contract.CgeEvalu
 		value.Scope = contract.CgeFeedbackCaseOnly
 	}
 	value.PreferredActions = append([]string{}, value.PreferredActions...)
+	value.PreferredActionDetails = append([]contract.CgePreferredActionSpec{}, value.PreferredActionDetails...)
+	value.BlockedActions = append([]contract.CgeBlockedAction{}, value.BlockedActions...)
+	for _, action := range value.PreferredActionDetails {
+		if strings.TrimSpace(action.Command) != "" && !containsString(value.PreferredActions, action.Command) {
+			value.PreferredActions = append(value.PreferredActions, action.Command)
+		}
+	}
 	value.AdminNote = strings.TrimSpace(value.AdminNote)
 	if value.AdminNote == "" {
 		value.AdminNote = strings.TrimSpace(value.Note)
@@ -158,6 +171,13 @@ func normalizeChain(value contract.CgeChainFeedback) contract.CgeChainFeedback {
 		}
 	}
 	value.PreferredActions = append([]string{}, value.PreferredActions...)
+	value.PreferredActionDetails = append([]contract.CgePreferredActionSpec{}, value.PreferredActionDetails...)
+	value.BlockedActions = append([]contract.CgeBlockedAction{}, value.BlockedActions...)
+	for _, action := range value.PreferredActionDetails {
+		if strings.TrimSpace(action.Command) != "" && !containsString(value.PreferredActions, action.Command) {
+			value.PreferredActions = append(value.PreferredActions, action.Command)
+		}
+	}
 	value.AdminNote = strings.TrimSpace(value.AdminNote)
 	if value.AdminNote == "" {
 		value.AdminNote = strings.TrimSpace(value.Note)
@@ -201,11 +221,44 @@ func validatePreferredActions(actions []string) error {
 			contract.CgeActionLockEvidence, contract.CgeActionCreateAlert,
 			contract.CgeActionRequestUserValidation, contract.CgeActionIgnorePattern,
 			contract.CgeActionActivateRelatedAutomation:
+		case "notify.whatsapp", "record.clip", "mark_intrusion_candidate", "increase_retention", "store_evidence", "siren":
 		default:
 			return errors.New("invalid preferred_actions entry")
 		}
 	}
 	return nil
+}
+
+func validateActionDetails(actions []contract.CgePreferredActionSpec, blocked []contract.CgeBlockedAction) error {
+	if len(actions) > 20 {
+		return errors.New("preferred_action_details cannot contain more than 20 actions")
+	}
+	for _, action := range actions {
+		if strings.TrimSpace(action.Command) == "" {
+			return errors.New("preferred action command is required")
+		}
+		if len(action.Command) > 128 || len(action.Target) > 128 {
+			return errors.New("preferred action is too long")
+		}
+	}
+	if len(blocked) > 20 {
+		return errors.New("blocked_actions cannot contain more than 20 actions")
+	}
+	for _, action := range blocked {
+		if strings.TrimSpace(action.Command) == "" || strings.TrimSpace(action.Reason) == "" {
+			return errors.New("blocked action command and reason are required")
+		}
+	}
+	return nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *FeedbackStore) List(chainID string) []map[string]any {

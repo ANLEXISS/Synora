@@ -7084,3 +7084,14 @@ button {
     grid-template-columns: 1fr;
   }
 }
+/* Action Policy */
+.action-policy-levels { display: grid; gap: 1rem; }
+.action-policy-level { border: 1px solid var(--border, #d8dee8); border-radius: 12px; padding: 1rem; }
+.action-policy-level > header, .action-policy-whatsapp { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.action-policy-level h3 { margin: 0; }
+.action-policy-actions { display: grid; gap: .5rem; margin: .85rem 0; }
+.action-policy-row { display: grid; grid-template-columns: 1.1fr 1.4fr 1fr .7fr .8fr auto auto; gap: .45rem; align-items: center; }
+.action-policy-row input, .action-policy-row select { min-width: 0; }
+.action-policy-whatsapp { padding: 1rem; border: 1px solid var(--border, #d8dee8); border-radius: 12px; }
+.action-policy-whatsapp p { margin: .35rem 0; }
+@media (max-width: 900px) { .action-policy-row { grid-template-columns: 1fr 1fr; } .action-policy-whatsapp { align-items: flex-start; flex-direction: column; } }

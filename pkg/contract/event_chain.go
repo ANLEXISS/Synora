@@ -44,18 +44,23 @@ type PublicEvent struct {
 }
 
 type ChainEvaluation struct {
-	Index              int       `json:"index"`
-	EventID            string    `json:"event_id"`
-	Timestamp          time.Time `json:"timestamp"`
-	State              string    `json:"state,omitempty"`
-	DangerLevel        string    `json:"danger_level"`
-	DangerScore        float64   `json:"danger_score"`
-	Reasons            []string  `json:"reasons,omitempty"`
-	Hypotheses         []string  `json:"hypotheses,omitempty"`
-	RecommendedActions []string  `json:"recommended_actions,omitempty"`
-	ActionDecision     string    `json:"action_decision,omitempty"`
-	BlockedActions     []string  `json:"blocked_actions,omitempty"`
-	EngineVersion      string    `json:"engine_version,omitempty"`
+	Index                        int                    `json:"index"`
+	EventID                      string                 `json:"event_id"`
+	Timestamp                    time.Time              `json:"timestamp"`
+	State                        string                 `json:"state,omitempty"`
+	DangerLevel                  string                 `json:"danger_level"`
+	DangerScore                  float64                `json:"danger_score"`
+	Reasons                      []string               `json:"reasons,omitempty"`
+	Hypotheses                   []string               `json:"hypotheses,omitempty"`
+	RecommendedActions           []string               `json:"recommended_actions,omitempty"`
+	RecommendedActionsFromCGE    []string               `json:"recommended_actions_from_cge,omitempty"`
+	RecommendedActionsFromPolicy []string               `json:"recommended_actions_from_policy,omitempty"`
+	PolicyActions                []PolicyActionDecision `json:"policy_actions,omitempty"`
+	FinalActionPlan              []ActionPlanItem       `json:"final_action_plan,omitempty"`
+	ActionDecisionReason         string                 `json:"action_decision_reason,omitempty"`
+	ActionDecision               string                 `json:"action_decision,omitempty"`
+	BlockedActions               []string               `json:"blocked_actions,omitempty"`
+	EngineVersion                string                 `json:"engine_version,omitempty"`
 }
 
 type ChainCompaction struct {
@@ -129,6 +134,7 @@ type CriticalChainMemory struct {
 	Summary               string    `json:"summary,omitempty"`
 	LearnedReason         string    `json:"learned_reason,omitempty"`
 	RecommendedActions    []string  `json:"recommended_actions"`
+	BlockedActions        []string  `json:"blocked_actions,omitempty"`
 	ActionsTaken          []string  `json:"actions_taken"`
 	Outcomes              []string  `json:"outcomes"`
 	Confidence            float64   `json:"confidence"`

@@ -256,7 +256,48 @@ export type ChainEvaluation = {
   reasons?: string[];
   hypotheses?: string[];
   recommended_actions?: string[];
+  recommended_actions_from_cge?: string[];
+  recommended_actions_from_policy?: string[];
+  policy_actions?: PolicyActionDecision[];
+  final_action_plan?: ActionPlanItem[];
+  action_decision_reason?: string;
+  blocked_actions?: string[];
   engine_version?: string;
+};
+
+export type PolicyActionDecision = {
+  id: string;
+  command: string;
+  target?: string;
+  source: string;
+  priority: number;
+  cooldown_seconds?: number;
+  reason: string;
+  enabled: boolean;
+  blocked: boolean;
+  blocked_reason?: string;
+  template?: string;
+  message?: string;
+};
+
+export type ActionPlanItem = { id?: string; command: string; target?: string; source: string; priority: number; reason?: string };
+
+export type ActionPolicyEntry = {
+  id: string;
+  command: string;
+  target?: string;
+  enabled: boolean;
+  priority: number;
+  cooldown_seconds?: number;
+  conditions?: SynoraAutomationCondition[];
+  template?: string;
+  message?: string;
+};
+
+export type ActionPolicyLevel = { danger_level: DangerLevel; enabled: boolean; actions: ActionPolicyEntry[] };
+export type ActionPolicy = {
+  levels: Partial<Record<DangerLevel, ActionPolicyLevel>>;
+  notifications?: { whatsapp?: { enabled?: boolean; dry_run?: boolean; phone_number_id_configured?: boolean; default_to_configured?: boolean; default_template?: string; provider?: string } };
 };
 
 export type EventChain = {
@@ -317,7 +358,7 @@ export type CgeSecurityMode = "relaxed" | "balanced" | "strict" | "paranoid";
 export type CgeCorrectionType = "false_positive" | "false_negative" | "reaction_too_strong" | "reaction_too_weak" | "correct_but_tune_actions";
 export type CgeLegacyCorrectionType = "too_low" | "too_high" | "wrong_state" | "wrong_action" | "mark_normal" | "mark_critical";
 export type CgeFeedbackScope = "case_only" | "apply_to_similar_future_chains";
-export type CgePreferredAction = "observe" | "notify_owner" | "notify_emergency_contact" | "record_clip" | "lock_evidence" | "create_alert" | "request_user_validation" | "ignore_pattern" | "activate_related_automation";
+export type CgePreferredAction = "observe" | "notify_owner" | "notify_emergency_contact" | "record_clip" | "lock_evidence" | "create_alert" | "request_user_validation" | "ignore_pattern" | "activate_related_automation" | "notify.whatsapp" | "record.clip" | "mark_intrusion_candidate" | "store_evidence";
 
 export type CgeEvaluationFeedbackPayload = {
   chain_id: string;
@@ -326,6 +367,8 @@ export type CgeEvaluationFeedbackPayload = {
   correction_type: CgeCorrectionType;
   scope: CgeFeedbackScope;
   preferred_actions: CgePreferredAction[];
+  preferred_action_details?: Array<{ command: string; target?: string; enabled: boolean }>;
+  blocked_actions?: Array<{ command: string; reason: string }>;
   admin_note?: string;
 };
 
@@ -334,6 +377,8 @@ export type CgeChainFeedbackPayload = {
   correction_type: CgeCorrectionType;
   scope: CgeFeedbackScope;
   preferred_actions: CgePreferredAction[];
+  preferred_action_details?: Array<{ command: string; target?: string; enabled: boolean }>;
+  blocked_actions?: Array<{ command: string; reason: string }>;
   admin_note?: string;
 };
 export type CgeFinalOutcome = "normal" | "false_positive" | "real_incident" | "uncertain";

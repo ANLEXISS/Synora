@@ -32,6 +32,10 @@ type Requester interface {
 	Request(msgType string, source string, payload []byte, target string) (*contract.Message, error)
 }
 
+type ActionDispatcher interface {
+	DispatchRequest(contract.ActionRequest) error
+}
+
 type Metrics interface {
 	Snapshot(*state.Store) map[string]any
 	SourceStatus(string, time.Duration) map[string]any
@@ -56,6 +60,12 @@ type Server struct {
 	securityPath   string
 	cgeProfile     *cge.ProfileStore
 	cgeFeedback    *cge.FeedbackStore
+	actionPolicy   interface {
+		Get() contract.ActionPolicy
+		Update([]byte) (contract.ActionPolicy, error)
+		Reset() (contract.ActionPolicy, error)
+	}
+	actionDispatcher ActionDispatcher
 
 	publishEvent   func(string, any, int)
 	updateTopology func(*topology.Topology)
@@ -85,11 +95,17 @@ type Config struct {
 	SecurityPath   string
 	CGEProfile     *cge.ProfileStore
 	CGEFeedback    *cge.FeedbackStore
-	PublishEvent   func(string, any, int)
-	UpdateTopology func(*topology.Topology)
-	CGE            any
-	NotifyMutation func(string, string)
-	IngestEvent    func(*contract.Event)
+	ActionPolicy   interface {
+		Get() contract.ActionPolicy
+		Update([]byte) (contract.ActionPolicy, error)
+		Reset() (contract.ActionPolicy, error)
+	}
+	ActionDispatcher ActionDispatcher
+	PublishEvent     func(string, any, int)
+	UpdateTopology   func(*topology.Topology)
+	CGE              any
+	NotifyMutation   func(string, string)
+	IngestEvent      func(*contract.Event)
 }
 
 type MutationPayload struct {
@@ -103,29 +119,31 @@ type DeletePayload struct {
 
 func NewServer(cfg Config) *Server {
 	server := &Server{
-		bus:            cfg.Bus,
-		state:          cfg.State,
-		events:         cfg.Events,
-		chains:         cfg.Chains,
-		devices:        cfg.Devices,
-		automation:     cfg.Automation,
-		snapshot:       cfg.Snapshot,
-		metrics:        cfg.Metrics,
-		topologyPath:   cfg.TopologyPath,
-		residentsPath:  cfg.ResidentsPath,
-		devicePath:     cfg.DevicePath,
-		automationPath: cfg.AutomationPath,
-		securityPath:   cfg.SecurityPath,
-		cgeProfile:     cfg.CGEProfile,
-		cgeFeedback:    cfg.CGEFeedback,
-		publishEvent:   cfg.PublishEvent,
-		updateTopology: cfg.UpdateTopology,
-		pairing:        &security.PairingService{Path: cfg.SecurityPath},
-		cge:            cfg.CGE,
-		notify:         cfg.NotifyMutation,
-		ingestEvent:    cfg.IngestEvent,
-		handlers:       map[string]Handler{},
-		startedAt:      time.Now().UTC(),
+		bus:              cfg.Bus,
+		state:            cfg.State,
+		events:           cfg.Events,
+		chains:           cfg.Chains,
+		devices:          cfg.Devices,
+		automation:       cfg.Automation,
+		snapshot:         cfg.Snapshot,
+		metrics:          cfg.Metrics,
+		topologyPath:     cfg.TopologyPath,
+		residentsPath:    cfg.ResidentsPath,
+		devicePath:       cfg.DevicePath,
+		automationPath:   cfg.AutomationPath,
+		securityPath:     cfg.SecurityPath,
+		cgeProfile:       cfg.CGEProfile,
+		cgeFeedback:      cfg.CGEFeedback,
+		actionPolicy:     cfg.ActionPolicy,
+		actionDispatcher: cfg.ActionDispatcher,
+		publishEvent:     cfg.PublishEvent,
+		updateTopology:   cfg.UpdateTopology,
+		pairing:          &security.PairingService{Path: cfg.SecurityPath},
+		cge:              cfg.CGE,
+		notify:           cfg.NotifyMutation,
+		ingestEvent:      cfg.IngestEvent,
+		handlers:         map[string]Handler{},
+		startedAt:        time.Now().UTC(),
 	}
 	if server.devices != nil && strings.TrimSpace(server.devicePath) != "" {
 		server.devices.SetPersistencePath(server.devicePath)
@@ -220,6 +238,11 @@ func (s *Server) register() {
 	s.handlers["cge.feedback.list"] = s.cgeFeedbackList
 	s.handlers["cge.feedback.evaluation"] = s.cgeFeedbackEvaluation
 	s.handlers["cge.feedback.chain"] = s.cgeFeedbackChain
+	s.handlers["actions.policy"] = s.actionPolicyGet
+	s.handlers["actions.policy.update"] = s.actionPolicyUpdate
+	s.handlers["actions.policy.reset"] = s.actionPolicyReset
+	s.handlers["actions.test"] = s.actionTest
+	s.handlers["actions.catalog"] = s.actionCatalog
 	s.handlers["system.health"] = s.systemHealth
 	s.handlers["system.reset_intrusion"] = s.systemResetIntrusion
 	s.handlers[contract.RPCSystemResetState] = s.systemResetState

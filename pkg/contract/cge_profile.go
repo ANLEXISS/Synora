@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"math"
 	"strings"
 	"time"
@@ -211,32 +212,110 @@ const (
 )
 
 type CgeEvaluationFeedback struct {
-	ID                   string            `json:"id"`
-	ChainID              string            `json:"chain_id"`
-	EventID              string            `json:"event_id"`
-	EvaluationIndex      int               `json:"evaluation_index"`
-	CorrectionType       CgeCorrectionType `json:"correction_type"`
-	Scope                CgeFeedbackScope  `json:"scope,omitempty"`
-	PreferredActions     []string          `json:"preferred_actions"`
-	AdminNote            string            `json:"admin_note,omitempty"`
-	CorrectedState       string            `json:"corrected_state,omitempty"`
-	CorrectedDangerLevel DangerLevel       `json:"corrected_danger_level,omitempty"`
-	Note                 string            `json:"note,omitempty"`
-	CreatedBy            string            `json:"created_by"`
-	CreatedAt            time.Time         `json:"created_at"`
+	ID                     string                   `json:"id"`
+	ChainID                string                   `json:"chain_id"`
+	EventID                string                   `json:"event_id"`
+	EvaluationIndex        int                      `json:"evaluation_index"`
+	CorrectionType         CgeCorrectionType        `json:"correction_type"`
+	Scope                  CgeFeedbackScope         `json:"scope,omitempty"`
+	PreferredActions       []string                 `json:"preferred_actions"`
+	PreferredActionDetails []CgePreferredActionSpec `json:"preferred_action_details,omitempty"`
+	BlockedActions         []CgeBlockedAction       `json:"blocked_actions,omitempty"`
+	AdminNote              string                   `json:"admin_note,omitempty"`
+	CorrectedState         string                   `json:"corrected_state,omitempty"`
+	CorrectedDangerLevel   DangerLevel              `json:"corrected_danger_level,omitempty"`
+	Note                   string                   `json:"note,omitempty"`
+	CreatedBy              string                   `json:"created_by"`
+	CreatedAt              time.Time                `json:"created_at"`
 }
 
 type CgeChainFeedback struct {
-	ID                         string            `json:"id"`
-	ChainID                    string            `json:"chain_id"`
-	FinalOutcome               CgeFinalOutcome   `json:"final_outcome,omitempty"`
-	CorrectionType             CgeCorrectionType `json:"correction_type,omitempty"`
-	Scope                      CgeFeedbackScope  `json:"scope,omitempty"`
-	PreferredActions           []string          `json:"preferred_actions"`
-	AdminNote                  string            `json:"admin_note,omitempty"`
-	CorrectedFinalDangerLevel  DangerLevel       `json:"corrected_final_danger_level,omitempty"`
-	ApplyToSimilarFutureChains bool              `json:"apply_to_similar_future_chains"`
-	Note                       string            `json:"note,omitempty"`
-	CreatedBy                  string            `json:"created_by"`
-	CreatedAt                  time.Time         `json:"created_at"`
+	ID                         string                   `json:"id"`
+	ChainID                    string                   `json:"chain_id"`
+	FinalOutcome               CgeFinalOutcome          `json:"final_outcome,omitempty"`
+	CorrectionType             CgeCorrectionType        `json:"correction_type,omitempty"`
+	Scope                      CgeFeedbackScope         `json:"scope,omitempty"`
+	PreferredActions           []string                 `json:"preferred_actions"`
+	PreferredActionDetails     []CgePreferredActionSpec `json:"preferred_action_details,omitempty"`
+	BlockedActions             []CgeBlockedAction       `json:"blocked_actions,omitempty"`
+	AdminNote                  string                   `json:"admin_note,omitempty"`
+	CorrectedFinalDangerLevel  DangerLevel              `json:"corrected_final_danger_level,omitempty"`
+	ApplyToSimilarFutureChains bool                     `json:"apply_to_similar_future_chains"`
+	Note                       string                   `json:"note,omitempty"`
+	CreatedBy                  string                   `json:"created_by"`
+	CreatedAt                  time.Time                `json:"created_at"`
+}
+
+type CgePreferredActionSpec struct {
+	Command string `json:"command"`
+	Target  string `json:"target,omitempty"`
+	Enabled bool   `json:"enabled"`
+}
+
+type CgeBlockedAction struct {
+	Command string `json:"command"`
+	Reason  string `json:"reason"`
+}
+
+func (f *CgeEvaluationFeedback) UnmarshalJSON(data []byte) error {
+	type alias CgeEvaluationFeedback
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	preferred := fields["preferred_actions"]
+	delete(fields, "preferred_actions")
+	base, _ := json.Marshal(fields)
+	var value alias
+	if err := json.Unmarshal(base, &value); err != nil {
+		return err
+	}
+	if err := decodePreferredActions(preferred, &value.PreferredActions, &value.PreferredActionDetails); err != nil {
+		return err
+	}
+	*f = CgeEvaluationFeedback(value)
+	return nil
+}
+
+func (f *CgeChainFeedback) UnmarshalJSON(data []byte) error {
+	type alias CgeChainFeedback
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	preferred := fields["preferred_actions"]
+	delete(fields, "preferred_actions")
+	base, _ := json.Marshal(fields)
+	var value alias
+	if err := json.Unmarshal(base, &value); err != nil {
+		return err
+	}
+	if err := decodePreferredActions(preferred, &value.PreferredActions, &value.PreferredActionDetails); err != nil {
+		return err
+	}
+	*f = CgeChainFeedback(value)
+	return nil
+}
+
+func decodePreferredActions(raw json.RawMessage, stringsOut *[]string, details *[]CgePreferredActionSpec) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var legacy []string
+	if err := json.Unmarshal(raw, &legacy); err == nil {
+		*stringsOut = legacy
+		return nil
+	}
+	var structured []CgePreferredActionSpec
+	if err := json.Unmarshal(raw, &structured); err != nil {
+		return err
+	}
+	for _, item := range structured {
+		if item.Command == "" {
+			continue
+		}
+		*stringsOut = append(*stringsOut, item.Command)
+	}
+	*details = structured
+	return nil
 }

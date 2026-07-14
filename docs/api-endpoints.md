@@ -214,3 +214,14 @@ face sont admin-only. La valeur de développement est
 `services/vision-worker/data/face`; `SYNORA_FACE_DATA_ROOT` peut la remplacer.
 En runtime systemd, la racine persistante est `/var/lib/synora/vision/face` et
 elle n’est pas incluse dans les copies `rsync` de l’installation.
+## Actions & notifications
+
+Les endpoints admin-only suivants exposent la policy effective et le test d’actions :
+
+- `GET /api/actions/policy`
+- `PATCH /api/actions/policy`
+- `POST /api/actions/policy/reset`
+- `GET /api/actions/catalog`
+- `POST /api/actions/test`
+
+`POST /api/actions/test` accepte `command`, `target`, `message`, `template` et `dry_run`. En dry-run, aucune requête externe n’est faite. En mode actif, la demande est mise en file dans le pipeline `core -> actions`; le résultat final est ensuite publié comme `action.result`.
