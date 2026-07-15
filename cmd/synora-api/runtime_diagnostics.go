@@ -187,6 +187,11 @@ func populateSnapshotDiagnostics(response map[string]any, snapshot *contract.Pub
 			response["test_danger_level"] = state["manual_risk_level"]
 		}
 		response["manual_risk_expires_at"] = state["manual_risk_expires_at"]
+		response["danger_decay"] = state["danger_decay"]
+		response["danger_score_current"] = firstDiagnosticValue(state["danger_score_current"], state["danger_score"])
+		response["danger_score_peak"] = state["danger_score_peak"]
+		response["danger_score_updated_at"] = state["danger_score_updated_at"]
+		response["danger_reasons_current"] = state["danger_reasons_current"]
 		securityState := contract.DefaultSecurityModeState(time.Now().UTC())
 		if security, ok := state["security"].(map[string]any); ok {
 			response["security"] = security
@@ -255,6 +260,37 @@ func populateSnapshotDiagnostics(response map[string]any, snapshot *contract.Pub
 			response["model_status"] = value
 		}
 	}
+}
+
+func dangerDecayFromSnapshot(snapshot *contract.PublicSnapshot) (map[string]any, float64, float64, time.Time, []string) {
+	if snapshot == nil || snapshot.System == nil {
+		return nil, 0, 0, time.Time{}, nil
+	}
+	state := snapshot.System
+	decay, _ := state["danger_decay"].(map[string]any)
+	current, _ := state["danger_score_current"].(float64)
+	if current == 0 {
+		current, _ = state["danger_score"].(float64)
+	}
+	peak, _ := state["danger_score_peak"].(float64)
+	updated, _ := state["danger_score_updated_at"].(time.Time)
+	if updated.IsZero() {
+		if value, ok := state["danger_score_updated_at"].(string); ok {
+			updated, _ = time.Parse(time.RFC3339Nano, value)
+		}
+	}
+	var reasons []string
+	switch values := state["danger_reasons_current"].(type) {
+	case []string:
+		reasons = append([]string(nil), values...)
+	case []any:
+		for _, value := range values {
+			if reason, ok := value.(string); ok {
+				reasons = append(reasons, reason)
+			}
+		}
+	}
+	return decay, current, peak, updated, reasons
 }
 
 func firstDiagnosticString(values ...any) string {
@@ -347,7 +383,7 @@ func componentStatusSummary(health *contract.RuntimeHealth) map[string]string {
 	if health == nil {
 		return result
 	}
-	for _, name := range []string{"api", "bus", "core", "actions", "discovery", "vision_worker", "vision_ingress"} {
+	for _, name := range []string{"api", "bus", "core", "actions", "discovery", "vision_worker", "vision_ingress", "synoranet", "ap_5ghz", "ap_2ghz", "dhcp", "dns", "wifi_security", "network_isolation", "firewall", "synoranet_visibility", "synoranet_access_control", "synoranet_connection_policy", "pairing_security", "https_api", "mediamtx_rtsp", "mediamtx_webrtc_hls"} {
 		if item, ok := health.Components[name]; ok && item.Status != "" {
 			result[name] = diagnosticStatus(item.Status, item.Active)
 		}

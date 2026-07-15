@@ -17,6 +17,7 @@ import (
 	webapi "synora/internal/api"
 	"synora/internal/bus"
 	"synora/internal/coreclient"
+	"synora/internal/discovery/network"
 	"synora/internal/security"
 	"synora/pkg/contract"
 )
@@ -29,8 +30,13 @@ type healthResponse struct {
 
 type systemHealthResponse struct {
 	*contract.RuntimeHealth
-	Web    webapi.WebHealth    `json:"web"`
-	Server webapi.ServerHealth `json:"server"`
+	Web                  webapi.WebHealth    `json:"web"`
+	Server               webapi.ServerHealth `json:"server"`
+	DangerDecay          map[string]any      `json:"danger_decay,omitempty"`
+	DangerScoreCurrent   float64             `json:"danger_score_current"`
+	DangerScorePeak      float64             `json:"danger_score_peak"`
+	DangerScoreUpdatedAt time.Time           `json:"danger_score_updated_at,omitempty"`
+	DangerReasonsCurrent []string            `json:"danger_reasons_current,omitempty"`
 }
 
 type authPrincipalContextKey struct{}
@@ -115,6 +121,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	publishNetworkPairingEvent = func(event string, payload map[string]any) {
+		sendNetworkPairingEvent(busClient, event, payload)
+	}
 
 	core := coreclient.New(busClient)
 	wsHub := newWebSocketHub(core)
@@ -177,10 +186,14 @@ func main() {
 	apiMux.HandleFunc("/api/devices/pairing/start", handlePairingStart(core))
 	apiMux.HandleFunc("/api/devices/pairing/complete", handlePairingComplete(core))
 	synoraCameraPairing := newSynoraCameraPairingStore()
+	synoraCameraPairing.windowActive = network.PairingWindowActive
 	apiMux.HandleFunc("/api/devices/pairing/capabilities", handleSynoraCameraPairingCapabilities())
 	apiMux.HandleFunc("/api/devices/pairing/synora-camera/start", handleSynoraCameraPairingStart(core, synoraCameraPairing))
 	apiMux.HandleFunc("/api/devices/pairing/synora-camera/confirm", handleSynoraCameraPairingConfirm(core, synoraCameraPairing))
-	apiMux.HandleFunc("/api/devices/pairing/synora-camera/claim", handleSynoraCameraPairingClaim(synoraCameraPairing))
+	apiMux.HandleFunc("/api/devices/pairing/synora-camera/claim", handleSynoraCameraPairingClaimWithProvider(core, synoraCameraPairing))
+	apiMux.HandleFunc("/api/devices/pairing/status", handleSynoraNetPairingStatus())
+	apiMux.HandleFunc("/api/devices/pairing/window/start", handleSynoraNetPairingWindowStart())
+	apiMux.HandleFunc("/api/devices/pairing/window/stop", handleSynoraNetPairingWindowStop())
 	apiMux.HandleFunc("/api/devices/", handleDeviceItem(core))
 	registerResidentRoutes(apiMux, core, faceFiles)
 	apiMux.HandleFunc("/api/automations", handleAutomationCollection(core))
@@ -396,6 +409,13 @@ func apiAuthMiddlewareWithAuth(
 		w http.ResponseWriter,
 		r *http.Request,
 	) {
+		// The camera claim is the one intentionally narrow unauthenticated
+		// pairing surface. It still requires an active, short-lived network
+		// pairing window and a one-time setup token in the handler.
+		if r.URL.Path == "/api/devices/pairing/synora-camera/claim" && r.Method == http.MethodPost && network.PairingWindowActive() {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path == "/api/system/health" && cfg != nil && cfg.PublicSystemHealth {
 			next.ServeHTTP(w, r)
 			return
@@ -539,6 +559,8 @@ func requiredAPIPermission(r *http.Request) string {
 	readOnly := method == http.MethodGet || method == http.MethodHead
 
 	switch {
+	case strings.HasPrefix(path, "/api/devices/pairing/"):
+		return webapi.PermissionSecurityAdmin
 	case path == "/api/devices/pairing/capabilities" || strings.HasPrefix(path, "/api/devices/pairing/synora-camera/"):
 		return webapi.PermissionSecurityAdmin
 	case method == http.MethodDelete && strings.HasPrefix(path, "/api/devices/"):
@@ -814,10 +836,24 @@ func handleSystemHealth(
 			transportHealth = serverHealth[0]
 		}
 		health.Components["https_api"] = httpsHealth(transportHealth, time.Now().UTC())
+		var decay map[string]any
+		var scoreCurrent, scorePeak float64
+		var scoreUpdatedAt time.Time
+		var reasons []string
+		if stateReader, ok := core.(stateProvider); ok {
+			if snapshot, err := stateReader.State(); err == nil && snapshot != nil {
+				decay, scoreCurrent, scorePeak, scoreUpdatedAt, reasons = dangerDecayFromSnapshot(snapshot)
+			}
+		}
 		writeJSON(w, http.StatusOK, systemHealthResponse{
-			RuntimeHealth: health,
-			Web:           webHealth,
-			Server:        transportHealth,
+			RuntimeHealth:        health,
+			Web:                  webHealth,
+			Server:               transportHealth,
+			DangerDecay:          decay,
+			DangerScoreCurrent:   scoreCurrent,
+			DangerScorePeak:      scorePeak,
+			DangerScoreUpdatedAt: scoreUpdatedAt,
+			DangerReasonsCurrent: reasons,
 		})
 	}
 }

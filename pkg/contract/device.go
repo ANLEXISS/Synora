@@ -56,4 +56,5 @@ type DevicePatch struct {
 	Capabilities *[]string       `json:"capabilities,omitempty"`
 	Config       *map[string]any `json:"config,omitempty"`
 	Metadata     *map[string]any `json:"metadata,omitempty"`
+	Network      *map[string]any `json:"network,omitempty"`
 }

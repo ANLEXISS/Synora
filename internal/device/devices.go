@@ -595,6 +595,9 @@ func applyPatch(value *Device, patch DevicePatch) {
 	if patch.Metadata != nil {
 		value.Metadata = cloneMap(*patch.Metadata)
 	}
+	if patch.Network != nil {
+		value.Network = cloneMap(*patch.Network)
+	}
 	normalizeDevice(value)
 }
 

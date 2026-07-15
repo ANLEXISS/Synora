@@ -14,6 +14,7 @@ import type {
   SynoraDevice,
   SynoraResident,
   SynoraSnapshot,
+  SynoraStreamDescriptor,
   EventChainListResponse,
   ChainStatus,
   CriticalChainMemory,
@@ -120,6 +121,14 @@ export function getRuntimeStatus(signal?: AbortSignal) {
   return synoraFetch<unknown>("/api/cge/runtime-status", { signal }).then((value): DashboardRuntimeStatus => (
     isRecord(value) ? value : {}
   ));
+}
+
+export function getSystemHealth(signal?: AbortSignal) {
+  return synoraFetch<Record<string, unknown>>("/api/system/health", { signal });
+}
+
+export function getStreams(signal?: AbortSignal) {
+  return synoraFetch<unknown>("/api/streams", { signal }).then((value) => normalizeArray<unknown>(value).filter(isRecord) as SynoraStreamDescriptor[]);
 }
 
 export function getSecurityMode(signal?: AbortSignal) {
@@ -236,6 +245,18 @@ export function getDevicePairingCapabilities(signal?: AbortSignal) {
     "/api/devices/pairing/capabilities",
     { signal, cache: "no-store" }
   );
+}
+
+export function startSynoraPairingWindow() {
+  return synoraFetch<Record<string, unknown>>("/api/devices/pairing/window/start", { method: "POST", cache: "no-store" });
+}
+
+export function stopSynoraPairingWindow() {
+  return synoraFetch<Record<string, unknown>>("/api/devices/pairing/window/stop", { method: "POST", cache: "no-store" });
+}
+
+export function getSynoraPairingStatus(signal?: AbortSignal) {
+  return synoraFetch<Record<string, unknown>>("/api/devices/pairing/status", { signal, cache: "no-store" });
 }
 
 export function startSynoraCameraPairing(payload: { qr_payload: SynoraCameraQRPayload } | { raw_code: string }) {

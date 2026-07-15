@@ -267,7 +267,7 @@ func (s *Server) deviceConfigUpdate(msg contract.Message) (any, error) {
 	}
 	if err := validateObjectFields(req.Data,
 		"name", "display_name", "room", "node_id", "role", "zone_role", "room_name",
-		"enabled", "trusted", "capabilities", "config", "metadata"); err != nil {
+		"enabled", "trusted", "capabilities", "config", "metadata", "network"); err != nil {
 		return nil, err
 	}
 	var patch contract.DevicePatch

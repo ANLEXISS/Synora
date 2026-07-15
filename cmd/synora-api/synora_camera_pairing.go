@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"synora/internal/discovery/network"
 	"synora/pkg/contract"
 )
 
@@ -24,21 +25,25 @@ const (
 var synoraCameraDeviceIDPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 type synoraCameraPairingStore struct {
-	mu       sync.Mutex
-	sessions map[string]*synoraCameraPairingSession
-	now      func() time.Time
+	mu           sync.Mutex
+	sessions     map[string]*synoraCameraPairingSession
+	now          func() time.Time
+	windowActive func() bool
 }
 
 type synoraCameraPairingSession struct {
-	ID         string
-	DeviceID   string
-	Serial     string
-	Model      string
-	SetupHash  string
-	CreatedAt  time.Time
-	ExpiresAt  time.Time
-	Status     string
-	Confirming bool
+	ID                   string
+	DeviceID             string
+	Serial               string
+	Model                string
+	SetupHash            string
+	CreatedAt            time.Time
+	ExpiresAt            time.Time
+	Status               string
+	Confirming           bool
+	ObservedMAC          string
+	ObservedIP           string
+	PublicKeyFingerprint string
 }
 
 func newSynoraCameraPairingStore() *synoraCameraPairingStore {
@@ -85,8 +90,12 @@ type synoraCameraPairingConfirmRequest struct {
 }
 
 type synoraCameraPairingClaimRequest struct {
-	DeviceID   string `json:"device_id"`
-	SetupToken string `json:"setup_token"`
+	DeviceID             string `json:"device_id"`
+	SetupToken           string `json:"setup_token"`
+	Serial               string `json:"serial,omitempty"`
+	Model                string `json:"model,omitempty"`
+	MAC                  string `json:"mac,omitempty"`
+	PublicKeyFingerprint string `json:"public_key_fingerprint,omitempty"`
 }
 
 func handleSynoraCameraPairingCapabilities() http.HandlerFunc {
@@ -107,6 +116,11 @@ func handleSynoraCameraPairingCapabilities() http.HandlerFunc {
 func handleSynoraCameraPairingStart(core synoraCameraPairingProvider, store *synoraCameraPairingStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireMethod(w, r, http.MethodPost) {
+			return
+		}
+		if !store.pairingWindowActive() {
+			emitNetworkPairingEvent("network.pairing.failed", map[string]any{"reason": "window_closed", "operation": "start"})
+			writeError(w, contract.NewAPIError(contract.ErrorValidationFailed, "SynoraNet pairing window is closed"))
 			return
 		}
 		body, ok := readJSONObject(w, r, true)
@@ -174,6 +188,11 @@ func handleSynoraCameraPairingConfirm(core synoraCameraPairingProvider, store *s
 		if !requireMethod(w, r, http.MethodPost) {
 			return
 		}
+		if !store.pairingWindowActive() {
+			emitNetworkPairingEvent("network.pairing.failed", map[string]any{"reason": "window_closed", "operation": "confirm"})
+			writeError(w, contract.NewAPIError(contract.ErrorValidationFailed, "SynoraNet pairing window is closed"))
+			return
+		}
 		body, ok := readJSONObject(w, r, true)
 		if !ok {
 			return
@@ -227,6 +246,21 @@ func handleSynoraCameraPairingConfirm(core synoraCameraPairingProvider, store *s
 			"trusted":        true,
 			"enabled":        enabled,
 			"node_id":        request.NodeID,
+			"network": map[string]any{
+				"allow_wifi":    false,
+				"network_trust": "pending",
+			},
+		}
+		if session.ObservedMAC != "" {
+			createPayload["network"] = map[string]any{
+				"mac":                    session.ObservedMAC,
+				"last_seen_mac":          session.ObservedMAC,
+				"last_seen_ip":           session.ObservedIP,
+				"public_key_fingerprint": session.PublicKeyFingerprint,
+				"allow_wifi":             true,
+				"network_trust":          "paired",
+				"paired_at":              store.currentTime(),
+			}
 		}
 		if session.Serial != "" {
 			createPayload["serial"] = session.Serial
@@ -244,8 +278,25 @@ func handleSynoraCameraPairingConfirm(core synoraCameraPairingProvider, store *s
 }
 
 func handleSynoraCameraPairingClaim(store *synoraCameraPairingStore) http.HandlerFunc {
+	return handleSynoraCameraPairingClaimWithProvider(nil, store)
+}
+
+type synoraCameraDeviceUpdater interface {
+	UpdateDevice(string, json.RawMessage) (map[string]any, error)
+}
+
+type synoraCameraDeviceReader interface {
+	Device(string) (map[string]any, error)
+}
+
+func handleSynoraCameraPairingClaimWithProvider(core synoraCameraDeviceUpdater, store *synoraCameraPairingStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireMethod(w, r, http.MethodPost) {
+			return
+		}
+		if !store.pairingWindowActive() {
+			emitNetworkPairingEvent("network.pairing.failed", map[string]any{"reason": "window_closed", "operation": "claim"})
+			writeError(w, contract.NewAPIError(contract.ErrorValidationFailed, "SynoraNet pairing window is closed"))
 			return
 		}
 		body, ok := readJSONObject(w, r, true)
@@ -258,16 +309,106 @@ func handleSynoraCameraPairingClaim(store *synoraCameraPairingStore) http.Handle
 			return
 		}
 		request.DeviceID = strings.TrimSpace(request.DeviceID)
+		request.Serial = strings.TrimSpace(request.Serial)
+		request.Model = strings.TrimSpace(request.Model)
+		request.MAC = network.NormalizeMAC(strings.TrimSpace(pairingFirstNonEmptyString(request.MAC, r.Header.Get("X-Synora-Station-MAC"))))
+		request.PublicKeyFingerprint = strings.TrimSpace(request.PublicKeyFingerprint)
 		if request.DeviceID == "" || len(request.SetupToken) == 0 || len(request.SetupToken) > maxSynoraSetupToken {
 			writeError(w, contract.NewAPIError(contract.ErrorValidationFailed, "device_id and setup_token are required"))
 			return
 		}
-		if !store.markDeviceSeen(request.DeviceID, request.SetupToken) {
+		observedIP := requestIP(r)
+		session, ok := store.markDeviceSeenWithMetadata(request.DeviceID, request.SetupToken, request.MAC, observedIP, request.PublicKeyFingerprint)
+		if !ok {
+			emitNetworkPairingEvent("network.pairing.failed", map[string]any{"reason": "invalid_or_expired_claim", "device_id": request.DeviceID})
 			writeError(w, contract.NewAPIError(contract.ErrorNotFound, "pairing session is missing, expired, or token is invalid"))
 			return
 		}
+		if request.MAC != "" {
+			_ = network.AddPendingMAC(request.MAC)
+		}
+		if core != nil {
+			networkTrust := "paired"
+			allowWiFi := true
+			currentMAC := ""
+			if reader, ok := core.(synoraCameraDeviceReader); ok {
+				if current, err := reader.Device(request.DeviceID); err == nil {
+					currentMAC = network.NormalizeMAC(networkMACFromDevice(current))
+				}
+			}
+			if currentMAC != "" && session.ObservedMAC != "" && currentMAC != session.ObservedMAC {
+				networkTrust = "security_warning"
+				allowWiFi = false
+			}
+			networkData := map[string]any{
+				"allow_wifi":    allowWiFi,
+				"network_trust": networkTrust,
+				"paired_at":     store.currentTime(),
+			}
+			if session.ObservedMAC != "" && (currentMAC == "" || currentMAC == session.ObservedMAC) {
+				networkData["mac"] = session.ObservedMAC
+				networkData["last_seen_mac"] = session.ObservedMAC
+			} else if session.ObservedMAC != "" {
+				networkData["last_seen_mac"] = session.ObservedMAC
+			}
+			if session.ObservedIP != "" {
+				networkData["last_seen_ip"] = session.ObservedIP
+			}
+			if session.PublicKeyFingerprint != "" {
+				networkData["public_key_fingerprint"] = session.PublicKeyFingerprint
+			}
+			encoded, _ := json.Marshal(map[string]any{"network": networkData})
+			if _, err := core.UpdateDevice(request.DeviceID, encoded); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+		emitNetworkPairingEvent("network.pairing.claimed", map[string]any{"device_id": request.DeviceID, "mac_observed": request.MAC != ""})
+		emitNetworkPairingEvent("network.station.allowed", map[string]any{"device_id": request.DeviceID, "mac_observed": request.MAC != ""})
 		writeJSON(w, http.StatusOK, map[string]string{"status": "accepted", "device_id": request.DeviceID})
 	}
+}
+
+func networkMACFromDevice(value map[string]any) string {
+	if value == nil {
+		return ""
+	}
+	if networkValue, ok := value["network"].(map[string]any); ok {
+		if mac, ok := networkValue["mac"].(string); ok {
+			return mac
+		}
+	}
+	return ""
+}
+
+func (s *synoraCameraPairingStore) pairingWindowActive() bool {
+	if s == nil || s.windowActive == nil {
+		return true
+	}
+	return s.windowActive()
+}
+
+func pairingFirstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func requestIP(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	host := strings.TrimSpace(r.RemoteAddr)
+	if host == "" {
+		return ""
+	}
+	if index := strings.LastIndex(host, ":"); index > -1 && !strings.Contains(host[index+1:], "]") {
+		return strings.Trim(host[:index], "[]")
+	}
+	return strings.Trim(host, "[]")
 }
 
 func parseSynoraCameraQRPayload(request synoraCameraPairingStartRequest) (synoraCameraQRPayload, error) {
@@ -354,6 +495,11 @@ func (s *synoraCameraPairingStore) consume(id string) {
 }
 
 func (s *synoraCameraPairingStore) markDeviceSeen(deviceID, token string) bool {
+	_, ok := s.markDeviceSeenWithMetadata(deviceID, token, "", "", "")
+	return ok
+}
+
+func (s *synoraCameraPairingStore) markDeviceSeenWithMetadata(deviceID, token, mac, ip, fingerprint string) (synoraCameraPairingSession, bool) {
 	now := s.currentTime()
 	hash := hashPairingSecret(token)
 	s.mu.Lock()
@@ -368,9 +514,12 @@ func (s *synoraCameraPairingStore) markDeviceSeen(deviceID, token string) bool {
 			continue
 		}
 		session.Status = "device_seen"
-		return true
+		session.ObservedMAC = mac
+		session.ObservedIP = ip
+		session.PublicKeyFingerprint = fingerprint
+		return *session, true
 	}
-	return false
+	return synoraCameraPairingSession{}, false
 }
 
 func newPairingSessionID() (string, error) {

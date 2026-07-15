@@ -15,6 +15,8 @@ export type DashboardDanger = {
   lastRealSignificantEventAt: string | null;
   lastActionRequestAt: string | null;
   lastActionResultAt: string | null;
+  scoreUpdatedAt: string | null;
+  decayEnabled: boolean;
   blockingReasons: string[];
   visionWorkerStatus: string;
 };
@@ -112,6 +114,9 @@ export function normalizeDashboardDanger(runtimeStatus: unknown, state: unknown)
   const manualRiskLevel: DangerLevel | "" = normalizedManualRiskLevel && normalizedManualRiskLevel !== "unknown" ? normalizedManualRiskLevel : "";
   const simulated = firstBoolean(runtime.manual_risk_test, runtime.simulated, snapshot.simulated, system.simulated)
     ?? false;
+  const decay = nestedRecord(runtime, "danger_decay").enabled !== undefined
+    ? nestedRecord(runtime, "danger_decay")
+    : nestedRecord(system, "danger_decay");
   const score = normalizeScore(firstNumber(
     runtime.danger_score,
     snapshot.danger_score,
@@ -138,6 +143,8 @@ export function normalizeDashboardDanger(runtimeStatus: unknown, state: unknown)
     lastRealSignificantEventAt: firstString(runtime.last_real_significant_event_at, snapshot.last_real_significant_event_at, system.last_real_event_at),
     lastActionRequestAt: firstString(runtime.last_action_request_at, snapshot.last_action_request_at, system.last_action_request_at),
     lastActionResultAt: firstString(runtime.last_action_result_at, snapshot.last_action_result_at, system.last_action_at),
+    scoreUpdatedAt: firstString(runtime.danger_score_updated_at, snapshot.danger_score_updated_at, system.danger_score_updated_at),
+    decayEnabled: firstBoolean(decay.enabled, system.danger_decay_enabled) ?? false,
     blockingReasons: normalizeArray<unknown>(runtime.blocking_reasons ?? snapshot.blocking_reasons ?? system.blocking_reasons)
       .filter((reason): reason is string => typeof reason === "string" && reason.trim().length > 0),
     visionWorkerStatus: firstString(runtime.vision_worker_status, snapshot.vision_worker_status) ?? "unknown",

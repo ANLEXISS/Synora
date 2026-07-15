@@ -24,7 +24,7 @@ import { useSynoraData } from "../hooks/useSynoraData";
 import { useAuth } from "../hooks/useAuth";
 import { SynoraApiError } from "../lib/api";
 import { buildDeviceMutationPayload, deviceToEditForm, type DeviceEditForm } from "../lib/device-form";
-import { deleteDevice, getDevices, getStreams, updateDevice } from "../lib/synora-api";
+import { deleteDevice, getDevices, getStreams, startSynoraPairingWindow, stopSynoraPairingWindow, updateDevice } from "../lib/synora-api";
 import { normalizeTopologyDevices } from "../lib/topology";
 import { getRoomLabel, getTopologyRooms } from "../lib/topology";
 import type { SynoraDevice, SynoraStreamDescriptor } from "../lib/synora-types";
@@ -113,6 +113,25 @@ export function Devices() {
   const devices: TopologyDevice[] = normalizeTopologyDevices(data.devices, topology);
   const visibleDevices = devices;
   useEffect(() => { void getStreams().then(setStreams).catch(() => setStreams([])); }, []);
+
+  async function openPairingWindow() {
+    setNotice(null);
+    try {
+      await startSynoraPairingWindow();
+      setPairingOpen(true);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "La fenêtre de pairing n’a pas pu être ouverte.");
+    }
+  }
+
+  async function closePairingWindow() {
+    setPairingOpen(false);
+    try {
+      await stopSynoraPairingWindow();
+    } catch {
+      // Automatic expiry remains the safety boundary if the stop request fails.
+    }
+  }
 
   const filteredDevices = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -355,7 +374,7 @@ export function Devices() {
         title="Périphériques"
         className="devices-main-panel"
         action={auth.isAdmin ? (
-          <button className="primary-button devices-add-button" onClick={() => { setNotice(null); setPairingOpen(true); }}>
+          <button className="primary-button devices-add-button" onClick={() => void openPairingWindow()}>
             <Plus size={16} />
             Ajouter
           </button>
@@ -611,7 +630,7 @@ export function Devices() {
       {pairingOpen && auth.isAdmin && (
         <SynoraCameraPairingWizard
           topology={data.topology}
-          onClose={() => setPairingOpen(false)}
+          onClose={() => void closePairingWindow()}
           onPaired={refreshAndVerify}
         />
       )}

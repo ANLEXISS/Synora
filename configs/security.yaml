@@ -10,7 +10,7 @@ public_system_health: false
 max_timestamp_skew_seconds: 30
 server:
   http_addr: ":8080"
-  https_enabled: false
+  https_enabled: true
   https_addr: ":8443"
   tls_cert_file: "/etc/synora/tls/synora.crt"
   tls_key_file: "/etc/synora/tls/synora.key"

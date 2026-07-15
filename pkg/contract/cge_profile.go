@@ -16,22 +16,68 @@ const (
 	CgeSecurityParanoid CgeSecurityMode = "paranoid"
 )
 
+// DangerDecayConfig controls the time-based projection of CGE danger into the
+// current system state. Historical events and chain evaluations are never
+// changed by this configuration.
+type DangerDecayConfig struct {
+	Enabled                 bool    `json:"enabled" yaml:"enabled"`
+	TickSeconds             int     `json:"tick_seconds" yaml:"tick_seconds"`
+	WindowMinutes           int     `json:"window_minutes" yaml:"window_minutes"`
+	HalfLifeMinutes         int     `json:"half_life_minutes" yaml:"half_life_minutes"`
+	IdleBelowScore          float64 `json:"idle_below_score" yaml:"idle_below_score"`
+	IdleStableSeconds       int     `json:"idle_stable_seconds" yaml:"idle_stable_seconds"`
+	DowngradeStableSeconds  int     `json:"downgrade_stable_seconds" yaml:"downgrade_stable_seconds"`
+	LockIntrusionUntilReset bool    `json:"lock_intrusion_until_reset" yaml:"lock_intrusion_until_reset"`
+}
+
+func DefaultDangerDecayConfig() DangerDecayConfig {
+	return DangerDecayConfig{
+		Enabled: true, TickSeconds: 5, WindowMinutes: 30, HalfLifeMinutes: 10,
+		IdleBelowScore: 0.25, IdleStableSeconds: 300, DowngradeStableSeconds: 60,
+		LockIntrusionUntilReset: true,
+	}
+}
+
+func NormalizeDangerDecayConfig(config DangerDecayConfig) DangerDecayConfig {
+	defaults := DefaultDangerDecayConfig()
+	if config.TickSeconds <= 0 {
+		config.TickSeconds = defaults.TickSeconds
+	}
+	if config.WindowMinutes <= 0 {
+		config.WindowMinutes = defaults.WindowMinutes
+	}
+	if config.HalfLifeMinutes <= 0 {
+		config.HalfLifeMinutes = defaults.HalfLifeMinutes
+	}
+	if config.IdleStableSeconds <= 0 {
+		config.IdleStableSeconds = defaults.IdleStableSeconds
+	}
+	if config.DowngradeStableSeconds <= 0 {
+		config.DowngradeStableSeconds = defaults.DowngradeStableSeconds
+	}
+	if config.IdleBelowScore <= 0 || config.IdleBelowScore > 1 {
+		config.IdleBelowScore = defaults.IdleBelowScore
+	}
+	return config
+}
+
 type CgeSecurityProfile struct {
-	Mode                                CgeSecurityMode `json:"mode" yaml:"mode"`
-	GlobalSensitivity                   float64         `json:"global_sensitivity" yaml:"global_sensitivity"`
-	UnknownPersonTolerance              string          `json:"unknown_person_tolerance" yaml:"unknown_person_tolerance"`
-	NightSensitivityMultiplier          float64         `json:"night_sensitivity_multiplier" yaml:"night_sensitivity_multiplier"`
-	ArmedSensitivityMultiplier          float64         `json:"armed_sensitivity_multiplier" yaml:"armed_sensitivity_multiplier"`
-	CriticalRooms                       []string        `json:"critical_rooms" yaml:"critical_rooms"`
-	IgnoredMotionRooms                  []string        `json:"ignored_motion_rooms" yaml:"ignored_motion_rooms"`
-	MinimumNotifyDangerLevel            DangerLevel     `json:"minimum_notify_danger_level" yaml:"minimum_notify_danger_level"`
-	MinimumAutoActionDangerLevel        DangerLevel     `json:"minimum_auto_action_danger_level" yaml:"minimum_auto_action_danger_level"`
-	RequireHumanConfirmationForSiren    bool            `json:"require_human_confirmation_for_siren" yaml:"require_human_confirmation_for_siren"`
-	AllowAutomaticLights                bool            `json:"allow_automatic_lights" yaml:"allow_automatic_lights"`
-	AllowAutomaticRecording             bool            `json:"allow_automatic_recording" yaml:"allow_automatic_recording"`
-	AllowAutomaticNotifications         bool            `json:"allow_automatic_notifications" yaml:"allow_automatic_notifications"`
-	UnknownPersistenceSeconds           int             `json:"unknown_persistence_seconds" yaml:"unknown_persistence_seconds"`
-	SignificantInactivityTimeoutSeconds int             `json:"significant_inactivity_timeout_seconds" yaml:"significant_inactivity_timeout_seconds"`
+	Mode                                CgeSecurityMode   `json:"mode" yaml:"mode"`
+	GlobalSensitivity                   float64           `json:"global_sensitivity" yaml:"global_sensitivity"`
+	UnknownPersonTolerance              string            `json:"unknown_person_tolerance" yaml:"unknown_person_tolerance"`
+	NightSensitivityMultiplier          float64           `json:"night_sensitivity_multiplier" yaml:"night_sensitivity_multiplier"`
+	ArmedSensitivityMultiplier          float64           `json:"armed_sensitivity_multiplier" yaml:"armed_sensitivity_multiplier"`
+	CriticalRooms                       []string          `json:"critical_rooms" yaml:"critical_rooms"`
+	IgnoredMotionRooms                  []string          `json:"ignored_motion_rooms" yaml:"ignored_motion_rooms"`
+	MinimumNotifyDangerLevel            DangerLevel       `json:"minimum_notify_danger_level" yaml:"minimum_notify_danger_level"`
+	MinimumAutoActionDangerLevel        DangerLevel       `json:"minimum_auto_action_danger_level" yaml:"minimum_auto_action_danger_level"`
+	RequireHumanConfirmationForSiren    bool              `json:"require_human_confirmation_for_siren" yaml:"require_human_confirmation_for_siren"`
+	AllowAutomaticLights                bool              `json:"allow_automatic_lights" yaml:"allow_automatic_lights"`
+	AllowAutomaticRecording             bool              `json:"allow_automatic_recording" yaml:"allow_automatic_recording"`
+	AllowAutomaticNotifications         bool              `json:"allow_automatic_notifications" yaml:"allow_automatic_notifications"`
+	UnknownPersistenceSeconds           int               `json:"unknown_persistence_seconds" yaml:"unknown_persistence_seconds"`
+	SignificantInactivityTimeoutSeconds int               `json:"significant_inactivity_timeout_seconds" yaml:"significant_inactivity_timeout_seconds"`
+	DangerDecay                         DangerDecayConfig `json:"danger_decay" yaml:"danger_decay"`
 }
 
 func DefaultCgeSecurityProfile() CgeSecurityProfile {
@@ -51,6 +97,7 @@ func DefaultCgeSecurityProfile() CgeSecurityProfile {
 		AllowAutomaticNotifications:         true,
 		UnknownPersistenceSeconds:           10,
 		SignificantInactivityTimeoutSeconds: 30,
+		DangerDecay:                         DefaultDangerDecayConfig(),
 	}
 }
 
@@ -123,6 +170,7 @@ func NormalizeCgeSecurityProfile(profile CgeSecurityProfile) CgeSecurityProfile 
 
 	profile.UnknownPersistenceSeconds = clampIntWithDefault(profile.UnknownPersistenceSeconds, 1, 86400, 10)
 	profile.SignificantInactivityTimeoutSeconds = clampIntWithDefault(profile.SignificantInactivityTimeoutSeconds, 1, 86400, 30)
+	profile.DangerDecay = NormalizeDangerDecayConfig(profile.DangerDecay)
 
 	if profile.CriticalRooms == nil {
 		profile.CriticalRooms = []string{}

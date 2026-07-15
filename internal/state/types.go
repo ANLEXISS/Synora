@@ -99,34 +99,46 @@ type ClipState struct {
 }
 
 type SystemState struct {
-	LastState            string                     `json:"last_state"`
-	LastStateTime        time.Time                  `json:"last_state_time"`
-	PreviousState        string                     `json:"previous_state,omitempty"`
-	DangerLevel          string                     `json:"danger_level"`
-	DangerScore          float64                    `json:"danger_score"`
-	DangerKnown          bool                       `json:"danger_known"`
-	DangerSource         string                     `json:"danger_source"`
-	Armed                bool                       `json:"armed"`
-	Degraded             bool                       `json:"degraded"`
-	DegradationReasons   []string                   `json:"degradation_reasons"`
-	RuntimeComponents    map[string]string          `json:"runtime_components"`
-	RuntimeComponentInfo map[string]string          `json:"runtime_component_info,omitempty"`
-	RuntimeModels        map[string]string          `json:"runtime_models"`
-	LastRealEventAt      time.Time                  `json:"last_real_event_at,omitempty"`
-	LastActionRequestAt  time.Time                  `json:"last_action_request_at,omitempty"`
-	LastActionAt         time.Time                  `json:"last_action_at,omitempty"`
-	BlockingReasons      []string                   `json:"blocking_reasons"`
-	BlockedActionsRecent []map[string]any           `json:"blocked_actions_recent"`
-	ManualRiskActive     bool                       `json:"manual_risk_active"`
-	ManualRiskTest       bool                       `json:"manual_risk_test"`
-	ManualRiskLevel      string                     `json:"manual_risk_level,omitempty"`
-	ManualRiskScore      float64                    `json:"manual_risk_score,omitempty"`
-	ManualRiskExpiresAt  time.Time                  `json:"manual_risk_expires_at,omitempty"`
-	IntrusionActive      bool                       `json:"intrusion_active"`
-	IntrusionTime        time.Time                  `json:"intrusion_time"`
-	EmergencyActive      bool                       `json:"emergency_active"`
-	EmergencyTime        time.Time                  `json:"emergency_time"`
-	Security             contract.SecurityModeState `json:"security"`
+	LastState     string    `json:"last_state"`
+	LastStateTime time.Time `json:"last_state_time"`
+	PreviousState string    `json:"previous_state,omitempty"`
+	DangerLevel   string    `json:"danger_level"`
+	DangerScore   float64   `json:"danger_score"`
+	DangerKnown   bool      `json:"danger_known"`
+	DangerSource  string    `json:"danger_source"`
+	// DangerScoreCurrent is the decayed, runtime score. DangerScore remains
+	// the historical/current compatibility field used by older clients.
+	DangerDecayEnabled         bool                       `json:"danger_decay_enabled"`
+	DangerDecay                map[string]any             `json:"danger_decay,omitempty"`
+	DangerDecayLastTick        time.Time                  `json:"danger_decay_last_tick,omitempty"`
+	DangerDecayWindowMinutes   int                        `json:"danger_decay_window_minutes,omitempty"`
+	DangerDecayHalfLifeMinutes int                        `json:"danger_decay_half_life_minutes,omitempty"`
+	DangerScoreCurrent         float64                    `json:"danger_score_current"`
+	DangerScorePeak            float64                    `json:"danger_score_peak"`
+	DangerScoreUpdatedAt       time.Time                  `json:"danger_score_updated_at,omitempty"`
+	DangerReasonsCurrent       []string                   `json:"danger_reasons_current,omitempty"`
+	DangerDecayDebug           map[string]any             `json:"danger_decay_debug,omitempty"`
+	Armed                      bool                       `json:"armed"`
+	Degraded                   bool                       `json:"degraded"`
+	DegradationReasons         []string                   `json:"degradation_reasons"`
+	RuntimeComponents          map[string]string          `json:"runtime_components"`
+	RuntimeComponentInfo       map[string]string          `json:"runtime_component_info,omitempty"`
+	RuntimeModels              map[string]string          `json:"runtime_models"`
+	LastRealEventAt            time.Time                  `json:"last_real_event_at,omitempty"`
+	LastActionRequestAt        time.Time                  `json:"last_action_request_at,omitempty"`
+	LastActionAt               time.Time                  `json:"last_action_at,omitempty"`
+	BlockingReasons            []string                   `json:"blocking_reasons"`
+	BlockedActionsRecent       []map[string]any           `json:"blocked_actions_recent"`
+	ManualRiskActive           bool                       `json:"manual_risk_active"`
+	ManualRiskTest             bool                       `json:"manual_risk_test"`
+	ManualRiskLevel            string                     `json:"manual_risk_level,omitempty"`
+	ManualRiskScore            float64                    `json:"manual_risk_score,omitempty"`
+	ManualRiskExpiresAt        time.Time                  `json:"manual_risk_expires_at,omitempty"`
+	IntrusionActive            bool                       `json:"intrusion_active"`
+	IntrusionTime              time.Time                  `json:"intrusion_time"`
+	EmergencyActive            bool                       `json:"emergency_active"`
+	EmergencyTime              time.Time                  `json:"emergency_time"`
+	Security                   contract.SecurityModeState `json:"security"`
 }
 
 type ExpirationConfig struct {

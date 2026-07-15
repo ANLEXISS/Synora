@@ -11,18 +11,70 @@ import (
 )
 
 type Status struct {
-	Enabled    bool        `json:"enabled"`
-	Status     string      `json:"status"`
-	ActiveBand string      `json:"active_band,omitempty"`
-	Message    string      `json:"message,omitempty"`
-	SynoraNet  RuntimePart `json:"synoranet"`
-	AP5GHz     RuntimePart `json:"ap_5ghz"`
-	AP2GHz     RuntimePart `json:"ap_2ghz"`
-	DHCP       RuntimePart `json:"dhcp"`
-	DNS        RuntimePart `json:"dns"`
-	HTTPSAPI   RuntimePart `json:"https_api"`
-	MediaMTX   RuntimePart `json:"mediamtx_rtsp"`
-	UpdatedAt  time.Time   `json:"updated_at"`
+	Enabled          bool                   `json:"enabled"`
+	Status           string                 `json:"status"`
+	ActiveBand       string                 `json:"active_band,omitempty"`
+	Message          string                 `json:"message,omitempty"`
+	SynoraNet        RuntimePart            `json:"synoranet"`
+	AP5GHz           RuntimePart            `json:"ap_5ghz"`
+	AP2GHz           RuntimePart            `json:"ap_2ghz"`
+	DHCP             RuntimePart            `json:"dhcp"`
+	DNS              RuntimePart            `json:"dns"`
+	WifiSecurity     WifiSecurityStatus     `json:"wifi_security"`
+	Visibility       VisibilityStatus       `json:"synoranet_visibility"`
+	AccessControl    AccessControlStatus    `json:"synoranet_access_control"`
+	ConnectionPolicy ConnectionPolicyStatus `json:"synoranet_connection_policy"`
+	PairingSecurity  PairingSecurityStatus  `json:"pairing_security"`
+	NetworkIsolation RuntimePart            `json:"network_isolation"`
+	Firewall         RuntimePart            `json:"firewall"`
+	HTTPSAPI         RuntimePart            `json:"https_api"`
+	MediaMTX         RuntimePart            `json:"mediamtx_rtsp"`
+	UpdatedAt        time.Time              `json:"updated_at"`
+}
+
+type VisibilityStatus struct {
+	RuntimePart
+	Hidden         bool `json:"hidden"`
+	PairingVisible bool `json:"pairing_visible"`
+}
+
+type AccessControlStatus struct {
+	RuntimePart
+	Enabled          bool   `json:"enabled"`
+	StationAllowlist bool   `json:"station_allowlist"`
+	KnownDevices     int    `json:"known_devices"`
+	PendingDevices   int    `json:"pending_devices"`
+	UnknownPolicy    string `json:"unknown_policy"`
+}
+
+type ConnectionPolicyStatus struct {
+	RuntimePart
+	Mode                     string `json:"mode"`
+	PairingWindowActive      bool   `json:"pairing_window_active"`
+	CameraPushRuntimeAllowed bool   `json:"camera_push_runtime_allowed"`
+}
+
+type PairingSecurityStatus struct {
+	RuntimePart
+	Active              bool      `json:"active"`
+	ExpiresAt           time.Time `json:"expires_at,omitempty"`
+	ClaimEndpointActive bool      `json:"claim_endpoint_active"`
+	MaxPendingDevices   int       `json:"max_pending_devices"`
+}
+
+func wifiSecurityStatus(cfg SynoraNetConfig, active bool) WifiSecurityStatus {
+	status := "degraded"
+	message := "legacy/weak WPA2 mode; use WPA3-SAE with required PMF"
+	if cfg.Security.Mode == "wpa3" && cfg.Security.PMF == "required" && cfg.Security.APIsolate {
+		status, message = "ok", "WPA3-SAE only, PMF required, client isolation enabled"
+	} else if cfg.Security.Mode == "wpa2-wpa3-transition" {
+		message = "transition mode explicitly enabled; WPA2 clients remain accepted"
+	}
+	if !active && cfg.Enabled {
+		status = "unavailable"
+		message = "secure AP is not active"
+	}
+	return WifiSecurityStatus{RuntimePart: RuntimePart{Status: status, Active: active, Message: message}, Mode: cfg.Security.Mode, PMF: cfg.Security.PMF, APIsolate: cfg.Security.APIsolate}
 }
 
 var statusMu sync.RWMutex

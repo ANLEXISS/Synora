@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -60,6 +61,8 @@ type coreApp struct {
 	state      *state.Store
 	eventStore *eventpkg.Store
 	chains     *eventpkg.ChainManager
+	danger     *cge.DangerRuntime
+	profile    *cge.ProfileStore
 	rate       *eventpkg.RateController
 	metrics    *coreMetrics
 
@@ -153,6 +156,8 @@ func main() {
 		log.Println("action policy load warning:", err)
 	}
 	rateController := eventpkg.NewRateController(2*time.Second, 750*time.Millisecond)
+	dangerRuntime := cge.NewDangerRuntime(profileStore.Get().DangerDecay)
+	dangerRuntime.SetDebug(getenvBool("SYNORA_CGE_DEBUG", false))
 
 	app := &coreApp{
 		bus:          busClient,
@@ -165,6 +170,8 @@ func main() {
 		state:        stateStore,
 		eventStore:   eventStore,
 		chains:       chainManager,
+		danger:       dangerRuntime,
+		profile:      profileStore,
 		rate:         rateController,
 		metrics:      &coreMetrics{sourceLastSeen: map[string]time.Time{}},
 		highPriority: make(chan *contract.Event, 128),
@@ -243,6 +250,10 @@ func main() {
 			app.syncResidentPresence(presence)
 		}
 	}
+	// Recompute from the persisted chain projection before the first snapshot.
+	// This prevents an old persisted Suspect/High value from being restored as
+	// current danger after a restart.
+	app.recomputeDanger(time.Now().UTC(), true)
 	app.eventStore.Load(app.state.RecentEventsList())
 	if err := app.rpc.RestoreLearnedBehaviorOverrides(); err != nil {
 		log.Println("cge learned behavior overrides restore warning:", err)
@@ -260,6 +271,7 @@ func main() {
 	go app.manualRiskLoop()
 	go app.cleanupLoop()
 	go app.chainLoop()
+	go app.dangerLoop()
 
 	if err := app.runBusLoop(); err != nil {
 		log.Fatal(err)
@@ -541,6 +553,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	if a.chains != nil {
 		a.publishChainUpdates(a.chains.Process(event, chainEvaluation(event, result)))
 	}
+	a.recomputeDanger(time.Now().UTC(), false)
 
 	a.triggerSnapshot()
 }
@@ -765,10 +778,12 @@ func (a *coreApp) manualRiskLoop() {
 	for now := range ticker.C {
 		changed := a.expireManualRisk(now.UTC())
 		if changed {
-			current := a.state.SystemState()
-			a.publishEvent(contract.EventSystemStateChanged, current, contract.PriorityNormal)
 			if a.chains != nil {
 				a.publishChainUpdates(a.chains.CloseManualRiskChains(now.UTC()))
+			}
+			result := a.recomputeDanger(now.UTC(), false)
+			if !result.Changed {
+				a.publishEvent(contract.EventSystemStateChanged, a.state.SystemState(), contract.PriorityNormal)
 			}
 			a.triggerSnapshot()
 		}
@@ -960,7 +975,48 @@ func (a *coreApp) chainLoop() {
 	defer ticker.Stop()
 	for now := range ticker.C {
 		a.publishChainUpdates(a.chains.CloseInactive(now.UTC()))
+		a.recomputeDanger(now.UTC(), false)
 	}
+}
+
+func (a *coreApp) dangerLoop() {
+	if a == nil || a.danger == nil {
+		return
+	}
+	config := a.danger.Config()
+	interval := time.Duration(config.TickSeconds) * time.Second
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for now := range ticker.C {
+		a.recomputeDanger(now.UTC(), false)
+	}
+}
+
+func (a *coreApp) recomputeDanger(now time.Time, initial bool) cge.DangerRuntimeResult {
+	if a == nil || a.danger == nil || a.state == nil {
+		return cge.DangerRuntimeResult{}
+	}
+	if a.profile != nil {
+		a.danger.SetConfig(a.profile.Get().DangerDecay)
+	}
+	result := a.danger.Recompute(a.state, a.chains, now.UTC(), initial)
+	if result.Significant {
+		a.publishEvent("engine.evaluation.updated", map[string]any{
+			"danger_score_current":   result.CurrentScore,
+			"danger_score":           result.CurrentScore,
+			"danger_level":           result.CurrentLevel,
+			"current_state":          result.CurrentState,
+			"danger_reasons_current": result.Reasons,
+			"locked":                 result.Locked,
+		}, contract.PriorityNormal)
+	}
+	if result.Changed {
+		a.triggerSnapshot()
+	}
+	return result
 }
 
 func (a *coreApp) publishChainUpdates(updates []eventpkg.ChainUpdate) {
@@ -1228,6 +1284,18 @@ func getenv(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func getenvBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func loadCGECriticalChains(engineInstance *engine.Engine) (string, error) {

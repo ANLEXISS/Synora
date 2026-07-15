@@ -35,6 +35,15 @@ export type SynoraDevice = {
   [key: string]: unknown;
 };
 
+export type SynoraStreamDescriptor = {
+  device_id: string;
+  rtsp_publish_url: string;
+  webrtc_url?: string;
+  hls_url?: string;
+  status: "unknown" | "online" | "offline" | string;
+  live_available: boolean;
+};
+
 export type SynoraResident = {
   id: string;
   name?: string;

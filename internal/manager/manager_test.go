@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"synora/internal/discovery/network"
 	"synora/pkg/contract"
 )
 
@@ -180,6 +181,39 @@ func TestHealthMarksMissingHostapdDegradedWithDetails(t *testing.T) {
 	manager := New(Config{Executor: executor, DiskPath: t.TempDir()})
 	health := manager.Health(context.Background())
 	if health.Status != "degraded" || health.Network.HostAPD.Name != "hostapd" || health.Network.HostAPD.Checked.IsZero() {
+		t.Fatalf("health=%#v", health)
+	}
+}
+
+func activeRuntimeExecutor() *fakeExecutor {
+	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}}
+	for _, service := range append(RuntimeServices, "hostapd", "dnsmasq") {
+		executor.outputs[commandKey("systemctl", "is-active", service)] = []byte("active\n")
+	}
+	return executor
+}
+
+func TestHealthMarksConfiguredSynoraNetDisabledWithoutDegradingRuntime(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "network.yaml")
+	if err := os.WriteFile(configPath, []byte("synoranet:\n  enabled: false\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	manager := New(Config{Executor: activeRuntimeExecutor(), DiskPath: t.TempDir(), NetworkConfigPath: configPath, ProbeActions: func(context.Context) error { return nil }, ProbeMediaMTX: func(context.Context) error { return nil }})
+	health := manager.Health(context.Background())
+	if health.Network.Status != "disabled" || health.Network.SynoraNet.Status != "disabled" || health.Status != "ok" {
+		t.Fatalf("health=%#v", health)
+	}
+}
+
+func TestHealthReports24GHzFallbackAsUsableDegraded(t *testing.T) {
+	statusPath := filepath.Join(t.TempDir(), "network-status.json")
+	t.Setenv("SYNORA_NETWORK_STATUS_FILE", statusPath)
+	if err := network.WriteStatus(statusPath, network.Status{Enabled: true, Status: "degraded", ActiveBand: "2.4GHz", SynoraNet: network.RuntimePart{Status: "degraded", Active: true, Message: "5 GHz failed, running 2.4 GHz fallback"}, AP5GHz: network.RuntimePart{Status: "degraded"}, AP2GHz: network.RuntimePart{Status: "degraded", Active: true}, DHCP: network.RuntimePart{Status: "ok", Active: true}, DNS: network.RuntimePart{Status: "ok", Active: true}}); err != nil {
+		t.Fatal(err)
+	}
+	manager := New(Config{Executor: activeRuntimeExecutor(), DiskPath: t.TempDir(), ProbeActions: func(context.Context) error { return nil }, ProbeMediaMTX: func(context.Context) error { return nil }})
+	health := manager.Health(context.Background())
+	if health.Status != "degraded" || health.Network.ActiveBand != "2.4GHz" || !health.Network.SynoraNet.Active || health.Network.SynoraNet.Message == "" {
 		t.Fatalf("health=%#v", health)
 	}
 }

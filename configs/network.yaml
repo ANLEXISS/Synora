@@ -2,7 +2,7 @@
 # to /etc/synora/network.yaml; the Wi-Fi PSK is generated in passphrase_file.
 synoranet:
   enabled: true
-  interface: "wlan0"
+  interface: "wlP2p33s0"
   ssid: "SynoraNet"
   country_code: "FR"
   subnet_cidr: "10.77.0.0/24"
@@ -10,6 +10,43 @@ synoranet:
   dhcp_start: "10.77.0.50"
   dhcp_end: "10.77.0.200"
   dhcp_lease_time: "12h"
+
+  security:
+    mode: "wpa3"
+    pmf: "required"
+    ap_isolate: true
+    min_passphrase_length: 24
+    allow_legacy_wpa2: false
+    allow_transition_mode: false
+
+  visibility:
+    hidden_by_default: true
+    visible_during_pairing: true
+    pairing_visibility_timeout_seconds: 600
+
+  access_control:
+    enabled: true
+    station_allowlist: true
+    unknown_station_policy: "reject"
+    mac_allowlist_file: "/run/synora/hostapd-allowed-stations"
+    known_devices_only: true
+    bind_dhcp_to_known_devices: true
+
+  connection_policy:
+    mode: "central_initiated"
+    allow_camera_push_during_pairing: true
+    allow_camera_push_runtime: false
+    allow_established_related: true
+
+  pairing:
+    enabled: true
+    window_seconds: 600
+    require_admin_session: true
+    require_setup_token: true
+    require_device_public_key: false
+    require_observed_mac_match: true
+    max_pending_devices: 5
+    claim_endpoint_enabled_only_during_window: true
 
   dns:
     enabled: true
@@ -25,13 +62,34 @@ synoranet:
     mode: "fallback"
     channel_5ghz: 36
     channel_2ghz: 6
-    width_5ghz: 40
-    hidden: false
-    wpa: "wpa2"
+    width_5ghz: 20
+    hidden: true
     passphrase_file: "/etc/synora/secrets/synoranet_psk"
 
+  firewall:
+    enabled: true
+    default_policy: "deny"
+    block_client_to_client: true
+    block_forward_to_lan: true
+    block_forward_to_tailscale: true
+    block_forward_to_internet: true
+    allow_dns: true
+    allow_dhcp: true
+    allow_ntp_local: false
+    allow_api_http_from_clients: false
+    allow_api_https_from_clients: false
+    allow_vision_ingress_from_clients: false
+    allow_media_rtsp_from_clients: false
+    allow_media_webrtc_from_clients: false
+    allow_media_hls_from_clients: false
+    allow_mediamtx_api: false
+    pairing_allowed_ports: [53, 67, 68, 8080, 8443, 7070]
+    central_to_camera_allowed_ports: [443, 7443, 8554, 8889]
+
   services:
+    http_api_url: "http://10.77.0.1:8080"
     https_api_url: "https://10.77.0.1:8443"
+    vision_ingress_url: "http://10.77.0.1:7070"
     rtsp_url: "rtsp://10.77.0.1:8554"
     webrtc_base_url: "http://10.77.0.1:8889"
     hls_base_url: "http://10.77.0.1:8888"

@@ -24,6 +24,21 @@ métadonnées `simulated`/`dry_run` jusqu'au service Actions.
 Le profil de sécurité continue d'influencer score, seuils et zones sensibles.
 Il ne transforme jamais un test simulé en entrée réelle.
 
+## Danger courant et décroissance temporelle
+
+Le score exposé dans `SystemState.danger_score` est recalculé par
+`DangerRuntime` toutes les cinq secondes à partir des chaînes récentes et
+actives. La configuration par défaut est dans `configs/cge_profile.yaml` :
+fenêtre de 30 minutes et demi-vie de 10 minutes. Une chaîne ancienne conserve
+son historique mais ne contribue plus au danger courant après la fenêtre.
+
+Le risque manuel reste une contribution fixe jusqu'à son expiration. Une
+intrusion ou une chaîne critique non résolue reste verrouillée lorsque
+`lock_intrusion_until_reset` est actif ; le reset explicite reste la règle de
+sortie. Les champs `danger_decay`, `danger_score_current`,
+`danger_score_peak`, `danger_score_updated_at` et `danger_reasons_current`
+sont disponibles dans l'état public et les diagnostics runtime.
+
 ## Contrôles admin
 
 `POST /api/system/state/reset` remet l'état à `idle`, danger `none`, crée un

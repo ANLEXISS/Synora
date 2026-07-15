@@ -434,7 +434,7 @@ critical_endpoints() {
 }
 
 check_synoranet() {
-  local prefix="${1:-SynoraNet}" health_body enabled status band
+  local prefix="${1:-SynoraNet}" health_body enabled status band security isolation firewall visibility access_control connection_policy pairing_security
   request "${prefix} GET /api/system/health" GET /api/system/health 200 true || true
   health_body="$LAST_BODY"
   if [[ ! -s "$health_body" ]] || ! jq -e . "$health_body" >/dev/null 2>&1; then
@@ -444,6 +444,18 @@ check_synoranet() {
   enabled="$(jq -r '.network.enabled // false' "$health_body")"
   status="$(jq -r '.network.synoranet.status // .network.status // "unknown"' "$health_body")"
   band="$(jq -r '.network.active_band // ""' "$health_body")"
+  security="$(jq -r '.components.wifi_security.status // .network.wifi_security.status // "missing"' "$health_body")"
+  isolation="$(jq -r '.components.network_isolation.status // .network.network_isolation.status // "missing"' "$health_body")"
+  firewall="$(jq -r '.components.firewall.status // .network.firewall.status // "missing"' "$health_body")"
+  visibility="$(jq -r '.components.synoranet_visibility.status // .network.synoranet_visibility.status // "missing"' "$health_body")"
+  access_control="$(jq -r '.components.synoranet_access_control.status // .network.synoranet_access_control.status // "missing"' "$health_body")"
+  connection_policy="$(jq -r '.components.synoranet_connection_policy.status // .network.synoranet_connection_policy.status // "missing"' "$health_body")"
+  pairing_security="$(jq -r '.components.pairing_security.status // .network.pairing_security.status // "missing"' "$health_body")"
+  if grep -Eiq 'passphrase|sae_password|wpa_passphrase|api_token|bearer[[:space:]]+[A-Za-z0-9._-]{12,}' "$health_body"; then
+    record_check fail "${prefix} health secret exposure" 200 "" "health response contains a secret-like field or value" '{}' true
+  else
+    record_check pass "${prefix} health secret exposure" 200 "" "no passphrase/token field found" '{}' false
+  fi
   if [[ "$enabled" != "true" ]]; then
     record_check warn "${prefix}" 200 "" "disabled; AP-specific checks skipped" "{\"status\":\"$status\"}" false
     request "${prefix} GET /api/streams" GET /api/streams 200 true '' true || true
@@ -453,7 +465,23 @@ check_synoranet() {
     record_check fail "${prefix} enabled health" 200 "" "enabled SynoraNet is unavailable" "{\"status\":\"$status\",\"active_band\":\"$band\"}" true
   else
     record_check pass "${prefix} enabled health" 200 "" "status=$status band=${band:-unknown}" "{\"status\":\"$status\",\"active_band\":\"$band\"}" false
+    if [[ "$security" == "ok" || "$security" == "degraded" ]]; then
+      record_check pass "${prefix} wifi security health" 200 "" "status=$security" "{\"status\":\"$security\"}" false
+    else
+      record_check fail "${prefix} wifi security health" 200 "" "wifi_security component missing or unavailable" "{\"status\":\"$security\"}" true
+    fi
+    if [[ "$isolation" == "ok" || "$isolation" == "degraded" ]] && [[ "$firewall" == "ok" || "$firewall" == "degraded" ]]; then
+      record_check pass "${prefix} firewall/isolation health" 200 "" "isolation=$isolation firewall=$firewall" "{\"isolation\":\"$isolation\",\"firewall\":\"$firewall\"}" false
+    else
+      record_check fail "${prefix} firewall/isolation health" 200 "" "network isolation/firewall component missing or unavailable" "{\"isolation\":\"$isolation\",\"firewall\":\"$firewall\"}" true
+    fi
+    if [[ "$visibility" == "ok" || "$visibility" == "degraded" ]] && [[ "$access_control" == "ok" || "$access_control" == "degraded" ]] && [[ "$connection_policy" == "ok" || "$connection_policy" == "degraded" ]] && [[ "$pairing_security" == "ok" || "$pairing_security" == "degraded" ]]; then
+      record_check pass "${prefix} closed-by-default health" 200 "" "visibility=$visibility access_control=$access_control connection_policy=$connection_policy pairing=$pairing_security" "{\"visibility\":\"$visibility\",\"access_control\":\"$access_control\",\"connection_policy\":\"$connection_policy\",\"pairing_security\":\"$pairing_security\"}" false
+    else
+      record_check fail "${prefix} closed-by-default health" 200 "" "one or more SynoraNet lockdown components missing or unavailable" "{\"visibility\":\"$visibility\",\"access_control\":\"$access_control\",\"connection_policy\":\"$connection_policy\",\"pairing_security\":\"$pairing_security\"}" true
+    fi
     check_synoranet_local "$prefix"
+    check_synoranet_pairing_window "$prefix"
   fi
   request "${prefix} GET /api/streams" GET /api/streams 200 true '' true || true
 }
@@ -486,6 +514,23 @@ check_synoranet_local() {
       record_check fail "${prefix} process $process" '' '' "enabled SynoraNet process is not present" '{}' true
     fi
   done
+}
+
+check_synoranet_pairing_window() {
+  local prefix="${1:-SynoraNet}" active
+  request "${prefix} POST pairing window start" POST /api/devices/pairing/window/start 200 true '{}' || return 0
+  if ! jq -e '.active == true and (.expires_at // "") != ""' "$LAST_BODY" >/dev/null 2>&1; then
+    record_check fail "${prefix} pairing window start state" 200 "" "pairing start response is not active or has no expiry" '{}' true
+    return 0
+  fi
+  record_check pass "${prefix} pairing window start state" 200 "" "active window with expiry" '{}' false
+  request "${prefix} POST pairing window stop" POST /api/devices/pairing/window/stop 200 true '{}' || return 0
+  active="$(jq -r '.active // false' "$LAST_BODY")"
+  if [[ "$active" == "false" ]]; then
+    record_check pass "${prefix} pairing window stop state" 200 "" "pairing window closed" '{}' false
+  else
+    record_check fail "${prefix} pairing window stop state" 200 "" "pairing window remains active" '{}' true
+  fi
 }
 
 check_runtime_status() {
@@ -652,10 +697,10 @@ collect_logs() {
     return
   fi
   : > "$log_file"
-  for service in synora-core synora-api synora-bus synora-actions; do
+  for service in synora-core synora-api synora-bus synora-actions synora-discovery hostapd dnsmasq; do
     journalctl -u "$service.service" --since "$STARTED_AT" --no-pager 2>/dev/null >> "$log_file" || true
   done
-  pattern='incoming channel full|panic|fatal|deadlock|concurrent map|runtime error|nil pointer|data race|internal server error|5\.00[0-9]*s'
+  pattern='incoming channel full|panic|fatal|deadlock|concurrent map|runtime error|nil pointer|data race|internal server error|5\.00[0-9]*s|passphrase|sae_password|wpa_passphrase|api_token|bearer[[:space:]]+[A-Za-z0-9._-]{12,}'
   findings="$(grep -Ein "$pattern" "$log_file" 2>/dev/null || true)"
   if [[ -n "$findings" ]]; then
     printf '%s\n' "$findings" > "$LOG_FINDINGS_FILE"

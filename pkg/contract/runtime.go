@@ -36,27 +36,49 @@ type RuntimeHealth struct {
 }
 
 type RuntimeServiceHealth struct {
-	Name    string    `json:"name"`
-	Status  string    `json:"status"`
-	Active  bool      `json:"active"`
-	Checked time.Time `json:"checked_at"`
-	Error   string    `json:"error,omitempty"`
-	Message string    `json:"message,omitempty"`
+	Name                     string     `json:"name"`
+	Status                   string     `json:"status"`
+	Active                   bool       `json:"active"`
+	Checked                  time.Time  `json:"checked_at"`
+	Error                    string     `json:"error,omitempty"`
+	Message                  string     `json:"message,omitempty"`
+	Mode                     string     `json:"mode,omitempty"`
+	PMF                      string     `json:"pmf,omitempty"`
+	APIsolate                bool       `json:"ap_isolate,omitempty"`
+	Hidden                   bool       `json:"hidden,omitempty"`
+	PairingVisible           bool       `json:"pairing_visible,omitempty"`
+	EnabledComponent         bool       `json:"enabled,omitempty"`
+	StationAllowlist         bool       `json:"station_allowlist,omitempty"`
+	KnownDevices             int        `json:"known_devices,omitempty"`
+	PendingDevices           int        `json:"pending_devices,omitempty"`
+	UnknownPolicy            string     `json:"unknown_policy,omitempty"`
+	PairingWindowActive      bool       `json:"pairing_window_active,omitempty"`
+	CameraPushRuntimeAllowed bool       `json:"camera_push_runtime_allowed,omitempty"`
+	ExpiresAt                *time.Time `json:"expires_at,omitempty"`
+	ClaimEndpointActive      bool       `json:"claim_endpoint_active,omitempty"`
+	MaxPendingDevices        int        `json:"max_pending_devices,omitempty"`
 }
 
 type RuntimeNetworkHealth struct {
-	Enabled    bool                            `json:"enabled"`
-	Status     string                          `json:"status"`
-	HostAPD    RuntimeServiceHealth            `json:"hostapd"`
-	DNSMasq    RuntimeServiceHealth            `json:"dnsmasq"`
-	SynoraNet  RuntimeServiceHealth            `json:"synoranet"`
-	AP5GHz     RuntimeServiceHealth            `json:"ap_5ghz"`
-	AP2GHz     RuntimeServiceHealth            `json:"ap_2ghz"`
-	DHCP       RuntimeServiceHealth            `json:"dhcp"`
-	DNS        RuntimeServiceHealth            `json:"dns"`
-	ActiveBand string                          `json:"active_band,omitempty"`
-	GatewayIP  string                          `json:"gateway_ip,omitempty"`
-	Details    map[string]RuntimeServiceHealth `json:"details,omitempty"`
+	Enabled          bool                            `json:"enabled"`
+	Status           string                          `json:"status"`
+	HostAPD          RuntimeServiceHealth            `json:"hostapd"`
+	DNSMasq          RuntimeServiceHealth            `json:"dnsmasq"`
+	SynoraNet        RuntimeServiceHealth            `json:"synoranet"`
+	AP5GHz           RuntimeServiceHealth            `json:"ap_5ghz"`
+	AP2GHz           RuntimeServiceHealth            `json:"ap_2ghz"`
+	DHCP             RuntimeServiceHealth            `json:"dhcp"`
+	DNS              RuntimeServiceHealth            `json:"dns"`
+	WifiSecurity     RuntimeServiceHealth            `json:"wifi_security"`
+	NetworkIsolation RuntimeServiceHealth            `json:"network_isolation"`
+	Firewall         RuntimeServiceHealth            `json:"firewall"`
+	Visibility       RuntimeServiceHealth            `json:"synoranet_visibility"`
+	AccessControl    RuntimeServiceHealth            `json:"synoranet_access_control"`
+	ConnectionPolicy RuntimeServiceHealth            `json:"synoranet_connection_policy"`
+	PairingSecurity  RuntimeServiceHealth            `json:"pairing_security"`
+	ActiveBand       string                          `json:"active_band,omitempty"`
+	GatewayIP        string                          `json:"gateway_ip,omitempty"`
+	Details          map[string]RuntimeServiceHealth `json:"details,omitempty"`
 }
 
 type RuntimeMediaMTXHealth struct {
@@ -212,6 +234,40 @@ func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
 	}
 	if health.Network.DNS.Name == "" {
 		health.Network.DNS = unavailableRuntimeService("dns", now, "DNS status unavailable")
+	}
+	if health.Network.WifiSecurity.Name == "" {
+		health.Network.WifiSecurity = unavailableRuntimeService("wifi_security", now, "Wi-Fi security status unavailable")
+	}
+	if health.Network.NetworkIsolation.Name == "" {
+		health.Network.NetworkIsolation = unavailableRuntimeService("network_isolation", now, "network isolation status unavailable")
+	}
+	if health.Network.Firewall.Name == "" {
+		health.Network.Firewall = unavailableRuntimeService("firewall", now, "SynoraNet firewall status unavailable")
+	}
+	if health.Network.Visibility.Name == "" {
+		health.Network.Visibility = unavailableRuntimeService("synoranet_visibility", now, "SynoraNet visibility status unavailable")
+	}
+	if health.Network.AccessControl.Name == "" {
+		health.Network.AccessControl = unavailableRuntimeService("synoranet_access_control", now, "SynoraNet access-control status unavailable")
+	}
+	if health.Network.ConnectionPolicy.Name == "" {
+		health.Network.ConnectionPolicy = unavailableRuntimeService("synoranet_connection_policy", now, "SynoraNet connection-policy status unavailable")
+	}
+	if health.Network.PairingSecurity.Name == "" {
+		health.Network.PairingSecurity = unavailableRuntimeService("pairing_security", now, "pairing security status unavailable")
+	}
+	for alias, item := range map[string]RuntimeServiceHealth{
+		"wifi_security":               health.Network.WifiSecurity,
+		"network_isolation":           health.Network.NetworkIsolation,
+		"firewall":                    health.Network.Firewall,
+		"synoranet_visibility":        health.Network.Visibility,
+		"synoranet_access_control":    health.Network.AccessControl,
+		"synoranet_connection_policy": health.Network.ConnectionPolicy,
+		"pairing_security":            health.Network.PairingSecurity,
+	} {
+		if _, ok := health.Components[alias]; !ok {
+			health.Components[alias] = item
+		}
 	}
 	if health.Network.Status == "" || health.Network.Status == "unknown" {
 		health.Network.Status = combinedRuntimeStatus(health.Network.HostAPD, health.Network.DNSMasq)

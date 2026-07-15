@@ -189,7 +189,7 @@ func (m *Manager) Health(
 	if statusErr != nil {
 		if cfg, configErr := network.LoadConfig(m.networkConfigPath); configErr == nil && !cfg.SynoraNet.Enabled {
 			disabled := network.RuntimePart{Status: "disabled", Message: "SynoraNet disabled"}
-			snapshot = network.Status{Status: "disabled", SynoraNet: disabled, AP5GHz: disabled, AP2GHz: disabled, DHCP: disabled, DNS: disabled}
+			snapshot = network.Status{Status: "disabled", SynoraNet: disabled, AP5GHz: disabled, AP2GHz: disabled, DHCP: disabled, DNS: disabled, WifiSecurity: network.WifiSecurityStatus{RuntimePart: disabled}, Visibility: network.VisibilityStatus{RuntimePart: disabled}, AccessControl: network.AccessControlStatus{RuntimePart: disabled}, ConnectionPolicy: network.ConnectionPolicyStatus{RuntimePart: disabled}, PairingSecurity: network.PairingSecurityStatus{RuntimePart: disabled}, NetworkIsolation: disabled, Firewall: disabled}
 			statusErr = nil
 		}
 	}
@@ -271,6 +271,35 @@ func mergeSynoraNetHealth(base contract.RuntimeNetworkHealth, snapshot network.S
 	base.AP2GHz = part("ap_2ghz", snapshot.AP2GHz)
 	base.DHCP = part("dhcp", snapshot.DHCP)
 	base.DNS = part("dns", snapshot.DNS)
+	security := part("wifi_security", snapshot.WifiSecurity.RuntimePart)
+	security.Mode = snapshot.WifiSecurity.Mode
+	security.PMF = snapshot.WifiSecurity.PMF
+	security.APIsolate = snapshot.WifiSecurity.APIsolate
+	base.WifiSecurity = security
+	base.NetworkIsolation = part("network_isolation", snapshot.NetworkIsolation)
+	base.Firewall = part("firewall", snapshot.Firewall)
+	visibility := part("synoranet_visibility", snapshot.Visibility.RuntimePart)
+	visibility.Hidden = snapshot.Visibility.Hidden
+	visibility.PairingVisible = snapshot.Visibility.PairingVisible
+	base.Visibility = visibility
+	access := part("synoranet_access_control", snapshot.AccessControl.RuntimePart)
+	access.EnabledComponent = snapshot.AccessControl.Enabled
+	access.StationAllowlist = snapshot.AccessControl.StationAllowlist
+	access.KnownDevices = snapshot.AccessControl.KnownDevices
+	access.PendingDevices = snapshot.AccessControl.PendingDevices
+	access.UnknownPolicy = snapshot.AccessControl.UnknownPolicy
+	base.AccessControl = access
+	policy := part("synoranet_connection_policy", snapshot.ConnectionPolicy.RuntimePart)
+	policy.Mode = snapshot.ConnectionPolicy.Mode
+	policy.PairingWindowActive = snapshot.ConnectionPolicy.PairingWindowActive
+	policy.CameraPushRuntimeAllowed = snapshot.ConnectionPolicy.CameraPushRuntimeAllowed
+	base.ConnectionPolicy = policy
+	pairing := part("pairing_security", snapshot.PairingSecurity.RuntimePart)
+	pairing.PairingWindowActive = snapshot.PairingSecurity.Active
+	pairing.ExpiresAt = timePtr(snapshot.PairingSecurity.ExpiresAt)
+	pairing.ClaimEndpointActive = snapshot.PairingSecurity.ClaimEndpointActive
+	pairing.MaxPendingDevices = snapshot.PairingSecurity.MaxPendingDevices
+	base.PairingSecurity = pairing
 	base.ActiveBand = snapshot.ActiveBand
 	base.GatewayIP = "10.77.0.1"
 	base.Details["synoranet"] = base.SynoraNet
@@ -278,6 +307,13 @@ func mergeSynoraNetHealth(base contract.RuntimeNetworkHealth, snapshot network.S
 	base.Details["ap_2ghz"] = base.AP2GHz
 	base.Details["dhcp"] = base.DHCP
 	base.Details["dns"] = base.DNS
+	base.Details["wifi_security"] = base.WifiSecurity
+	base.Details["network_isolation"] = base.NetworkIsolation
+	base.Details["firewall"] = base.Firewall
+	base.Details["synoranet_visibility"] = base.Visibility
+	base.Details["synoranet_access_control"] = base.AccessControl
+	base.Details["synoranet_connection_policy"] = base.ConnectionPolicy
+	base.Details["pairing_security"] = base.PairingSecurity
 	base.Details["https_api"] = part("https_api", snapshot.HTTPSAPI)
 	base.Details["mediamtx_rtsp"] = part("mediamtx_rtsp", snapshot.MediaMTX)
 	base.Status = snapshot.Status
@@ -288,6 +324,14 @@ func mergeSynoraNetHealth(base contract.RuntimeNetworkHealth, snapshot network.S
 		base.Status = "disabled"
 	}
 	return base
+}
+
+func timePtr(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	copy := value
+	return &copy
 }
 
 func (m *Manager) RestartService(

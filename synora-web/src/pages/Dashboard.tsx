@@ -84,6 +84,14 @@ function riskDescription(danger: DashboardDanger, systemState: string) {
   return "Aucun risque actif ; aucune chaîne réelle ouverte.";
 }
 
+function scoreUpdatedLabel(value: string | null): string | null {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return null;
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  return `Score actualisé il y a ${seconds} s`;
+}
+
 export function Dashboard() {
   const data = useSynoraData();
   const auth = useAuth();
@@ -133,6 +141,7 @@ export function Dashboard() {
   const realCriticalChains = criticalChains.filter((chain) => chain.source !== "simulation" && chain.simulated !== true);
   const hiddenSimulationCount = criticalChains.length - realCriticalChains.length;
   const cgeRiskActive = danger.level !== "none" && danger.level !== "unknown";
+  const scoreUpdated = scoreUpdatedLabel(danger.scoreUpdatedAt);
 
   async function runControl(action: () => Promise<unknown>, confirmation?: string) {
     if (confirmation && !window.confirm(confirmation)) return;
@@ -263,6 +272,7 @@ export function Dashboard() {
           <div className="risk-badges">
             <span className={`badge ${levelTone(danger.level)}`}>{cgeRiskActive ? `Risque ${formatDangerLevel(danger.level).toLowerCase()}` : "Aucun risque actif"}</span>
             <span className={`badge ${danger.simulated ? "simulation" : danger.source === "none" ? "neutral" : "success"}`}>{sourceLabel(danger)}</span>
+            {danger.decayEnabled && <span className="badge neutral">Décroissance active</span>}
           </div>
 
           <div className="risk-meter">
@@ -273,6 +283,7 @@ export function Dashboard() {
             <span>Source</span>
             <strong>{sourceLabel(danger)}</strong>
           </div>
+          {scoreUpdated && <div className="risk-meta"><span>Actualisation</span><strong>{scoreUpdated}</strong></div>}
           {danger.lastActionRequestAt && <div className="risk-meta"><span>Action récente</span><strong>{formatDateTime(danger.lastActionRequestAt)}</strong></div>}
           {danger.blockingReasons.length > 0 && <div className="risk-meta"><span>Blocages</span><strong>{danger.blockingReasons.join(" · ")}</strong></div>}
 

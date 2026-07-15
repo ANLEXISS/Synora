@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
 	"synora/internal/automation"
+	"synora/internal/cge"
 	"synora/internal/event"
 	"synora/internal/state"
 	"synora/pkg/contract"
@@ -42,6 +44,32 @@ func TestManualRiskDangerLevelConditionDispatchesActionRequest(t *testing.T) {
 	}
 	if current := app.state.SystemState(); len(current.BlockingReasons) != 0 {
 		t.Fatalf("matched automation should not leave blocking reasons: %#v", current.BlockingReasons)
+	}
+}
+
+func TestDangerDecayPublishesEvaluationUpdatedOnLevelChange(t *testing.T) {
+	app, bus := newTestCoreApp(t)
+	app.chains = event.NewChainManager(event.DefaultChainConfig())
+	app.danger = cge.NewDangerRuntime(contract.DangerDecayConfig{
+		Enabled: true, WindowMinutes: 30, HalfLifeMinutes: 10,
+		IdleBelowScore: .25, IdleStableSeconds: 300, DowngradeStableSeconds: 1,
+		LockIntrusionUntilReset: true,
+	})
+	t0 := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	app.chains.Process(&contract.Event{ID: "decay-event", Type: contract.EventVisionUnknown, Timestamp: t0, Payload: map[string]any{"activation_id": "decay"}}, &contract.ChainEvaluation{EventID: "decay-event", Timestamp: t0, State: "suspicious", DangerLevel: "high", DangerScore: .8})
+	app.recomputeDanger(t0, true)
+	app.recomputeDanger(t0.Add(10*time.Minute), false)
+	app.recomputeDanger(t0.Add(11*time.Minute), false)
+	updates := bus.messagesOfType("engine.evaluation.updated")
+	if len(updates) < 2 {
+		t.Fatalf("expected evaluation updates for decay/level change, got %d", len(updates))
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(updates[len(updates)-1].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["danger_level"] == "high" || payload["current_state"] == "suspicious" {
+		t.Fatalf("evaluation update did not expose downgraded state: %#v", payload)
 	}
 }
 

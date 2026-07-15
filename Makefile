@@ -47,6 +47,7 @@ GO_BINS := \
 	synora-actions:./cmd/synora-actions \
 	synora-api:./cmd/synora-api \
 	synora-discovery:./cmd/synora-discovery \
+	synora-network-config:./cmd/synora-network-config \
 	synora-runtime-manager:./cmd/synora-runtime-manager
 
 RUNTIME_SERVICES := \

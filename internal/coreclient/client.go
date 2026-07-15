@@ -241,6 +241,14 @@ func (c *Client) CreateDevice(data json.RawMessage) (map[string]any, error) {
 	return result, nil
 }
 
+func (c *Client) UpdateDevice(id string, data json.RawMessage) (map[string]any, error) {
+	var result map[string]any
+	if err := c.call("device.update", mutationPayload(id, data), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (c *Client) Topology() (map[string]any, error) {
 	var topology map[string]any
 	if err := c.call("topology.snapshot", nil, &topology); err != nil {
@@ -524,23 +532,6 @@ func (c *Client) ActOnCGELearnedBehavior(id string, action string, data json.Raw
 		"data":   normalizedRawMessage(data),
 	}
 	if err := c.call("cge.learned_behavior.action", payload, &result); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-func (c *Client) UpdateDevice(
-	id string,
-	data json.RawMessage,
-) (map[string]any, error) {
-
-	var result map[string]any
-	err := c.call(
-		"device.update",
-		mutationPayload(id, data),
-		&result,
-	)
-	if err != nil {
 		return nil, err
 	}
 	return result, nil

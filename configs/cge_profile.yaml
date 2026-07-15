@@ -1,0 +1,11 @@
+security_profile:
+  mode: balanced
+  danger_decay:
+    enabled: true
+    tick_seconds: 5
+    window_minutes: 30
+    half_life_minutes: 10
+    idle_below_score: 0.25
+    idle_stable_seconds: 300
+    downgrade_stable_seconds: 60
+    lock_intrusion_until_reset: true
