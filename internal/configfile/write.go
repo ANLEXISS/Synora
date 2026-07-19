@@ -73,6 +73,62 @@ func WriteAtomicWithBackup(path string, data []byte, mode fs.FileMode) error {
 	return nil
 }
 
+// WriteAtomicNew creates path atomically and refuses to replace an existing
+// file. It is intended for first-generation identities and other values whose
+// accidental replacement would be a security or continuity failure.
+func WriteAtomicNew(path string, data []byte, mode fs.FileMode) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return errors.New("configuration path is required")
+	}
+	if mode == 0 {
+		mode = 0o600
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("create configuration directory: %w", err)
+	}
+	tmp, err := os.OpenFile(filepath.Join(dir, "."+filepath.Base(path)+"-new.tmp"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		// A unique temporary name avoids treating a stale temp as an existing
+		// identity, while the destination link below remains no-replace.
+		tmp, err = os.CreateTemp(dir, "."+filepath.Base(path)+"-new-*.tmp")
+		if err != nil {
+			return fmt.Errorf("create atomic file: %w", err)
+		}
+		if err := tmp.Chmod(mode); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmp.Name())
+			return fmt.Errorf("set atomic file mode: %w", err)
+		}
+	}
+	tmpPath := tmp.Name()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write atomic file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync atomic file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close atomic file: %w", err)
+	}
+	if err := os.Link(tmpPath, path); err != nil {
+		return fmt.Errorf("create file without replacement: %w", err)
+	}
+	committed = true
+	_ = os.Remove(tmpPath)
+	syncDir(dir)
+	return nil
+}
+
 // BackupExisting copies the current file to its timestamped backup directory.
 // It returns an empty path when the source does not exist.
 func BackupExisting(path string, mode fs.FileMode) (string, error) {

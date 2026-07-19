@@ -1,0 +1,5 @@
+id: 0001_network_security
+from_schema: 0
+to_schema: 1
+description: normalize network security defaults
+runtime: not_wired

@@ -11,6 +11,8 @@ writeQueueSize: 512
 
 ###############################################
 # Authentication
+# Founders Edition compatibility mode: RTSP publish/read is cleartext but
+# intended only for the isolated SynoraNet. Do not expose this listener to LAN/WAN.
 
 authMethod: internal
 
@@ -35,12 +37,12 @@ authInternalUsers:
 # Control API (IMPORTANT FOR SYNORA)
 
 api: yes
-apiAddress: 0.0.0.0:9997
+apiAddress: 127.0.0.1:9997
 apiEncryption: false
-apiAllowOrigins: ['*']
+apiAllowOrigins: ['http://127.0.0.1', 'http://localhost']
 
 ###############################################
-# RTSP SERVER
+# RTSP SERVER (local SynoraNet compatibility; TLS/auth hardening remains before WAN use)
 
 rtsp: yes
 rtspAddress: 0.0.0.0:8554

@@ -5,28 +5,23 @@ décrit les comptes de connexion et leurs rôles.
 
 ```yaml
 users:
-  - id: user_alexis
-    login: alexis
-    resident_id: alexis
+  - id: user_admin
+    login: admin
     role: admin
     enabled: true
-    password_hash: "$2a$10$REPLACE_WITH_BCRYPT_HASH"
-  - id: user_carole
-    login: carole
-    resident_id: carole
-    role: resident
-    enabled: true
-    password_hash: "$2a$10$REPLACE_WITH_BCRYPT_HASH"
+    password_hash: "__SET_DURING_FIRST_BOOT__"
 ```
 
-Les mots de passe sont vérifiés avec bcrypt. Générer un hash de développement :
+Les mots de passe sont vérifiés avec bcrypt. Le compte initial est généré par
+`synora-bootstrap-config` et son mot de passe initial est conservé uniquement
+dans `/etc/synora/secrets/admin_initial_password`.
 
 ```bash
 make hash-password PASSWORD='mot-de-passe-local'
 ```
 
-La valeur en clair ne doit jamais être écrite dans Git, `auth.yaml`, les logs
-ou le build statique.
+La valeur en clair et le hash de production ne doivent jamais être écrits dans
+Git, les logs ou le build statique.
 
 ## Session web
 

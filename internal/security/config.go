@@ -19,6 +19,7 @@ import (
 
 const (
 	DefaultPath               = "/etc/synora/security.yaml"
+	DefaultSessionSecretPath  = "/etc/synora/secrets/session_secret"
 	DefaultTimestampSkew      = 30 * time.Second
 	defaultPairingTTL         = 5 * time.Minute
 	defaultPairingIDByteCount = 16
@@ -28,6 +29,7 @@ const (
 type Config struct {
 	APITokenHash            string            `yaml:"api_token_hash,omitempty"`
 	APIToken                string            `yaml:"api_token,omitempty"`
+	SessionSecretFile       string            `yaml:"session_secret_file,omitempty"`
 	AllowedOrigins          []string          `yaml:"allowed_origins"`
 	DeviceSecrets           map[string]string `yaml:"device_secrets"`
 	PairingEnabled          bool              `yaml:"pairing_enabled"`
@@ -35,6 +37,82 @@ type Config struct {
 	MaxTimestampSkewSeconds int               `yaml:"max_timestamp_skew_seconds,omitempty"`
 	Server                  ServerConfig      `yaml:"server,omitempty"`
 	Vision                  VisionConfig      `yaml:"vision,omitempty"`
+	Features                FeatureFlags      `yaml:"features,omitempty"`
+}
+
+// FeatureFlags separates product/admin capabilities from developer-only
+// surfaces. Pointer fields let an omitted setting keep the secure product
+// default while still allowing an explicit false in YAML.
+type FeatureFlags struct {
+	SynoraLabEnabled      *bool `yaml:"synora_lab_enabled,omitempty"`
+	DiagnosticsEnabled    *bool `yaml:"diagnostics_enabled,omitempty"`
+	CGEValidationEnabled  *bool `yaml:"cge_validation_enabled,omitempty"`
+	DebugEndpointsEnabled *bool `yaml:"debug_endpoints_enabled,omitempty"`
+	DevSimulationEnabled  *bool `yaml:"dev_simulation_enabled,omitempty"`
+}
+
+const (
+	FeatureSynoraLab     = "synora_lab_enabled"
+	FeatureDiagnostics   = "diagnostics_enabled"
+	FeatureCGEValidation = "cge_validation_enabled"
+	FeatureDebug         = "debug_endpoints_enabled"
+	FeatureDevSimulation = "dev_simulation_enabled"
+)
+
+func boolPointer(value bool) *bool { return &value }
+
+func DefaultFeatureFlags() FeatureFlags {
+	return FeatureFlags{
+		SynoraLabEnabled:      boolPointer(true),
+		DiagnosticsEnabled:    boolPointer(true),
+		CGEValidationEnabled:  boolPointer(true),
+		DebugEndpointsEnabled: boolPointer(false),
+		DevSimulationEnabled:  boolPointer(false),
+	}
+}
+
+func (f *FeatureFlags) Normalize() {
+	if f == nil {
+		return
+	}
+	defaults := DefaultFeatureFlags()
+	if f.SynoraLabEnabled == nil {
+		f.SynoraLabEnabled = defaults.SynoraLabEnabled
+	}
+	if f.DiagnosticsEnabled == nil {
+		f.DiagnosticsEnabled = defaults.DiagnosticsEnabled
+	}
+	if f.CGEValidationEnabled == nil {
+		f.CGEValidationEnabled = defaults.CGEValidationEnabled
+	}
+	if f.DebugEndpointsEnabled == nil {
+		f.DebugEndpointsEnabled = defaults.DebugEndpointsEnabled
+	}
+	if f.DevSimulationEnabled == nil {
+		f.DevSimulationEnabled = defaults.DevSimulationEnabled
+	}
+}
+
+func (f FeatureFlags) Enabled(feature string) bool {
+	var value *bool
+	switch strings.ToLower(strings.TrimSpace(feature)) {
+	case FeatureSynoraLab:
+		value = f.SynoraLabEnabled
+	case FeatureDiagnostics:
+		value = f.DiagnosticsEnabled
+	case FeatureCGEValidation:
+		value = f.CGEValidationEnabled
+	case FeatureDebug:
+		value = f.DebugEndpointsEnabled
+	case FeatureDevSimulation:
+		value = f.DevSimulationEnabled
+	default:
+		return false
+	}
+	if value == nil {
+		return DefaultFeatureFlags().Enabled(feature)
+	}
+	return *value
 }
 
 type VisionConfig struct {
@@ -123,7 +201,12 @@ func RotateAPIToken(path string) (string, error) {
 	cfg.APITokenHash = HashSecret(token)
 	cfg.Normalize()
 
-	data, err := yaml.Marshal(cfg)
+	persisted := *cfg
+	// The bearer value is returned to the caller for controlled hand-off, but
+	// is never persisted in security.yaml. Runtime services read the protected
+	// local secret file when an operator needs the value.
+	persisted.APIToken = ""
+	data, err := yaml.Marshal(&persisted)
 	if err != nil {
 		return "", err
 	}
@@ -163,11 +246,18 @@ func RotateAPIToken(path string) (string, error) {
 	if err := os.Rename(tmpName, path); err != nil {
 		return "", err
 	}
+	secretPath := filepath.Join(filepath.Dir(path), "secrets", "api_token")
+	if err := configfile.WriteAtomicWithBackup(secretPath, []byte(token+"\n"), 0600); err != nil {
+		return "", err
+	}
 	return token, nil
 }
 
 func (c *Config) Normalize() {
 	defaults := DefaultServerConfig()
+	if strings.TrimSpace(c.SessionSecretFile) == "" {
+		c.SessionSecretFile = DefaultSessionSecretPath
+	}
 	if strings.TrimSpace(c.Server.HTTPAddr) == "" {
 		c.Server.HTTPAddr = defaults.HTTPAddr
 	}
@@ -183,6 +273,7 @@ func (c *Config) Normalize() {
 	if c.DeviceSecrets == nil {
 		c.DeviceSecrets = map[string]string{}
 	}
+	c.Features.Normalize()
 	c.APITokenHash = strings.TrimSpace(c.APITokenHash)
 	c.APIToken = strings.TrimSpace(c.APIToken)
 	if c.APITokenHash == "" && c.APIToken != "" {

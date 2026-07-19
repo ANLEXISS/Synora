@@ -27,12 +27,18 @@ continuer à recevoir les autres événements disponibles.
 
 ## Modèles
 
-Les modèles RKNN attendus sont `arcface_w600k_r50.rknn`, `det_10g.rknn`,
-`yolov8.rknn` et `weapon.rknn` sous `/var/lib/synora/models`. Un fichier absent,
-invalide ou un runtime RKNN indisponible rend uniquement la capability
-concernée indisponible. Le worker expose alors `/healthz` et `/capabilities` et
-reste en `degraded`/`no_models` au lieu de redémarrer en boucle.
+Les modèles RKNN requis sont `arcface_w600k_r50.rknn`, `det_10g.rknn` et
+`yolov8.rknn` sous `/var/lib/synora/models`. `weapon.rknn` est optionnel pour
+la première Founders Edition. Son absence rend `weapon_detection` `degraded`
+ou `unavailable`, sans rendre le worker fatal ; les autres modèles restent
+évalués indépendamment. Le worker expose alors `/healthz` et `/capabilities`
+au lieu de redémarrer en boucle.
 
 Les événements de diagnostic (`discovery.worker.crashed`, modèle manquant,
 flapping, réseau dégradé) alimentent ce rapport mais ne créent pas de chaîne
 de sécurité. Les répétitions sont limitées/coalescées.
+
+`GET /api/system/version` expose `/opt/synora/version.json` ainsi que le kernel
+et l’architecture courants. `slot_current` vaut `unmanaged` tant que RAUC
+n’est pas installé. Le manifest non secret `/opt/synora/models-manifest.yaml`
+définit les modèles requis et optionnels utilisés par le healthcheck OTA.

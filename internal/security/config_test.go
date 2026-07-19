@@ -7,7 +7,24 @@ import (
 	"testing"
 )
 
-func TestRotateAPITokenWritesNewPlainTokenAndHashAtomically(t *testing.T) {
+func TestFeatureFlagsDefaultAndExplicitDisable(t *testing.T) {
+	flags := FeatureFlags{}
+	flags.Normalize()
+	if !flags.Enabled(FeatureSynoraLab) || !flags.Enabled(FeatureDiagnostics) || !flags.Enabled(FeatureCGEValidation) {
+		t.Fatalf("product features should default enabled: %#v", flags)
+	}
+	if flags.Enabled(FeatureDebug) || flags.Enabled(FeatureDevSimulation) {
+		t.Fatalf("developer features should default disabled: %#v", flags)
+	}
+	falseValue := false
+	flags.SynoraLabEnabled = &falseValue
+	flags.DevSimulationEnabled = &falseValue
+	if flags.Enabled(FeatureSynoraLab) || flags.Enabled(FeatureDevSimulation) {
+		t.Fatalf("explicit feature disable was ignored: %#v", flags)
+	}
+}
+
+func TestRotateAPITokenWritesOnlyHashAndProtectedSecretAtomically(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "security.yaml")
 	if err := os.WriteFile(path, []byte("api_token: old-token\nallowed_origins: []\n"), 0o640); err != nil {
 		t.Fatal(err)
@@ -25,8 +42,12 @@ func TestRotateAPITokenWritesNewPlainTokenAndHashAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 	contents := string(data)
-	if !strings.Contains(contents, "api_token: "+token) || !strings.Contains(contents, "api_token_hash: "+HashSecret(token)) {
-		t.Fatalf("rotated config missing token/hash: %s", contents)
+	if strings.Contains(contents, "api_token: "+token) || strings.Contains(contents, "api_token: old-token") || !strings.Contains(contents, "api_token_hash: "+HashSecret(token)) {
+		t.Fatalf("rotated config contains an unsafe token representation: %s", contents)
+	}
+	secret, err := os.ReadFile(filepath.Join(filepath.Dir(path), "secrets", "api_token"))
+	if err != nil || strings.TrimSpace(string(secret)) != token {
+		t.Fatalf("rotated token was not stored in the protected secret file: %v", err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {

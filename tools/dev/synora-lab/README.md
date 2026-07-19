@@ -1,14 +1,21 @@
 # Synora Lab
 
-Synora Lab is a development simulator. Do not run it in production.
+Synora Lab is the admin/operator validation companion for the Synora product.
+The web module is the primary product surface; this CLI is kept for
+commissioning and maintenance workflows outside the webapp. It is not a
+systemd runtime service and is not installed by default.
 
 It reads `PublicSnapshot` from the Synora API and injects test events into Core through the Unix Bus. It is not a runtime service and is not installed by systemd.
 
-## Simulation Mode vs Dev Lab
+## Product Lab vs developer simulation
 
-Synora Lab is the developer terminal wrapper. The reusable simulation model lives in `internal/simulation` so a future product page such as "Tester mon systeme" can reuse the same scenario and event construction code without depending on this CLI.
+The controlled validation page in the webapp is Synora Lab proper. This CLI is
+its operator companion. Developer-only simulators remain separate and are
+disabled by default by `features.dev_simulation_enabled`.
 
-Events injected by Synora Lab are marked with:
+The web Lab uses the controlled validation markers documented in
+`docs/synora-lab.md`. The historical CLI companion additionally uses the
+following simulation metadata for its dry-run/operator flows:
 
 - `payload.metadata.simulated = true`
 - `payload.metadata.test_run_id`

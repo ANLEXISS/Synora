@@ -110,8 +110,10 @@ func (s *Server) queueValidationEvents(requests []contract.CGEValidationEventReq
 		}
 		metadata := map[string]any{
 			"validation": true, "source_type": contract.SourceValidation,
-			"test_mode":     contract.ValidationTestModeControlledReal,
-			"validation_id": validationID, "event_id": eventID, "learn": eventLearn, "reason": reason,
+			"lab_source_type": "synora_lab",
+			"test_mode":       contract.ValidationTestModeControlledReal,
+			"generated_by":    "synora_lab",
+			"validation_id":   validationID, "event_id": eventID, "learn": eventLearn, "reason": reason,
 			"event_index": index,
 		}
 		payload := map[string]any{
@@ -120,7 +122,9 @@ func (s *Server) queueValidationEvents(requests []contract.CGEValidationEventReq
 			"confidence": request.Confidence, "activation_id": validationID, "sequence_key": validationID,
 			"event_index": index, "clip_index": index,
 			"metadata": metadata, "reason": reason,
-			"source_type": contract.SourceValidation, "validation": true, "test_mode": contract.ValidationTestModeControlledReal,
+			"source_type": contract.SourceValidation, "lab_source_type": "synora_lab",
+			"validation": true, "test_mode": contract.ValidationTestModeControlledReal,
+			"generated_by": "synora_lab",
 		}
 		if hint != "" {
 			payload["danger_level_hint"] = hint
@@ -150,8 +154,10 @@ func (s *Server) queueValidationEvents(requests []contract.CGEValidationEventReq
 			"event_id": eventID, "validation_id": validationID, "event_type": eventType,
 			"device_id": strings.TrimSpace(request.DeviceID), "node_id": strings.TrimSpace(request.NodeID),
 			"confidence":  request.Confidence,
-			"source_type": contract.SourceValidation, "test_mode": contract.ValidationTestModeControlledReal,
-			"learn": eventLearn, "event_index": index, "clip_index": index, "queued_at": at,
+			"source_type": contract.SourceValidation, "lab_source_type": "synora_lab",
+			"test_mode":    contract.ValidationTestModeControlledReal,
+			"generated_by": "synora_lab",
+			"learn":        eventLearn, "event_index": index, "clip_index": index, "queued_at": at,
 		})
 	}
 	return map[string]any{"status": "queued", "kind": firstNonEmpty(kind, "event"), "validation_id": validationID, "activation_id": validationID, "sequence_key": validationID, "events": results}, nil

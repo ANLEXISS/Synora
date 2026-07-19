@@ -1,0 +1,25 @@
+{
+  "revision": "example-home-v1",
+  "captured_at": "2026-01-01T00:00:00Z",
+  "nodes": [
+    {"id":"bathroom","zone_id":"ground","kind":"room"},
+    {"id":"bedroom","zone_id":"private","kind":"room"},
+    {"id":"entrance","zone_id":"ground","kind":"entrance","entry_point":true},
+    {"id":"exterior","zone_id":"outside","kind":"exterior","exterior":true},
+    {"id":"garage","zone_id":"outside","kind":"garage"},
+    {"id":"garden","zone_id":"outside","kind":"garden","exterior":true},
+    {"id":"hallway","zone_id":"ground","kind":"corridor"},
+    {"id":"kitchen","zone_id":"ground","kind":"room"},
+    {"id":"living-room","zone_id":"ground","kind":"room"}
+  ],
+  "edges": [
+    {"from":"bathroom","to":"hallway","traversal_kind":"door"},
+    {"from":"bedroom","to":"hallway","traversal_kind":"door"},
+    {"from":"entrance","to":"exterior","traversal_kind":"exterior_transition"},
+    {"from":"entrance","to":"hallway","traversal_kind":"door"},
+    {"from":"garage","to":"exterior","traversal_kind":"exterior_transition"},
+    {"from":"garden","to":"exterior","traversal_kind":"walk"},
+    {"from":"hallway","to":"kitchen","traversal_kind":"door"},
+    {"from":"hallway","to":"living-room","traversal_kind":"door"}
+  ]
+}

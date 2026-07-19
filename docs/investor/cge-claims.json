@@ -1,0 +1,13 @@
+{
+  "claims": [
+    {"id":"local-first","title":"Traitement local","status":"demonstrated","evidence":["synthetic local run","field-trial privacy boundary"],"limitations":["Le périmètre démontré est le CGE ; l’écosystème complet peut avoir d’autres communications."]},
+    {"id":"deterministic-replay","title":"Mémoire rejouable","status":"proven","evidence":["ShadowEngine.DurableStateDigest","journal recovery tests"],"limitations":["Le store d’évaluation de déviation est volontairement éphémère."]},
+    {"id":"ambiguity-preservation","title":"Hypothèses concurrentes","status":"proven","evidence":["association ambiguity qualification","real ShadowEngine fixture"],"limitations":["La résolution automatique n’est pas activée."]},
+    {"id":"routine-learning","title":"Routines locales","status":"demonstrated","evidence":["routine extraction and registry snapshots"],"limitations":["La calibration comportementale reste à valider sur des foyers réels."]},
+    {"id":"pre-learning-deviation","title":"Déviation avant apprentissage","status":"proven","evidence":["deviation-v1 shadow integration"],"limitations":["Un épisode synthétique n’est pas une mesure de sécurité."]},
+    {"id":"continuous-adaptation","title":"Adaptation progressive","status":"demonstrated","evidence":["routine shift campaign"],"limitations":["La vitesse d’adaptation doit encore être calibrée sur le terrain."]},
+    {"id":"transactional-durability","title":"Durabilité transactionnelle","status":"proven","evidence":["WAL and recovery qualification"],"limitations":["Le démonstrateur n’utilise jamais le runtime installé."]},
+    {"id":"privacy-preserving-field-trial","title":"Essai terrain pseudonymisé","status":"proven","evidence":["field-trial privacy tests"],"limitations":["La démonstration elle-même est entièrement synthétique."]},
+    {"id":"security-authority","title":"Autorité de sécurité","status":"future","evidence":["Shadow Mode boundary"],"limitations":["Le CGE ne décide pas d’une intrusion et ne déclenche aucune action."]}
+  ]
+}

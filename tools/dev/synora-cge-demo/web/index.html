@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="__SYNORA_LOCALE__">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1220">
+  <title>Synora · Cognitive Graph Engine</title>
+  <script id="embedded-data" type="application/json">__SYNORA_EMBEDDED_DATA__</script>
+  <script id="embedded-claims" type="application/json">__SYNORA_EMBEDDED_CLAIMS__</script>
+  <script>window.SYNORA_LOCALE="__SYNORA_LOCALE__";window.SYNORA_TECHNICAL=__SYNORA_TECHNICAL__;</script>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="live.css">
+  <link rel="stylesheet" href="live-extra.css">
+</head>
+<body>
+  <main id="app" aria-live="polite"><div class="loading">Chargement du scénario synthétique…</div></main>
+  <script>
+    const presentationMode = new URLSearchParams(window.location.search).get("presentation") === "1";
+    document.write(`<script src="${presentationMode ? "app.js" : "live.js"}"><\/script>`);
+  </script>
+</body>
+</html>

@@ -226,9 +226,11 @@ func (m *Manager) publishRuntimeStatus() {
 		modelStatus := "present"
 		if !regularFilePath(path) {
 			modelStatus = "missing"
-			missingModel = true
+			if name != "weapon" {
+				missingModel = true
+			}
 		}
-		models[name] = map[string]any{"status": modelStatus, "path": path}
+		models[name] = map[string]any{"status": modelStatus, "path": path, "optional": name == "weapon"}
 	}
 	workerStatus := status.VisionWorkerStatus
 	if workerStatus == "ok" && missingModel {
@@ -304,7 +306,6 @@ func missingVisionModel() bool {
 		"/var/lib/synora/models/arcface_w600k_r50.rknn",
 		"/var/lib/synora/models/det_10g.rknn",
 		"/var/lib/synora/models/yolov8.rknn",
-		"/var/lib/synora/models/weapon.rknn",
 	} {
 		if !regularFilePath(path) {
 			return true

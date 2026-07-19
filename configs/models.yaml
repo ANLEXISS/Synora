@@ -1,0 +1,18 @@
+# Non-secret model compatibility manifest. Model files are provisioned outside Git.
+schema_version: 1
+models:
+  arcface_w600k_r50.rknn:
+    required: true
+    component: face_recognition
+  det_10g.rknn:
+    required: true
+    component: face_detection
+  yolov8.rknn:
+    required: true
+    component: person_detection
+  weapon.rknn:
+    required: false
+    component: weapon_detection
+    missing_status: degraded
+policy:
+  missing_required: fatal

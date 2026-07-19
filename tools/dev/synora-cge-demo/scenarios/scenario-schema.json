@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synora CGE Live Lab scenario",
+  "type": "object",
+  "required": ["schema_version", "id", "title", "description", "category", "difficulty", "initial_state", "steps"],
+  "properties": {
+    "schema_version": {"const": "cge-demo-scenario-v1"},
+    "id": {"type": "string", "pattern": "^[a-z0-9-]{1,128}$"},
+    "title": {"$ref": "#/$defs/localized"},
+    "description": {"$ref": "#/$defs/localized"},
+    "category": {"enum": ["learning", "association", "ambiguity", "deviation", "adaptation", "resilience", "context", "identity", "durability"]},
+    "difficulty": {"enum": ["introductory", "intermediate", "technical"]},
+    "steps": {"type": "array", "minItems": 1, "maxItems": 100}
+  },
+  "$defs": {"localized": {"type": "object", "required": ["fr", "en"], "properties": {"fr": {"type": "string"}, "en": {"type": "string"}}, "additionalProperties": false}}
+}

@@ -19,6 +19,7 @@ import (
 	"synora/internal/coreclient"
 	"synora/internal/discovery/network"
 	"synora/internal/security"
+	"synora/internal/version"
 	"synora/pkg/contract"
 )
 
@@ -93,10 +94,16 @@ func main() {
 	}
 
 	sessionTTL := getenvDuration("SYNORA_SESSION_TTL", webapi.DefaultSessionTTL)
+	sessionFingerprint := security.HashSecret(securityConfig.APITokenHash)
+	if sessionSecretPath := getenv("SYNORA_SESSION_SECRET_FILE", securityConfig.SessionSecretFile); sessionSecretPath != "" {
+		if sessionSecret, readErr := os.ReadFile(sessionSecretPath); readErr == nil && strings.TrimSpace(string(sessionSecret)) != "" {
+			sessionFingerprint = security.HashSecret(strings.TrimSpace(string(sessionSecret)))
+		}
+	}
 	sessions, err := webapi.NewSessionStore(
 		getenv("SYNORA_SESSION_STORE", webapi.DefaultSessionPath),
 		sessionTTL,
-		security.HashSecret(securityConfig.APITokenHash),
+		sessionFingerprint,
 	)
 	if err != nil {
 		log.Fatal("web auth session store: ", err)
@@ -130,7 +137,10 @@ func main() {
 	go wsHub.observeBus(busClient)
 	simulationRunner := newSimulationRunner(busClient, wsHub)
 	webEnabled := getenvBool("SYNORA_WEB_ENABLED", true)
-	webRoot := getenv("SYNORA_WEB_ROOT", "/var/lib/synora/web")
+	webRoot := defaultWebRoot()
+	if configuredWebRoot := strings.TrimSpace(os.Getenv("SYNORA_WEB_ROOT")); configuredWebRoot != "" {
+		webRoot = configuredWebRoot
+	}
 	webServer := &webapi.Server{
 		WebEnabled: webEnabled,
 		WebRoot:    webRoot,
@@ -149,13 +159,14 @@ func main() {
 	)
 
 	apiMux := http.NewServeMux()
+	features := securityConfig.Features
 	apiMux.HandleFunc("/api/state", handleState(core))
 	apiMux.HandleFunc("/api/events", handleEvents(core))
 	apiMux.HandleFunc("/api/events/chains", handleEventChains(core))
 	apiMux.HandleFunc("/api/events/chains/", handleEventChain(core))
-	apiMux.HandleFunc("/api/simulation/scenarios", handleSimulationScenarios())
-	apiMux.HandleFunc("/api/simulation/run", handleSimulationRun(simulationRunner))
-	apiMux.HandleFunc("/api/simulation/runs/", handleSimulationRunStatus(simulationRunner))
+	apiMux.HandleFunc("/api/simulation/scenarios", withFeature(features.Enabled(security.FeatureDevSimulation), security.FeatureDevSimulation, handleSimulationScenarios()))
+	apiMux.HandleFunc("/api/simulation/run", withFeature(features.Enabled(security.FeatureDevSimulation), security.FeatureDevSimulation, handleSimulationRun(simulationRunner)))
+	apiMux.HandleFunc("/api/simulation/runs/", withFeature(features.Enabled(security.FeatureDevSimulation), security.FeatureDevSimulation, handleSimulationRunStatus(simulationRunner)))
 	apiMux.HandleFunc("/api/cge/summary", handleCGESummary(core))
 	apiMux.HandleFunc("/api/cge/sequences", handleCGESequences(core))
 	apiMux.HandleFunc("/api/cge/transitions", handleCGETransitions(core))
@@ -174,9 +185,20 @@ func main() {
 	apiMux.HandleFunc("/api/cge/feedback", handleCGEFeedbackList(core))
 	apiMux.HandleFunc("/api/cge/feedback/evaluation", handleCGEFeedbackEvaluation(core))
 	apiMux.HandleFunc("/api/cge/feedback/chain", handleCGEFeedbackChain(core))
-	apiMux.HandleFunc("/api/cge/validation/events", handleCGEValidationEvents(core))
-	apiMux.HandleFunc("/api/cge/validation/chain-sequence", handleCGEValidationSequence(core))
-	apiMux.HandleFunc("/api/cge/validation/history", handleCGEValidationHistory(core))
+	labValidationEvents := withFeature(features.Enabled(security.FeatureSynoraLab), security.FeatureSynoraLab,
+		withFeature(features.Enabled(security.FeatureCGEValidation), security.FeatureCGEValidation, handleCGEValidationEvents(core)))
+	labValidationSequence := withFeature(features.Enabled(security.FeatureSynoraLab), security.FeatureSynoraLab,
+		withFeature(features.Enabled(security.FeatureCGEValidation), security.FeatureCGEValidation, handleCGEValidationSequence(core)))
+	labValidationHistory := withFeature(features.Enabled(security.FeatureSynoraLab), security.FeatureSynoraLab,
+		withFeature(features.Enabled(security.FeatureCGEValidation), security.FeatureCGEValidation, handleCGEValidationHistory(core)))
+	apiMux.HandleFunc("/api/cge/validation/events", labValidationEvents)
+	apiMux.HandleFunc("/api/cge/validation/chain-sequence", labValidationSequence)
+	apiMux.HandleFunc("/api/cge/validation/history", labValidationHistory)
+	// Product-facing names for Synora Lab. The /api/cge/validation/* aliases
+	// remain stable for existing clients and the current webapp.
+	apiMux.HandleFunc("/api/lab/validation/events", labValidationEvents)
+	apiMux.HandleFunc("/api/lab/validation/chain-sequence", labValidationSequence)
+	apiMux.HandleFunc("/api/lab/validation/history", labValidationHistory)
 	apiMux.HandleFunc("/api/cge/", handleCGEDetail(core))
 	apiMux.HandleFunc("/api/validations", handleValidationCollection(core))
 	apiMux.HandleFunc("/api/validations/", handleValidationItem(core))
@@ -209,6 +231,8 @@ func main() {
 		TLSKeyPresent:  regularFile(tlsKeyFile),
 	}
 	apiMux.HandleFunc("/api/system/health", handleSystemHealth(core, webServer, serverHealth))
+	apiMux.HandleFunc("/api/system/version", handleSystemVersion(getenv("SYNORA_VERSION_FILE", version.DefaultPath)))
+	apiMux.HandleFunc("/api/system/connectivity", handleConnectivityStatus(busClient))
 	apiMux.HandleFunc("/api/intrusion/reset", handleIntrusionReset(core))
 	apiMux.HandleFunc("/api/system/state/reset", handleSystemStateReset(core))
 	apiMux.HandleFunc("/api/cge/manual-risk", handleManualRisk(core))
@@ -216,8 +240,8 @@ func main() {
 	apiMux.HandleFunc("/api/security/mode", handleSecurityMode(core))
 	apiMux.HandleFunc("/api/security/arm", handleSecurityArm(core))
 	apiMux.HandleFunc("/api/security/disarm", handleSecurityDisarm(core))
-	apiMux.HandleFunc("/api/runtime/diagnostics", handleRuntimeDiagnostics(core))
-	apiMux.HandleFunc("/api/cge/runtime-status", handleRuntimeDiagnostics(core))
+	apiMux.HandleFunc("/api/runtime/diagnostics", withFeature(features.Enabled(security.FeatureDiagnostics), security.FeatureDiagnostics, handleRuntimeDiagnostics(core)))
+	apiMux.HandleFunc("/api/cge/runtime-status", withFeature(features.Enabled(security.FeatureDiagnostics), security.FeatureDiagnostics, handleRuntimeDiagnostics(core)))
 	apiMux.HandleFunc("/api/snapshot", handleSnapshot(core))
 
 	handler := buildServerHandlerWithAuth(
@@ -316,6 +340,22 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func handleSystemVersion(path string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireMethod(w, r, http.MethodGet) {
+			return
+		}
+		writeJSON(w, http.StatusOK, version.Current(path))
+	}
+}
+
+func defaultWebRoot() string {
+	if info, err := os.Stat("/opt/synora/web"); err == nil && info.IsDir() {
+		return "/opt/synora/web"
+	}
+	return "/var/lib/synora/web"
 }
 
 func writeJSON(
@@ -571,6 +611,10 @@ func requiredAPIPermission(r *http.Request) string {
 		return webapi.PermissionStateRead
 	case path == "/api/system/health":
 		return webapi.PermissionSettingsRead
+	case path == "/api/system/version":
+		return webapi.PermissionSettingsRead
+	case path == "/api/system/connectivity":
+		return webapi.PermissionSettingsRead
 	case path == "/api/intrusion/reset" || path == "/api/system/state/reset":
 		return webapi.PermissionSecurityAdmin
 	case path == "/api/security/mode" && readOnly:
@@ -612,6 +656,8 @@ func requiredAPIPermission(r *http.Request) string {
 		return webapi.PermissionAutomationsWrite
 	case strings.HasPrefix(path, "/api/simulation"):
 		return webapi.PermissionSimulationRun
+	case strings.HasPrefix(path, "/api/lab"):
+		return webapi.PermissionLabUse
 	case strings.HasPrefix(path, "/api/cge"):
 		if readOnly {
 			return webapi.PermissionCGERead

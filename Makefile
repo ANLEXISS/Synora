@@ -3,20 +3,24 @@ SHELL := /usr/bin/env bash
 
 .PHONY: build test install update start stop restart doctor delete clean help \
 	check-go install-deps install-dirs install-bins install-config install-models \
-	build-web install-web restart-web web-status rotate-api-token generate-local-cert generate-discovery-cert install-mediamtx install-vision-worker install-face-data install-systemd enable-services \
-	system-test-smoke system-test-full system-test-readonly system-test-stress-lite
+	build-web install-web restart-web web-status rotate-api-token generate-local-cert generate-discovery-cert install-mediamtx install-vision-worker install-face-data install-diagnostics install-systemd enable-services install-plan \
+	build-bootstrap-config install-bootstrap-config generate-version install-version install-model-manifest build-boot-healthcheck install-boot-healthcheck \
+	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
+	dev-tools diagnostics install-dev-tools
 
 PREFIX ?= /opt/synora
 BINDIR ?= $(PREFIX)/bin
 SERVICES_DIR ?= $(PREFIX)/services
 VISION_WORKER_DIR ?= $(SERVICES_DIR)/vision-worker
 MEDIAMTX_DIR ?= $(PREFIX)/mediamtx
-MODELS_DIR ?= $(PREFIX)/models
+MODELS_DIR ?= $(DATA_DIR)/models
 CONFIG_DIR ?= /etc/synora
+TEMPLATE_DIR ?= $(PREFIX)/config-templates
 DATA_DIR ?= /var/lib/synora
 FACE_DATA_DIR ?= $(DATA_DIR)/vision/face
 WEBAPP_DIR ?= synora-web
-WEB_DIR ?= /var/lib/synora/web
+WEB_DIR ?= $(PREFIX)/web
+CONNECTIVITY_DATA_DIR ?= $(DATA_DIR)/connectivity
 TLS_DIR ?= /etc/synora/tls
 DISCOVERY_CERT_DIR ?= /etc/synora/certs
 DISCOVERY_CERT_FILE ?= $(DISCOVERY_CERT_DIR)/server.crt
@@ -33,7 +37,8 @@ GO ?= $(shell if command -v go >/dev/null 2>&1; then command -v go; elif [ -x /u
 PYTHON ?= python3
 GOCACHE ?= /tmp/synora-gocache
 
-EXPECTED_RKNN_MODELS := arcface_w600k_r50.rknn det_10g.rknn yolov8.rknn weapon.rknn
+EXPECTED_RKNN_MODELS := arcface_w600k_r50.rknn det_10g.rknn yolov8.rknn
+OPTIONAL_RKNN_MODELS := weapon.rknn
 
 ifeq ($(shell id -u),0)
 SUDO :=
@@ -48,7 +53,15 @@ GO_BINS := \
 	synora-api:./cmd/synora-api \
 	synora-discovery:./cmd/synora-discovery \
 	synora-network-config:./cmd/synora-network-config \
-	synora-runtime-manager:./cmd/synora-runtime-manager
+	synora-runtime-manager:./cmd/synora-runtime-manager \
+	synora-connect:./cmd/synora-connect
+
+DEV_TOOL_BINS := \
+	synora-scenario-sim:./tools/dev/legacy-simulators/scenario-sim \
+	synora-sim:./tools/dev/legacy-simulators/synora-sim
+
+ADMIN_TOOL_BINS := \
+	synora-bootstrap-config:./cmd/synora-bootstrap-config
 
 RUNTIME_SERVICES := \
 	synora-bus \
@@ -56,10 +69,11 @@ RUNTIME_SERVICES := \
 	synora-core \
 	synora-actions \
 	synora-api \
-	synora-discovery
+	synora-discovery \
+	synora-connect
 
 START_ORDER := mediamtx $(RUNTIME_SERVICES)
-STOP_ORDER := synora-discovery synora-api synora-actions synora-core synora-runtime-manager synora-bus mediamtx
+STOP_ORDER := synora-connect synora-discovery synora-api synora-actions synora-core synora-runtime-manager synora-bus mediamtx
 SYSTEMD_UNITS := $(addsuffix .service,$(RUNTIME_SERVICES)) mediamtx.service
 
 help:
@@ -82,7 +96,12 @@ help:
 		'  make restart               Stop then start runtime services' \
 		'  make doctor                Check local runtime health without modifying state' \
 		'  make delete CONFIRM=YES    Destructive removal from the proto machine' \
-		'  make clean                 Remove local repo build artifacts'
+		'  make clean                 Remove local repo build artifacts' \
+		'  make dev-tools             Build developer tools and legacy simulators locally' \
+		'  make diagnostics           Syntax-check operator diagnostic scripts' \
+		'  make install-dev-tools     Explicitly install developer tools (never part of make install)' \
+		'  make install-bootstrap-config  Install the local production config bootstrap tool' \
+		'  make install-plan          Show the standard runtime installation footprint without changing the system'
 
 check-go:
 	@if ! command -v "$(GO)" >/dev/null 2>&1 && [ ! -x "$(GO)" ]; then \
@@ -91,13 +110,49 @@ check-go:
 	fi
 	@"$(GO)" version
 
-build: check-go
+build: check-go build-bootstrap-config build-boot-healthcheck generate-version
 	@mkdir -p bin
 	@for item in $(GO_BINS); do \
 		name="$${item%%:*}"; pkg="$${item#*:}"; \
 		echo "Building $$name from $$pkg"; \
 		GOCACHE=$(GOCACHE) "$(GO)" build -o "bin/$$name" "$$pkg"; \
 		done
+
+build-boot-healthcheck: check-go
+	@mkdir -p bin
+	@echo "Building synora-boot-healthcheck"
+	@GOCACHE=$(GOCACHE) "$(GO)" build -o bin/synora-boot-healthcheck ./cmd/synora-boot-healthcheck
+
+generate-version: check-go
+	@mkdir -p build
+	@GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-version -output build/version.json
+
+dev-tools: check-go
+	@mkdir -p bin
+	@for item in $(DEV_TOOL_BINS); do \
+		name="$${item%%:*}"; pkg="$${item#*:}"; \
+		echo "Building $$name from $$pkg"; \
+		GOCACHE=$(GOCACHE) "$(GO)" build -o "bin/$$name" "$$pkg"; \
+	done
+
+build-bootstrap-config: check-go
+	@mkdir -p bin
+	@for item in $(ADMIN_TOOL_BINS); do \
+		name="$${item%%:*}"; pkg="$${item#*:}"; \
+		echo "Building $$name from $$pkg"; \
+		GOCACHE=$(GOCACHE) "$(GO)" build -o "bin/$$name" "$$pkg"; \
+	done
+
+diagnostics:
+	bash -n tools/synora_system_test.sh tools/synora_check.sh tools/diagnostics/vision/send_clip.sh
+
+install-dev-tools: dev-tools
+	$(SUDO) install -d -m 0755 $(BINDIR)
+	@for item in $(DEV_TOOL_BINS); do \
+		name="$${item%%:*}"; \
+		echo "Installing developer tool $$name"; \
+		$(SUDO) install -m 0755 "bin/$$name" "$(BINDIR)/$$name"; \
+	done
 
 hash-password: check-go
 	@if [ -z "$(PASSWORD)" ]; then echo "FAIL: PASSWORD is required" >&2; exit 1; fi
@@ -107,7 +162,7 @@ test: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./...
 	$(PYTHON) -m compileall -q services/vision-worker
 
-install: install-deps build install-dirs install-bins install-config install-models install-web install-mediamtx install-vision-worker install-face-data install-systemd enable-services
+install: install-deps build build-bootstrap-config install-dirs install-bins install-bootstrap-config install-boot-healthcheck install-version install-model-manifest install-config install-models install-web install-mediamtx install-vision-worker install-face-data install-diagnostics install-systemd enable-services
 	@echo "Synora runtime installation complete."
 	@echo "Run 'make start' to start services or 'make doctor' to inspect the install."
 
@@ -140,6 +195,7 @@ install-dirs:
 		$(SUDO) useradd --system --gid $(SERVICE_USER) --home $(DATA_DIR) --shell /usr/sbin/nologin $(SERVICE_USER)
 	$(SUDO) install -d -m 0755 $(PREFIX) $(BINDIR) $(SERVICES_DIR) $(VISION_WORKER_DIR) $(MEDIAMTX_DIR) $(MODELS_DIR)
 	$(SUDO) install -d -m 0755 $(CONFIG_DIR) $(DATA_DIR) $(DATA_DIR)/state $(DATA_DIR)/clips $(DATA_DIR)/debug $(DATA_DIR)/logs
+	$(SUDO) install -d -m 0750 -o $(SERVICE_USER) -g $(SERVICE_USER) $(CONNECTIVITY_DATA_DIR)
 	$(SUDO) install -d -m 0750 -o $(SERVICE_USER) -g $(SERVICE_USER) $(DATA_DIR)/vision $(FACE_DATA_DIR)
 	$(SUDO) install -d -m 0700 -o $(SERVICE_USER) -g $(SERVICE_USER) $(DATA_DIR)/auth
 	$(SUDO) install -d -m 0770 -o $(SERVICE_USER) -g $(SERVICE_USER) $(RUN_DIR)
@@ -154,26 +210,39 @@ install-bins: install-dirs
 	done
 
 install-config:
-	$(SUDO) install -d -m 0755 -o $(SERVICE_USER) -g $(SERVICE_USER) $(CONFIG_DIR)
+	$(SUDO) install -d -m 0755 -o root -g $(SERVICE_USER) $(CONFIG_DIR)
+	$(SUDO) install -d -m 0755 -o root -g root $(TEMPLATE_DIR)
+	@for src in configs/*.yaml configs/*.yaml.template; do \
+		[ -e "$$src" ] || continue; \
+		name="$$(basename "$$src")"; \
+		echo "Installing safe template $(TEMPLATE_DIR)/$$name"; \
+		$(SUDO) install -m 0644 -o root -g root "$$src" "$(TEMPLATE_DIR)/$$name"; \
+	done
 	@for src in configs/*.yaml; do \
 		name="$$(basename "$$src")"; dst="$(CONFIG_DIR)/$$name"; \
+		case "$$name" in models.yaml) echo "Keeping model manifest in $(PREFIX)/models-manifest.yaml"; continue ;; esac; \
+		case "$$name" in security.yaml|auth.yaml|network.yaml|devices.yaml) \
+			echo "Deferring generated runtime config $$dst to synora-bootstrap-config"; continue ;; \
+		esac; \
 		if [ -e "$$dst" ] || [ -L "$$dst" ]; then \
 			echo "Keeping existing $$dst"; \
 		else \
 			echo "Installing $$dst"; \
-			$(SUDO) install -m 0640 -o $(SERVICE_USER) -g $(SERVICE_USER) "$$src" "$$dst"; \
+			$(SUDO) install -m 0640 -o root -g $(SERVICE_USER) "$$src" "$$dst"; \
 		fi; \
 	done
 
 install-models: install-dirs
 	@if [ -d models ]; then \
 		echo "Installing RKNN models only"; \
-		$(SUDO) rsync -a --delete --prune-empty-dirs \
+		$(SUDO) rsync -a --delete --delete-excluded --prune-empty-dirs \
 			--include='*/' \
-			--include='*.rknn' \
+			--include='arcface_w600k_r50.rknn' \
+			--include='det_10g.rknn' \
+			--include='yolov8.rknn' \
+			--include='weapon.rknn' \
 			--exclude='*' \
 			models/ $(MODELS_DIR)/; \
-		$(SUDO) find $(MODELS_DIR) -type f \( -name '*.onnx' -o -name '*.pt' -o -name '*.torchscript' -o -name '*.engine' \) -delete; \
 		$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(MODELS_DIR); \
 		$(SUDO) find $(MODELS_DIR) -type f -exec chmod 0644 {} \;; \
 	else \
@@ -183,15 +252,28 @@ install-models: install-dirs
 		if [ -f "$(MODELS_DIR)/$$model" ]; then echo "Model present: $(MODELS_DIR)/$$model"; \
 		else echo "WARN: expected RKNN model missing: $(MODELS_DIR)/$$model"; fi; \
 	done
+	@for model in $(OPTIONAL_RKNN_MODELS); do \
+		if [ -f "$(MODELS_DIR)/$$model" ]; then echo "Optional model present: $(MODELS_DIR)/$$model"; \
+		else echo "WARN: optional RKNN model missing: $(MODELS_DIR)/$$model (weapon detection degraded)"; fi; \
+	done
 
 install-vision-worker: install-dirs
 	$(PYTHON) -m compileall -q services/vision-worker
 	$(SUDO) rsync -a --delete \
+		--delete-excluded \
 		--exclude='__pycache__/' \
 		--exclude='*.pyc' \
-		--exclude='.pytest_cache/' \
-		--exclude='.venv/' \
-		--exclude='venv/' \
+		--include='worker.py' \
+		--include='requirements.txt' \
+		--include='core/' \
+		--include='core/***' \
+		--include='modules/' \
+		--include='modules/***' \
+		--include='utils/' \
+		--include='utils/***' \
+		--include='video/' \
+		--include='video/***' \
+		--exclude='*' \
 		services/vision-worker/ $(VISION_WORKER_DIR)/
 	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(VISION_WORKER_DIR)
 	@if [ -f "$(VISION_WORKER_DIR)/worker.py" ]; then $(SUDO) chmod 0755 "$(VISION_WORKER_DIR)/worker.py"; fi
@@ -201,6 +283,24 @@ install-face-data: install-dirs
 	$(SUDO) install -d -m 0750 -o $(SERVICE_USER) -g $(SERVICE_USER) $(FACE_DATA_DIR)
 	$(SUDO) chmod 0750 $(FACE_DATA_DIR)
 	$(SUDO) chown $(SERVICE_USER):$(SERVICE_USER) $(FACE_DATA_DIR)
+
+install-diagnostics: install-dirs
+	$(SUDO) install -m 0755 -o root -g root tools/synora_check.sh "$(BINDIR)/synora-check"
+
+install-bootstrap-config: build-bootstrap-config install-dirs
+	$(SUDO) install -m 0755 -o root -g root bin/synora-bootstrap-config "$(BINDIR)/synora-bootstrap-config"
+
+install-boot-healthcheck: build-boot-healthcheck install-dirs
+	$(SUDO) install -m 0755 -o root -g root bin/synora-boot-healthcheck "$(BINDIR)/synora-boot-healthcheck"
+
+install-version: generate-version install-dirs
+	$(SUDO) install -m 0644 -o root -g root build/version.json "$(PREFIX)/version.json"
+
+install-model-manifest: install-dirs
+	$(SUDO) install -m 0644 -o root -g root configs/models.yaml "$(PREFIX)/models-manifest.yaml"
+
+install-plan:
+	@PREFIX="$(PREFIX)" BINDIR="$(BINDIR)" TEMPLATE_DIR="$(TEMPLATE_DIR)" SERVICES_DIR="$(SERVICES_DIR)" VISION_WORKER_DIR="$(VISION_WORKER_DIR)" MEDIAMTX_DIR="$(MEDIAMTX_DIR)" MODELS_DIR="$(MODELS_DIR)" CONFIG_DIR="$(CONFIG_DIR)" DATA_DIR="$(DATA_DIR)" WEB_DIR="$(WEB_DIR)" SYSTEMD_DIR="$(SYSTEMD_DIR)" SERVICE_USER="$(SERVICE_USER)" ./tools/install_plan.sh
 
 build-web:
 	@if [ -f "$(WEBAPP_DIR)/package.json" ]; then \
@@ -244,9 +344,9 @@ install-web: build-web
 		exit 1; \
 	fi
 	@echo "Copying static webapp to $(WEB_DIR)"
-	$(SUDO) install -d -m 0755 -o $(SERVICE_USER) -g $(SERVICE_USER) $(WEB_DIR)
+	$(SUDO) install -d -m 0755 -o root -g root $(WEB_DIR)
 	$(SUDO) rsync -a --delete $(WEBAPP_DIR)/dist/ $(WEB_DIR)/
-	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(WEB_DIR)
+	$(SUDO) chown -R root:root $(WEB_DIR)
 	@echo "Static webapp copied to $(WEB_DIR)"
 
 restart-web:
@@ -384,7 +484,7 @@ doctor: check-go
 	for bin in synora-bus synora-core synora-actions synora-api synora-discovery synora-runtime-manager; do \
 		[ -x "$(BINDIR)/$$bin" ] && ok "binary $(BINDIR)/$$bin" || failf "binary missing $(BINDIR)/$$bin"; \
 	done; \
-	for service in $(START_ORDER); do \
+		for service in $(START_ORDER); do \
 		if systemctl list-unit-files "$$service.service" >/dev/null 2>&1; then \
 			status="$$(systemctl is-active "$$service.service" 2>/dev/null || true)"; \
 			ok "unit $$service.service known ($$status)"; \

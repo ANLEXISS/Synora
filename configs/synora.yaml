@@ -1,8 +1,8 @@
-site: rock5-dev
+site: "synora"
 
 mqtt:
   url: "tcp://127.0.0.1:1883"
-  client_id: "synora-core-dev"
+  client_id: "synora-core"
 
 state:
   path: "/var/lib/synora/state.json"
@@ -27,6 +27,5 @@ logging:
     devices: "info"
 
 modules:
-  mqtt: "debug"
-  devices: "debug"
-
+    mqtt: "info"
+    devices: "info"

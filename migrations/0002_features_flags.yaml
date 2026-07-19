@@ -1,0 +1,5 @@
+id: 0002_features_flags
+from_schema: 1
+to_schema: 2
+description: normalize feature flags
+runtime: not_wired

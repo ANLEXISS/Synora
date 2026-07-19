@@ -107,7 +107,7 @@ function permissionForPage(page: PageId) {
     case "cge":
       return "cge:read";
     case "lab":
-      return "simulation:run";
+      return "lab:use";
     case "settings":
       return "settings:read";
   }

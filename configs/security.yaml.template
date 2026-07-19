@@ -1,0 +1,23 @@
+# Safe versioned template. Run synora-bootstrap-config init before production use.
+api_token_hash: "__GENERATED_AT_INSTALL__"
+session_secret_file: "/etc/synora/secrets/session_secret"
+allowed_origins: []
+device_secrets: {}
+pairing_enabled: true
+public_system_health: false
+max_timestamp_skew_seconds: 30
+server:
+  http_addr: ":8080"
+  https_enabled: true
+  https_addr: ":8443"
+  tls_cert_file: "/etc/synora/tls/synora.crt"
+  tls_key_file: "/etc/synora/tls/synora.key"
+  redirect_http_to_https: false
+vision:
+  face_data_root: "/var/lib/synora/vision/face"
+features:
+  synora_lab_enabled: true
+  diagnostics_enabled: true
+  cge_validation_enabled: true
+  debug_endpoints_enabled: false
+  dev_simulation_enabled: false

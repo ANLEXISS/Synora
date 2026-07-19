@@ -6,11 +6,11 @@ PROTO_DIR="${PROTO_DIR:-~/Synora}"
 
 # Par défaut, on ne redémarre pas discovery parce que le pipeline vision est encore instable.
 # Pour le redémarrer aussi :
-#   RESTART_DISCOVERY=1 ./tools/dev_proto_deploy.sh
+#   RESTART_DISCOVERY=1 ./tools/maintenance/dev_proto_deploy.sh
 RESTART_DISCOVERY="${RESTART_DISCOVERY:-0}"
 
 # Pour aller plus vite :
-#   SKIP_GO_TESTS=1 ./tools/dev_proto_deploy.sh
+#   SKIP_GO_TESTS=1 ./tools/maintenance/dev_proto_deploy.sh
 SKIP_GO_TESTS="${SKIP_GO_TESTS:-0}"
 
 echo "=== Synora prototype quick deploy ==="
@@ -99,9 +99,9 @@ echo "=== Web status ==="
 make web-status
 
 echo
-echo "=== API token ==="
+echo "=== API auth check (protected local secret) ==="
 export BASE_URL="http://127.0.0.1:8080"
-export TOKEN="\$(sudo awk -F': *' '/^api_token:/ {gsub(/"/, "", \$2); print \$2}' /etc/synora/security.yaml)"
+export TOKEN="\$(sudo cat /etc/synora/secrets/api_token)"
 
 echo
 echo "=== Smoke endpoints ==="

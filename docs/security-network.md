@@ -5,6 +5,11 @@ du domicile. Le modèle produit de `configs/network.yaml` est donc
 « closed by default » : une caméra inconnue ne reçoit pas d’accès applicatif,
 et les connexions sensibles sont initiées par la centrale.
 
+Le PSK n’est pas versionné. Il est généré dans
+`/etc/synora/secrets/synoranet_psk` par `synora-bootstrap-config` avec des
+permissions strictes ; `configs/network.yaml` ne contient que le chemin et la
+politique réseau.
+
 ## Mode normal
 
 - SSID caché (`ignore_broadcast_ssid=1`). Cela réduit la visibilité dans les

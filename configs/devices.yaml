@@ -8,8 +8,6 @@ devices:
 
     room: zoneA.L0.entree
 
-    secret: "a8c1f3b2e7d44921c83f6a4d0c9e2f1b"
-
     capabilities:
       - vision
       - infrared
@@ -28,8 +26,6 @@ devices:
 
     room: zoneA.L0.salon
 
-    secret: "b7d32e9c0fa44b1aa5d81c3e9f2a6b7c"
-
     capabilities:
       - vision
       - infrared
@@ -46,8 +42,6 @@ devices:
     type: camera
 
     room: zoneA.L1.chambre_enfant
-
-    secret: "91fa2cbb3e4d4a77b1d0f239a0e42a9d"
 
     capabilities:
       - vision
@@ -67,8 +61,6 @@ devices:
 
     room: zoneA.L2.chambre_amis
 
-    secret: "2fd93bc7aa0141a9b34a5ef0c8d71f42"
-
     capabilities:
       - vision
 
@@ -84,8 +76,6 @@ devices:
     type: camera
 
     room: zoneA.L2.chambre_enfant
-
-    secret: "7bb3a14f99ef4f72a81de0ab29ce51d0"
 
     capabilities:
       - vision
@@ -103,8 +93,6 @@ devices:
     type: voice_relay
 
     room: zoneA.L0.salon
-
-    secret: "relaysecret00000000000000000001"
 
     capabilities:
       - microphone
@@ -124,8 +112,6 @@ devices:
     type: voice_relay
 
     room: zoneA.L1.couloir
-
-    secret: "relaysecret00000000000000000002"
 
     capabilities:
       - microphone

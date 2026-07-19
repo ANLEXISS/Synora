@@ -71,7 +71,7 @@ const pagePermissions: Record<PageId, string> = {
   residents: "residents:read",
   automations: "automations:read",
   cge: "cge:read",
-  lab: "simulation:run",
+  lab: "lab:use",
   settings: "settings:read",
 };
 

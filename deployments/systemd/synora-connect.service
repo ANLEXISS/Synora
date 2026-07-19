@@ -1,0 +1,29 @@
+[Unit]
+Description=Synora local connectivity agent
+After=network-online.target synora-bus.service
+Wants=network-online.target
+Requires=synora-bus.service
+
+[Service]
+Type=simple
+User=synora
+Group=synora
+
+Environment=SYNORA_CONNECTIVITY_CONFIG=/etc/synora/connectivity.yaml
+Environment=SYNORA_CONNECTIVITY_DIR=/var/lib/synora/connectivity
+Environment=SYNORA_BUS=/run/synora/bus.sock
+ExecStart=/opt/synora/bin/synora-connect run
+
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/synora/connectivity /run/synora
+
+# No AmbientCapabilities and no CAP_NET_ADMIN in this foundation pass.
+
+[Install]
+WantedBy=multi-user.target

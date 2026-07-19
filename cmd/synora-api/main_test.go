@@ -14,6 +14,7 @@ import (
 	webapi "synora/internal/api"
 	"synora/internal/security"
 	"synora/pkg/contract"
+	"synora/pkg/contracts"
 )
 
 type fakeCore struct {
@@ -214,6 +215,63 @@ func TestHandleSystemHealthReturnsCleanRuntimeHealth(t *testing.T) {
 	server, ok := body["server"].(map[string]any)
 	if !ok || server["https_enabled"] != true || server["tls_cert_present"] != true || server["tls_key_present"] != true {
 		t.Fatalf("system health missing TLS server state: %#v", body["server"])
+	}
+}
+
+func TestHandleSystemVersionReturnsManifestAndRuntimeFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "version.json")
+	if err := os.WriteFile(path, []byte(`{"image_version":"1.2.3","synora_version":"1.2.3","git_commit":"abc","build_time":"2026-01-01T00:00:00Z","target_board":"rock-5-itx","os_base":"radxa-debian-bookworm","kernel_expected":"6.1.43-26-rk2312","rknn_runtime_expected":"unknown","config_schema_version":1,"bundle_id":"bundle-test"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	handleSystemVersion(path).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/system/version", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"image_version", "runtime_kernel", "runtime_arch", "slot_current"} {
+		if _, ok := body[key]; !ok {
+			t.Fatalf("missing %s in %s", key, recorder.Body.String())
+		}
+	}
+	if body["image_version"] != "1.2.3" || body["slot_current"] != "unmanaged" {
+		t.Fatalf("unexpected version response: %s", recorder.Body.String())
+	}
+}
+
+type connectivityRequesterTest struct {
+	response *contract.Message
+	err      error
+}
+
+func (f connectivityRequesterTest) RequestWithTimeout(string, string, []byte, string, time.Duration) (*contract.Message, error) {
+	return f.response, f.err
+}
+
+func TestHandleConnectivityStatusReturnsPublicStatus(t *testing.T) {
+	payload, err := json.Marshal(contracts.Status{SchemaVersion: 1, Enabled: false, State: contracts.StateDisabled, Mode: contracts.ModeNone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	handleConnectivityStatus(connectivityRequesterTest{response: &contract.Message{Payload: payload}}).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/system/connectivity", nil))
+	if recorder.Code != http.StatusOK || strings.Contains(recorder.Body.String(), "private_key") {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var status contracts.Status
+	if err := json.Unmarshal(recorder.Body.Bytes(), &status); err != nil || status.State != contracts.StateDisabled {
+		t.Fatalf("response=%s err=%v", recorder.Body.String(), err)
+	}
+}
+
+func TestHandleConnectivityStatusHidesBusErrors(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	handleConnectivityStatus(connectivityRequesterTest{err: errors.New("private_key=should-not-escape")}).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/system/connectivity", nil))
+	if recorder.Code != http.StatusServiceUnavailable || strings.Contains(recorder.Body.String(), "should-not-escape") {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

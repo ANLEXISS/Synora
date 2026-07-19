@@ -1,0 +1,5 @@
+id: 0003_cge_decay
+from_schema: 2
+to_schema: 3
+description: normalize CGE decay settings
+runtime: not_wired

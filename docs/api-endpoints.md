@@ -23,6 +23,8 @@ rôle `admin` complet.
 |---|---|---|---|---|---|---|
 | GET | `/health` | `cmd/synora-api/main.go` | non | legacy | non | Pointe santé process locale. |
 | GET | `/api/system/health` | `cmd/synora-api/main.go` | oui, sauf si `PublicSystemHealth` est activé | stable | futur | Santé système publique. |
+| GET | `/api/system/version` | `cmd/synora-api/main.go` | settings read | stable | OTA | Version image non secrète, kernel/arch courants et slot `unmanaged` avant RAUC. |
+| GET | `/api/system/connectivity` | `cmd/synora-api/connectivity.go` | settings read | foundation | admin | État public local de `synora-connect`; aucune connexion distante. |
 | GET | `/api/runtime/diagnostics` | `cmd/synora-api/runtime_diagnostics.go` | CGE read | stable | futur | Diagnostic runtime borné. |
 | GET | `/api/cge/runtime-status` | `cmd/synora-api/runtime_diagnostics.go` | CGE read | alias | oui | Alias du diagnostic runtime, danger/manual-risk et contexte sécurité. |
 | POST | `/api/intrusion/reset` | `cmd/synora-api/runtime_controls.go` | admin | stable | futur | Réinitialise l'état sans supprimer l'historique. |
@@ -105,9 +107,12 @@ rôle `admin` complet.
 | GET | `/api/cge/feedback` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Corrections versionnées, filtre `chain_id`. |
 | POST | `/api/cge/feedback/evaluation` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Admin uniquement, feedback d’intention (`correction_type`, `scope`, `preferred_actions`, `admin_note`), événement brut immuable. |
 | POST | `/api/cge/feedback/chain` | `cmd/synora-api/cge_profile.go` | oui | stable | oui | Admin uniquement, feedback d’intention et influence optionnelle de la mémoire critique. |
-| GET | `/api/simulation/scenarios` | `cmd/synora-api/main.go` | oui | simulation | futur |  |
-| POST | `/api/simulation/run` | `cmd/synora-api/main.go` | oui | simulation | futur |  |
-| GET | `/api/simulation/runs/:id` | `cmd/synora-api/main.go` | oui | simulation | futur |  |
+| GET | `/api/simulation/scenarios` | `cmd/synora-api/main.go` | admin + feature flag | dev simulation | compatibilité | Désactivé par défaut par `features.dev_simulation_enabled`. |
+| POST | `/api/simulation/run` | `cmd/synora-api/main.go` | admin + feature flag | dev simulation | compatibilité | Dry-run développeur, jamais l’interface Synora Lab. |
+| GET | `/api/simulation/runs/:id` | `cmd/synora-api/main.go` | admin + feature flag | dev simulation | compatibilité |  |
+| POST | `/api/lab/validation/events` | `cmd/synora-api/main.go` | admin + `synora_lab_enabled` | produit | stable | Alias produit de la validation contrôlée. |
+| POST | `/api/lab/validation/chain-sequence` | `cmd/synora-api/main.go` | admin + `synora_lab_enabled` | produit | stable | Scénario contrôlé Synora Lab. |
+| GET/DELETE | `/api/lab/validation/history` | `cmd/synora-api/main.go` | admin + `synora_lab_enabled` | produit | stable | Historique admin des validations. |
 | GET | `/api/ws` | `cmd/synora-api/main.go` + `cmd/synora-api/ws.go` | oui | stable | oui | Canal WebSocket principal. |
 | GET | `/ws` | `cmd/synora-api/main.go` + `cmd/synora-api/ws.go` | oui | legacy | futur | Alias de compatibilité du WS. |
 | GET | `/` | `internal/api/web.go` | non | stable | oui | Sert `index.html` si la web statique est activée. |
@@ -156,7 +161,7 @@ Les chaînes d’événements sont accessibles via `GET /api/events/chains` et `
 | Résidents | `/api/residents`, `/api/state`, `/api/topology`, `/api/residents/:id/face/*` | — | CRUD, pièce de référence et photos admin branchés ; présence issue de `/api/state.residents`. |
 | Automatisations | `/api/automations`, `/api/automations/catalog`, `/api/state`, `/api/ws` | — | Create/update/delete builder branchés après succès API. |
 | CGE Inspector | `/api/state`, `/api/ws` | `/api/cge/summary`, `/api/cge/sequences`, `/api/cge/transitions`, `/api/cge/learned-behaviors`, `/api/cge/critical-seeds`, `/api/cge/danger-assessments`, `/api/validations` | La page est encore un placeholder. |
-| Synora Lab | `/api/state`, `/api/ws` | `/api/simulation/scenarios`, `/api/simulation/run`, `/api/simulation/runs/:id` | La simulation n’est pas encore reliée à l’UI. |
+| Synora Lab | `/api/state`, `/api/ws`, `/api/cge/validation/*` | `/api/lab/validation/*` | Module produit/admin ; les anciens chemins CGE restent compatibles. |
 | Settings | `/api/state`, `/api/ws` | `/api/system/health`, `/api/validations` | À brancher quand les réglages réels seront exposés. |
 
 ### Endpoints présents mais pas encore utilisés par l’UI
@@ -178,7 +183,7 @@ Les chaînes d’événements sont accessibles via `GET /api/events/chains` et `
 - Résidents: ajouter les formulaires CRUD ; les boutons actuels signalent leur indisponibilité.
 - Automatisations: remplacer progressivement le catalogue local par `/api/automations/catalog`.
 - CGE Inspector: remplacer les placeholders par les routes `/api/cge/*` et `/api/validations`.
-- Synora Lab: connecter les scénarios de simulation au backend avant d’ajouter des écrans de contrôle avancé.
+- Synora Lab: conserver la validation contrôlée distincte des simulations développeur ; les alias `/api/lab/*` sont la nomenclature produit.
 - Settings: exposer la santé système et les validations utilisateur avant d’ouvrir des réglages plus profonds.
 
 ## Remarque d’implémentation
@@ -195,8 +200,11 @@ Les chaînes d’événements sont accessibles via `GET /api/events/chains` et `
   invité reste le snapshot public courant ; une redaction dédiée est un TODO.
 
 Les mutations `/api/devices*`, `/api/residents*`, `/api/automations*` et
-`/api/topology*` sont admin-only. `/api/simulation/*` et `/api/cge/*` sont
-également admin-only.
+`/api/topology*` sont admin-only. `/api/lab/*`, `/api/simulation/*` et les
+mutations `/api/cge/*` sont également admin-only. Les validations contrôlées
+requièrent en plus `features.synora_lab_enabled` et
+`features.cge_validation_enabled`; la simulation développeur requiert
+`features.dev_simulation_enabled`, désactivé par défaut.
 
 ## Résidents : configuration et runtime
 

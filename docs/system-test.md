@@ -17,8 +17,8 @@ export SYNORA_API_TOKEN='…'
 ./tools/synora_system_test.sh --target local --base-url http://127.0.0.1:8080 --mode smoke
 ```
 
-Depuis le repo du prototype, le token est lu automatiquement depuis
-`/etc/synora/security.yaml` :
+Depuis le repo du prototype, le token est lu automatiquement depuis le fichier
+secret protégé `/etc/synora/secrets/api_token` :
 
 ```bash
 ./tools/synora_system_test.sh --target ssh --host rock@100.80.170.47 --mode full

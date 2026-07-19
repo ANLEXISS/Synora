@@ -1,7 +1,11 @@
 #!/bin/bash
 
-DEVICE="cam_01"
-SECRET="a8c1f3b2e7d44921c83f6a4d0c9e2f1b"
+DEVICE="${SYNORA_DEVICE_ID:-cam_01}"
+SECRET="${SYNORA_DEVICE_SECRET:-}"
+if [[ -z "$SECRET" ]]; then
+  echo "SYNORA_DEVICE_SECRET is required; no secret is embedded in this diagnostic." >&2
+  exit 2
+fi
 SECRET_HASH=$(printf "%s" "$SECRET" | sha256sum | awk '{print $1}')
 
 FILE="$1"

@@ -18,8 +18,8 @@ residents:
       review_count: 0
 
     contact:
-      whatsapp: "+33612345678"
-      phone: "+33612345678"
+      whatsapp: "__SET_DURING_FIRST_BOOT__"
+      phone: "__SET_DURING_FIRST_BOOT__"
 
     baseline:
       wake_time: "07:30"
@@ -46,7 +46,7 @@ residents:
       review_count: 0
 
     contact:
-      whatsapp: "+33699999999"
+      whatsapp: "__SET_DURING_FIRST_BOOT__"
 
     baseline:
       wake_time: "08:00"

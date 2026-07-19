@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"os"
@@ -63,6 +64,7 @@ type coreApp struct {
 	chains     *eventpkg.ChainManager
 	danger     *cge.DangerRuntime
 	profile    *cge.ProfileStore
+	cognitive  cge.CognitiveEngine
 	rate       *eventpkg.RateController
 	metrics    *coreMetrics
 
@@ -159,6 +161,20 @@ func main() {
 	dangerRuntime := cge.NewDangerRuntime(profileStore.Get().DangerDecay)
 	dangerRuntime.SetDebug(getenvBool("SYNORA_CGE_DEBUG", false))
 
+	var cognitiveEngine cge.CognitiveEngine = cge.NewNoopEngine()
+	shadowConfig, shadowConfigErr := cge.LoadShadowConfig(os.Getenv)
+	if shadowConfigErr != nil {
+		log.Printf("cge shadow unavailable code=%s", cge.ErrorCode(shadowConfigErr))
+	} else if shadowConfig.Enabled {
+		configuredShadow, err := cge.NewShadowEngineWithConfig(context.Background(), shadowConfig, cge.SystemClock{}, log.Default())
+		if err != nil {
+			log.Printf("cge shadow unavailable code=%s", cge.ErrorCode(err))
+		} else {
+			cognitiveEngine = configuredShadow
+			log.Println("cge shadow enabled")
+		}
+	}
+
 	app := &coreApp{
 		bus:          busClient,
 		engine:       engineInstance,
@@ -172,12 +188,14 @@ func main() {
 		chains:       chainManager,
 		danger:       dangerRuntime,
 		profile:      profileStore,
+		cognitive:    cognitiveEngine,
 		rate:         rateController,
 		metrics:      &coreMetrics{sourceLastSeen: map[string]time.Time{}},
 		highPriority: make(chan *contract.Event, 128),
 		normalQueue:  make(chan *contract.Event, 512),
 		rpcQueue:     make(chan contract.Message, 256),
 	}
+	defer app.closeCognitive()
 	app.snapshotBuilder = &snapshotpkg.Builder{
 		Mu:         &app.mu,
 		State:      app.state,
@@ -382,6 +400,11 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	if event == nil {
 		return
 	}
+	// Capture the boundary DTO before the historical engine can normalize or
+	// enrich the source event. The deferred call keeps this observer after the
+	// existing processing path and cannot affect its result.
+	cgeEvent := cge.EventFromContract(event)
+	defer a.observeCGE(cgeEvent)
 
 	stateapply.TouchDeviceState(a.state, a.device, event)
 	a.recordRuntimeEvent(event)
@@ -556,6 +579,33 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	a.recomputeDanger(time.Now().UTC(), false)
 
 	a.triggerSnapshot()
+}
+
+func (a *coreApp) observeCGE(event cge.Event) {
+	if a == nil || a.cognitive == nil {
+		return
+	}
+	defer func() {
+		if recover() != nil {
+			log.Println("core: cge observation panicked; ignored code=panic_recovered")
+		}
+	}()
+	if _, err := a.cognitive.Observe(context.Background(), event); err != nil {
+		log.Printf("core: cge observation error ignored code=%s", cge.ErrorCode(err))
+	}
+}
+
+func (a *coreApp) closeCognitive() {
+	if a == nil || a.cognitive == nil {
+		return
+	}
+	closer, ok := a.cognitive.(cge.CognitiveCloser)
+	if !ok {
+		return
+	}
+	if err := closer.Close(); err != nil {
+		log.Printf("core: cge shadow close error code=%s", cge.ErrorCode(err))
+	}
 }
 
 func (a *coreApp) recordRuntimeEvent(event *contract.Event) {

@@ -1,0 +1,7 @@
+# Safe versioned template. The initial admin is generated locally.
+users:
+  - id: user_admin
+    login: admin
+    role: admin
+    enabled: true
+    password_hash: "__SET_DURING_FIRST_BOOT__"

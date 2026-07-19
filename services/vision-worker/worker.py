@@ -137,6 +137,14 @@ class VisionWorker:
             "yolo": model_status("/var/lib/synora/models/yolov8.rknn"),
             "weapon": model_status("/var/lib/synora/models/weapon.rknn"),
         }
+        weapon_capability = dict(models["weapon"])
+        weapon_capability["optional"] = True
+        if weapon_capability.get("status") == "missing":
+            weapon_capability["status"] = "degraded"
+            weapon_capability["error"] = "optional weapon model is unavailable"
+        else:
+            weapon_capability["status"] = "unavailable"
+            weapon_capability["error"] = "weapon detector is not enabled in the clip pipeline"
         face_capability = self.face_recognizer.capability() if self.face_recognizer is not None else {"status": "unavailable", "error": self.pipeline_error or "face recognizer unavailable"}
         object_capability = self.person_detector.capability() if self.person_detector is not None else {"status": "unavailable", "error": self.pipeline_error or "person detector unavailable"}
         face_detection = {"status": "unavailable", "error": "face detector unavailable"}
@@ -152,7 +160,7 @@ class VisionWorker:
                 "face_detection": face_detection,
                 "face_recognition": face_capability,
                 "object_detection": object_capability,
-                "weapon_detection": {"status": "unavailable", "error": "weapon detector is not enabled in the clip pipeline"},
+                "weapon_detection": weapon_capability,
                 "fall_detection": {"status": "unavailable", "error": "fall detector is not enabled in the clip pipeline"},
             },
             "models": models,

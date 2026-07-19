@@ -46,7 +46,7 @@ Options:
   --host user@host            SSH host for --target ssh
   --base-url URL              Synora API URL (default: http://127.0.0.1:8080)
   --token TOKEN               API bearer token; defaults to SYNORA_API_TOKEN
-  --mode smoke|full|readonly|stress-lite
+  --mode smoke|full|readonly|boot-readonly|stress-lite
   --report-dir DIR            JSON report directory (default: artifacts/system-test)
   --strict-services           Make degraded optional services blocking
   -h, --help                  Show this help
@@ -130,7 +130,7 @@ case "$TARGET" in
   *) die_usage "--target must be local or ssh" ;;
 esac
 case "$MODE" in
-  smoke|full|readonly|stress-lite) ;;
+  smoke|full|readonly|boot-readonly|stress-lite) ;;
   *) die_usage "unsupported mode: $MODE" ;;
 esac
 
@@ -142,7 +142,7 @@ if [[ "$TARGET" == "ssh" ]]; then
     exit 2
   }
 
-  remote_command='cd ~/Synora && SYNORA_API_TOKEN="$(sudo -n awk -F'\''[: ]*'\'' '\''/^api_token:/ {gsub(/"/, "", $2); print $2}'\'' /etc/synora/security.yaml)" bash -s --'
+  remote_command='cd ~/Synora && SYNORA_API_TOKEN="$(sudo -n cat /etc/synora/secrets/api_token)" bash -s --'
   remote_args=(--target local --target-label ssh --report-target ssh --report-host "$HOST" --base-url "$BASE_URL" --mode "$MODE" --report-dir "$REPORT_DIR")
   if ((STRICT_SERVICES)); then
     remote_args+=(--strict-services)
@@ -391,10 +391,10 @@ check_services() {
   fi
 
   local service active substate restarts required
-  for service in synora-bus synora-core synora-actions synora-api synora-discovery mediamtx; do
+  for service in synora-bus synora-core synora-actions synora-api synora-discovery synora-connect mediamtx; do
     if ! systemctl list-unit-files "${service}.service" >/dev/null 2>&1; then
       [[ "$service" == "mediamtx" ]] && continue
-      if [[ "$service" == synora-bus || "$service" == synora-core || "$service" == synora-api || "$STRICT_SERVICES" == 1 ]]; then
+    if [[ "$MODE" == boot-readonly || "$service" == synora-bus || "$service" == synora-core || "$service" == synora-api || "$STRICT_SERVICES" == 1 ]]; then
         record_check fail "service $service" '' '' "unit not installed" '{}' true
       else
         record_check warn "service $service" '' '' "unit not installed" '{}' false
@@ -426,6 +426,7 @@ critical_endpoints() {
   request "${prefix} GET /api/cge/runtime-status" GET /api/cge/runtime-status 200 true || true
   request "${prefix} GET /api/security/mode" GET /api/security/mode 200 true || true
   request "${prefix} GET /api/state" GET /api/state 200 true || true
+  request "${prefix} GET /api/system/version" GET /api/system/version 200 true || true
   request "${prefix} GET /api/devices" GET /api/devices 200 true || true
   request "${prefix} GET /api/residents" GET /api/residents 200 true || true
   request "${prefix} GET /api/automations" GET /api/automations 200 true || true
@@ -481,7 +482,9 @@ check_synoranet() {
       record_check fail "${prefix} closed-by-default health" 200 "" "one or more SynoraNet lockdown components missing or unavailable" "{\"visibility\":\"$visibility\",\"access_control\":\"$access_control\",\"connection_policy\":\"$connection_policy\",\"pairing_security\":\"$pairing_security\"}" true
     fi
     check_synoranet_local "$prefix"
+  if [[ "$MODE" != boot-readonly ]]; then
     check_synoranet_pairing_window "$prefix"
+  fi
   fi
   request "${prefix} GET /api/streams" GET /api/streams 200 true '' true || true
 }
@@ -732,6 +735,42 @@ run_webapp_checks() {
   fi
 }
 
+check_boot_readonly_paths() {
+  local path model
+  for path in /etc/synora /var/lib/synora; do
+    if [[ -d "$path" && -r "$path" ]]; then
+      if [[ "$path" == /var/lib/synora && ! -w "$path" ]]; then
+        record_check fail "boot-readonly $path writable" '' '' "persistent path is not writable" '{}' true
+      else
+        record_check pass "boot-readonly $path" '' '' "readable" '{}' false
+      fi
+    else
+      record_check fail "boot-readonly $path" '' '' "required persistent path is unavailable" '{}' true
+    fi
+  done
+  if [[ -d /var/lib/synora/models || -d /models ]]; then
+    record_check pass "boot-readonly models mount" '' '' "model path present" '{}' false
+  else
+    record_check fail "boot-readonly models mount" '' '' "model path is unavailable" '{}' true
+  fi
+  for path in /etc/synora/security.yaml /etc/synora/network.yaml; do
+    [[ -r "$path" ]] && record_check pass "boot-readonly config $path" '' '' "readable" '{}' false || record_check fail "boot-readonly config $path" '' '' "config is unavailable" '{}' true
+  done
+  for model in arcface_w600k_r50.rknn det_10g.rknn yolov8.rknn; do
+    [[ -f "/var/lib/synora/models/$model" || -f "/models/$model" ]] && record_check pass "boot-readonly model $model" '' '' "present" '{}' false || record_check fail "boot-readonly model $model" '' '' "required model missing" '{}' true
+  done
+  if [[ -f /var/lib/synora/models/weapon.rknn || -f /models/weapon.rknn ]]; then
+    record_check pass "boot-readonly model weapon.rknn" '' '' "optional model present" '{}' false
+  else
+    record_check warn "boot-readonly model weapon.rknn" '' '' "optional model missing; weapon_detection degraded" '{}' false
+  fi
+  if [[ -d /sys/module/rtw89_8852be || -d /sys/module/rtw89_core || -d /sys/module/brcmfmac ]]; then
+    record_check pass "boot-readonly wifi driver" '' '' "driver module present" '{}' false
+  else
+    record_check warn "boot-readonly wifi driver" '' '' "driver module not visible; SynoraNet policy decides" '{}' false
+  fi
+}
+
 cleanup_mutations() {
   ((FULL_MUTATION_STARTED)) || return 0
   local code
@@ -820,6 +859,15 @@ if [[ -z "${TOKEN//[[:space:]]/}" ]]; then
   exit 2
 else
   record_check pass "preflight API token" '' '' "token supplied without printing it" '{}' false
+fi
+
+if [[ "$MODE" == boot-readonly ]]; then
+  check_services
+  critical_endpoints "boot-readonly"
+  check_boot_readonly_paths
+  check_synoranet "SynoraNet boot-readonly"
+  collect_logs
+  exit 0
 fi
 
 check_services

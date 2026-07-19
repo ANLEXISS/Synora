@@ -1,0 +1,3 @@
+# Safe-by-default optional policy template. Runtime defaults remain active when
+# this file is absent; administrators may update it through the API.
+levels: {}

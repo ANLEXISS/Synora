@@ -1,0 +1,29 @@
+# Safe runtime template. Site identity is selected locally during first boot.
+site: "__SET_DURING_FIRST_BOOT__"
+
+mqtt:
+  # Local broker endpoint; this is a topology default, not a credential.
+  url: "tcp://127.0.0.1:1883"
+  client_id: "synora-core"
+
+state:
+  path: "/var/lib/synora/state.json"
+  publish_tick_seconds: 120
+
+rules:
+  motion_window_seconds: 10
+  motion_count: 4
+  notify_cooldown_seconds: 30
+
+devices:
+  offline_after_seconds: 35
+  offline_check_seconds: 5
+
+logging:
+  level: "info"
+  format: "text"
+  modules:
+    core: "info"
+    mqtt: "info"
+    rules: "info"
+    devices: "info"

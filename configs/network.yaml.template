@@ -1,0 +1,23 @@
+# Safe versioned SynoraNet template. The PSK is generated locally.
+# The canonical non-secret defaults are kept in configs/network.yaml.
+synoranet:
+  enabled: true
+  interface: ""
+  ssid: "SynoraNet"
+  country_code: "FR"
+  security:
+    mode: "wpa3"
+    pmf: "required"
+    ap_isolate: true
+    min_passphrase_length: 24
+    allow_legacy_wpa2: false
+    allow_transition_mode: false
+  ap:
+    passphrase_file: "/etc/synora/secrets/synoranet_psk"
+  firewall:
+    enabled: true
+    default_policy: "deny"
+    block_client_to_client: true
+    block_forward_to_lan: true
+    block_forward_to_tailscale: true
+    block_forward_to_internet: true
