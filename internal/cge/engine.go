@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"synora/internal/cge/decisioncomparison"
 	"synora/pkg/contract"
 )
 
@@ -20,6 +21,13 @@ type CognitiveEngine interface {
 // implementation owns durable resources.
 type CognitiveCloser interface {
 	Close() error
+}
+
+// HistoricalDecisionObserver is an optional post-history boundary. The
+// reference is redacted and descriptive; the observer never feeds a result
+// back into the historical engine.
+type HistoricalDecisionObserver interface {
+	ObserveHistoricalDecision(context.Context, Event, decisioncomparison.HistoricalDecisionRef) (ObservationResult, error)
 }
 
 // Event is the immutable, minimal event representation exchanged across the

@@ -188,6 +188,10 @@ func (r *Runtime) TrySubmit(input ShadowWorkflowInput) (result SubmitResult) {
 		r.metrics.add("input.rejected")
 		return SubmitResult{Status: SubmitRejected, ReasonCode: "input.rejected"}
 	}
+	if input.HistoricalDecision != nil {
+		copy := input.HistoricalDecision.Clone()
+		input.HistoricalDecision = &copy
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !r.cfg.Enabled || r.state == StateDisabled {
@@ -270,7 +274,7 @@ func (r *Runtime) processSafe(parent context.Context, input ShadowWorkflowInput)
 func (r *Runtime) recordSuccess() {
 	r.mu.Lock()
 	r.breaker.success()
-	if (r.state == StateCircuitOpen || r.state == StateDegraded) && !r.checkpointFailure && r.lastErrorCode != "checkpoint_failed" {
+	if (r.state == StateCircuitOpen || r.state == StateDegraded) && !r.checkpointFailure && r.lastErrorCode != "checkpoint_failed" && r.lastErrorCode != "comparison_build_failed" {
 		r.state = StateRunning
 	}
 	r.mu.Unlock()

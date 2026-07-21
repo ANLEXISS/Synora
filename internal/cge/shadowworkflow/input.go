@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"synora/internal/cge/decisioncomparison"
 	"synora/internal/cge/episodes"
 )
 
@@ -14,6 +15,7 @@ type ShadowWorkflowInput struct {
 	Observation             episodes.ObservationRef
 	SourceShadowRevision    uint64
 	SourceShadowFingerprint string
+	HistoricalDecision      *decisioncomparison.HistoricalDecisionRef
 }
 
 func (i ShadowWorkflowInput) Validate() error {
@@ -25,6 +27,11 @@ func (i ShadowWorkflowInput) Validate() error {
 	}
 	if len([]rune(i.SourceShadowFingerprint)) > 256 || strings.ContainsAny(i.SourceShadowFingerprint, "\r\n") {
 		return ErrInputRejected
+	}
+	if i.HistoricalDecision != nil {
+		if err := i.HistoricalDecision.Validate(decisioncomparison.DefaultPolicy()); err != nil {
+			return ErrInputRejected
+		}
 	}
 	return nil
 }

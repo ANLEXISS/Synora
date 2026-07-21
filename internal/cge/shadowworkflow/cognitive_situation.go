@@ -1,11 +1,13 @@
 package shadowworkflow
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
 	"synora/internal/cge/cognitiverecommendation"
 	"synora/internal/cge/cognitivesituation"
+	"synora/internal/cge/decisioncomparison"
 	"synora/internal/cge/durableworkflow"
 )
 
@@ -24,10 +26,13 @@ type CognitiveRecommendationSnapshot struct {
 	Digest                  string
 }
 
+type HistoricalDecisionComparisonSnapshot = decisioncomparison.HistoricalDecisionComparisonSnapshot
+
 type CognitiveProjectionSnapshot struct {
 	WorkflowRevision uint64
 	Situations       CognitiveSituationSnapshot
 	Recommendations  CognitiveRecommendationSnapshot
+	Comparisons      HistoricalDecisionComparisonSnapshot
 	Digest           string
 }
 
@@ -62,7 +67,7 @@ func (s CognitiveRecommendationSnapshot) Clone() CognitiveRecommendationSnapshot
 }
 
 func (s CognitiveProjectionSnapshot) Clone() CognitiveProjectionSnapshot {
-	return CognitiveProjectionSnapshot{WorkflowRevision: s.WorkflowRevision, Situations: s.Situations.Clone(), Recommendations: s.Recommendations.Clone(), Digest: s.Digest}
+	return CognitiveProjectionSnapshot{WorkflowRevision: s.WorkflowRevision, Situations: s.Situations.Clone(), Recommendations: s.Recommendations.Clone(), Comparisons: s.Comparisons.Clone(), Digest: s.Digest}
 }
 
 func (r *Runtime) expectedSituationDepth() cognitivesituation.ExpectedPipelineDepth {
@@ -118,7 +123,9 @@ func (r *Runtime) rebuildCognitiveProjection(state durableworkflow.WorkflowState
 	sort.Slice(recommendations, func(i, j int) bool { return recommendations[i].EpisodeID < recommendations[j].EpisodeID })
 	recommendationSnapshot := CognitiveRecommendationSnapshot{WorkflowRevision: state.Revision, SituationSnapshotDigest: situationSnapshot.Digest, RecommendationSets: recommendations, EpisodeIndex: indexRecommendationSets(recommendations)}
 	recommendationSnapshot.Digest = recommendationSnapshotDigest(recommendationSnapshot)
-	projection := CognitiveProjectionSnapshot{WorkflowRevision: state.Revision, Situations: situationSnapshot, Recommendations: recommendationSnapshot}
+	baseDigest := baseProjectionSnapshotDigest(situationSnapshot, recommendationSnapshot)
+	comparisonSnapshot := emptyComparisonSnapshot(state.Revision, baseDigest)
+	projection := CognitiveProjectionSnapshot{WorkflowRevision: state.Revision, Situations: situationSnapshot, Recommendations: recommendationSnapshot, Comparisons: comparisonSnapshot}
 	projection.Digest = projectionSnapshotDigest(projection)
 	r.mu.Lock()
 	r.projection.snapshot = projection
@@ -128,11 +135,11 @@ func (r *Runtime) rebuildCognitiveProjection(state durableworkflow.WorkflowState
 	return nil
 }
 
-func (r *Runtime) refreshCognitiveSituation(episodeID string) error {
-	return r.refreshCognitiveProjection(episodeID)
+func (r *Runtime) refreshCognitiveSituation(episodeID string, historical *decisioncomparison.HistoricalDecisionRef) error {
+	return r.refreshCognitiveProjection(episodeID, historical)
 }
 
-func (r *Runtime) refreshCognitiveProjection(episodeID string) error {
+func (r *Runtime) refreshCognitiveProjection(episodeID string, historical *decisioncomparison.HistoricalDecisionRef) error {
 	if r == nil || r.coordinator == nil {
 		return nil
 	}
@@ -193,6 +200,27 @@ func (r *Runtime) refreshCognitiveProjection(episodeID string) error {
 	projection.Recommendations.SituationSnapshotDigest = projection.Situations.Digest
 	projection.Recommendations.EpisodeIndex = indexRecommendationSets(projection.Recommendations.RecommendationSets)
 	projection.Recommendations.Digest = recommendationSnapshotDigest(projection.Recommendations)
+	baseDigest := baseProjectionSnapshotDigest(projection.Situations, projection.Recommendations)
+	var comparisonErr error
+	if historical == nil {
+		r.metrics.add("comparison_skipped_no_historical_ref")
+		projection.Comparisons = removeComparison(projection.Comparisons, episodeID, state.Revision, baseDigest)
+	} else {
+		var previousComparison *decisioncomparison.HistoricalDecisionComparison
+		if index, ok := projection.Comparisons.EpisodeIndex[episodeID]; ok && index >= 0 && index < len(projection.Comparisons.Comparisons) {
+			value := projection.Comparisons.Comparisons[index]
+			previousComparison = &value
+		}
+		comparison, compareErr := decisioncomparison.Compare(decisioncomparison.CompareInput{Historical: historical.Clone(), Situation: currentSituation, Recommendations: currentRecommendation, Previous: previousComparison}, decisioncomparison.DefaultPolicy())
+		if compareErr != nil {
+			comparisonErr = fmt.Errorf("%w: %v", ErrComparisonBuildFailed, compareErr)
+			r.metrics.add("comparison_build_failures")
+			projection.Comparisons = removeComparison(projection.Comparisons, episodeID, state.Revision, baseDigest)
+		} else {
+			projection.Comparisons = replaceComparison(projection.Comparisons, comparison, state.Revision, baseDigest)
+			r.recordComparisonMetrics(comparison)
+		}
+	}
 	projection.WorkflowRevision = state.Revision
 	projection.Digest = projectionSnapshotDigest(projection)
 	r.mu.Lock()
@@ -200,7 +228,7 @@ func (r *Runtime) refreshCognitiveProjection(episodeID string) error {
 	r.mu.Unlock()
 	r.recordRecommendationMetrics([]cognitiverecommendation.CognitiveRecommendationSet{currentRecommendation})
 	r.metrics.addN("recommendation_build_duration_ns", uint64(time.Since(started).Nanoseconds()))
-	return nil
+	return comparisonErr
 }
 
 func indexSituations(values []cognitivesituation.CognitiveSituation) map[string]int {
@@ -230,7 +258,81 @@ func recommendationSnapshotDigest(value CognitiveRecommendationSnapshot) string 
 }
 
 func projectionSnapshotDigest(value CognitiveProjectionSnapshot) string {
-	return cognitiverecommendation.RecommendationSetFingerprint(cognitiverecommendation.CognitiveRecommendationSet{ID: "projection", SituationID: value.Situations.Digest, EpisodeID: "projection", SourceSituationFingerprint: value.Recommendations.Digest, Fingerprint: value.Recommendations.Digest})
+	return cognitiverecommendation.RecommendationSetFingerprint(cognitiverecommendation.CognitiveRecommendationSet{ID: "projection:" + value.Comparisons.Digest, SituationID: value.Situations.Digest, EpisodeID: "projection", SourceSituationFingerprint: value.Recommendations.Digest, Fingerprint: value.Recommendations.Digest})
+}
+
+func baseProjectionSnapshotDigest(situations CognitiveSituationSnapshot, recommendations CognitiveRecommendationSnapshot) string {
+	return cognitiverecommendation.RecommendationSetFingerprint(cognitiverecommendation.CognitiveRecommendationSet{ID: "projection-base", SituationID: situations.Digest, EpisodeID: "projection", SourceSituationFingerprint: recommendations.Digest, Fingerprint: recommendations.Digest})
+}
+
+func emptyComparisonSnapshot(revision uint64, projectionDigest string) HistoricalDecisionComparisonSnapshot {
+	snapshot := HistoricalDecisionComparisonSnapshot{WorkflowRevision: revision, ProjectionDigest: projectionDigest, Comparisons: []decisioncomparison.HistoricalDecisionComparison{}, EpisodeIndex: map[string]int{}}
+	snapshot.Digest = decisioncomparison.ComparisonSnapshotFingerprint(snapshot)
+	return snapshot
+}
+
+func replaceComparison(snapshot HistoricalDecisionComparisonSnapshot, value decisioncomparison.HistoricalDecisionComparison, revision uint64, projectionDigest string) HistoricalDecisionComparisonSnapshot {
+	current := snapshot.Clone()
+	if index, ok := current.EpisodeIndex[value.EpisodeID]; ok {
+		current.Comparisons[index] = value
+	} else {
+		current.Comparisons = append(current.Comparisons, value)
+		sort.Slice(current.Comparisons, func(i, j int) bool { return current.Comparisons[i].EpisodeID < current.Comparisons[j].EpisodeID })
+	}
+	current.WorkflowRevision = revision
+	current.ProjectionDigest = projectionDigest
+	current.EpisodeIndex = indexComparisons(current.Comparisons)
+	current.Digest = decisioncomparison.ComparisonSnapshotFingerprint(current)
+	return current
+}
+
+func removeComparison(snapshot HistoricalDecisionComparisonSnapshot, episodeID string, revision uint64, projectionDigest string) HistoricalDecisionComparisonSnapshot {
+	current := snapshot.Clone()
+	values := current.Comparisons[:0]
+	for _, value := range current.Comparisons {
+		if value.EpisodeID != episodeID {
+			values = append(values, value)
+		}
+	}
+	current.Comparisons = values
+	current.WorkflowRevision = revision
+	current.ProjectionDigest = projectionDigest
+	current.EpisodeIndex = indexComparisons(current.Comparisons)
+	current.Digest = decisioncomparison.ComparisonSnapshotFingerprint(current)
+	return current
+}
+
+func indexComparisons(values []decisioncomparison.HistoricalDecisionComparison) map[string]int {
+	out := make(map[string]int, len(values))
+	for index, value := range values {
+		out[value.EpisodeID] = index
+	}
+	return out
+}
+
+func (r *Runtime) recordComparisonMetrics(value decisioncomparison.HistoricalDecisionComparison) {
+	r.metrics.add("comparisons_total")
+	switch value.Category {
+	case decisioncomparison.CategoryAligned:
+		r.metrics.add("comparisons_aligned")
+	case decisioncomparison.CategoryPartiallyAligned:
+		r.metrics.add("comparisons_partially_aligned")
+	case decisioncomparison.CategoryDivergent:
+		r.metrics.add("comparisons_divergent")
+	case decisioncomparison.CategoryCognitiveMoreConservative:
+		r.metrics.add("comparisons_cognitive_more_conservative")
+	case decisioncomparison.CategoryHistoricalMoreDecisive:
+		r.metrics.add("comparisons_historical_more_decisive")
+	case decisioncomparison.CategoryCognitiveTransitionOnly:
+		r.metrics.add("comparisons_cognitive_transition_only")
+	case decisioncomparison.CategoryHistoricalTransitionOnly:
+		r.metrics.add("comparisons_historical_transition_only")
+	case decisioncomparison.CategoryIncomparable:
+		r.metrics.add("comparisons_incomparable")
+	}
+	if value.SignificantDivergence {
+		r.metrics.add("comparisons_significant_divergence")
+	}
 }
 
 func (r *Runtime) recordRecommendationMetrics(values []cognitiverecommendation.CognitiveRecommendationSet) {
@@ -302,4 +404,26 @@ func (r *Runtime) CognitiveRecommendations() CognitiveRecommendationSnapshot {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.projection.snapshot.Recommendations.Clone()
+}
+
+func (r *Runtime) HistoricalDecisionComparison(episodeID string) (decisioncomparison.HistoricalDecisionComparison, bool) {
+	if r == nil {
+		return decisioncomparison.HistoricalDecisionComparison{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	index, ok := r.projection.snapshot.Comparisons.EpisodeIndex[episodeID]
+	if !ok || index < 0 || index >= len(r.projection.snapshot.Comparisons.Comparisons) {
+		return decisioncomparison.HistoricalDecisionComparison{}, false
+	}
+	return r.projection.snapshot.Comparisons.Comparisons[index].Clone(), true
+}
+
+func (r *Runtime) HistoricalDecisionComparisons() HistoricalDecisionComparisonSnapshot {
+	if r == nil {
+		return HistoricalDecisionComparisonSnapshot{}
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.projection.snapshot.Comparisons.Clone()
 }

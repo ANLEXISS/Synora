@@ -16,6 +16,7 @@ import (
 	"synora/internal/cge/chains/evidence"
 	"synora/internal/cge/chains/generations"
 	cgecontext "synora/internal/cge/context"
+	"synora/internal/cge/decisioncomparison"
 	"synora/internal/cge/fieldtrial"
 	"synora/internal/cge/hypotheses"
 	"synora/internal/cge/routines"
@@ -359,7 +360,7 @@ func (e *ShadowEngine) Observe(ctx context.Context, event Event) (ObservationRes
 		return ObservationResult{}, nil
 	}
 	if e.coordinator != nil {
-		return e.observeRuntime(ctx, event)
+		return e.observeRuntime(ctx, event, nil)
 	}
 
 	e.mu.Lock()
@@ -373,6 +374,19 @@ func (e *ShadowEngine) Observe(ctx context.Context, event Event) (ObservationRes
 	}
 	e.mu.Unlock()
 	return result, nil
+}
+
+func (e *ShadowEngine) ObserveHistoricalDecision(ctx context.Context, event Event, historical decisioncomparison.HistoricalDecisionRef) (ObservationResult, error) {
+	if err := contextErr(ctx); err != nil {
+		return ObservationResult{}, err
+	}
+	if e == nil {
+		return ObservationResult{}, nil
+	}
+	if e.coordinator != nil {
+		return e.observeRuntime(ctx, event, &historical)
+	}
+	return e.Observe(ctx, event)
 }
 
 func (e *ShadowEngine) Snapshot(ctx context.Context) (Snapshot, error) {

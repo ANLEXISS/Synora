@@ -15,6 +15,7 @@ import (
 	"synora/internal/automation"
 	"synora/internal/bus"
 	"synora/internal/cge"
+	"synora/internal/cge/decisioncomparison"
 	"synora/internal/device"
 	"synora/internal/engine"
 	eventpkg "synora/internal/event"
@@ -404,7 +405,8 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	// enrich the source event. The deferred call keeps this observer after the
 	// existing processing path and cannot affect its result.
 	cgeEvent := cge.EventFromContract(event)
-	defer a.observeCGE(cgeEvent)
+	var historicalDecision *decisioncomparison.HistoricalDecisionRef
+	defer func() { a.observeCGE(cgeEvent, historicalDecision) }()
 
 	stateapply.TouchDeviceState(a.state, a.device, event)
 	a.recordRuntimeEvent(event)
@@ -477,6 +479,11 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	stateChanged := stateapply.Apply(a.state, result, stateapply.Callbacks{
 		SyncPresence: a.syncResidentPresence,
 	})
+	if ref, refErr := buildHistoricalDecisionRef(event, result, previousSystemState, a.state.SystemState(), stateChanged); refErr != nil {
+		log.Printf("core: historical decision comparison reference rejected code=%s", cge.ErrorCode(refErr))
+	} else {
+		historicalDecision = ref
+	}
 	if isManualRiskEvent(event) {
 		stateChanged = a.applyManualRiskState(event, stateChanged, previousSystemState)
 	} else if result != nil && result.DangerAssessment != nil && !eventIsSimulated(event) {
@@ -581,7 +588,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	a.triggerSnapshot()
 }
 
-func (a *coreApp) observeCGE(event cge.Event) {
+func (a *coreApp) observeCGE(event cge.Event, historical *decisioncomparison.HistoricalDecisionRef) {
 	if a == nil || a.cognitive == nil {
 		return
 	}
@@ -590,6 +597,14 @@ func (a *coreApp) observeCGE(event cge.Event) {
 			log.Println("core: cge observation panicked; ignored code=panic_recovered")
 		}
 	}()
+	if historical != nil {
+		if observer, ok := a.cognitive.(cge.HistoricalDecisionObserver); ok {
+			if _, err := observer.ObserveHistoricalDecision(context.Background(), event, historical.Clone()); err != nil {
+				log.Printf("core: cge historical comparison observation error ignored code=%s", cge.ErrorCode(err))
+			}
+			return
+		}
+	}
 	if _, err := a.cognitive.Observe(context.Background(), event); err != nil {
 		log.Printf("core: cge observation error ignored code=%s", cge.ErrorCode(err))
 	}

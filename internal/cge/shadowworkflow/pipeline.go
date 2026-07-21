@@ -327,7 +327,8 @@ func (r *Runtime) commit(ctx context.Context, input ShadowWorkflowInput, state d
 		r.metrics.add("transaction_conflict")
 		return fmt.Errorf("%w: commit", ErrDurableCommitFailed)
 	}
-	if err := r.refreshCognitiveSituation(string(episode.ID)); err != nil {
+	comparisonErr := r.refreshCognitiveSituation(string(episode.ID), input.HistoricalDecision)
+	if comparisonErr != nil && !errors.Is(comparisonErr, ErrComparisonBuildFailed) {
 		return fmt.Errorf("%w: cognitive situation", ErrDurableCommitFailed)
 	}
 	r.qualificationStageEnd(qualificationStageDurableCommit, commitStarted, nil)
@@ -368,7 +369,7 @@ func (r *Runtime) commit(ctx context.Context, input ShadowWorkflowInput, state d
 			r.metrics.add("checkpoint.succeeded")
 		}
 	}
-	return nil
+	return comparisonErr
 }
 func (r *Runtime) checkWALLimit() error {
 	if r.cfg.StoreMode != StoreFile {

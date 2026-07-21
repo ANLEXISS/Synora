@@ -2,11 +2,12 @@ package cge
 
 import (
 	"synora/internal/cge/chains"
+	"synora/internal/cge/decisioncomparison"
 	"synora/internal/cge/episodes"
 	"synora/internal/cge/shadowworkflow"
 )
 
-func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef) {
+func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, historical *decisioncomparison.HistoricalDecisionRef) {
 	defer func() {
 		if recover() != nil && e != nil {
 			e.safeLog("workflow_submit_panic_recovered")
@@ -28,6 +29,10 @@ func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef) {
 		value.ContextQuality = string(observation.Context.Quality)
 	}
 	input := shadowworkflow.ShadowWorkflowInput{EventID: observation.ID, ObservedAt: observed, ReceivedAt: observed, Observation: value, SourceShadowRevision: status.JournalSequence, SourceShadowFingerprint: status.JournalHeadHash}
+	if historical != nil {
+		copy := historical.Clone()
+		input.HistoricalDecision = &copy
+	}
 	// TrySubmit is intentionally fire-and-forget from the historical path.
 	_ = e.workflow.TrySubmit(input)
 }

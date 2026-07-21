@@ -16,6 +16,7 @@ import (
 	"synora/internal/cge/chains/generations"
 	"synora/internal/cge/chains/journal"
 	cgecontext "synora/internal/cge/context"
+	"synora/internal/cge/decisioncomparison"
 	"synora/internal/cge/deviation"
 	"synora/internal/cge/fieldtrial"
 	"synora/internal/cge/routines"
@@ -64,6 +65,9 @@ func ErrorCode(err error) string {
 	}
 	if errors.Is(err, ErrShadowPanic) {
 		return "panic_recovered"
+	}
+	if errors.Is(err, shadowworkflow.ErrComparisonBuildFailed) {
+		return "comparison_build_failed"
 	}
 	if errors.Is(err, ErrInvalidShadowConfig) {
 		return "invalid_config"
@@ -221,7 +225,7 @@ func openShadowCoordinator(ctx context.Context, config ShadowConfig, clock Clock
 
 // Observe performs the explicit post-history shadow flow. It recovers its own
 // panic so callers never inherit shadow failures.
-func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event) (result ObservationResult, err error) {
+func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event, historical *decisioncomparison.HistoricalDecisionRef) (result ObservationResult, err error) {
 	var trialObservation chains.ObservationRef
 	if e.trialRecorder != nil {
 		started := time.Now()
@@ -280,7 +284,7 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event) (result 
 		}
 	}
 	if e.workflow != nil {
-		e.submitWorkflow(adapted.Input.Observation)
+		e.submitWorkflow(adapted.Input.Observation, historical)
 	}
 	trialObservation = adapted.Input.Observation.Clone()
 	e.mu.Lock()
