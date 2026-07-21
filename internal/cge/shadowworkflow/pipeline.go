@@ -327,6 +327,9 @@ func (r *Runtime) commit(ctx context.Context, input ShadowWorkflowInput, state d
 		r.metrics.add("transaction_conflict")
 		return fmt.Errorf("%w: commit", ErrDurableCommitFailed)
 	}
+	if err := r.refreshCognitiveSituation(string(episode.ID)); err != nil {
+		return fmt.Errorf("%w: cognitive situation", ErrDurableCommitFailed)
+	}
 	r.qualificationStageEnd(qualificationStageDurableCommit, commitStarted, nil)
 	r.counters.commits.Add(1)
 	r.mu.Lock()
@@ -342,22 +345,24 @@ func (r *Runtime) commit(ctx context.Context, input ShadowWorkflowInput, state d
 			if r.qualification != nil {
 				r.qualification.RecordCheckpoint(time.Since(checkpointStarted))
 			}
-			r.counters.checkpointFailed.Add(1)
 			r.metrics.add("checkpoint.failed")
 			r.mu.Lock()
+			r.counters.checkpointFailed.Add(1)
 			r.state = StateDegraded
 			r.lastErrorCode = "checkpoint_failed"
+			r.checkpointFailure = true
 			r.mu.Unlock()
 		} else {
 			r.qualificationStageEnd(qualificationStageCheckpoint, checkpointStarted, nil)
 			if r.qualification != nil {
 				r.qualification.RecordCheckpoint(time.Since(checkpointStarted))
 			}
-			r.counters.checkpoints.Add(1)
 			r.mu.Lock()
+			r.counters.checkpoints.Add(1)
 			r.transactionsSinceCheckpoint = 0
 			r.lastCheckpointAt = now
 			r.lastErrorCode = ""
+			r.checkpointFailure = false
 			r.state = StateRunning
 			r.mu.Unlock()
 			r.metrics.add("checkpoint.succeeded")

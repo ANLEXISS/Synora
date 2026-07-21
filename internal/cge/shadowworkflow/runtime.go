@@ -35,6 +35,8 @@ type Runtime struct {
 	qualification               *QualificationRecorder
 	transactionsSinceCheckpoint uint64
 	lastCheckpointAt            time.Time
+	checkpointFailure           bool
+	situations                  cognitiveSituationCache
 }
 
 type memoryStore struct {
@@ -133,7 +135,12 @@ func NewRuntime(ctx context.Context, cfg Config, clock Clock, logger Logger, cap
 		r.lastWarnings = append([]string(nil), recovered.Warnings...)
 	}
 	r.lastCheckpointAt = clock.Now().UTC()
-	r.state = StateRunning
+	if err := r.rebuildCognitiveSituations(coordinator.Snapshot()); err != nil {
+		r.state = StateDegraded
+		r.lastErrorCode = "cognitive_situation_recovery_failed"
+	} else {
+		r.state = StateRunning
+	}
 	if cfg.Qualification.Enabled {
 		qualificationConfig := cfg.Qualification
 		qualificationConfig.MaxWALBytes = cfg.MaxWALBytes
@@ -263,7 +270,7 @@ func (r *Runtime) processSafe(parent context.Context, input ShadowWorkflowInput)
 func (r *Runtime) recordSuccess() {
 	r.mu.Lock()
 	r.breaker.success()
-	if (r.state == StateCircuitOpen || r.state == StateDegraded) && r.lastErrorCode != "checkpoint_failed" {
+	if (r.state == StateCircuitOpen || r.state == StateDegraded) && !r.checkpointFailure && r.lastErrorCode != "checkpoint_failed" {
 		r.state = StateRunning
 	}
 	r.mu.Unlock()
@@ -299,6 +306,15 @@ func (r *Runtime) Status() StatusSnapshot {
 	r.mu.RLock()
 	state, enabled, depth, qcap, circuit, lastErr, warnings, failures := r.state, r.cfg.Enabled, r.cfg.PipelineDepth, cap(r.queue), string(r.breaker.state), r.lastErrorCode, append([]string(nil), r.lastWarnings...), r.breaker.failures
 	r.mu.RUnlock()
+	cycleSuccesses := r.counters.success.Load()
+	checkpointFailures := r.counters.checkpointFailed.Load()
+	checkpointSuccesses := r.counters.checkpoints.Load()
+	if state == StateRunning && checkpointFailures > checkpointSuccesses {
+		state = StateDegraded
+		if lastErr == "" {
+			lastErr = "checkpoint_failed"
+		}
+	}
 	workflowRev, seq, digest, episodes := uint64(0), uint64(0), "", 0
 	fresh, stale := map[durableworkflow.LayerKind]int{}, map[durableworkflow.LayerKind]int{}
 	if r.coordinator != nil {
@@ -307,7 +323,7 @@ func (r *Runtime) Status() StatusSnapshot {
 		digest = s.Digest
 		fresh, stale = layerCounts(s)
 	}
-	return StatusSnapshot{State: state, Enabled: enabled, PipelineDepth: depth, QueueDepth: len(r.queue), QueueCapacity: qcap, CircuitState: circuit, WorkflowRevision: workflowRev, LastSequence: seq, WorkflowDigest: digest, EpisodeCount: episodes, FreshLayerCounts: cloneCounts(fresh), StaleLayerCounts: cloneCounts(stale), Received: r.counters.received.Load(), Accepted: r.counters.accepted.Load(), Rejected: r.counters.rejected.Load(), DroppedQueueFull: r.counters.dropped.Load(), Duplicates: r.counters.duplicates.Load(), CyclesSucceeded: r.counters.success.Load(), CyclesFailed: r.counters.failed.Load(), CyclesTimedOut: r.counters.timeout.Load(), CommitsSucceeded: r.counters.commits.Load(), CommitsFailed: r.counters.commitFailed.Load(), CheckpointsSucceeded: r.counters.checkpoints.Load(), CheckpointsFailed: r.counters.checkpointFailed.Load(), RecoveryPerformed: r.coordinator != nil, RecoveryWarnings: warnings, ConsecutiveFailures: failures, LastErrorCode: lastErr}
+	return StatusSnapshot{State: state, Enabled: enabled, PipelineDepth: depth, QueueDepth: len(r.queue), QueueCapacity: qcap, CircuitState: circuit, WorkflowRevision: workflowRev, LastSequence: seq, WorkflowDigest: digest, EpisodeCount: episodes, FreshLayerCounts: cloneCounts(fresh), StaleLayerCounts: cloneCounts(stale), Received: r.counters.received.Load(), Accepted: r.counters.accepted.Load(), Rejected: r.counters.rejected.Load(), DroppedQueueFull: r.counters.dropped.Load(), Duplicates: r.counters.duplicates.Load(), CyclesSucceeded: cycleSuccesses, CyclesFailed: r.counters.failed.Load(), CyclesTimedOut: r.counters.timeout.Load(), CommitsSucceeded: r.counters.commits.Load(), CommitsFailed: r.counters.commitFailed.Load(), CheckpointsSucceeded: checkpointSuccesses, CheckpointsFailed: checkpointFailures, RecoveryPerformed: r.coordinator != nil, RecoveryWarnings: warnings, ConsecutiveFailures: failures, LastErrorCode: lastErr}
 }
 
 func (r *Runtime) Metrics() map[string]uint64 {
