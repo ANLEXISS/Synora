@@ -4,11 +4,8 @@ import (
 	"sort"
 	"sync/atomic"
 
-	"synora/internal/cge/calibrationledger"
 	"synora/internal/cge/durableworkflow"
 )
-
-type CalibrationLedgerStatus = calibrationledger.Status
 
 type RuntimeState string
 
@@ -54,7 +51,6 @@ type StatusSnapshot struct {
 	RecoveryWarnings     []string
 	ConsecutiveFailures  int
 	LastErrorCode        string
-	CalibrationLedger    CalibrationLedgerStatus
 }
 
 type counters struct{ received, accepted, rejected, dropped, duplicates, success, failed, timeout, commits, commitFailed, checkpoints, checkpointFailed atomic.Uint64 }
