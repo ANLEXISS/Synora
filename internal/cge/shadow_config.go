@@ -168,6 +168,14 @@ func LoadShadowConfig(getenv func(string) string) (ShadowConfig, error) {
 		return ShadowConfig{}, fmt.Errorf("%w: qualification: %v", ErrInvalidShadowConfig, qualificationErr)
 	}
 	config.Workflow.Qualification = qualificationConfig
+	calibrationConfig, calibrationErr := shadowworkflow.LoadCalibrationLedgerConfig(getenv)
+	if calibrationErr != nil {
+		return ShadowConfig{}, fmt.Errorf("%w: calibration ledger: %v", ErrInvalidShadowConfig, calibrationErr)
+	}
+	if calibrationConfig.Path == shadowworkflow.DefaultCalibrationLedgerPath {
+		calibrationConfig.Path = filepath.Join(config.DataDir, "calibration-ledger.ndjson")
+	}
+	config.Workflow.CalibrationLedger = calibrationConfig
 	if config.Cognitive.AutoApplyDecisiveEvidence, err = parseOptionalBool(getenv(ShadowAutoEvidenceEnv), false); err != nil {
 		return ShadowConfig{}, fmt.Errorf("%w: auto evidence enabled", ErrInvalidShadowConfig)
 	}

@@ -39,10 +39,10 @@ func Readiness() HistoricalDecisionComparisonReadiness {
 		HistoricalAuthorityPreserved: true, ExplanationImplemented: true, FingerprintsDeterministic: true,
 		ShadowRuntimeIntegrated: true, AtomicProjectionSnapshotValidated: true,
 		DefensiveSnapshotsValidated: true, ConcurrencyValidated: true, HistoricalIsolationValidated: true,
-		ComparisonRecoverySupported: false, DurableCalibrationLedgerImplemented: false,
+		ComparisonRecoverySupported: true, DurableCalibrationLedgerImplemented: true,
 		AutomaticCalibrationImplemented: false, ProductionDecisionFeedbackImplemented: false,
 		ProductionDecisionOverrideImplemented: false, ActionExecutionImplemented: false,
 		SecurityAuthority: false, ReadyForCalibrationLedger: true,
-		Limitations: []string{"Historical refs and comparisons are volatile and absent after workflow recovery.", "No calibration ledger or feedback path exists."},
+		Limitations: []string{"The durable ledger stores only redacted descriptive comparisons; it has no calibration feedback path."},
 	}
 }

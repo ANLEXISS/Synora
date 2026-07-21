@@ -331,6 +331,9 @@ func (r *Runtime) commit(ctx context.Context, input ShadowWorkflowInput, state d
 	if comparisonErr != nil && !errors.Is(comparisonErr, ErrComparisonBuildFailed) {
 		return fmt.Errorf("%w: cognitive situation", ErrDurableCommitFailed)
 	}
+	if comparisonErr == nil && input.HistoricalDecision != nil {
+		_ = r.appendCalibrationComparison(ctx, string(episode.ID))
+	}
 	r.qualificationStageEnd(qualificationStageDurableCommit, commitStarted, nil)
 	r.counters.commits.Add(1)
 	r.mu.Lock()

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"synora/internal/cge/calibrationledger"
 	"synora/internal/cge/durableworkflow"
 )
 
@@ -37,6 +38,8 @@ type Runtime struct {
 	lastCheckpointAt            time.Time
 	checkpointFailure           bool
 	projection                  cognitiveProjectionCache
+	calibrationLedger           calibrationledger.Store
+	calibrationLedgerStatus     CalibrationLedgerStatus
 }
 
 type memoryStore struct {
@@ -140,6 +143,42 @@ func NewRuntime(ctx context.Context, cfg Config, clock Clock, logger Logger, cap
 		r.lastErrorCode = "cognitive_situation_recovery_failed"
 	} else {
 		r.state = StateRunning
+	}
+	if cfg.CalibrationLedger.Enabled {
+		r.metrics.add("calibration_ledger_enabled")
+		started := time.Now()
+		ledger := cfg.CalibrationLedger.Store
+		var ledgerErr error
+		if ledger == nil {
+			ledger, ledgerErr = calibrationledger.OpenFileStore(cfg.CalibrationLedger.Path, cfg.CalibrationLedger.effectivePolicy())
+		}
+		var recovery calibrationledger.RecoveryResult
+		if ledgerErr == nil {
+			if fileLedger, ok := ledger.(*calibrationledger.FileStore); ok {
+				recovery = fileLedger.LastRecovery()
+			} else {
+				recovery, ledgerErr = ledger.Recover(ctx)
+			}
+		}
+		r.metrics.addN("calibration_ledger_recovery_duration_ns", uint64(time.Since(started).Nanoseconds()))
+		if ledgerErr != nil {
+			if ledger != nil {
+				_ = ledger.Close()
+			}
+			r.calibrationLedgerStatus = CalibrationLedgerStatus{Enabled: true, Available: false, Degraded: true, IntegrityFailures: 1, LastErrorCode: calibrationledger.ErrorCode(ledgerErr)}
+			r.metrics.add("calibration_ledger_recovery_failures")
+			r.metrics.add("calibration_ledger_integrity_failures")
+		} else {
+			r.calibrationLedger = ledger
+			snapshot := ledger.Snapshot()
+			r.calibrationLedgerStatus = calibrationStatusFromSnapshot(snapshot)
+			r.calibrationLedgerStatus.RecoveryCompleted = recovery.Completed
+			r.calibrationLedgerStatus.RecoveryRepairedTrailingRecord = recovery.RepairedTrailingRecord
+			r.metrics.addN("calibration_ledger_records_total", snapshot.RecordCount)
+			if recovery.RepairedTrailingRecord {
+				r.metrics.add("calibration_ledger_trailing_repairs")
+			}
+		}
 	}
 	if cfg.Qualification.Enabled {
 		qualificationConfig := cfg.Qualification
@@ -337,7 +376,10 @@ func (r *Runtime) Status() StatusSnapshot {
 		digest = s.Digest
 		fresh, stale = layerCounts(s)
 	}
-	return StatusSnapshot{State: state, Enabled: enabled, PipelineDepth: depth, QueueDepth: len(r.queue), QueueCapacity: qcap, CircuitState: circuit, WorkflowRevision: workflowRev, LastSequence: seq, WorkflowDigest: digest, EpisodeCount: episodes, FreshLayerCounts: cloneCounts(fresh), StaleLayerCounts: cloneCounts(stale), Received: r.counters.received.Load(), Accepted: r.counters.accepted.Load(), Rejected: r.counters.rejected.Load(), DroppedQueueFull: r.counters.dropped.Load(), Duplicates: r.counters.duplicates.Load(), CyclesSucceeded: cycleSuccesses, CyclesFailed: cycleFailures, CyclesTimedOut: r.counters.timeout.Load(), CommitsSucceeded: r.counters.commits.Load(), CommitsFailed: r.counters.commitFailed.Load(), CheckpointsSucceeded: checkpointSuccesses, CheckpointsFailed: checkpointFailures, RecoveryPerformed: r.coordinator != nil, RecoveryWarnings: warnings, ConsecutiveFailures: failures, LastErrorCode: lastErr}
+	r.mu.RLock()
+	calibrationStatus := r.calibrationLedgerStatus
+	r.mu.RUnlock()
+	return StatusSnapshot{State: state, Enabled: enabled, PipelineDepth: depth, QueueDepth: len(r.queue), QueueCapacity: qcap, CircuitState: circuit, WorkflowRevision: workflowRev, LastSequence: seq, WorkflowDigest: digest, EpisodeCount: episodes, FreshLayerCounts: cloneCounts(fresh), StaleLayerCounts: cloneCounts(stale), Received: r.counters.received.Load(), Accepted: r.counters.accepted.Load(), Rejected: r.counters.rejected.Load(), DroppedQueueFull: r.counters.dropped.Load(), Duplicates: r.counters.duplicates.Load(), CyclesSucceeded: cycleSuccesses, CyclesFailed: cycleFailures, CyclesTimedOut: r.counters.timeout.Load(), CommitsSucceeded: r.counters.commits.Load(), CommitsFailed: r.counters.commitFailed.Load(), CheckpointsSucceeded: checkpointSuccesses, CheckpointsFailed: checkpointFailures, RecoveryPerformed: r.coordinator != nil, RecoveryWarnings: warnings, ConsecutiveFailures: failures, LastErrorCode: lastErr, CalibrationLedger: calibrationStatus}
 }
 
 func (r *Runtime) Metrics() map[string]uint64 {
@@ -410,6 +452,9 @@ func (r *Runtime) Close(ctx context.Context) error {
 			return err
 		}
 	}
+	if r.calibrationLedger != nil {
+		_ = r.calibrationLedger.Close()
+	}
 	r.mu.Lock()
 	r.state = StateStopped
 	r.mu.Unlock()
@@ -437,6 +482,8 @@ func ErrorCode(err error) string {
 		return "checkpoint.failed"
 	case errors.Is(err, ErrDurableCommitFailed):
 		return "transaction.durability_failure"
+	case errors.Is(err, ErrCalibrationLedgerAppendFailed):
+		return "calibration_ledger.append_failure"
 	case errors.Is(err, ErrProviderUnavailable):
 		return "provider.unavailable"
 	case errors.Is(err, ErrProviderInvalid):

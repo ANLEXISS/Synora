@@ -251,7 +251,7 @@ func TestComparisonSnapshotDefensiveAndConcurrent(t *testing.T) {
 func TestReadiness(t *testing.T) {
 	value := Readiness()
 	if !value.ReadyForCalibrationLedger || !value.HistoricalAuthorityPreserved ||
-		value.ComparisonRecoverySupported || value.DurableCalibrationLedgerImplemented ||
+		!value.ComparisonRecoverySupported || !value.DurableCalibrationLedgerImplemented ||
 		value.AutomaticCalibrationImplemented || value.ProductionDecisionFeedbackImplemented ||
 		value.ProductionDecisionOverrideImplemented || value.ActionExecutionImplemented || value.SecurityAuthority {
 		t.Fatalf("unexpected readiness=%+v", value)

@@ -4,6 +4,7 @@ import (
 	"sort"
 	"sync/atomic"
 
+	"synora/internal/cge/calibrationledger"
 	"synora/internal/cge/durableworkflow"
 )
 
@@ -51,6 +52,26 @@ type StatusSnapshot struct {
 	RecoveryWarnings     []string
 	ConsecutiveFailures  int
 	LastErrorCode        string
+	CalibrationLedger    CalibrationLedgerStatus
+}
+
+type CalibrationLedgerStatus struct {
+	Enabled                        bool
+	Available                      bool
+	Degraded                       bool
+	RecordCount                    uint64
+	LastSequence                   uint64
+	LastRecordFingerprint          string
+	RecoveryCompleted              bool
+	RecoveryRepairedTrailingRecord bool
+	AppendFailures                 uint64
+	DuplicateRecords               uint64
+	IntegrityFailures              uint64
+	LastErrorCode                  string
+}
+
+func calibrationStatusFromSnapshot(snapshot calibrationledger.Snapshot) CalibrationLedgerStatus {
+	return CalibrationLedgerStatus{Enabled: true, Available: true, RecordCount: snapshot.RecordCount, LastSequence: snapshot.LastSequence, LastRecordFingerprint: snapshot.LastRecordFingerprint}
 }
 
 type counters struct{ received, accepted, rejected, dropped, duplicates, success, failed, timeout, commits, commitFailed, checkpoints, checkpointFailed atomic.Uint64 }

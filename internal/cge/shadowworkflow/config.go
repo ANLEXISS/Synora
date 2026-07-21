@@ -3,8 +3,11 @@ package shadowworkflow
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+
+	"synora/internal/cge/calibrationledger"
 )
 
 type PipelineDepth string
@@ -48,6 +51,90 @@ type Config struct {
 	SyncOnCommit                bool
 	AllowTruncatedFinalRecord   bool
 	Qualification               QualificationConfig
+	CalibrationLedger           CalibrationLedgerConfig
+}
+
+type CalibrationLedgerConfig struct {
+	Enabled              bool
+	Path                 string
+	Fsync                bool
+	MaxBytes             int64
+	MaxRecords           uint64
+	RepairTrailingRecord bool
+	Policy               calibrationledger.Policy
+	Store                calibrationledger.Store
+}
+
+const (
+	CalibrationLedgerEnabledEnv        = "SYNORA_CGE_CALIBRATION_LEDGER_ENABLED"
+	CalibrationLedgerPathEnv           = "SYNORA_CGE_CALIBRATION_LEDGER_PATH"
+	CalibrationLedgerFsyncEnv          = "SYNORA_CGE_CALIBRATION_LEDGER_FSYNC"
+	CalibrationLedgerMaxBytesEnv       = "SYNORA_CGE_CALIBRATION_LEDGER_MAX_BYTES"
+	CalibrationLedgerMaxRecordsEnv     = "SYNORA_CGE_CALIBRATION_LEDGER_MAX_RECORDS"
+	CalibrationLedgerRepairTrailingEnv = "SYNORA_CGE_CALIBRATION_LEDGER_REPAIR_TRAILING_RECORD"
+	DefaultCalibrationLedgerPath       = "/var/lib/synora/cge/calibration-ledger.ndjson"
+)
+
+func DefaultCalibrationLedgerConfig() CalibrationLedgerConfig {
+	p := calibrationledger.DefaultPolicy()
+	return CalibrationLedgerConfig{Fsync: true, MaxBytes: p.MaxLedgerBytes, MaxRecords: p.MaxRecords, Policy: p}
+}
+
+func (c CalibrationLedgerConfig) effectivePolicy() calibrationledger.Policy {
+	p := c.Policy
+	p.MaxLedgerBytes = c.MaxBytes
+	p.MaxRecords = c.MaxRecords
+	p.Fsync = c.Fsync
+	p.RepairTrailingRecord = c.RepairTrailingRecord
+	return p
+}
+
+func (c CalibrationLedgerConfig) Validate() error {
+	if err := c.Policy.Validate(); err != nil || c.MaxBytes <= 0 || c.MaxRecords == 0 {
+		return ErrInvalidConfig
+	}
+	if c.Enabled && c.Store == nil && (strings.TrimSpace(c.Path) == "" || !filepath.IsAbs(c.Path) || filepath.Clean(c.Path) != c.Path) {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func LoadCalibrationLedgerConfig(getenv func(string) string) (CalibrationLedgerConfig, error) {
+	if getenv == nil {
+		return CalibrationLedgerConfig{}, ErrInvalidConfig
+	}
+	c := DefaultCalibrationLedgerConfig()
+	var err error
+	if c.Enabled, err = parseQualificationBool(getenv(CalibrationLedgerEnabledEnv), false); err != nil {
+		return CalibrationLedgerConfig{}, ErrInvalidConfig
+	}
+	c.Path = strings.TrimSpace(getenv(CalibrationLedgerPathEnv))
+	if c.Path == "" {
+		c.Path = DefaultCalibrationLedgerPath
+	}
+	if c.Fsync, err = parseQualificationBool(getenv(CalibrationLedgerFsyncEnv), true); err != nil {
+		return CalibrationLedgerConfig{}, ErrInvalidConfig
+	}
+	if c.RepairTrailingRecord, err = parseQualificationBool(getenv(CalibrationLedgerRepairTrailingEnv), false); err != nil {
+		return CalibrationLedgerConfig{}, ErrInvalidConfig
+	}
+	if v := strings.TrimSpace(getenv(CalibrationLedgerMaxBytesEnv)); v != "" {
+		c.MaxBytes, err = strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return CalibrationLedgerConfig{}, ErrInvalidConfig
+		}
+	}
+	if v := strings.TrimSpace(getenv(CalibrationLedgerMaxRecordsEnv)); v != "" {
+		c.MaxRecords, err = strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return CalibrationLedgerConfig{}, ErrInvalidConfig
+		}
+	}
+	c.Policy.MaxLedgerBytes, c.Policy.MaxRecords, c.Policy.Fsync, c.Policy.RepairTrailingRecord = c.MaxBytes, c.MaxRecords, c.Fsync, c.RepairTrailingRecord
+	if err := c.Validate(); err != nil {
+		return CalibrationLedgerConfig{}, err
+	}
+	return c, nil
 }
 
 func DefaultConfig() Config {
@@ -58,7 +145,7 @@ func DefaultConfig() Config {
 		CheckpointEveryTransactions: 100, CheckpointInterval: 15 * time.Minute,
 		MaxWALBytes: 256 * 1024 * 1024, MaxCheckpointBytes: 256 * 1024 * 1024,
 		ConsecutiveFailureLimit: 5, CircuitResetAfter: 5 * time.Minute,
-		StoreMode: StoreMemory, SyncOnCommit: true, AllowTruncatedFinalRecord: true, Qualification: DefaultQualificationConfig(),
+		StoreMode: StoreMemory, SyncOnCommit: true, AllowTruncatedFinalRecord: true, Qualification: DefaultQualificationConfig(), CalibrationLedger: DefaultCalibrationLedgerConfig(),
 	}
 }
 
@@ -66,8 +153,11 @@ func (c Config) Validate() error {
 	if err := c.Qualification.Validate(); err != nil {
 		return err
 	}
+	if err := c.CalibrationLedger.Validate(); err != nil {
+		return err
+	}
 	if !c.Enabled {
-		if c.Qualification.Enabled {
+		if c.Qualification.Enabled || c.CalibrationLedger.Enabled {
 			return ErrInvalidConfig
 		}
 		return nil
