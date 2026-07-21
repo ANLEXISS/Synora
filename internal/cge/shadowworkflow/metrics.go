@@ -9,11 +9,14 @@ type metricCounter struct {
 
 func newMetricCounter() *metricCounter { return &metricCounter{values: map[string]uint64{}} }
 func (m *metricCounter) add(code string) {
+	m.addN(code, 1)
+}
+func (m *metricCounter) addN(code string, value uint64) {
 	if m == nil || code == "" {
 		return
 	}
 	m.mu.Lock()
-	m.values[code]++
+	m.values[code] += value
 	m.mu.Unlock()
 }
 func (m *metricCounter) snapshot() map[string]uint64 {
