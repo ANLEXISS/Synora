@@ -5,9 +5,11 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -22,8 +24,10 @@ type fakeExecutor struct {
 
 	outputs map[string][]byte
 	errors  map[string]error
+	strict  bool
 
-	calls []string
+	calls      []string
+	unexpected []string
 }
 
 func (e *fakeExecutor) Run(
@@ -44,11 +48,108 @@ func (e *fakeExecutor) Run(
 		key,
 	)
 
-	if err := e.errors[key]; err != nil {
+	if err, ok := e.errors[key]; ok {
 		return e.outputs[key], err
 	}
 
-	return e.outputs[key], nil
+	if output, ok := e.outputs[key]; ok {
+		return output, nil
+	}
+
+	if e.strict {
+		e.unexpected = append(e.unexpected, key)
+		return nil, fmt.Errorf("unexpected command: %s", key)
+	}
+
+	return nil, nil
+}
+
+func (e *fakeExecutor) assertNoUnexpected(t *testing.T) {
+	t.Helper()
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if len(e.unexpected) != 0 {
+		t.Fatalf("unexpected commands: %v", e.unexpected)
+	}
+}
+
+type healthDependencyFake struct {
+	t *testing.T
+
+	networkStatus    network.Status
+	networkStatusErr error
+	networkConfig    network.NetworkConfig
+	networkConfigErr error
+	configAllowed    bool
+	configPath       string
+
+	networkStatusCalls int
+	networkConfigCalls int
+	httpsHealthCalls   int
+	diskHealthCalls    int
+}
+
+func (f *healthDependencyFake) dependencies() healthDependencies {
+	f.t.Helper()
+
+	return healthDependencies{
+		loadNetworkStatus: func() (network.Status, error) {
+			f.networkStatusCalls++
+			return f.networkStatus, f.networkStatusErr
+		},
+		loadNetworkConfig: func(path string) (network.NetworkConfig, error) {
+			f.networkConfigCalls++
+			if !f.configAllowed {
+				f.t.Fatalf("unexpected network config probe for %q", path)
+			}
+			if f.configPath != "" && path != f.configPath {
+				f.t.Fatalf("network config path=%q, want %q", path, f.configPath)
+			}
+			return f.networkConfig, f.networkConfigErr
+		},
+		httpsHealth: func(now time.Time) contract.RuntimeServiceHealth {
+			f.httpsHealthCalls++
+			return contract.RuntimeServiceHealth{Name: "https_api", Status: "ok", Active: true, Checked: now, Message: "test HTTPS probe"}
+		},
+		diskHealth: func(path string) contract.RuntimeDiskHealth {
+			f.diskHealthCalls++
+			return contract.RuntimeDiskHealth{Path: path, TotalBytes: 100, FreeBytes: 60, UsedBytes: 40, UsedPercent: 40, Status: "ok"}
+		},
+	}
+}
+
+func (f *healthDependencyFake) assertCalls(t *testing.T, status, config, https, disk int) {
+	t.Helper()
+	if f.networkStatusCalls != status || f.networkConfigCalls != config || f.httpsHealthCalls != https || f.diskHealthCalls != disk {
+		t.Fatalf("health dependency calls status/config/https/disk=%d/%d/%d/%d, want %d/%d/%d/%d", f.networkStatusCalls, f.networkConfigCalls, f.httpsHealthCalls, f.diskHealthCalls, status, config, https, disk)
+	}
+}
+
+func activeNetworkStatus() network.Status {
+	active := network.RuntimePart{Status: "ok", Active: true}
+	return network.Status{
+		Enabled:    true,
+		Status:     "ok",
+		ActiveBand: "5GHz",
+		SynoraNet:  network.RuntimePart{Status: "ok", Active: true, Message: "test 5 GHz AP active"},
+		AP5GHz:     active,
+		AP2GHz:     active,
+		DHCP:       active,
+		DNS:        active,
+		HTTPSAPI:   active,
+		MediaMTX:   active,
+	}
+}
+
+func newHealthTestManager(t *testing.T, cfg Config, deps *healthDependencyFake) *Manager {
+	t.Helper()
+	return newWithHealthDependencies(cfg, deps.dependencies())
+}
+
+func fixedNow() time.Time {
+	return time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
 }
 
 func (e *fakeExecutor) called(
@@ -73,35 +174,28 @@ func TestHealthUsesRuntimeServiceNames(t *testing.T) {
 	executor := &fakeExecutor{
 		outputs: map[string][]byte{},
 		errors:  map[string]error{},
+		strict:  true,
 	}
+	deps := &healthDependencyFake{t: t, networkStatus: activeNetworkStatus()}
 
 	for _, service := range append(RuntimeServices, "hostapd", "dnsmasq") {
 		executor.outputs[commandKey("systemctl", "is-active", service)] = []byte("active\n")
 	}
 
-	manager := New(
+	manager := newHealthTestManager(
+		t,
 		Config{
 			Executor: executor,
-			DiskPath: t.TempDir(),
+			DiskPath: "test-disk",
 			ProbeActions: func(context.Context) error {
 				return nil
 			},
 			ProbeMediaMTX: func(context.Context) error {
 				return nil
 			},
-			Now: func() time.Time {
-				return time.Date(
-					2026,
-					7,
-					8,
-					12,
-					0,
-					0,
-					0,
-					time.UTC,
-				)
-			},
+			Now: fixedNow,
 		},
+		deps,
 	)
 
 	health := manager.Health(
@@ -129,14 +223,26 @@ func TestHealthUsesRuntimeServiceNames(t *testing.T) {
 	if health.Status != "ok" || len(health.Components) < len(RuntimeServices) {
 		t.Fatalf("health status/components=%s/%d", health.Status, len(health.Components))
 	}
+	executor.assertNoUnexpected(t)
+	deps.assertCalls(t, 1, 0, 2, 1)
 }
 
 func TestHealthKeepsActiveActionsAndMediaMTXDegradedWithUsefulMessages(t *testing.T) {
-	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}}
+	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}, strict: true}
 	for _, service := range append(RuntimeServices, "hostapd", "dnsmasq") {
 		executor.outputs[commandKey("systemctl", "is-active", service)] = []byte("active\n")
 	}
-	manager := New(Config{Executor: executor, DiskPath: t.TempDir()})
+	deps := &healthDependencyFake{t: t, networkStatus: activeNetworkStatus()}
+	mediaProbeCalls := 0
+	manager := newHealthTestManager(t, Config{
+		Executor: executor,
+		DiskPath: "test-disk",
+		ProbeMediaMTX: func(context.Context) error {
+			mediaProbeCalls++
+			return errors.New("test MediaMTX API unavailable")
+		},
+		Now: fixedNow,
+	}, deps)
 	health := manager.Health(context.Background())
 	actions := health.Services["synora-actions"]
 	if actions.Status != "degraded" || !actions.Active || actions.Message != "service active, no health probe" {
@@ -149,16 +255,22 @@ func TestHealthKeepsActiveActionsAndMediaMTXDegradedWithUsefulMessages(t *testin
 	if health.Status != "degraded" {
 		t.Fatalf("health status=%q", health.Status)
 	}
+	if mediaProbeCalls != 1 {
+		t.Fatalf("MediaMTX probe calls=%d, want 1", mediaProbeCalls)
+	}
+	executor.assertNoUnexpected(t)
+	deps.assertCalls(t, 1, 0, 2, 1)
 }
 
 func TestHealthMarksInactiveOptionalServicesUnavailable(t *testing.T) {
-	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}}
+	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}, strict: true}
 	for _, service := range append(RuntimeServices, "hostapd", "dnsmasq") {
 		executor.outputs[commandKey("systemctl", "is-active", service)] = []byte("active\n")
 	}
 	executor.outputs[commandKey("systemctl", "is-active", "synora-actions")] = []byte("inactive\n")
 	executor.outputs[commandKey("systemctl", "is-active", "mediamtx")] = []byte("inactive\n")
-	manager := New(Config{Executor: executor, DiskPath: t.TempDir()})
+	deps := &healthDependencyFake{t: t, networkStatus: activeNetworkStatus()}
+	manager := newHealthTestManager(t, Config{Executor: executor, DiskPath: "test-disk", Now: fixedNow}, deps)
 	health := manager.Health(context.Background())
 	for _, name := range []string{"synora-actions", "mediamtx"} {
 		item := health.Services[name]
@@ -170,23 +282,43 @@ func TestHealthMarksInactiveOptionalServicesUnavailable(t *testing.T) {
 			t.Fatalf("%s=%#v", name, item)
 		}
 	}
+	executor.assertNoUnexpected(t)
+	deps.assertCalls(t, 1, 0, 2, 1)
 }
 
 func TestHealthMarksMissingHostapdDegradedWithDetails(t *testing.T) {
-	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}}
+	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}, strict: true}
 	for _, service := range append(RuntimeServices, "dnsmasq") {
 		executor.outputs[commandKey("systemctl", "is-active", service)] = []byte("active\n")
 	}
 	executor.errors[commandKey("systemctl", "is-active", "hostapd")] = errors.New("hostapd inactive")
-	manager := New(Config{Executor: executor, DiskPath: t.TempDir()})
+	deps := &healthDependencyFake{
+		t:                t,
+		networkStatusErr: errors.New("test network status unavailable"),
+		networkConfig:    network.NetworkConfig{SynoraNet: network.SynoraNetConfig{Enabled: true}},
+		configAllowed:    true,
+	}
+	manager := newHealthTestManager(t, Config{
+		Executor: executor,
+		DiskPath: "test-disk",
+		ProbeActions: func(context.Context) error {
+			return nil
+		},
+		ProbeMediaMTX: func(context.Context) error {
+			return nil
+		},
+		Now: fixedNow,
+	}, deps)
 	health := manager.Health(context.Background())
 	if health.Status != "degraded" || health.Network.HostAPD.Name != "hostapd" || health.Network.HostAPD.Checked.IsZero() {
 		t.Fatalf("health=%#v", health)
 	}
+	executor.assertNoUnexpected(t)
+	deps.assertCalls(t, 1, 1, 1, 1)
 }
 
 func activeRuntimeExecutor() *fakeExecutor {
-	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}}
+	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}, strict: true}
 	for _, service := range append(RuntimeServices, "hostapd", "dnsmasq") {
 		executor.outputs[commandKey("systemctl", "is-active", service)] = []byte("active\n")
 	}
@@ -194,28 +326,110 @@ func activeRuntimeExecutor() *fakeExecutor {
 }
 
 func TestHealthMarksConfiguredSynoraNetDisabledWithoutDegradingRuntime(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "network.yaml")
-	if err := os.WriteFile(configPath, []byte("synoranet:\n  enabled: false\n"), 0600); err != nil {
-		t.Fatal(err)
+	configPath := "test-network-config"
+	executor := activeRuntimeExecutor()
+	deps := &healthDependencyFake{
+		t:                t,
+		networkStatusErr: errors.New("test network status unavailable"),
+		networkConfig:    network.NetworkConfig{SynoraNet: network.SynoraNetConfig{Enabled: false}},
+		configAllowed:    true,
+		configPath:       configPath,
 	}
-	manager := New(Config{Executor: activeRuntimeExecutor(), DiskPath: t.TempDir(), NetworkConfigPath: configPath, ProbeActions: func(context.Context) error { return nil }, ProbeMediaMTX: func(context.Context) error { return nil }})
+	manager := newHealthTestManager(t, Config{
+		Executor:          executor,
+		DiskPath:          "test-disk",
+		NetworkConfigPath: configPath,
+		ProbeActions: func(context.Context) error {
+			return nil
+		},
+		ProbeMediaMTX: func(context.Context) error {
+			return nil
+		},
+		Now: fixedNow,
+	}, deps)
 	health := manager.Health(context.Background())
 	if health.Network.Status != "disabled" || health.Network.SynoraNet.Status != "disabled" || health.Status != "ok" {
 		t.Fatalf("health=%#v", health)
 	}
+	for _, name := range []string{"ap_5ghz", "ap_2ghz", "dhcp", "dns"} {
+		if item := health.Network.Details[name]; item.Status != "disabled" || item.Message != "SynoraNet disabled" {
+			t.Fatalf("%s=%#v", name, item)
+		}
+	}
+	executor.assertNoUnexpected(t)
+	deps.assertCalls(t, 1, 1, 2, 1)
 }
 
 func TestHealthReports24GHzFallbackAsUsableDegraded(t *testing.T) {
-	statusPath := filepath.Join(t.TempDir(), "network-status.json")
-	t.Setenv("SYNORA_NETWORK_STATUS_FILE", statusPath)
-	if err := network.WriteStatus(statusPath, network.Status{Enabled: true, Status: "degraded", ActiveBand: "2.4GHz", SynoraNet: network.RuntimePart{Status: "degraded", Active: true, Message: "5 GHz failed, running 2.4 GHz fallback"}, AP5GHz: network.RuntimePart{Status: "degraded"}, AP2GHz: network.RuntimePart{Status: "degraded", Active: true}, DHCP: network.RuntimePart{Status: "ok", Active: true}, DNS: network.RuntimePart{Status: "ok", Active: true}}); err != nil {
-		t.Fatal(err)
-	}
-	manager := New(Config{Executor: activeRuntimeExecutor(), DiskPath: t.TempDir(), ProbeActions: func(context.Context) error { return nil }, ProbeMediaMTX: func(context.Context) error { return nil }})
+	executor := activeRuntimeExecutor()
+	deps := &healthDependencyFake{t: t, networkStatus: network.Status{Enabled: true, Status: "degraded", ActiveBand: "2.4GHz", SynoraNet: network.RuntimePart{Status: "degraded", Active: true, Message: "5 GHz failed, running 2.4 GHz fallback"}, AP5GHz: network.RuntimePart{Status: "degraded"}, AP2GHz: network.RuntimePart{Status: "degraded", Active: true}, DHCP: network.RuntimePart{Status: "ok", Active: true}, DNS: network.RuntimePart{Status: "ok", Active: true}}}
+	manager := newHealthTestManager(t, Config{
+		Executor: executor,
+		DiskPath: "test-disk",
+		ProbeActions: func(context.Context) error {
+			return nil
+		},
+		ProbeMediaMTX: func(context.Context) error {
+			return nil
+		},
+		Now: fixedNow,
+	}, deps)
 	health := manager.Health(context.Background())
 	if health.Status != "degraded" || health.Network.ActiveBand != "2.4GHz" || !health.Network.SynoraNet.Active || health.Network.SynoraNet.Message == "" {
 		t.Fatalf("health=%#v", health)
 	}
+	executor.assertNoUnexpected(t)
+	deps.assertCalls(t, 1, 0, 2, 1)
+}
+
+func TestNewWiresProductionHealthDependencies(t *testing.T) {
+	manager := New(Config{Executor: &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}}})
+
+	for _, test := range []struct {
+		name string
+		got  any
+		want any
+	}{
+		{name: "MediaMTX", got: manager.probeMediaMTX, want: defaultMediaMTXProbe},
+		{name: "network status", got: manager.loadNetworkStatus, want: defaultNetworkStatus},
+		{name: "network config", got: manager.loadNetworkConfig, want: network.LoadConfig},
+		{name: "HTTPS", got: manager.httpsHealth, want: runtimeHTTPSHealth},
+		{name: "disk", got: manager.diskHealthProbe, want: systemDiskHealth},
+	} {
+		if reflect.ValueOf(test.got).Pointer() != reflect.ValueOf(test.want).Pointer() {
+			t.Fatalf("%s dependency is not the production probe", test.name)
+		}
+	}
+}
+
+func TestHealthUsesOnlyProvidedDependencies(t *testing.T) {
+	executor := activeRuntimeExecutor()
+	deps := &healthDependencyFake{t: t, networkStatus: activeNetworkStatus()}
+	actionProbeCalls := 0
+	mediaProbeCalls := 0
+	manager := newHealthTestManager(t, Config{
+		Executor: executor,
+		DiskPath: "test-disk",
+		ProbeActions: func(context.Context) error {
+			actionProbeCalls++
+			return nil
+		},
+		ProbeMediaMTX: func(context.Context) error {
+			mediaProbeCalls++
+			return nil
+		},
+		Now: fixedNow,
+	}, deps)
+
+	health := manager.Health(context.Background())
+	if health.Services["synora-actions"].Status != "ok" || health.Services["mediamtx"].Status != "ok" || health.Network.SynoraNet.Message != "test 5 GHz AP active" {
+		t.Fatalf("health=%#v", health)
+	}
+	if actionProbeCalls != 1 || mediaProbeCalls != 1 {
+		t.Fatalf("action/MediaMTX probe calls=%d/%d, want 1/1", actionProbeCalls, mediaProbeCalls)
+	}
+	executor.assertNoUnexpected(t)
+	deps.assertCalls(t, 1, 0, 2, 1)
 }
 
 func TestRestartServiceRejectsServiceOutsideAllowlist(t *testing.T) {
