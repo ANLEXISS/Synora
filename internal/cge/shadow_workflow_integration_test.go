@@ -6,6 +6,8 @@ import (
 	"log"
 	"testing"
 	"time"
+
+	"synora/internal/cge/shadowworkflow"
 )
 
 func TestShadowWorkflowDisabledDoesNotStart(t *testing.T) {
@@ -31,6 +33,11 @@ func TestShadowWorkflowReceivesRedactedObservationWithoutChangingShadowFlow(t *t
 	config.JournalID = "workflow-integration-test"
 	config.Workflow.Enabled = true
 	config.Workflow.StoreMode = "memory"
+	// This test proves the redacted hand-off, durable episode publication, and
+	// historical isolation. The complete advisory pipeline has dedicated
+	// integration tests; keeping it out of this boundary test avoids making the
+	// assertion depend on the 250ms processing budget under -race.
+	config.Workflow.PipelineDepth = shadowworkflow.DepthEpisode
 	engine, err := NewShadowEngineWithConfig(context.Background(), config, fixedShadowClock{now: at}, log.New(io.Discard, "", 0))
 	if err != nil {
 		t.Fatal(err)
