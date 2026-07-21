@@ -209,3 +209,21 @@ func (s *FileStore) WALSize() (int64, error) {
 	}
 	return info.Size(), nil
 }
+
+// CheckpointSize reports the current checkpoint size without exposing the
+// checkpoint path or file handle to callers.
+func (s *FileStore) CheckpointSize() (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return 0, ErrStoreClosed
+	}
+	info, err := os.Stat(filepath.Join(s.dir, "workflow.checkpoint.json"))
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
+}

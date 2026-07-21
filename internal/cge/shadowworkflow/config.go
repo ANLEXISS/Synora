@@ -47,6 +47,7 @@ type Config struct {
 	StoreDirectory              string
 	SyncOnCommit                bool
 	AllowTruncatedFinalRecord   bool
+	Qualification               QualificationConfig
 }
 
 func DefaultConfig() Config {
@@ -57,11 +58,20 @@ func DefaultConfig() Config {
 		CheckpointEveryTransactions: 100, CheckpointInterval: 15 * time.Minute,
 		MaxWALBytes: 256 * 1024 * 1024, MaxCheckpointBytes: 256 * 1024 * 1024,
 		ConsecutiveFailureLimit: 5, CircuitResetAfter: 5 * time.Minute,
-		StoreMode: StoreMemory, SyncOnCommit: true, AllowTruncatedFinalRecord: true,
+		StoreMode: StoreMemory, SyncOnCommit: true, AllowTruncatedFinalRecord: true, Qualification: DefaultQualificationConfig(),
 	}
 }
 
 func (c Config) Validate() error {
+	if err := c.Qualification.Validate(); err != nil {
+		return err
+	}
+	if !c.Enabled {
+		if c.Qualification.Enabled {
+			return ErrInvalidConfig
+		}
+		return nil
+	}
 	if c.QueueCapacity <= 0 || c.WorkerCount != 1 || c.MaxProcessingDuration <= 0 || c.MaxInputAge <= 0 || c.MaxEpisodes <= 0 || c.MaxAdvisoryRequests <= 0 || c.MaxMappingsPerCycle <= 0 || c.MaxAuthorizationsPerCycle <= 0 || c.CheckpointEveryTransactions == 0 || c.CheckpointInterval <= 0 || c.MaxWALBytes <= 0 || c.MaxCheckpointBytes <= 0 || c.ConsecutiveFailureLimit <= 0 || c.CircuitResetAfter <= 0 {
 		return ErrInvalidConfig
 	}

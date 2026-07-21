@@ -32,6 +32,7 @@ type Runtime struct {
 	metrics                     *metricCounter
 	capabilityProvider          CapabilityInputProvider
 	authorizationProvider       AuthorizationInputProvider
+	qualification               *QualificationRecorder
 	transactionsSinceCheckpoint uint64
 	lastCheckpointAt            time.Time
 }
@@ -103,6 +104,12 @@ func NewRuntime(ctx context.Context, cfg Config, clock Clock, logger Logger, cap
 	}
 	r.queue = make(chan ShadowWorkflowInput, cfg.QueueCapacity)
 	r.state = StateStarting
+	var qualificationStarted time.Time
+	var recoveryStarted time.Time
+	if cfg.Qualification.Enabled {
+		qualificationStarted = clock.Now().UTC()
+		recoveryStarted = time.Now()
+	}
 	var store durableworkflow.Store
 	if cfg.StoreMode == StoreFile {
 		var err error
@@ -127,6 +134,18 @@ func NewRuntime(ctx context.Context, cfg Config, clock Clock, logger Logger, cap
 	}
 	r.lastCheckpointAt = clock.Now().UTC()
 	r.state = StateRunning
+	if cfg.Qualification.Enabled {
+		qualificationConfig := cfg.Qualification
+		qualificationConfig.MaxWALBytes = cfg.MaxWALBytes
+		recorder, recorderErr := OpenQualificationRecorder(qualificationConfig, qualificationStarted, r.qualificationSample)
+		if recorderErr != nil {
+			r.metrics.add("qualification.recorder_failed")
+		} else {
+			r.qualification = recorder
+			r.qualification.SetRecoveryDuration(time.Since(recoveryStarted))
+			r.qualificationStageEnd(qualificationStageRecovery, recoveryStarted, nil)
+		}
+	}
 	workerCtx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	go r.worker(workerCtx)
@@ -138,6 +157,15 @@ func (r *Runtime) durablePolicy() durableworkflow.Policy {
 }
 
 func (r *Runtime) TrySubmit(input ShadowWorkflowInput) (result SubmitResult) {
+	if r != nil && r.qualification != nil {
+		started := r.qualificationStageBegin()
+		defer func() {
+			r.qualificationStageEnd(qualificationStageTrySubmit, started, qualificationSubmitError(result))
+			if result.Status != SubmitAccepted {
+				r.qualification.RecordTrySubmitFailure()
+			}
+		}()
+	}
 	if r == nil {
 		return SubmitResult{Status: SubmitDisabled, ReasonCode: "disabled"}
 	}
@@ -183,6 +211,9 @@ func (r *Runtime) TrySubmit(input ShadowWorkflowInput) (result SubmitResult) {
 	case r.queue <- input:
 		r.counters.accepted.Add(1)
 		r.metrics.add("input.accepted")
+		if r.qualification != nil {
+			r.qualification.ObserveQueue(len(r.queue))
+		}
 		return SubmitResult{Status: SubmitAccepted}
 	default:
 		r.counters.rejected.Add(1)
@@ -210,11 +241,13 @@ func (r *Runtime) worker(ctx context.Context) {
 }
 
 func (r *Runtime) processSafe(parent context.Context, input ShadowWorkflowInput) (err error) {
+	started := r.qualificationStageBegin()
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			r.metrics.add("panic.recovered")
 			err = ErrPanicRecovered
 		}
+		r.qualificationStageEnd(qualificationStageFullCycle, started, err)
 	}()
 	ctx, cancel := context.WithTimeout(parent, r.cfg.MaxProcessingDuration)
 	defer cancel()
@@ -338,6 +371,11 @@ func (r *Runtime) Close(ctx context.Context) error {
 		return ErrShutdownTimeout
 	}
 	if r.coordinator != nil {
+		if r.qualification != nil {
+			if err := r.qualification.Close(r.qualificationSample); err != nil {
+				r.metrics.add("qualification.close_failed")
+			}
+		}
 		if err := r.coordinator.Close(); err != nil {
 			return err
 		}

@@ -46,6 +46,20 @@ func EncodeRecord(record Record, maxBytes int) ([]byte, error) {
 	return encoded, nil
 }
 
+// TransactionEncodedSize reports the framed WAL size of a transaction without
+// writing it. It is an observational accessor for local qualification tooling.
+func TransactionEncodedSize(transaction WorkflowTransaction, maxBytes int) (int64, error) {
+	payload, err := json.Marshal(transaction)
+	if err != nil {
+		return 0, err
+	}
+	encoded, err := EncodeRecord(Record{Version: recordVersion, Sequence: 1, Kind: RecordTransaction, Payload: payload}, maxBytes)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(encoded)), nil
+}
+
 func DecodeRecord(data []byte, maxBytes int) (Record, error) {
 	if len(data) == 0 || maxBytes <= 0 || len(data) > maxBytes {
 		return Record{}, ErrRecordTooLarge

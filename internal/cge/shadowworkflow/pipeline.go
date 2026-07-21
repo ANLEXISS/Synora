@@ -31,8 +31,10 @@ func (r *Runtime) process(ctx context.Context, input ShadowWorkflowInput) error 
 	}
 	now := r.clock.Now().UTC()
 	state := r.coordinator.Snapshot()
+	episodeStarted := r.qualificationStageBegin()
 	episodePlan, episode, outcome, err := r.planEpisode(state, input)
 	_ = episodePlan
+	r.qualificationStageEnd(qualificationStageEpisode, episodeStarted, err)
 	if err != nil {
 		if errors.Is(err, episodes.ErrAmbiguousPlan) {
 			r.metrics.add("episode_ambiguous")
@@ -61,7 +63,9 @@ func (r *Runtime) process(ctx context.Context, input ShadowWorkflowInput) error 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	factsStarted := r.qualificationStageBegin()
 	facts, err := situationfacts.Extract(situationfacts.ExtractionInput{Episode: episode, ExtractedAt: now}, situationfacts.DefaultPolicy())
+	r.qualificationStageEnd(qualificationStageFacts, factsStarted, err)
 	if err != nil {
 		return fmt.Errorf("%w: facts", ErrPipelineStageFailed)
 	}
@@ -74,7 +78,9 @@ func (r *Runtime) process(ctx context.Context, input ShadowWorkflowInput) error 
 		return err
 	}
 	previousHyp := previousHypotheses(state, episode.ID)
+	hypothesesStarted := r.qualificationStageBegin()
 	hypResult, err := situationhypotheses.Evaluate(situationhypotheses.EvaluationInput{FactSet: facts, PreviousSet: previousHyp}, situationhypotheses.Schema(), situationhypotheses.DefaultPolicy())
+	r.qualificationStageEnd(qualificationStageHypotheses, hypothesesStarted, err)
 	if err != nil {
 		return fmt.Errorf("%w: hypotheses", ErrPipelineStageFailed)
 	}
@@ -88,7 +94,9 @@ func (r *Runtime) process(ctx context.Context, input ShadowWorkflowInput) error 
 		return err
 	}
 	previousDiscrimination := previousDiscrimination(state, episode.ID)
+	discriminationStarted := r.qualificationStageBegin()
 	discrimination, err := evidencediscrimination.Analyze(evidencediscrimination.AnalysisInput{FactSet: facts, HypothesisSet: hypotheses, HypothesisSchema: situationhypotheses.Schema(), PreviousAssessment: previousDiscrimination}, evidencediscrimination.Catalog(), evidencediscrimination.DefaultPolicy())
+	r.qualificationStageEnd(qualificationStageDiscrimination, discriminationStarted, err)
 	if err != nil {
 		return fmt.Errorf("%w: discrimination", ErrPipelineStageFailed)
 	}
@@ -101,7 +109,9 @@ func (r *Runtime) process(ctx context.Context, input ShadowWorkflowInput) error 
 		return err
 	}
 	requestSnapshot := advisorySnapshot(state, advisoryrequests.DefaultPolicy())
+	advisoryStarted := r.qualificationStageBegin()
 	requestPlan, err := advisoryrequests.Plan(advisoryrequests.PlanInput{Assessment: discrimination, RegistrySnapshot: requestSnapshot, EvaluatedAt: now}, advisoryrequests.DefaultPolicy())
+	r.qualificationStageEnd(qualificationStageAdvisory, advisoryStarted, err)
 	if err != nil {
 		return fmt.Errorf("%w: advisory", ErrPipelineStageFailed)
 	}
@@ -119,7 +129,9 @@ func (r *Runtime) process(ctx context.Context, input ShadowWorkflowInput) error 
 		r.metrics.add("mapping_skipped")
 		return r.commit(ctx, input, state, mutation, episode, now)
 	}
+	mappingStarted := r.qualificationStageBegin()
 	mappings, err := r.mapRequests(ctx, requestPlan.ResultingRequests)
+	r.qualificationStageEnd(qualificationStageMapping, mappingStarted, err)
 	if err != nil {
 		return err
 	}
@@ -136,7 +148,9 @@ func (r *Runtime) process(ctx context.Context, input ShadowWorkflowInput) error 
 		r.metrics.add("authorization_skipped")
 		return r.commit(ctx, input, state, mutation, episode, now)
 	}
+	authorizationStarted := r.qualificationStageBegin()
 	authorizations, err := r.authorizeMappings(ctx, mappings)
+	r.qualificationStageEnd(qualificationStageAuthorization, authorizationStarted, err)
 	if err != nil {
 		return err
 	}
@@ -292,15 +306,28 @@ func (r *Runtime) commit(ctx context.Context, input ShadowWorkflowInput, state d
 	mutation.SourceWorkflowRevision = state.Revision
 	mutation.SourceWorkflowDigest = state.Digest
 	id := transactionID(input.EventID, string(episode.ID), episode.Revision, state.Revision, r.cfg.PipelineDepth)
+	planningStarted := r.qualificationStageBegin()
 	tx, _, err := durableworkflow.PlanTransaction(state, mutation, id, state.LastSequence+1, now, r.durablePolicy())
+	r.qualificationStageEnd(qualificationStageTransactionPlanning, planningStarted, err)
 	if err != nil {
+		if errors.Is(err, durableworkflow.ErrInvalidLineage) {
+			r.metrics.add("lineage.invalid")
+		}
 		return fmt.Errorf("%w: plan", ErrDurableCommitFailed)
 	}
+	if r.qualification != nil {
+		if encoded, sizeErr := durableworkflow.TransactionEncodedSize(tx, 8*1024*1024); sizeErr == nil {
+			r.qualification.RecordTransactionBytes(encoded)
+		}
+	}
+	commitStarted := r.qualificationStageBegin()
 	if _, err := r.coordinator.Commit(tx); err != nil {
+		r.qualificationStageEnd(qualificationStageDurableCommit, commitStarted, err)
 		r.counters.commitFailed.Add(1)
 		r.metrics.add("transaction_conflict")
 		return fmt.Errorf("%w: commit", ErrDurableCommitFailed)
 	}
+	r.qualificationStageEnd(qualificationStageDurableCommit, commitStarted, nil)
 	r.counters.commits.Add(1)
 	r.mu.Lock()
 	r.transactionsSinceCheckpoint++
@@ -309,7 +336,12 @@ func (r *Runtime) commit(ctx context.Context, input ShadowWorkflowInput, state d
 	r.mu.Unlock()
 	r.metrics.add("transaction_committed")
 	if transactionsSinceCheckpoint >= r.cfg.CheckpointEveryTransactions || !lastCheckpointAt.IsZero() && now.Sub(lastCheckpointAt) >= r.cfg.CheckpointInterval {
+		checkpointStarted := r.qualificationStageBegin()
 		if _, err := r.coordinator.CheckpointAt(now); err != nil {
+			r.qualificationStageEnd(qualificationStageCheckpoint, checkpointStarted, err)
+			if r.qualification != nil {
+				r.qualification.RecordCheckpoint(time.Since(checkpointStarted))
+			}
 			r.counters.checkpointFailed.Add(1)
 			r.metrics.add("checkpoint.failed")
 			r.mu.Lock()
@@ -317,6 +349,10 @@ func (r *Runtime) commit(ctx context.Context, input ShadowWorkflowInput, state d
 			r.lastErrorCode = "checkpoint_failed"
 			r.mu.Unlock()
 		} else {
+			r.qualificationStageEnd(qualificationStageCheckpoint, checkpointStarted, nil)
+			if r.qualification != nil {
+				r.qualification.RecordCheckpoint(time.Since(checkpointStarted))
+			}
 			r.counters.checkpoints.Add(1)
 			r.mu.Lock()
 			r.transactionsSinceCheckpoint = 0

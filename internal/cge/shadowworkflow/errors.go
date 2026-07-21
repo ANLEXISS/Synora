@@ -23,4 +23,6 @@ var (
 	ErrHistoricalIsolationViolation = errors.New("shadowworkflow: historical isolation violation")
 	ErrShutdownTimeout              = errors.New("shadowworkflow: shutdown timeout")
 	ErrPanicRecovered               = errors.New("shadowworkflow: panic recovered")
+	ErrQualificationInvalidSample   = errors.New("shadowworkflow: qualification invalid sample")
+	ErrQualificationOutputLimit     = errors.New("shadowworkflow: qualification output limit")
 )

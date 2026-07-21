@@ -163,6 +163,11 @@ func LoadShadowConfig(getenv func(string) string) (ShadowConfig, error) {
 	if config.Workflow.Enabled, err = parseOptionalBool(getenv(ShadowWorkflowEnabledEnv), false); err != nil {
 		return ShadowConfig{}, fmt.Errorf("%w: workflow enabled", ErrInvalidShadowConfig)
 	}
+	qualificationConfig, qualificationErr := shadowworkflow.LoadQualificationConfig(getenv)
+	if qualificationErr != nil {
+		return ShadowConfig{}, fmt.Errorf("%w: qualification: %v", ErrInvalidShadowConfig, qualificationErr)
+	}
+	config.Workflow.Qualification = qualificationConfig
 	if config.Cognitive.AutoApplyDecisiveEvidence, err = parseOptionalBool(getenv(ShadowAutoEvidenceEnv), false); err != nil {
 		return ShadowConfig{}, fmt.Errorf("%w: auto evidence enabled", ErrInvalidShadowConfig)
 	}
@@ -286,7 +291,7 @@ func (c ShadowConfig) Validate() error {
 	if err := c.EvidencePolicy.Validate(); err != nil {
 		return fmt.Errorf("%w: evidence policy: %v", ErrInvalidShadowConfig, err)
 	}
-	if c.Workflow.Enabled {
+	if c.Workflow.Enabled || c.Workflow.Qualification.Enabled {
 		if err := c.Workflow.Validate(); err != nil {
 			return fmt.Errorf("%w: workflow: %v", ErrInvalidShadowConfig, err)
 		}
