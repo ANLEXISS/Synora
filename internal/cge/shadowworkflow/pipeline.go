@@ -308,7 +308,7 @@ func (r *Runtime) commit(ctx context.Context, input ShadowWorkflowInput, state d
 	lastCheckpointAt := r.lastCheckpointAt
 	r.mu.Unlock()
 	r.metrics.add("transaction_committed")
-	if transactionsSinceCheckpoint >= r.cfg.CheckpointEveryTransactions || lastCheckpointAt.IsZero() || now.Sub(lastCheckpointAt) >= r.cfg.CheckpointInterval {
+	if transactionsSinceCheckpoint >= r.cfg.CheckpointEveryTransactions || !lastCheckpointAt.IsZero() && now.Sub(lastCheckpointAt) >= r.cfg.CheckpointInterval {
 		if _, err := r.coordinator.CheckpointAt(now); err != nil {
 			r.counters.checkpointFailed.Add(1)
 			r.metrics.add("checkpoint.failed")

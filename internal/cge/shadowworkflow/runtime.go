@@ -2,6 +2,7 @@ package shadowworkflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -116,11 +117,15 @@ func NewRuntime(ctx context.Context, cfg Config, clock Clock, logger Logger, cap
 	if err != nil {
 		_ = store.Close()
 		r.state = StateRecoveryFailed
-		r.lastErrorCode = ErrorCode(err)
+		r.lastErrorCode = ErrorCode(fmt.Errorf("%w: %v", ErrRecoveryFailed, err))
 		close(r.done)
 		return r, fmt.Errorf("%w: %v", ErrRecoveryFailed, err)
 	}
 	r.store, r.coordinator, r.accepting = store, coordinator, true
+	if recovered, loadErr := store.Load(); loadErr == nil {
+		r.lastWarnings = append([]string(nil), recovered.Warnings...)
+	}
+	r.lastCheckpointAt = clock.Now().UTC()
 	r.state = StateRunning
 	workerCtx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
@@ -129,7 +134,7 @@ func NewRuntime(ctx context.Context, cfg Config, clock Clock, logger Logger, cap
 }
 
 func (r *Runtime) durablePolicy() durableworkflow.Policy {
-	return durableworkflow.Policy{MaxRecordBytes: 8 * 1024 * 1024, MaxCheckpointBytes: int(r.cfg.MaxCheckpointBytes), MaxEpisodes: r.cfg.MaxEpisodes, MaxAdvisoryRequestsPerEpisode: r.cfg.MaxAdvisoryRequests, MaxMappingsPerEpisode: r.cfg.MaxMappingsPerCycle, MaxAuthorizationAssessmentsPerEpisode: r.cfg.MaxAuthorizationsPerCycle, SyncOnCommit: r.cfg.SyncOnCommit, AllowTruncatedFinalRecord: true, FileMode: 0600, DirectoryMode: 0700}
+	return durableworkflow.Policy{MaxRecordBytes: 8 * 1024 * 1024, MaxCheckpointBytes: int(r.cfg.MaxCheckpointBytes), MaxEpisodes: r.cfg.MaxEpisodes, MaxAdvisoryRequestsPerEpisode: r.cfg.MaxAdvisoryRequests, MaxMappingsPerEpisode: r.cfg.MaxMappingsPerCycle, MaxAuthorizationAssessmentsPerEpisode: r.cfg.MaxAuthorizationsPerCycle, SyncOnCommit: r.cfg.SyncOnCommit, AllowTruncatedFinalRecord: r.cfg.AllowTruncatedFinalRecord, FileMode: 0600, DirectoryMode: 0700}
 }
 
 func (r *Runtime) TrySubmit(input ShadowWorkflowInput) (result SubmitResult) {
@@ -153,6 +158,10 @@ func (r *Runtime) TrySubmit(input ShadowWorkflowInput) (result SubmitResult) {
 	if !r.cfg.Enabled || r.state == StateDisabled {
 		r.counters.rejected.Add(1)
 		return SubmitResult{Status: SubmitDisabled, ReasonCode: "disabled"}
+	}
+	if r.state == StateStorageLimitReached {
+		r.counters.rejected.Add(1)
+		return SubmitResult{Status: SubmitStorageLimit, ReasonCode: "quota.wal_size_limit"}
 	}
 	if !r.accepting || r.state == StateStopping || r.state == StateStopped {
 		r.counters.rejected.Add(1)
@@ -231,6 +240,14 @@ func (r *Runtime) recordFailure(err error) {
 	code := ErrorCode(err)
 	r.mu.Lock()
 	r.lastErrorCode = code
+	if errors.Is(err, ErrWALSizeLimit) {
+		r.accepting = false
+		r.state = StateStorageLimitReached
+		r.mu.Unlock()
+		r.counters.failed.Add(1)
+		r.metrics.add("quota.wal_size_limit")
+		return
+	}
 	r.breaker.failure(r.clock.Now().UTC(), r.cfg.ConsecutiveFailureLimit)
 	if r.breaker.state == circuitOpen {
 		r.state = StateCircuitOpen
@@ -314,7 +331,9 @@ func (r *Runtime) Close(ctx context.Context) error {
 	case <-r.done:
 	case <-ctx.Done():
 		r.mu.Lock()
-		r.state = StateStopped
+		// Keep the stopping state while a blocked worker is still alive. A
+		// later Close call may complete with a longer context.
+		r.state = StateStopping
 		r.mu.Unlock()
 		return ErrShutdownTimeout
 	}
@@ -334,16 +353,26 @@ func ErrorCode(err error) string {
 		return ""
 	}
 	switch {
-	case err == ErrInputTooOld:
+	case errors.Is(err, ErrInputTooOld):
 		return "quota.input_too_old"
-	case err == ErrQueueFull:
+	case errors.Is(err, ErrQueueFull):
 		return "quota.queue_full"
-	case err == ErrPipelineTimeout:
+	case errors.Is(err, ErrPipelineTimeout):
 		return "quota.processing_timeout"
-	case err == ErrPanicRecovered:
+	case errors.Is(err, ErrPanicRecovered):
 		return "panic.recovered"
-	case err == ErrRecoveryFailed:
+	case errors.Is(err, ErrRecoveryFailed):
 		return "recovery_failed"
+	case errors.Is(err, ErrWALSizeLimit):
+		return "quota.wal_size_limit"
+	case errors.Is(err, ErrCheckpointFailed):
+		return "checkpoint.failed"
+	case errors.Is(err, ErrDurableCommitFailed):
+		return "transaction.durability_failure"
+	case errors.Is(err, ErrProviderUnavailable):
+		return "provider.unavailable"
+	case errors.Is(err, ErrProviderInvalid):
+		return "provider.invalid"
 	default:
 		return "workflow_error"
 	}

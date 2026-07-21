@@ -46,6 +46,7 @@ type Config struct {
 	StoreMode                   StoreMode
 	StoreDirectory              string
 	SyncOnCommit                bool
+	AllowTruncatedFinalRecord   bool
 }
 
 func DefaultConfig() Config {
@@ -56,7 +57,7 @@ func DefaultConfig() Config {
 		CheckpointEveryTransactions: 100, CheckpointInterval: 15 * time.Minute,
 		MaxWALBytes: 256 * 1024 * 1024, MaxCheckpointBytes: 256 * 1024 * 1024,
 		ConsecutiveFailureLimit: 5, CircuitResetAfter: 5 * time.Minute,
-		StoreMode: StoreMemory, SyncOnCommit: true,
+		StoreMode: StoreMemory, SyncOnCommit: true, AllowTruncatedFinalRecord: true,
 	}
 }
 
