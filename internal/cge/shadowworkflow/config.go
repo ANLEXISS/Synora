@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"synora/internal/cge/calibrationledger"
 )
 
 type PipelineDepth string
@@ -48,7 +50,28 @@ type Config struct {
 	SyncOnCommit                bool
 	AllowTruncatedFinalRecord   bool
 	Qualification               QualificationConfig
+	CalibrationLedger           CalibrationLedgerConfig
 }
+
+type CalibrationLedgerConfig struct {
+	Enabled              bool
+	Path                 string
+	Fsync                bool
+	MaxBytes             int64
+	MaxRecords           uint64
+	RepairTrailingRecord bool
+	Policy               calibrationledger.Policy
+	Store                calibrationledger.Store
+}
+
+const (
+	CalibrationLedgerEnabledEnv        = "SYNORA_CGE_CALIBRATION_LEDGER_ENABLED"
+	CalibrationLedgerPathEnv           = "SYNORA_CGE_CALIBRATION_LEDGER_PATH"
+	CalibrationLedgerFsyncEnv          = "SYNORA_CGE_CALIBRATION_LEDGER_FSYNC"
+	CalibrationLedgerMaxBytesEnv       = "SYNORA_CGE_CALIBRATION_LEDGER_MAX_BYTES"
+	CalibrationLedgerMaxRecordsEnv     = "SYNORA_CGE_CALIBRATION_LEDGER_MAX_RECORDS"
+	CalibrationLedgerRepairTrailingEnv = "SYNORA_CGE_CALIBRATION_LEDGER_REPAIR_TRAILING_RECORD"
+)
 
 func DefaultConfig() Config {
 	return Config{
@@ -59,11 +82,79 @@ func DefaultConfig() Config {
 		MaxWALBytes: 256 * 1024 * 1024, MaxCheckpointBytes: 256 * 1024 * 1024,
 		ConsecutiveFailureLimit: 5, CircuitResetAfter: 5 * time.Minute,
 		StoreMode: StoreMemory, SyncOnCommit: true, AllowTruncatedFinalRecord: true, Qualification: DefaultQualificationConfig(),
+		CalibrationLedger: DefaultCalibrationLedgerConfig(),
 	}
+}
+
+func DefaultCalibrationLedgerConfig() CalibrationLedgerConfig {
+	policy := calibrationledger.DefaultPolicy()
+	return CalibrationLedgerConfig{Fsync: true, MaxBytes: policy.MaxLedgerBytes, MaxRecords: policy.MaxRecords, Policy: policy}
+}
+
+func (c CalibrationLedgerConfig) Validate() error {
+	if err := c.Policy.Validate(); err != nil {
+		return ErrInvalidConfig
+	}
+	if c.MaxBytes <= 0 || c.MaxRecords == 0 {
+		return ErrInvalidConfig
+	}
+	if c.Enabled && c.Store == nil && (strings.TrimSpace(c.Path) == "" || !filepath.IsAbs(c.Path) || filepath.Clean(c.Path) != c.Path) {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func (c CalibrationLedgerConfig) effectivePolicy() calibrationledger.Policy {
+	policy := c.Policy
+	policy.MaxLedgerBytes = c.MaxBytes
+	policy.MaxRecords = c.MaxRecords
+	policy.Fsync = c.Fsync
+	policy.RepairTrailingRecord = c.RepairTrailingRecord
+	return policy
+}
+
+func LoadCalibrationLedgerConfig(getenv func(string) string) (CalibrationLedgerConfig, error) {
+	if getenv == nil {
+		return CalibrationLedgerConfig{}, ErrInvalidConfig
+	}
+	c := DefaultCalibrationLedgerConfig()
+	var err error
+	if c.Enabled, err = parseQualificationBool(getenv(CalibrationLedgerEnabledEnv), false); err != nil {
+		return CalibrationLedgerConfig{}, ErrInvalidConfig
+	}
+	c.Path = strings.TrimSpace(getenv(CalibrationLedgerPathEnv))
+	if c.Fsync, err = parseQualificationBool(getenv(CalibrationLedgerFsyncEnv), true); err != nil {
+		return CalibrationLedgerConfig{}, ErrInvalidConfig
+	}
+	if c.RepairTrailingRecord, err = parseQualificationBool(getenv(CalibrationLedgerRepairTrailingEnv), false); err != nil {
+		return CalibrationLedgerConfig{}, ErrInvalidConfig
+	}
+	if value := strings.TrimSpace(getenv(CalibrationLedgerMaxBytesEnv)); value != "" {
+		var parsed int64
+		if _, scanErr := fmt.Sscan(value, &parsed); scanErr != nil {
+			return CalibrationLedgerConfig{}, ErrInvalidConfig
+		}
+		c.MaxBytes = parsed
+	}
+	if value := strings.TrimSpace(getenv(CalibrationLedgerMaxRecordsEnv)); value != "" {
+		var parsed uint64
+		if _, scanErr := fmt.Sscan(value, &parsed); scanErr != nil {
+			return CalibrationLedgerConfig{}, ErrInvalidConfig
+		}
+		c.MaxRecords = parsed
+	}
+	c.Policy.MaxLedgerBytes, c.Policy.MaxRecords, c.Policy.Fsync, c.Policy.RepairTrailingRecord = c.MaxBytes, c.MaxRecords, c.Fsync, c.RepairTrailingRecord
+	if err := c.Validate(); err != nil {
+		return CalibrationLedgerConfig{}, err
+	}
+	return c, nil
 }
 
 func (c Config) Validate() error {
 	if err := c.Qualification.Validate(); err != nil {
+		return err
+	}
+	if err := c.CalibrationLedger.Validate(); err != nil {
 		return err
 	}
 	if !c.Enabled {

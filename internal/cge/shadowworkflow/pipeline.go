@@ -331,6 +331,14 @@ func (r *Runtime) commit(ctx context.Context, input ShadowWorkflowInput, state d
 	if comparisonErr != nil && !errors.Is(comparisonErr, ErrComparisonBuildFailed) {
 		return fmt.Errorf("%w: cognitive situation", ErrDurableCommitFailed)
 	}
+	if comparisonErr == nil {
+		if err := r.appendCalibrationComparison(string(episode.ID)); err != nil {
+			// Calibration persistence is optional Shadow diagnostics. The durable
+			// workflow commit and current cognitive projection remain valid when
+			// this secondary append fails.
+			r.metrics.add("calibration_ledger_degraded")
+		}
+	}
 	r.qualificationStageEnd(qualificationStageDurableCommit, commitStarted, nil)
 	r.counters.commits.Add(1)
 	r.mu.Lock()

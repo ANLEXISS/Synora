@@ -71,6 +71,20 @@ func (r *Runtime) qualificationSample() QualificationSample {
 	if r.cfg.Qualification.IncludeStorageMetrics {
 		sample.Storage = r.qualificationStorageSample()
 	}
+	if r.cfg.CalibrationLedger.Enabled {
+		calibrationSnapshot := r.CalibrationSnapshot()
+		calibrationSummary := r.CalibrationSummary()
+		calibrationStatus := r.CalibrationLedgerStatus()
+		sample.CalibrationLedgerRecords = calibrationSnapshot.RecordCount
+		sample.CalibrationLedgerBytes = calibrationSnapshot.LedgerBytes
+		sample.CalibrationLedgerAppendFailures = calibrationStatus.AppendFailures
+		sample.CalibrationLedgerIntegrityFailures = calibrationStatus.IntegrityFailures
+		sample.CalibrationAlignmentMeanPermille = calibrationSummary.AlignmentMeanPermille
+		sample.CalibrationDivergenceMeanPermille = calibrationSummary.DivergenceMeanPermille
+		sample.CalibrationCoverageMeanPermille = calibrationSummary.CoverageMeanPermille
+		sample.CalibrationComparableRatePermille = calibrationSummary.ComparableRatePermille
+		sample.CalibrationSignificantDivergenceRatePermille = calibrationSummary.SignificantDivergenceRatePermille
+	}
 	return sample
 }
 
