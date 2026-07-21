@@ -19,6 +19,7 @@ import (
 	"synora/internal/cge/deviation"
 	"synora/internal/cge/fieldtrial"
 	"synora/internal/cge/routines"
+	"synora/internal/cge/shadowworkflow"
 )
 
 var (
@@ -138,6 +139,13 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 	}
 	if config.Cognitive.Enabled {
 		engine.orchestrator = newShadowOrchestrator(coordinator, config, clock, metrics)
+	}
+	if config.Workflow.Enabled {
+		workflowRuntime, workflowErr := shadowworkflow.NewRuntime(ctx, config.Workflow, clock, logger, nil, nil)
+		engine.workflow = workflowRuntime
+		if workflowErr != nil {
+			engine.safeLog("workflow_recovery_failed")
+		}
 	}
 	if config.FieldTrial.Enabled {
 		recorder, recorderErr := fieldtrial.Open(ctx, config.FieldTrial, fieldTrialMetadata(config))
@@ -270,6 +278,9 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event) (result 
 				e.metrics.cognitive("context_topology_unknown_node")
 			}
 		}
+	}
+	if e.workflow != nil {
+		e.submitWorkflow(adapted.Input.Observation)
 	}
 	trialObservation = adapted.Input.Observation.Clone()
 	e.mu.Lock()
@@ -634,11 +645,18 @@ func (e *ShadowEngine) Metrics() MetricsSnapshot {
 
 // Close closes the coordinator once and never creates a snapshot.
 func (e *ShadowEngine) Close() error {
-	if e == nil || e.coordinator == nil {
+	if e == nil {
 		return nil
 	}
 	e.closeOnce.Do(func() {
-		e.closeErr = e.coordinator.Close()
+		if e.workflow != nil {
+			if err := e.workflow.Close(context.Background()); err != nil {
+				e.safeLog("workflow_close_error")
+			}
+		}
+		if e.coordinator != nil {
+			e.closeErr = e.coordinator.Close()
+		}
 		if e.trialRecorder != nil {
 			if err := e.trialRecorder.Close(context.Background(), e.shadowNow()); err != nil {
 				e.metrics.cognitive("field_trial_record_errors")

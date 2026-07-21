@@ -19,6 +19,7 @@ import (
 	"synora/internal/cge/fieldtrial"
 	"synora/internal/cge/hypotheses"
 	"synora/internal/cge/routines"
+	"synora/internal/cge/shadowworkflow"
 )
 
 // RoutineTopologyProvider is a detached, read-only topology boundary. A
@@ -75,6 +76,7 @@ type ShadowEngine struct {
 	lastAssessment    *DeviationAssessmentSummary
 	lastOrchestration ShadowOrchestrationResult
 	topologyProvider  RoutineTopologyProvider
+	workflow          *shadowworkflow.Runtime
 	closeOnce         sync.Once
 	closeErr          error
 }
@@ -113,6 +115,15 @@ func (e *ShadowEngine) Status() durable.StatusSnapshot {
 		return durable.StatusSnapshot{State: durable.StateClosed}
 	}
 	return e.coordinator.Status()
+}
+
+// WorkflowStatus returns the detached status of the optional experimental
+// workflow. It is not part of the historical decision boundary.
+func (e *ShadowEngine) WorkflowStatus() shadowworkflow.StatusSnapshot {
+	if e == nil || e.workflow == nil {
+		return shadowworkflow.StatusSnapshot{State: shadowworkflow.StateDisabled}
+	}
+	return e.workflow.Status()
 }
 
 // ListRoutines returns defensive routine snapshots for development analysis.

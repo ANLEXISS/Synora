@@ -194,3 +194,18 @@ func (s *FileStore) Close() error {
 	s.wal = nil
 	return err
 }
+
+// WALSize reports the current journal size without exposing the file handle.
+// It is an observational boundary for experimental quota enforcement.
+func (s *FileStore) WALSize() (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return 0, ErrStoreClosed
+	}
+	info, err := os.Stat(filepath.Join(s.dir, "workflow.wal"))
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
+}
