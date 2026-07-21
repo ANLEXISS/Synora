@@ -1,0 +1,96 @@
+{
+  "schema_version": "synora-data-flow-end-to-end-v1",
+  "head": "7fe8b382872e8dc658d35ff1a23a53cd5fe36e4b",
+  "data_classes": [
+    {"id":"raw","description":"media or signal before structured processing"},
+    {"id":"technical","description":"transport, identifiers, timestamps and device state"},
+    {"id":"contextual","description":"location, time, topology and presence context"},
+    {"id":"cognitive","description":"chains, routines, episodes, facts and hypotheses"},
+    {"id":"decision","description":"historical decision and danger state"},
+    {"id":"operational","description":"automation, commands and action results"},
+    {"id":"public","description":"defensive API and WebSocket projections"},
+    {"id":"diagnostic","description":"journals, WAL, checkpoints and qualification aggregates"}
+  ],
+  "representations": [
+    {"id":"clip","class":"raw","type":"vision.ClipJob/file","persistence":"configured clip storage","authority":"none"},
+    {"id":"vision_event","class":"technical","type":"contract.Event","persistence":"StateStore projection","authority":"historical input"},
+    {"id":"bus_message","class":"technical","type":"contract.Message","persistence":"volatile transport","authority":"none"},
+    {"id":"cge_event","class":"contextual","type":"internal/cge.Event","persistence":"Shadow diagnostics only","authority":"none"},
+    {"id":"workflow_observation","class":"cognitive","type":"episodes.ObservationRef / ShadowWorkflowInput","persistence":"not as raw media","authority":"none"},
+    {"id":"fact_set","class":"cognitive","type":"situationfacts.FactSet","persistence":"durable workflow state","authority":"none"},
+    {"id":"hypothesis_set","class":"cognitive","type":"situationhypotheses.CompetingHypothesisSet","persistence":"durable workflow state","authority":"none"},
+    {"id":"advisory_request","class":"cognitive","type":"advisoryrequests.AdvisoryEvidenceRequest","persistence":"durable workflow state","authority":"recommendation only"},
+    {"id":"mapping_assessment","class":"cognitive","type":"capabilitymapping.CapabilityMappingAssessment","persistence":"durable workflow state","authority":"descriptive only"},
+    {"id":"authorization_assessment","class":"cognitive","type":"authorizationboundary.AuthorizationBoundaryAssessment","persistence":"durable workflow state","authority":"eligibility only"},
+    {"id":"historical_decision","class":"decision","type":"contract.Decision","persistence":"StateStore","authority":"Core historical"},
+    {"id":"action_request","class":"operational","type":"contract.ActionRequest","persistence":"bus/event path","authority":"automation request"},
+    {"id":"action_result","class":"operational","type":"contract.ActionResult","persistence":"StateStore","authority":"effect result"},
+    {"id":"public_snapshot","class":"public","type":"contract.PublicSnapshot","persistence":"volatile projection","authority":"exposure only"}
+  ],
+  "transformation_stages": [
+    {"order":1,"name":"clip_ingress","producer":"internal/discovery/ingress/server.go:StartServer","consumer":"internal/discovery/vision","input":"multipart clip","output":"vision.ClipJob","redaction":"HTTP body is not forwarded as a workflow object"},
+    {"order":2,"name":"vision_inference_result","producer":"internal/discovery/vision/worker.go:RunClipWorker","consumer":"internal/bus","input":"ClipJob","output":"contract.Message with structured event payload","redaction":"video is processed outside the Core event"},
+    {"order":3,"name":"core_ingestion","producer":"internal/ingest/ingest.go:Parser.Parse","consumer":"cmd/synora-core","input":"contract.Message","output":"contract.Event","redaction":"transport envelope removed; fields normalized"},
+    {"order":4,"name":"historical_decision","producer":"internal/engine/engine.go:Analyze","consumer":"cmd/synora-core","input":"contract.Event and state","output":"contract.Decision and projections","redaction":"projection-specific data only"},
+    {"order":5,"name":"shadow_scalarization","producer":"internal/cge/event_adapter.go:EventFromContract","consumer":"internal/cge/shadow_runtime.go","input":"contract.Event","output":"internal/cge.Event","redaction":"generic payload is not copied"},
+    {"order":6,"name":"workflow_redaction","producer":"internal/cge/shadow_workflow_adapter.go:submitWorkflow","consumer":"internal/cge/shadowworkflow","input":"cge.Event","output":"ShadowWorkflowInput","redaction":"media, raw payload, embeddings, credentials and secrets absent"},
+    {"order":7,"name":"cognitive_derivation","producer":"internal/cge/shadowworkflow/pipeline.go:process","consumer":"durableworkflow","input":"observation and durable state","output":"episode, facts, hypotheses, advisory and optional assessments","redaction":"only compact DTOs and references"},
+    {"order":8,"name":"public_projection","producer":"pkg/contract/public_snapshot.go:PublicSnapshotFromCoreState","consumer":"cmd/synora-api","input":"StateStore","output":"PublicSnapshot","redaction":"defensive public projection"}
+  ],
+  "persistence_locations": [
+    {"id":"state_store","format":"atomic JSON","scope":"historical projections, events, chains, clips, action results","replay":true,"checkpoint":false,"environment":"production historical"},
+    {"id":"clip_storage","format":"MP4 files","scope":"uploaded clips referenced by ClipState","replay":false,"checkpoint":false,"environment":"configured local storage"},
+    {"id":"shadow_journal","format":"Shadow journal/generation storage","scope":"historical Shadow diagnostics","replay":true,"checkpoint":false,"environment":"Shadow historical"},
+    {"id":"durable_workflow_wal","format":"versioned NDJSON records with checksum","scope":"cross-layer workflow state","replay":true,"checkpoint":true,"environment":"experimental separate"},
+    {"id":"durable_workflow_checkpoint","format":"atomic checkpoint","scope":"workflow state image","replay":true,"checkpoint":true,"environment":"experimental separate"},
+    {"id":"qualification_files","format":"local NDJSON/JSON","scope":"aggregated samples and reports","replay":false,"checkpoint":false,"environment":"local diagnostic"}
+  ],
+  "authority_boundaries": [
+    {"component":"historical_engine","observe":true,"learn":true,"evaluate":true,"recommend":true,"decide":true,"authorize":false,"execute":false},
+    {"component":"shadow_cge","observe":true,"learn":true,"evaluate":true,"recommend":true,"decide":false,"authorize":false,"execute":false},
+    {"component":"shadow_workflow","observe":false,"learn":false,"evaluate":true,"recommend":true,"decide":false,"authorize":false,"execute":false},
+    {"component":"capability_mapping","observe":false,"learn":false,"evaluate":true,"recommend":true,"decide":false,"authorize":false,"execute":false},
+    {"component":"authorization_boundary","observe":false,"learn":false,"evaluate":true,"recommend":false,"decide":false,"authorize":false,"execute":false},
+    {"component":"automation","observe":false,"learn":false,"evaluate":true,"recommend":true,"decide":false,"authorize":true,"execute":false},
+    {"component":"actions_service","observe":false,"learn":false,"evaluate":true,"recommend":false,"decide":false,"authorize":false,"execute":true},
+    {"component":"api_websocket","observe":false,"learn":false,"evaluate":false,"recommend":false,"decide":false,"authorize":false,"execute":false,"expose":true}
+  ],
+  "public_exposure": [
+    {"endpoint":"/api/state","source":"Core State","data":"PublicSnapshot","realtime":false,"authority":"read-only projection"},
+    {"endpoint":"/api/snapshot","source":"Core Snapshot","data":"PublicSnapshot","realtime":false,"authority":"read-only projection"},
+    {"endpoint":"/api/events","source":"StateStore/Core","data":"projected events","realtime":false,"authority":"read-only"},
+    {"endpoint":"/api/devices","source":"device registry","data":"device configuration/state","realtime":false,"authority":"configuration route"},
+    {"endpoint":"/api/residents","source":"resident configuration","data":"resident configuration/state","realtime":false,"authority":"configuration route"},
+    {"endpoint":"/api/topology","source":"topology configuration","data":"topology","realtime":false,"authority":"configuration route"},
+    {"endpoint":"/api/cge/*","source":"CGE diagnostics","data":"chains, danger and experimental diagnostics","realtime":false,"authority":"diagnostic"},
+    {"endpoint":"/api/ws","source":"PublicSnapshot","data":"initial and updated snapshots","realtime":true,"authority":"read-only"}
+  ],
+  "retention": [
+    {"data":"StateStore collections","created":"event/state update","modified":"subsequent update","expires":"collection-specific or not shown","deleted":"targeted store operations where implemented","configurable":true},
+    {"data":"ClipState/media","created":"successful clip ingress","modified":"state update","expires":"ExpiresAt field exists","deleted":"automatic deletion not demonstrated","configurable":"not determined"},
+    {"data":"Historical chains","created":"significant event or configured contextual event","modified":"chain processing","expires":"inactivity closes chain","deleted":"not determined","configurable":true},
+    {"data":"Shadow journal","created":"Shadow mutation","modified":"new generation","expires":"module policy","deleted":"not determined","configurable":true},
+    {"data":"Durable workflow WAL","created":"durable transaction commit","modified":"append only","expires":"no compaction in this pass","deleted":"not implemented","configurable":false},
+    {"data":"Qualification samples","created":"enabled local recorder sample","modified":"append/summary","expires":"output limit; campaign retention external","deleted":"not implemented by runtime","configurable":true}
+  ],
+  "errors": [
+    {"stage":"device_ingress","error":"missing clip/device or authentication failure","loss":"rejected before job","retry":"not implicit","historical_impact":"no event"},
+    {"stage":"bus","error":"decode error or full receive channel","loss":"message may be lost","retry":"reconnect for writes; no event redelivery proof","historical_impact":"no event"},
+    {"stage":"core_ingest","error":"invalid JSON/source/rate/queue full","loss":"rejected or dropped","retry":"not implicit","historical_impact":"no decision"},
+    {"stage":"historical_core","error":"engine/state error","loss":"case-specific","retry":"runtime-specific","historical_impact":"may affect decision"},
+    {"stage":"shadow_workflow","error":"queue full, timeout, provider absence, circuit open","loss":"workflow event or cycle may be skipped","retry":"subsequent input/breaker policy","historical_impact":"none"},
+    {"stage":"durable_workflow","error":"append/fsync/checksum/corruption","loss":"uncommitted workflow state not published","retry":"recovery/configuration","historical_impact":"none"},
+    {"stage":"api","error":"snapshot unavailable","loss":"not exposed temporarily","retry":"next request","historical_impact":"none"},
+    {"stage":"actions","error":"executor/timeout/retry failure","loss":"action may fail; result is emitted","retry":"request retry policy","historical_impact":"state records result"}
+  ],
+  "unknowns": [
+    "Exact retention and deletion of uploaded clips is not established by the inspected path.",
+    "The installed critical-chain YAML was not readable; loader, example and tests were inspected.",
+    "Concrete physical providers for capability mapping and authorization are not wired by default.",
+    "Audio and generic sensor data are not proven inputs to this camera-to-Core path.",
+    "Exactly-once delivery from a physical device is not established.",
+    "Durable workflow WAL compaction is not implemented.",
+    "Physical Rock 5 multi-day stability and deployment are not proven by repository tests.",
+    "Complete user-facing erasure/export policy is not represented in the inspected code."
+  ]
+}
