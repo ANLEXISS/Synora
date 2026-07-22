@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"synora/internal/cge/calibrationledger"
 	"synora/internal/cge/chains"
 	"synora/internal/cge/chains/association"
 	"synora/internal/cge/chains/durable"
@@ -125,6 +126,32 @@ func (e *ShadowEngine) WorkflowStatus() shadowworkflow.StatusSnapshot {
 		return shadowworkflow.StatusSnapshot{State: shadowworkflow.StateDisabled}
 	}
 	return e.workflow.Status()
+}
+
+// WorkflowProjection returns the detached read-only projections produced by
+// the optional workflow. It exposes existing diagnostics only; the Core never
+// consumes these values as decisions, commands, or actions.
+func (e *ShadowEngine) WorkflowProjection() shadowworkflow.CognitiveProjectionSnapshot {
+	if e == nil || e.workflow == nil {
+		return shadowworkflow.CognitiveProjectionSnapshot{}
+	}
+	return e.workflow.CognitiveProjection()
+}
+
+// WorkflowCalibrationRecords returns defensive ledger records for diagnostics.
+func (e *ShadowEngine) WorkflowCalibrationRecords(q calibrationledger.Query) (calibrationledger.QueryResult, error) {
+	if e == nil || e.workflow == nil {
+		return calibrationledger.QueryResult{}, calibrationledger.ErrSnapshotUnavailable
+	}
+	return e.workflow.CalibrationRecords(q)
+}
+
+// WorkflowCalibrationSnapshot returns the detached durable ledger snapshot.
+func (e *ShadowEngine) WorkflowCalibrationSnapshot() calibrationledger.Snapshot {
+	if e == nil || e.workflow == nil {
+		return calibrationledger.Snapshot{}
+	}
+	return e.workflow.CalibrationSnapshot()
 }
 
 // ListRoutines returns defensive routine snapshots for development analysis.

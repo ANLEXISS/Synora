@@ -40,6 +40,17 @@ type cognitiveProjectionCache struct {
 	snapshot CognitiveProjectionSnapshot
 }
 
+// CognitiveProjection returns a defensive copy of all read-only workflow
+// projections. It is intended for diagnostics and recovery verification.
+func (r *Runtime) CognitiveProjection() CognitiveProjectionSnapshot {
+	if r == nil {
+		return CognitiveProjectionSnapshot{}
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.projection.snapshot.Clone()
+}
+
 func (s CognitiveSituationSnapshot) Clone() CognitiveSituationSnapshot {
 	out := s
 	out.Situations = make([]cognitivesituation.CognitiveSituation, len(s.Situations))

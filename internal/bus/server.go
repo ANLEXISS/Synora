@@ -41,6 +41,9 @@ func (s *Server) Start() error {
 	if err != nil {
 		return err
 	}
+	s.mu.Lock()
+	s.listener = listener
+	s.mu.Unlock()
 	configureSocket(s.address)
 
 	log.Println("bus listening on", s.address)
@@ -48,12 +51,45 @@ func (s *Server) Start() error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
+			s.mu.RLock()
+			closed := s.listener == nil
+			s.mu.RUnlock()
+			if closed {
+				return nil
+			}
 			log.Println(err)
 			continue
 		}
 
 		go s.handle(conn)
 	}
+}
+
+// Close stops an embedded server and all registered connections. Production
+// callers still use Start's blocking lifetime; tests can now own that
+// lifetime without a process-wide bus or leaked accept goroutine.
+func (s *Server) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	listener := s.listener
+	s.listener = nil
+	clients := make([]*ClientConn, 0, len(s.clients))
+	for _, client := range s.clients {
+		clients = append(clients, client)
+	}
+	s.clients = make(map[string]*ClientConn)
+	s.mu.Unlock()
+	if listener != nil {
+		_ = listener.Close()
+	}
+	for _, client := range clients {
+		if client != nil && client.conn != nil {
+			_ = client.conn.Close()
+		}
+	}
+	return nil
 }
 
 func (s *Server) handle(conn net.Conn) {

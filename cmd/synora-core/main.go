@@ -72,6 +72,7 @@ type coreApp struct {
 	highPriority      chan *contract.Event
 	normalQueue       chan *contract.Event
 	rpcQueue          chan contract.Message
+	processStop       <-chan struct{}
 	ingest            *ingest.Queue
 	rpc               *corerpc.Server
 	snapshotBuilder   *snapshotpkg.Builder
@@ -383,10 +384,14 @@ func (a *coreApp) rpcLoop() {
 func (a *coreApp) processLoop() {
 	for {
 		select {
+		case <-a.processStop:
+			return
 		case event := <-a.highPriority:
 			a.processEvent(event)
 		default:
 			select {
+			case <-a.processStop:
+				return
 			case event := <-a.highPriority:
 				a.processEvent(event)
 			case event := <-a.normalQueue:
