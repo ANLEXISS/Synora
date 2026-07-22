@@ -56,6 +56,7 @@ func (r *Runtime) appendCalibrationComparison(ctx context.Context, episodeID str
 	}
 	if !result.Duplicate {
 		r.metrics.add("calibration_ledger_records_total")
+		r.maybeRecomputeCalibrationAnalytics(result.Sequence)
 	}
 	r.metrics.addN("calibration_ledger_bytes", uint64(snapshot.LedgerBytes))
 	if comparison.Comparable {

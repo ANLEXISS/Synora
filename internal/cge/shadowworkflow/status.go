@@ -53,6 +53,22 @@ type StatusSnapshot struct {
 	ConsecutiveFailures  int
 	LastErrorCode        string
 	CalibrationLedger    CalibrationLedgerStatus
+	CalibrationAnalytics CalibrationAnalyticsStatus
+}
+
+type CalibrationAnalyticsStatus struct {
+	Enabled                 bool
+	Available               bool
+	Degraded                bool
+	LastAnalyzedSequence    uint64
+	LastReportFingerprint   string
+	ReportsGenerated        uint64
+	AnalysisFailures        uint64
+	InsufficientDataCount   uint64
+	LastRecordCount         uint64
+	LastEligibleCohortCount int
+	LastWindowCount         int
+	LastErrorCode           string
 }
 
 type CalibrationLedgerStatus struct {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"synora/internal/cge/calibrationanalytics"
 	"synora/internal/cge/calibrationledger"
 )
 
@@ -52,6 +53,7 @@ type Config struct {
 	AllowTruncatedFinalRecord   bool
 	Qualification               QualificationConfig
 	CalibrationLedger           CalibrationLedgerConfig
+	CalibrationAnalytics        CalibrationAnalyticsConfig
 }
 
 type CalibrationLedgerConfig struct {
@@ -65,19 +67,41 @@ type CalibrationLedgerConfig struct {
 	Store                calibrationledger.Store
 }
 
+type CalibrationAnalyticsConfig struct {
+	Enabled               bool
+	Policy                calibrationanalytics.AnalyticsPolicy
+	RecomputeEveryRecords uint64
+}
+
 const (
-	CalibrationLedgerEnabledEnv        = "SYNORA_CGE_CALIBRATION_LEDGER_ENABLED"
-	CalibrationLedgerPathEnv           = "SYNORA_CGE_CALIBRATION_LEDGER_PATH"
-	CalibrationLedgerFsyncEnv          = "SYNORA_CGE_CALIBRATION_LEDGER_FSYNC"
-	CalibrationLedgerMaxBytesEnv       = "SYNORA_CGE_CALIBRATION_LEDGER_MAX_BYTES"
-	CalibrationLedgerMaxRecordsEnv     = "SYNORA_CGE_CALIBRATION_LEDGER_MAX_RECORDS"
-	CalibrationLedgerRepairTrailingEnv = "SYNORA_CGE_CALIBRATION_LEDGER_REPAIR_TRAILING_RECORD"
-	DefaultCalibrationLedgerPath       = "/var/lib/synora/cge/calibration-ledger.ndjson"
+	CalibrationLedgerEnabledEnv          = "SYNORA_CGE_CALIBRATION_LEDGER_ENABLED"
+	CalibrationLedgerPathEnv             = "SYNORA_CGE_CALIBRATION_LEDGER_PATH"
+	CalibrationLedgerFsyncEnv            = "SYNORA_CGE_CALIBRATION_LEDGER_FSYNC"
+	CalibrationLedgerMaxBytesEnv         = "SYNORA_CGE_CALIBRATION_LEDGER_MAX_BYTES"
+	CalibrationLedgerMaxRecordsEnv       = "SYNORA_CGE_CALIBRATION_LEDGER_MAX_RECORDS"
+	CalibrationLedgerRepairTrailingEnv   = "SYNORA_CGE_CALIBRATION_LEDGER_REPAIR_TRAILING_RECORD"
+	CalibrationAnalyticsEnabledEnv       = "SYNORA_CGE_CALIBRATION_ANALYTICS_ENABLED"
+	CalibrationAnalyticsMinRecordsEnv    = "SYNORA_CGE_CALIBRATION_ANALYTICS_MIN_RECORDS"
+	CalibrationAnalyticsMinComparableEnv = "SYNORA_CGE_CALIBRATION_ANALYTICS_MIN_COMPARABLE"
+	CalibrationAnalyticsWindowSizeEnv    = "SYNORA_CGE_CALIBRATION_ANALYTICS_WINDOW_SIZE"
+	CalibrationAnalyticsMaxWindowsEnv    = "SYNORA_CGE_CALIBRATION_ANALYTICS_MAX_WINDOWS"
+	DefaultCalibrationLedgerPath         = "/var/lib/synora/cge/calibration-ledger.ndjson"
 )
 
 func DefaultCalibrationLedgerConfig() CalibrationLedgerConfig {
 	p := calibrationledger.DefaultPolicy()
 	return CalibrationLedgerConfig{Fsync: true, MaxBytes: p.MaxLedgerBytes, MaxRecords: p.MaxRecords, Policy: p}
+}
+
+func DefaultCalibrationAnalyticsConfig() CalibrationAnalyticsConfig {
+	return CalibrationAnalyticsConfig{Policy: calibrationanalytics.DefaultAnalyticsPolicy(), RecomputeEveryRecords: 100}
+}
+
+func (c CalibrationAnalyticsConfig) Validate() error {
+	if err := c.Policy.Validate(); err != nil || c.RecomputeEveryRecords == 0 {
+		return ErrInvalidConfig
+	}
+	return nil
 }
 
 func (c CalibrationLedgerConfig) effectivePolicy() calibrationledger.Policy {
@@ -137,6 +161,45 @@ func LoadCalibrationLedgerConfig(getenv func(string) string) (CalibrationLedgerC
 	return c, nil
 }
 
+func LoadCalibrationAnalyticsConfig(getenv func(string) string) (CalibrationAnalyticsConfig, error) {
+	if getenv == nil {
+		return CalibrationAnalyticsConfig{}, ErrInvalidConfig
+	}
+	c := DefaultCalibrationAnalyticsConfig()
+	var err error
+	if c.Enabled, err = parseQualificationBool(getenv(CalibrationAnalyticsEnabledEnv), false); err != nil {
+		return CalibrationAnalyticsConfig{}, ErrInvalidConfig
+	}
+	if v := strings.TrimSpace(getenv(CalibrationAnalyticsMinRecordsEnv)); v != "" {
+		c.Policy.MinimumRecords, err = strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return CalibrationAnalyticsConfig{}, ErrInvalidConfig
+		}
+	}
+	if v := strings.TrimSpace(getenv(CalibrationAnalyticsMinComparableEnv)); v != "" {
+		c.Policy.MinimumComparableRecords, err = strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return CalibrationAnalyticsConfig{}, ErrInvalidConfig
+		}
+	}
+	if v := strings.TrimSpace(getenv(CalibrationAnalyticsWindowSizeEnv)); v != "" {
+		c.Policy.WindowSizeRecords, err = strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return CalibrationAnalyticsConfig{}, ErrInvalidConfig
+		}
+	}
+	if v := strings.TrimSpace(getenv(CalibrationAnalyticsMaxWindowsEnv)); v != "" {
+		c.Policy.MaximumWindows, err = strconv.Atoi(v)
+		if err != nil {
+			return CalibrationAnalyticsConfig{}, ErrInvalidConfig
+		}
+	}
+	if err := c.Validate(); err != nil {
+		return CalibrationAnalyticsConfig{}, err
+	}
+	return c, nil
+}
+
 func DefaultConfig() Config {
 	return Config{
 		PipelineDepth: DepthAdvisoryRequests, QueueCapacity: 128, WorkerCount: 1,
@@ -145,7 +208,7 @@ func DefaultConfig() Config {
 		CheckpointEveryTransactions: 100, CheckpointInterval: 15 * time.Minute,
 		MaxWALBytes: 256 * 1024 * 1024, MaxCheckpointBytes: 256 * 1024 * 1024,
 		ConsecutiveFailureLimit: 5, CircuitResetAfter: 5 * time.Minute,
-		StoreMode: StoreMemory, SyncOnCommit: true, AllowTruncatedFinalRecord: true, Qualification: DefaultQualificationConfig(), CalibrationLedger: DefaultCalibrationLedgerConfig(),
+		StoreMode: StoreMemory, SyncOnCommit: true, AllowTruncatedFinalRecord: true, Qualification: DefaultQualificationConfig(), CalibrationLedger: DefaultCalibrationLedgerConfig(), CalibrationAnalytics: DefaultCalibrationAnalyticsConfig(),
 	}
 }
 
@@ -156,8 +219,14 @@ func (c Config) Validate() error {
 	if err := c.CalibrationLedger.Validate(); err != nil {
 		return err
 	}
+	if err := c.CalibrationAnalytics.Validate(); err != nil {
+		return err
+	}
+	if c.CalibrationAnalytics.Enabled && !c.CalibrationLedger.Enabled {
+		return ErrInvalidConfig
+	}
 	if !c.Enabled {
-		if c.Qualification.Enabled || c.CalibrationLedger.Enabled {
+		if c.Qualification.Enabled || c.CalibrationLedger.Enabled || c.CalibrationAnalytics.Enabled {
 			return ErrInvalidConfig
 		}
 		return nil

@@ -176,6 +176,11 @@ func LoadShadowConfig(getenv func(string) string) (ShadowConfig, error) {
 		calibrationConfig.Path = filepath.Join(config.DataDir, "calibration-ledger.ndjson")
 	}
 	config.Workflow.CalibrationLedger = calibrationConfig
+	analyticsConfig, analyticsErr := shadowworkflow.LoadCalibrationAnalyticsConfig(getenv)
+	if analyticsErr != nil {
+		return ShadowConfig{}, fmt.Errorf("%w: calibration analytics: %v", ErrInvalidShadowConfig, analyticsErr)
+	}
+	config.Workflow.CalibrationAnalytics = analyticsConfig
 	if config.Cognitive.AutoApplyDecisiveEvidence, err = parseOptionalBool(getenv(ShadowAutoEvidenceEnv), false); err != nil {
 		return ShadowConfig{}, fmt.Errorf("%w: auto evidence enabled", ErrInvalidShadowConfig)
 	}
@@ -299,7 +304,7 @@ func (c ShadowConfig) Validate() error {
 	if err := c.EvidencePolicy.Validate(); err != nil {
 		return fmt.Errorf("%w: evidence policy: %v", ErrInvalidShadowConfig, err)
 	}
-	if c.Workflow.Enabled || c.Workflow.Qualification.Enabled {
+	if c.Workflow.Enabled || c.Workflow.Qualification.Enabled || c.Workflow.CalibrationLedger.Enabled || c.Workflow.CalibrationAnalytics.Enabled {
 		if err := c.Workflow.Validate(); err != nil {
 			return fmt.Errorf("%w: workflow: %v", ErrInvalidShadowConfig, err)
 		}

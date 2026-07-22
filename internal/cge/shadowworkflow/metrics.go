@@ -19,6 +19,14 @@ func (m *metricCounter) addN(code string, value uint64) {
 	m.values[code] += value
 	m.mu.Unlock()
 }
+func (m *metricCounter) set(code string, value uint64) {
+	if m == nil || code == "" {
+		return
+	}
+	m.mu.Lock()
+	m.values[code] = value
+	m.mu.Unlock()
+}
 func (m *metricCounter) snapshot() map[string]uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()

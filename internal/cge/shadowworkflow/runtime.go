@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"synora/internal/cge/calibrationanalytics"
 	"synora/internal/cge/calibrationledger"
 	"synora/internal/cge/durableworkflow"
 )
@@ -40,6 +41,9 @@ type Runtime struct {
 	projection                  cognitiveProjectionCache
 	calibrationLedger           calibrationledger.Store
 	calibrationLedgerStatus     CalibrationLedgerStatus
+	calibrationAnalyticsMu      sync.Mutex
+	calibrationAnalyticsReport  calibrationanalytics.CalibrationAnalyticsReport
+	calibrationAnalyticsStatus  CalibrationAnalyticsStatus
 }
 
 type memoryStore struct {
@@ -179,6 +183,20 @@ func NewRuntime(ctx context.Context, cfg Config, clock Clock, logger Logger, cap
 				r.metrics.add("calibration_ledger_trailing_repairs")
 			}
 		}
+	}
+	if cfg.CalibrationAnalytics.Enabled {
+		r.metrics.set("calibration_analytics_enabled", 1)
+		r.mu.Lock()
+		r.calibrationAnalyticsStatus.Enabled = true
+		available := r.calibrationLedger != nil
+		r.mu.Unlock()
+		if available {
+			_ = r.recomputeCalibrationAnalytics(context.Background())
+		} else {
+			r.markCalibrationAnalyticsFailure(calibrationanalytics.ErrLedgerUnavailable)
+		}
+	} else {
+		r.metrics.set("calibration_analytics_enabled", 0)
 	}
 	if cfg.Qualification.Enabled {
 		qualificationConfig := cfg.Qualification
@@ -379,7 +397,10 @@ func (r *Runtime) Status() StatusSnapshot {
 	r.mu.RLock()
 	calibrationStatus := r.calibrationLedgerStatus
 	r.mu.RUnlock()
-	return StatusSnapshot{State: state, Enabled: enabled, PipelineDepth: depth, QueueDepth: len(r.queue), QueueCapacity: qcap, CircuitState: circuit, WorkflowRevision: workflowRev, LastSequence: seq, WorkflowDigest: digest, EpisodeCount: episodes, FreshLayerCounts: cloneCounts(fresh), StaleLayerCounts: cloneCounts(stale), Received: r.counters.received.Load(), Accepted: r.counters.accepted.Load(), Rejected: r.counters.rejected.Load(), DroppedQueueFull: r.counters.dropped.Load(), Duplicates: r.counters.duplicates.Load(), CyclesSucceeded: cycleSuccesses, CyclesFailed: cycleFailures, CyclesTimedOut: r.counters.timeout.Load(), CommitsSucceeded: r.counters.commits.Load(), CommitsFailed: r.counters.commitFailed.Load(), CheckpointsSucceeded: checkpointSuccesses, CheckpointsFailed: checkpointFailures, RecoveryPerformed: r.coordinator != nil, RecoveryWarnings: warnings, ConsecutiveFailures: failures, LastErrorCode: lastErr, CalibrationLedger: calibrationStatus}
+	r.mu.RLock()
+	analyticsStatus := r.calibrationAnalyticsStatus
+	r.mu.RUnlock()
+	return StatusSnapshot{State: state, Enabled: enabled, PipelineDepth: depth, QueueDepth: len(r.queue), QueueCapacity: qcap, CircuitState: circuit, WorkflowRevision: workflowRev, LastSequence: seq, WorkflowDigest: digest, EpisodeCount: episodes, FreshLayerCounts: cloneCounts(fresh), StaleLayerCounts: cloneCounts(stale), Received: r.counters.received.Load(), Accepted: r.counters.accepted.Load(), Rejected: r.counters.rejected.Load(), DroppedQueueFull: r.counters.dropped.Load(), Duplicates: r.counters.duplicates.Load(), CyclesSucceeded: cycleSuccesses, CyclesFailed: cycleFailures, CyclesTimedOut: r.counters.timeout.Load(), CommitsSucceeded: r.counters.commits.Load(), CommitsFailed: r.counters.commitFailed.Load(), CheckpointsSucceeded: checkpointSuccesses, CheckpointsFailed: checkpointFailures, RecoveryPerformed: r.coordinator != nil, RecoveryWarnings: warnings, ConsecutiveFailures: failures, LastErrorCode: lastErr, CalibrationLedger: calibrationStatus, CalibrationAnalytics: analyticsStatus}
 }
 
 func (r *Runtime) Metrics() map[string]uint64 {

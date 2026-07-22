@@ -85,6 +85,21 @@ func (r *Runtime) qualificationSample() QualificationSample {
 		sample.CalibrationComparableRatePermille = summary.ComparableRatePermille
 		sample.CalibrationSignificantDivergenceRatePermille = summary.SignificantDivergenceRatePermille
 	}
+	if r.cfg.CalibrationAnalytics.Enabled {
+		analyticsStatus := r.CalibrationAnalyticsStatus()
+		analyticsReport := r.CalibrationAnalyticsReport()
+		sample.CalibrationAnalyticsAvailable = analyticsStatus.Available
+		sample.CalibrationAnalyticsSufficient = analyticsReport.DataSufficiency.SufficientForGlobalAnalysis
+		sample.CalibrationAnalyticsRecordCount = analyticsReport.RecordCount
+		sample.CalibrationAnalyticsWindowCount = analyticsReport.DataSufficiency.WindowCount
+		sample.CalibrationAnalyticsEligibleCohortCount = analyticsReport.DataSufficiency.EligibleCohortCount
+		sample.CalibrationAnalyticsAlignmentMeanPermille = analyticsReport.Global.AlignmentMeanPermille
+		sample.CalibrationAnalyticsDivergenceMeanPermille = analyticsReport.Global.DivergenceMeanPermille
+		sample.CalibrationAnalyticsCoverageMeanPermille = analyticsReport.Global.CoverageMeanPermille
+		sample.CalibrationAnalyticsComparableRatePermille = analyticsReport.Global.ComparableRatePermille
+		sample.CalibrationAnalyticsSignificantDivergenceRatePermille = analyticsReport.Global.SignificantDivergenceRatePermille
+		sample.CalibrationAnalyticsAnyDriftDetected = analyticsReport.Drift.AnyDriftDetected
+	}
 	return sample
 }
 

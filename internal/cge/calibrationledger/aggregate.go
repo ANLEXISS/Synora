@@ -26,6 +26,17 @@ type aggregateState struct {
 	historical, cognitive, aligned, conservative, decisive uint64
 }
 
+// AggregateRecords applies the ledger's canonical descriptive aggregation to
+// a caller-owned record subset. It never mutates the input and does not retain
+// references to it.
+func AggregateRecords(records []CalibrationRecord) AggregateSnapshot {
+	var state aggregateState
+	for _, record := range records {
+		state.add(record)
+	}
+	return state.snapshot()
+}
+
 func (a *aggregateState) add(r CalibrationRecord) {
 	a.alignment.Add(r.AlignmentPermille)
 	a.divergence.Add(r.DivergencePermille)
