@@ -4,7 +4,7 @@ import (
 	"synora/internal/cge/calibrationledger"
 )
 
-func windowAnalytics(records []calibrationledger.CalibrationRecord, index int, policy AnalyticsPolicy) WindowAnalytics {
+func windowAnalytics(records []calibrationledger.CalibrationRecord, index int) WindowAnalytics {
 	s := statsFor(records)
 	a := s.aggregate
 	value := WindowAnalytics{Index: index, RecordCount: a.TotalRecords, ComparableRatePermille: ratePermille(s.comparable, a.TotalRecords), SignificantDivergenceRatePermille: ratePermille(s.significant, a.TotalRecords), AlignmentMeanPermille: a.AlignmentMeanPermille, DivergenceMeanPermille: a.DivergenceMeanPermille, CoverageMeanPermille: a.CoverageMeanPermille, AlignmentP95Permille: a.AlignmentP95Permille, DivergenceP95Permille: a.DivergenceP95Permille, CoverageP95Permille: a.CoverageP95Permille}
@@ -16,9 +16,9 @@ func windowAnalytics(records []calibrationledger.CalibrationRecord, index int, p
 	return value
 }
 
-func buildWindows(records []calibrationledger.CalibrationRecord, policy AnalyticsPolicy) ([]WindowAnalytics, [][]calibrationledger.CalibrationRecord, error) {
+func buildWindows(records []calibrationledger.CalibrationRecord, policy AnalyticsPolicy) ([]WindowAnalytics, [][]calibrationledger.CalibrationRecord) {
 	if len(records) == 0 {
-		return []WindowAnalytics{}, [][]calibrationledger.CalibrationRecord{}, nil
+		return []WindowAnalytics{}, [][]calibrationledger.CalibrationRecord{}
 	}
 	size := int(policy.WindowSizeRecords)
 	all := make([][]calibrationledger.CalibrationRecord, 0, (len(records)+size-1)/size)
@@ -36,9 +36,9 @@ func buildWindows(records []calibrationledger.CalibrationRecord, policy Analytic
 	}
 	windows := make([]WindowAnalytics, len(all))
 	for i, chunk := range all {
-		windows[i] = windowAnalytics(chunk, i, policy)
+		windows[i] = windowAnalytics(chunk, i)
 	}
-	return windows, all, nil
+	return windows, all
 }
 
 func windowFingerprint(value WindowAnalytics) string {

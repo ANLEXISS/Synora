@@ -142,7 +142,7 @@ func NewRuntime(ctx context.Context, cfg Config, clock Clock, logger Logger, cap
 		r.lastWarnings = append([]string(nil), recovered.Warnings...)
 	}
 	r.lastCheckpointAt = clock.Now().UTC()
-	if err := r.rebuildCognitiveSituations(coordinator.Snapshot()); err != nil {
+	if err := r.rebuildCognitiveProjection(coordinator.Snapshot()); err != nil {
 		r.state = StateDegraded
 		r.lastErrorCode = "cognitive_situation_recovery_failed"
 	} else {

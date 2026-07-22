@@ -12,13 +12,3 @@ func validateQuery(q Query) error {
 	}
 	return nil
 }
-func cloneRecord(r CalibrationRecord) CalibrationRecord {
-	return r.Clone()
-}
-func cloneRecords(values []CalibrationRecord) []CalibrationRecord {
-	out := make([]CalibrationRecord, len(values))
-	for i := range values {
-		out[i] = cloneRecord(values[i])
-	}
-	return out
-}

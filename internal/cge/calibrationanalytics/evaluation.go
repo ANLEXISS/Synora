@@ -2,7 +2,7 @@ package calibrationanalytics
 
 import "sort"
 
-func buildPolicyEvaluation(cohorts []PolicyCohortAnalytics, builds []cohortBuild, policy AnalyticsPolicy) PolicyEvaluation {
+func buildPolicyEvaluation(cohorts []PolicyCohortAnalytics, builds []cohortBuild) PolicyEvaluation {
 	eligible := make([]cohortBuild, 0, len(builds))
 	for _, value := range builds {
 		if value.analytics.Sufficient {

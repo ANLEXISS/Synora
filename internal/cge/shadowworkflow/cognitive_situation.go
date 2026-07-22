@@ -91,10 +91,6 @@ func (r *Runtime) expectedSituationDepth() cognitivesituation.ExpectedPipelineDe
 	}
 }
 
-func (r *Runtime) rebuildCognitiveSituations(state durableworkflow.WorkflowState) error {
-	return r.rebuildCognitiveProjection(state)
-}
-
 func (r *Runtime) rebuildCognitiveProjection(state durableworkflow.WorkflowState) error {
 	started := time.Now()
 	policy := cognitivesituation.DefaultPolicy()
@@ -133,10 +129,6 @@ func (r *Runtime) rebuildCognitiveProjection(state durableworkflow.WorkflowState
 	r.recordRecommendationMetrics(recommendations)
 	r.metrics.addN("recommendation_build_duration_ns", uint64(time.Since(started).Nanoseconds()))
 	return nil
-}
-
-func (r *Runtime) refreshCognitiveSituation(episodeID string, historical *decisioncomparison.HistoricalDecisionRef) error {
-	return r.refreshCognitiveProjection(episodeID, historical)
 }
 
 func (r *Runtime) refreshCognitiveProjection(episodeID string, historical *decisioncomparison.HistoricalDecisionRef) error {

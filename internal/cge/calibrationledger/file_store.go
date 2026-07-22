@@ -160,7 +160,7 @@ func (s *FileStore) LastRecord() (CalibrationRecord, bool) {
 	if len(s.index.records) == 0 {
 		return CalibrationRecord{}, false
 	}
-	return cloneRecord(s.index.records[len(s.index.records)-1]), true
+	return s.index.records[len(s.index.records)-1].Clone(), true
 }
 func (s *FileStore) LedgerBytes() int64 {
 	if s == nil {
@@ -202,7 +202,7 @@ func (s *FileStore) Query(q Query) (QueryResult, error) {
 		}
 		out.Matched++
 		if len(out.Records) < q.Limit {
-			out.Records = append(out.Records, cloneRecord(r))
+			out.Records = append(out.Records, r.Clone())
 		}
 	}
 	return out, nil

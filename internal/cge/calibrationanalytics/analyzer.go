@@ -112,13 +112,10 @@ func Analyze(input AnalyticsInput, policy AnalyticsPolicy) (CalibrationAnalytics
 	if err != nil {
 		return CalibrationAnalyticsReport{}, err
 	}
-	windows, windowRecords, err := buildWindows(records, policy)
-	if err != nil {
-		return CalibrationAnalyticsReport{}, err
-	}
+	windows, windowRecords := buildWindows(records, policy)
 	trend := buildTrend(windows, policy)
 	drift := buildDrift(windowRecords, policy)
-	evaluation := buildPolicyEvaluation(cohorts, cohortRecords, policy)
+	evaluation := buildPolicyEvaluation(cohorts, cohortRecords)
 	sufficiency := buildSufficiency(global, len(windows), evaluation.EligibleCohortCount, policy)
 	sufficiency.SufficientForTrendAnalysis = trend.Sufficient
 	sufficiency.SufficientForDriftAnalysis = drift.Sufficient
