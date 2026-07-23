@@ -158,6 +158,12 @@ func LoadShadowConfig(getenv func(string) string) (ShadowConfig, error) {
 	if config.Workflow.Enabled, err = parseOptionalBool(getenv(ShadowWorkflowEnabledEnv), false); err != nil {
 		return ShadowConfig{}, fmt.Errorf("%w: workflow enabled", ErrInvalidShadowConfig)
 	}
+	storeMode, storeDirectory, storeErr := shadowworkflow.LoadStoreConfig(getenv)
+	if storeErr != nil {
+		return ShadowConfig{}, fmt.Errorf("%w: workflow store: %v", ErrInvalidShadowConfig, storeErr)
+	}
+	config.Workflow.StoreMode = storeMode
+	config.Workflow.StoreDirectory = storeDirectory
 	qualificationConfig, qualificationErr := shadowworkflow.LoadQualificationConfig(getenv)
 	if qualificationErr != nil {
 		return ShadowConfig{}, fmt.Errorf("%w: qualification: %v", ErrInvalidShadowConfig, qualificationErr)

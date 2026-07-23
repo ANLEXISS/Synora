@@ -74,6 +74,9 @@ type CalibrationAnalyticsConfig struct {
 }
 
 const (
+	ShadowWorkflowStoreModeEnv      = "SYNORA_CGE_SHADOW_WORKFLOW_STORE_MODE"
+	ShadowWorkflowStoreDirectoryEnv = "SYNORA_CGE_SHADOW_WORKFLOW_STORE_DIRECTORY"
+
 	CalibrationLedgerEnabledEnv          = "SYNORA_CGE_CALIBRATION_LEDGER_ENABLED"
 	CalibrationLedgerPathEnv             = "SYNORA_CGE_CALIBRATION_LEDGER_PATH"
 	CalibrationLedgerFsyncEnv            = "SYNORA_CGE_CALIBRATION_LEDGER_FSYNC"
@@ -95,6 +98,40 @@ func DefaultCalibrationLedgerConfig() CalibrationLedgerConfig {
 
 func DefaultCalibrationAnalyticsConfig() CalibrationAnalyticsConfig {
 	return CalibrationAnalyticsConfig{Policy: calibrationanalytics.DefaultAnalyticsPolicy(), RecomputeEveryRecords: 100}
+}
+
+// LoadStoreConfig owns the production environment boundary for workflow
+// persistence. Parsing never creates or probes the configured directory.
+func LoadStoreConfig(getenv func(string) string) (StoreMode, string, error) {
+	if getenv == nil {
+		return "", "", ErrInvalidConfig
+	}
+	mode := StoreMemory
+	if rawMode := getenv(ShadowWorkflowStoreModeEnv); rawMode != "" {
+		switch rawMode {
+		case string(StoreMemory):
+			mode = StoreMemory
+		case string(StoreFile):
+			mode = StoreFile
+		default:
+			return "", "", fmt.Errorf("%w: unsupported workflow store mode %q", ErrInvalidConfig, rawMode)
+		}
+	}
+	rawDirectory := getenv(ShadowWorkflowStoreDirectoryEnv)
+	if mode == StoreMemory {
+		if rawDirectory != "" {
+			return "", "", fmt.Errorf("%w: workflow store directory requires file mode", ErrInvalidConfig)
+		}
+		return StoreMemory, "", nil
+	}
+	if rawDirectory == "" || strings.TrimSpace(rawDirectory) != rawDirectory || strings.ContainsRune(rawDirectory, 0) {
+		return "", "", fmt.Errorf("%w: workflow store directory is invalid", ErrInvalidConfig)
+	}
+	directory := filepath.Clean(rawDirectory)
+	if !filepath.IsAbs(directory) || directory == string(filepath.Separator) {
+		return "", "", fmt.Errorf("%w: workflow store directory must be an absolute non-root path", ErrInvalidConfig)
+	}
+	return StoreFile, directory, nil
 }
 
 func (c CalibrationAnalyticsConfig) Validate() error {
@@ -213,6 +250,16 @@ func DefaultConfig() Config {
 }
 
 func (c Config) Validate() error {
+	if c.StoreMode != StoreMemory && c.StoreMode != StoreFile {
+		return ErrInvalidConfig
+	}
+	if c.StoreMode == StoreMemory {
+		if c.StoreDirectory != "" {
+			return ErrInvalidConfig
+		}
+	} else if strings.TrimSpace(c.StoreDirectory) == "" || strings.ContainsRune(c.StoreDirectory, 0) || !filepath.IsAbs(c.StoreDirectory) || filepath.Clean(c.StoreDirectory) != c.StoreDirectory || c.StoreDirectory == string(filepath.Separator) {
+		return ErrInvalidConfig
+	}
 	if err := c.Qualification.Validate(); err != nil {
 		return err
 	}
@@ -237,12 +284,6 @@ func (c Config) Validate() error {
 	switch c.PipelineDepth {
 	case DepthEpisode, DepthSituationFacts, DepthSituationHypotheses, DepthEvidenceDiscrimination, DepthAdvisoryRequests, DepthCapabilityMapping, DepthAuthorizationBoundary:
 	default:
-		return ErrInvalidConfig
-	}
-	if c.StoreMode != StoreMemory && c.StoreMode != StoreFile {
-		return ErrInvalidConfig
-	}
-	if c.StoreMode == StoreFile && (strings.TrimSpace(c.StoreDirectory) == "" || !filepath.IsAbs(c.StoreDirectory)) {
 		return ErrInvalidConfig
 	}
 	return nil

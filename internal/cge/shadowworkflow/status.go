@@ -27,6 +27,8 @@ type StatusSnapshot struct {
 	State                RuntimeState
 	Enabled              bool
 	PipelineDepth        PipelineDepth
+	StoreMode            StoreMode
+	StorePersistent      bool
 	QueueDepth           int
 	QueueCapacity        int
 	CircuitState         string

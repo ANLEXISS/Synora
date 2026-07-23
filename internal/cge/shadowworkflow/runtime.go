@@ -362,10 +362,10 @@ func (r *Runtime) recordFailure(err error) {
 
 func (r *Runtime) Status() StatusSnapshot {
 	if r == nil {
-		return StatusSnapshot{State: StateDisabled}
+		return StatusSnapshot{State: StateDisabled, StoreMode: StoreMemory}
 	}
 	r.mu.RLock()
-	state, enabled, depth, qcap, circuit, lastErr, warnings, failures := r.state, r.cfg.Enabled, r.cfg.PipelineDepth, cap(r.queue), string(r.breaker.state), r.lastErrorCode, append([]string(nil), r.lastWarnings...), r.breaker.failures
+	state, enabled, depth, storeMode, qcap, circuit, lastErr, warnings, failures := r.state, r.cfg.Enabled, r.cfg.PipelineDepth, r.cfg.StoreMode, cap(r.queue), string(r.breaker.state), r.lastErrorCode, append([]string(nil), r.lastWarnings...), r.breaker.failures
 	r.mu.RUnlock()
 	cycleSuccesses := r.counters.success.Load()
 	cycleFailures := r.counters.failed.Load()
@@ -400,7 +400,7 @@ func (r *Runtime) Status() StatusSnapshot {
 	r.mu.RLock()
 	analyticsStatus := r.calibrationAnalyticsStatus
 	r.mu.RUnlock()
-	return StatusSnapshot{State: state, Enabled: enabled, PipelineDepth: depth, QueueDepth: len(r.queue), QueueCapacity: qcap, CircuitState: circuit, WorkflowRevision: workflowRev, LastSequence: seq, WorkflowDigest: digest, EpisodeCount: episodes, FreshLayerCounts: cloneCounts(fresh), StaleLayerCounts: cloneCounts(stale), Received: r.counters.received.Load(), Accepted: r.counters.accepted.Load(), Rejected: r.counters.rejected.Load(), DroppedQueueFull: r.counters.dropped.Load(), Duplicates: r.counters.duplicates.Load(), CyclesSucceeded: cycleSuccesses, CyclesFailed: cycleFailures, CyclesTimedOut: r.counters.timeout.Load(), CommitsSucceeded: r.counters.commits.Load(), CommitsFailed: r.counters.commitFailed.Load(), CheckpointsSucceeded: checkpointSuccesses, CheckpointsFailed: checkpointFailures, RecoveryPerformed: r.coordinator != nil, RecoveryWarnings: warnings, ConsecutiveFailures: failures, LastErrorCode: lastErr, CalibrationLedger: calibrationStatus, CalibrationAnalytics: analyticsStatus}
+	return StatusSnapshot{State: state, Enabled: enabled, PipelineDepth: depth, StoreMode: storeMode, StorePersistent: storeMode == StoreFile, QueueDepth: len(r.queue), QueueCapacity: qcap, CircuitState: circuit, WorkflowRevision: workflowRev, LastSequence: seq, WorkflowDigest: digest, EpisodeCount: episodes, FreshLayerCounts: cloneCounts(fresh), StaleLayerCounts: cloneCounts(stale), Received: r.counters.received.Load(), Accepted: r.counters.accepted.Load(), Rejected: r.counters.rejected.Load(), DroppedQueueFull: r.counters.dropped.Load(), Duplicates: r.counters.duplicates.Load(), CyclesSucceeded: cycleSuccesses, CyclesFailed: cycleFailures, CyclesTimedOut: r.counters.timeout.Load(), CommitsSucceeded: r.counters.commits.Load(), CommitsFailed: r.counters.commitFailed.Load(), CheckpointsSucceeded: checkpointSuccesses, CheckpointsFailed: checkpointFailures, RecoveryPerformed: r.coordinator != nil, RecoveryWarnings: warnings, ConsecutiveFailures: failures, LastErrorCode: lastErr, CalibrationLedger: calibrationStatus, CalibrationAnalytics: analyticsStatus}
 }
 
 func (r *Runtime) Metrics() map[string]uint64 {

@@ -116,6 +116,9 @@ func validateEnvironmentFile(path string) (map[string]string, error) {
 	if config.DataDir != "/var/lib/synora/cge" || config.JournalPath != "/var/lib/synora/cge/journal.ndjson" || config.Workflow.CalibrationLedger.Path != "/var/lib/synora/cge/calibration-ledger.ndjson" {
 		return nil, errors.New("profile uses unexpected durable paths")
 	}
+	if config.Workflow.StoreMode != shadowworkflow.StoreFile || config.Workflow.StoreDirectory != "/var/lib/synora/cge/workflow" || !config.Workflow.SyncOnCommit {
+		return nil, errors.New("profile does not use the durable workflow file store with sync-on-commit")
+	}
 	return values, nil
 }
 
@@ -158,7 +161,7 @@ func validateFilesystem(root string) error {
 	if strings.TrimSpace(root) == "" || !filepath.IsAbs(root) {
 		return errors.New("filesystem mode requires an absolute --root")
 	}
-	requiredDirs := []string{"/opt/synora/bin", "/var/lib/synora", "/var/lib/synora/cge", "/etc/synora", "/run/synora"}
+	requiredDirs := []string{"/opt/synora/bin", "/var/lib/synora", "/var/lib/synora/cge", "/var/lib/synora/cge/workflow", "/etc/synora", "/run/synora"}
 	for _, path := range requiredDirs {
 		if err := checkPath(root, path, true); err != nil {
 			return err
@@ -267,6 +270,7 @@ var recognizedEnvironment = func() map[string]bool {
 		cge.ShadowRoutineLearningEnabledEnv, cge.ShadowRoutineBucketEnv, cge.ShadowRoutineAllowPartialEnv,
 		cge.ShadowRoutineMaxGapEnv, cge.ShadowRoutineSameTopologyEnv, cge.ShadowDeviationEnabledEnv,
 		cge.ShadowDeviationRecentLimitEnv, cge.ShadowDeviationMaxAssessmentsEnv, cge.ShadowWorkflowEnabledEnv,
+		shadowworkflow.ShadowWorkflowStoreModeEnv, shadowworkflow.ShadowWorkflowStoreDirectoryEnv,
 		shadowworkflow.CalibrationLedgerEnabledEnv, shadowworkflow.CalibrationLedgerPathEnv, shadowworkflow.CalibrationLedgerFsyncEnv,
 		shadowworkflow.CalibrationLedgerMaxBytesEnv, shadowworkflow.CalibrationLedgerMaxRecordsEnv, shadowworkflow.CalibrationLedgerRepairTrailingEnv,
 		shadowworkflow.CalibrationAnalyticsEnabledEnv, shadowworkflow.CalibrationAnalyticsMinRecordsEnv, shadowworkflow.CalibrationAnalyticsMinComparableEnv,

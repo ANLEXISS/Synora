@@ -64,6 +64,8 @@ Valeurs importantes du profil :
 | --- | --- | --- |
 | `SYNORA_CGE_SHADOW_ENABLED` | `true` | active le Shadow |
 | `SYNORA_CGE_SHADOW_WORKFLOW_ENABLED` | `true` | active le workflow asynchrone |
+| `SYNORA_CGE_SHADOW_WORKFLOW_STORE_MODE` | `file` | active le FileStore durable du workflow |
+| `SYNORA_CGE_SHADOW_WORKFLOW_STORE_DIRECTORY` | `/var/lib/synora/cge/workflow` | répertoire du WAL et du checkpoint |
 | `SYNORA_CGE_SHADOW_CONTEXT_ENABLED` | `true` | demande le contexte Core read-only |
 | `SYNORA_CGE_DATA_DIR` | `/var/lib/synora/cge` | racine durable CGE |
 | `SYNORA_CGE_JOURNAL_PATH` | `/var/lib/synora/cge/journal.ndjson` | journal Shadow |
@@ -76,11 +78,14 @@ Valeurs importantes du profil :
 | `SYNORA_CGE_SHADOW_QUALIFICATION_ENABLED` | `false` | opt-in séparé |
 | `SYNORA_CGE_FIELD_TRIAL_ENABLED` | `false` | aucun field trial |
 
-Le profil ne définit pas `StoreMode` : aucun parseur d'environnement de
-production ne l'expose. Le défaut actuel du workflow reste donc `memory` ; le
-ledger de calibration, lui, est durable via son propre chemin. Cette limite
-doit être résolue dans une passe dédiée avant une campagne longue si un store
-workflow durable est requis.
+Le profil active explicitement `StoreMode=file` avec
+`StoreDirectory=/var/lib/synora/cge/workflow`. Le défaut de production reste
+`StoreMemory` lorsque ces variables sont absentes. Le runtime crée lui-même ce
+répertoire avec le mode `0700`, puis `workflow.wal` et
+`workflow.checkpoint.json` avec le mode `0600`; le profil exige
+`SyncOnCommit=true`. Le checkpoint est créé après le premier commit selon la
+politique du runtime et le recovery relit le même store après une fermeture et
+une réouverture propres.
 
 Les variables reconnues sont celles des parseurs `internal/cge`,
 `internal/cge/shadowworkflow` et `internal/cge/fieldtrial`. Elles couvrent les
@@ -144,6 +149,7 @@ avec `RuntimeDirectory=synora` et le Core n'en est pas propriétaire.
 | `/opt/synora/version.json` | `root:root`, `0644` | installateur | manifest non secret |
 | `/var/lib/synora` | `synora:synora`, `0755` | install-dirs | état durable |
 | `/var/lib/synora/cge` | `synora:synora`, `0750` recommandé | pré-création contrôlée | journal, ledger, rapports |
+| `/var/lib/synora/cge/workflow` | `synora:synora`, `0700` | runtime FileStore | `workflow.wal`, `workflow.checkpoint.json` |
 | `/etc/synora` | `root:synora`, `0755` | installateur | profil non secret |
 | `/etc/synora/synora-core.env` | `root:synora`, `0640` recommandé | opérateur | variables de profil |
 | `/run/synora` | `synora:synora`, `0770` | systemd/tmpfiles du bus | socket bus, runtime éphémère |
@@ -166,13 +172,18 @@ des bornes de calcul, pas une mesure du prototype.
 | 24 h | 1440 | 90 MiB théorique, 16 MiB effectifs ledger | plafond atteint avant 24 h |
 | 7 jours | 10080 | 630 MiB théorique, 16 MiB effectifs ledger | records supplémentaires refusés/à observer |
 
-Le journal Shadow et les logs Core ne sont pas plafonnés par ce profil et
-constituent les chemins de croissance principaux. Le workflow reste en
-`StoreMemory`; ses limites WAL/checkpoint de code (256 MiB chacune) ne
-constituent donc pas une promesse de fichiers durables dans ce smoke. Une
-qualification activée peut produire jusqu'à 512 MiB de sortie et 256 MiB de
-WAL selon ses valeurs de code. Les logs et le journal doivent être surveillés
-et soumis à une rotation opérateur avant toute campagne 24 h ou 7 jours.
+Les limites à retenir sont des plafonds configurés ou de code, pas des
+consommations attendues :
+
+- Calibration Ledger : 16 MiB ou 1000 records dans ce profil ;
+- Workflow WAL : plafond de code de 256 MiB ;
+- Workflow checkpoint : plafond de code de 256 MiB ;
+- qualification : limites de sortie et de WAL séparées lorsqu'elle est
+  explicitement activée ;
+- logs Core et journal : croissance séparée, soumise à la rotation opérateur.
+
+Les logs et le journal doivent être surveillés et soumis à une rotation
+opérateur avant toute campagne 24 h ou 7 jours.
 
 ## Préparation future
 
@@ -226,14 +237,18 @@ donnée sensible.
 ### Recovery et rollback
 
 Après un smoke, l'opérateur arrête proprement le Core, conserve le journal,
-ledger, rapport et checksums, puis relance avec le même `DataDir`. Il vérifie
-la dernière séquence durable, le fingerprint du ledger, l'intégrité de la
-hash chain et le newline final. Aucune réparation automatique n'est permise.
+ledger, workflow WAL, checkpoint, rapport et checksums, puis relance avec le
+même `DataDir` et le même `StoreDirectory`. Il vérifie la dernière séquence
+du workflow, la révision et le digest, la reconstruction des projections,
+le fingerprint du ledger, l'intégrité de la hash chain et le newline final.
+Le runtime ne republie aucune observation pendant ce recovery et aucune
+nouvelle entrée ledger ne doit être produite. Aucune réparation automatique
+du WAL n'est permise ; une troncature finale reste gouvernée par la policy.
 
 Un rollback ne supprime pas les preuves :
 
 1. désactiver Shadow par configuration lors d'une prochaine fenêtre ;
-2. conserver `/var/lib/synora/cge` pour analyse ;
+2. conserver `/var/lib/synora/cge/workflow`, `/var/lib/synora/cge/calibration-ledger.ndjson` et `/var/lib/synora/cge/journal.ndjson` pour analyse ;
 3. restaurer le binaire précédent et son `version.json` ;
 4. conserver les données historiques et le ledger ;
 5. effectuer ensuite un redémarrage contrôlé, séparément approuvé.

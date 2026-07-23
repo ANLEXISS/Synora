@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -73,6 +75,7 @@ type busCoreE2EHarness struct {
 	context     *coreReadOnlyContextProvider
 	config      cge.ShadowConfig
 	ledger      string
+	socket      string
 	bus         *strictE2EBus
 	core        *bus.Client
 	vision      *bus.Client
@@ -153,7 +156,8 @@ func newBusCoreE2EHarness(t *testing.T) *busCoreE2EHarness {
 	app.processStop = stop
 	harness := &busCoreE2EHarness{
 		app: app, shadow: shadow, context: provider, config: config, ledger: config.Workflow.CalibrationLedger.Path,
-		bus: strictBus, core: coreClient, vision: visionClient, server: server,
+		socket: socket,
+		bus:    strictBus, core: coreClient, vision: visionClient, server: server,
 		serverErr: serverErr, stop: stop, processDone: make(chan struct{}), busDone: make(chan struct{}),
 	}
 	go func() {
@@ -261,6 +265,9 @@ func waitForE2ECommit(t *testing.T, h *busCoreE2EHarness) {
 	t.Helper()
 	waitE2EStep(t, "ingest, processLoop, historical processing, TrySubmit, worker and ledger commit", func() bool {
 		status := h.shadow.WorkflowStatus()
+		if status.StoreMode != shadowworkflow.StoreFile || !status.StorePersistent || !h.config.Workflow.SyncOnCommit {
+			t.Fatalf("workflow is not using durable file storage: status=%+v config=%+v", status, h.config.Workflow)
+		}
 		admission := h.shadow.AdmissionStatus()
 		contextStatus := h.shadow.ContextProviderStatus()
 		metrics := h.shadow.Metrics()
@@ -333,6 +340,16 @@ func TestBusCoreCGECalibrationLedgerEndToEnd(t *testing.T) {
 	if projection.Situations.Situations[0].SourceFingerprints.Context == "" {
 		t.Fatalf("cognitive situation does not carry the live context fingerprint: %+v", projection.Situations.Situations[0].SourceFingerprints)
 	}
+	workflowBeforeRestart := projection.Clone()
+	workflowStatusBeforeRestart := h.shadow.WorkflowStatus()
+	workflowDirectoryInfo, err := os.Stat(h.config.Workflow.StoreDirectory)
+	if err != nil || workflowDirectoryInfo.Mode().Perm() != 0700 {
+		t.Fatalf("workflow directory durability=%+v err=%v", workflowDirectoryInfo, err)
+	}
+	workflowWALInfo, err := os.Stat(filepath.Join(h.config.Workflow.StoreDirectory, "workflow.wal"))
+	if err != nil || workflowWALInfo.Size() == 0 || workflowWALInfo.Mode().Perm() != 0600 {
+		t.Fatalf("workflow WAL durability=%+v err=%v", workflowWALInfo, err)
+	}
 	encodedProjection, _ := json.Marshal(projection)
 	for _, sentinel := range []string{identity, clipID, deviceID, eventID, "SENSITIVE-TRACK-SENTINEL", "SENSITIVE-IP", "SENSITIVE-TOKEN"} {
 		if strings.Contains(string(encodedProjection), sentinel) {
@@ -371,6 +388,7 @@ func TestBusCoreCGECalibrationLedgerEndToEnd(t *testing.T) {
 
 	beforeDigest := ledgerSnapshot.Digest
 	beforeEnvelope := ledgerSnapshot.LastEnvelopeFingerprint
+	ledgerBeforeRecovery := append([]byte(nil), raw...)
 	h.stopCore()
 	if err := h.shadow.Close(); err != nil {
 		t.Fatalf("close first Core/Shadow/ledger runtime: %v", err)
@@ -381,14 +399,57 @@ func TestBusCoreCGECalibrationLedgerEndToEnd(t *testing.T) {
 		t.Fatalf("reopen shadow and recover durable ledger: %v", err)
 	}
 	defer reopened.Close()
+	core2Client, err := bus.NewClient(h.socket, "core-2")
+	if err != nil {
+		t.Fatalf("open Core 2 bus client: %v", err)
+	}
+	core2Bus := &strictE2EBus{client: core2Client}
+	core2App, _ := newTestCoreApp(t)
+	core2App.bus = core2Bus
+	core2App.snapshotPublisher.Bus = core2Bus
+	core2App.actionDispatcher.Bus = core2Bus
+	core2App.rpc = nil
+	core2App.cognitive = reopened
+	core2Provider := newCoreReadOnlyContextProvider(core2App)
+	core2Provider.now = func() time.Time { return e2eAt }
+	reopened.SetContextProvider(core2Provider)
+	core2Stop := make(chan struct{})
+	core2App.processStop = core2Stop
+	core2Done := make(chan struct{})
+	go func() {
+		_ = core2App.runBusLoop()
+		close(core2Done)
+	}()
+	defer func() {
+		close(core2Stop)
+		_ = core2Client.Close()
+		<-core2Done
+	}()
 	recoveredStatus := reopened.WorkflowStatus()
 	recoveredLedger := reopened.WorkflowCalibrationSnapshot()
 	if !recoveredStatus.RecoveryPerformed || !recoveredStatus.CalibrationLedger.RecoveryCompleted || recoveredLedger.RecordCount != 1 || recoveredLedger.LastSequence != 1 || recoveredLedger.Digest != beforeDigest || recoveredLedger.LastEnvelopeFingerprint != beforeEnvelope || recoveredLedger.LastRecordFingerprint != record.RecordFingerprint {
 		t.Fatalf("ledger recovery changed durable identity: status=%+v snapshot=%+v", recoveredStatus, recoveredLedger)
 	}
+	if recoveredStatus.StoreMode != shadowworkflow.StoreFile || !recoveredStatus.StorePersistent || recoveredStatus.LastSequence != workflowStatusBeforeRestart.LastSequence || recoveredStatus.WorkflowRevision != workflowStatusBeforeRestart.WorkflowRevision || recoveredStatus.WorkflowDigest != workflowStatusBeforeRestart.WorkflowDigest || recoveredStatus.EpisodeCount != workflowStatusBeforeRestart.EpisodeCount {
+		t.Fatalf("workflow recovery changed durable identity: before=%+v after=%+v", workflowStatusBeforeRestart, recoveredStatus)
+	}
+	recoveredProjection := reopened.WorkflowProjection()
+	if !reflect.DeepEqual(recoveredProjection.Situations, workflowBeforeRestart.Situations) || !reflect.DeepEqual(recoveredProjection.Recommendations, workflowBeforeRestart.Recommendations) {
+		t.Fatalf("workflow situation/recommendation projection was not reconstructed: before=%+v after=%+v", workflowBeforeRestart, recoveredProjection)
+	}
+	if len(recoveredProjection.Comparisons.Comparisons) != 0 {
+		t.Fatalf("historical comparison was unexpectedly reconstructed without its historical reference: %+v", recoveredProjection.Comparisons)
+	}
+	if recoveredStatus.CommitsSucceeded != 0 || recoveredStatus.Received != 0 {
+		t.Fatalf("workflow recovery produced a phantom commit: %+v", recoveredStatus)
+	}
 	recoveredRecords, err := reopened.WorkflowCalibrationRecords(calibrationledger.Query{Limit: 10})
 	if err != nil || len(recoveredRecords.Records) != 1 || recoveredRecords.Records[0].RecordFingerprint != record.RecordFingerprint {
 		t.Fatalf("recovered ledger records=%+v err=%v", recoveredRecords, err)
+	}
+	ledgerAfterRecovery, err := os.ReadFile(h.ledger)
+	if err != nil || !bytes.Equal(ledgerBeforeRecovery, ledgerAfterRecovery) {
+		t.Fatalf("workflow recovery appended to calibration ledger: err=%v before=%d after=%d", err, len(ledgerBeforeRecovery), len(ledgerAfterRecovery))
 	}
 }
 
@@ -451,7 +512,8 @@ func TestBusCoreCGENonAllowlistedEventIsHistoricalOnly(t *testing.T) {
 	h := newBusCoreE2EHarness(t)
 	h.publish(t, contract.EventVisionWeapon, mainE2EPayload("evt-weapon", "cam_01", "", "clip-weapon"))
 	waitE2EStep(t, "historical-only weapon event", func() bool {
-		return coreProcessed(h.app) == 1 && len(h.app.eventStore.List()) == 1 && h.shadow.Metrics().EventsObserved == 1
+		metrics := h.shadow.Metrics()
+		return coreProcessed(h.app) == 1 && len(h.app.eventStore.List()) == 1 && metrics.EventsObserved == 1 && metrics.EventsSkipped == 1
 	})
 	metrics := h.shadow.Metrics()
 	status := h.shadow.WorkflowStatus()

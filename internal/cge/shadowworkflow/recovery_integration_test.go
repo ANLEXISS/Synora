@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -62,6 +64,102 @@ func TestQualificationCorruptMiddleWALFailsClosed(t *testing.T) {
 	}
 	if result := recovered.TrySubmit(testInput(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), "rejected-after-corruption")); result.Status != SubmitStopped {
 		t.Fatalf("submit after corruption=%+v", result)
+	}
+}
+
+func TestRuntimeFileStoreRecoversWorkflowAndProjectionAfterRestart(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "workflow")
+	cfg := fileQualificationConfig(directory)
+	cfg.CheckpointEveryTransactions = 1
+	first := commitFileQualificationEvent(t, cfg, "runtime-restart")
+	beforeStatus := first.Status()
+	beforeState := first.CoordinatorSnapshot()
+	beforeProjection := first.CognitiveProjection()
+	if beforeStatus.StoreMode != StoreFile || !beforeStatus.StorePersistent || !cfg.SyncOnCommit {
+		t.Fatalf("file runtime durability status=%+v config=%+v", beforeStatus, cfg)
+	}
+	if beforeStatus.LastSequence == 0 || beforeStatus.WorkflowRevision == 0 || beforeStatus.WorkflowDigest == "" || beforeStatus.EpisodeCount != 1 {
+		t.Fatalf("first runtime did not commit durable workflow state: %+v", beforeStatus)
+	}
+	if err := first.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	directoryInfo, err := os.Stat(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if directoryInfo.Mode().Perm() != 0700 {
+		t.Fatalf("workflow directory mode=%o, want 700", directoryInfo.Mode().Perm())
+	}
+	walInfo, err := os.Stat(filepath.Join(directory, "workflow.wal"))
+	if err != nil || walInfo.Size() == 0 {
+		t.Fatalf("workflow WAL missing or empty: info=%+v err=%v", walInfo, err)
+	}
+	if walInfo.Mode().Perm() != 0600 {
+		t.Fatalf("workflow WAL mode=%o, want 600", walInfo.Mode().Perm())
+	}
+	checkpointPath := filepath.Join(directory, "workflow.checkpoint.json")
+	checkpointInfo, err := os.Stat(checkpointPath)
+	if err != nil {
+		t.Fatalf("workflow checkpoint missing after clean close: %v", err)
+	}
+	if checkpointInfo.Size() == 0 || checkpointInfo.Mode().Perm() != 0600 {
+		t.Fatalf("workflow checkpoint info=%+v", checkpointInfo)
+	}
+
+	second, err := NewRuntime(context.Background(), cfg, fixedClock{now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close(context.Background())
+	afterStatus := second.Status()
+	if !afterStatus.RecoveryPerformed || afterStatus.StoreMode != StoreFile || !afterStatus.StorePersistent {
+		t.Fatalf("restart status=%+v", afterStatus)
+	}
+	if afterStatus.LastSequence != beforeStatus.LastSequence || afterStatus.WorkflowRevision != beforeStatus.WorkflowRevision || afterStatus.WorkflowDigest != beforeStatus.WorkflowDigest || afterStatus.EpisodeCount != beforeStatus.EpisodeCount {
+		t.Fatalf("workflow identity changed across restart before=%+v after=%+v", beforeStatus, afterStatus)
+	}
+	if !reflect.DeepEqual(second.CoordinatorSnapshot(), beforeState) || !reflect.DeepEqual(second.CognitiveProjection(), beforeProjection) {
+		t.Fatalf("workflow state/projection was not reconstructed before=%+v after=%+v projection=%+v", beforeState, second.CoordinatorSnapshot(), second.CognitiveProjection())
+	}
+	if afterStatus.CommitsSucceeded != 0 || afterStatus.Received != 0 {
+		t.Fatalf("recovery created a phantom commit: %+v", afterStatus)
+	}
+}
+
+func TestRuntimeFileStoreStatusIsConcurrentWithRecoveryAndShutdown(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "workflow")
+	cfg := fileQualificationConfig(directory)
+	cfg.CheckpointEveryTransactions = 1
+	first := commitFileQualificationEvent(t, cfg, "concurrent-status")
+	if err := first.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewRuntime(context.Background(), cfg, fixedClock{now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
+				status := second.Status()
+				if status.StoreMode != StoreFile || !status.StorePersistent || status.LastSequence != 1 {
+					t.Errorf("concurrent recovery status=%+v", status)
+					return
+				}
+			}
+		}()
+	}
+	if err := second.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	wg.Wait()
+	if second.Status().State != StateStopped {
+		t.Fatalf("status after concurrent close=%+v", second.Status())
 	}
 }
 

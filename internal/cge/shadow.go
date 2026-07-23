@@ -127,7 +127,7 @@ func (e *ShadowEngine) Status() durable.StatusSnapshot {
 // workflow. It is not part of the historical decision boundary.
 func (e *ShadowEngine) WorkflowStatus() shadowworkflow.StatusSnapshot {
 	if e == nil || e.workflow == nil {
-		return shadowworkflow.StatusSnapshot{State: shadowworkflow.StateDisabled}
+		return shadowworkflow.StatusSnapshot{State: shadowworkflow.StateDisabled, StoreMode: shadowworkflow.StoreMemory}
 	}
 	return e.workflow.Status()
 }
