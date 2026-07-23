@@ -73,10 +73,10 @@ func AdaptEventWithPolicy(event Event, policy ShadowEventAdmissionPolicy) (Adapt
 
 func observationFromEvent(event Event, eventType string) (observation chains.ObservationRef) {
 	return chains.ObservationRef{
-		ID: durableids.Protect(durableids.KindObservation, event.ID), EventType: eventType, Timestamp: event.Timestamp,
-		NodeID: event.NodeID, DeviceID: durableids.Protect(durableids.KindDevice, event.DeviceID), EntityID: durableids.Protect(durableids.KindEntity, event.Identity),
-		ActivationID: durableids.Protect(durableids.KindActivation, event.ActivationID), ClipID: durableids.Protect(durableids.KindClip, event.ClipID), ClipIndex: event.ClipIndex,
-		TrackID: durableids.Protect(durableids.KindTrack, event.TrackID), SequenceKey: durableids.Protect(durableids.KindSequence, event.SequenceKey),
+		ID: durableids.ProtectRaw(durableids.KindObservation, event.ID), EventType: eventType, Timestamp: event.Timestamp,
+		NodeID: event.NodeID, DeviceID: durableids.ProtectRaw(durableids.KindDevice, event.DeviceID), EntityID: durableids.ProtectRaw(durableids.KindEntity, event.Identity),
+		ActivationID: durableids.ProtectRaw(durableids.KindActivation, event.ActivationID), ClipID: durableids.ProtectRaw(durableids.KindClip, event.ClipID), ClipIndex: event.ClipIndex,
+		TrackID: durableids.ProtectRaw(durableids.KindTrack, event.TrackID), SequenceKey: durableids.ProtectRaw(durableids.KindSequence, event.SequenceKey),
 	}
 }
 

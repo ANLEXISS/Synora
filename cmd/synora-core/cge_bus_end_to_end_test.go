@@ -20,6 +20,7 @@ import (
 	"synora/internal/cge"
 	"synora/internal/cge/calibrationledger"
 	cgecontext "synora/internal/cge/context"
+	"synora/internal/cge/durableids"
 	"synora/internal/cge/shadowworkflow"
 	"synora/pkg/contract"
 )
@@ -302,6 +303,11 @@ func TestBusCoreCGEDurableSensitiveIdentifierReproduction(t *testing.T) {
 	}
 	h.shadow = nil
 
+	scanE2EDurableRoots(t, h, []string{identity, eventID, deviceID, clipID, trackID, activation, sequenceKey})
+}
+
+func scanE2EDurableRoots(t *testing.T, h *busCoreE2EHarness, sentinels []string) {
+	t.Helper()
 	paths := []string{h.config.DataDir, h.config.Workflow.StoreDirectory, h.config.Workflow.CalibrationLedger.Path}
 	for _, root := range paths {
 		info, err := os.Stat(root)
@@ -313,17 +319,59 @@ func TestBusCoreCGEDurableSensitiveIdentifierReproduction(t *testing.T) {
 				if walkErr != nil || info.IsDir() {
 					return walkErr
 				}
-				return scanDurableJSONForSentinels(t, path, []string{identity, eventID, deviceID, clipID, trackID, activation, sequenceKey})
+				return scanDurableJSONForSentinels(t, path, sentinels)
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
 			continue
 		}
-		if err := scanDurableJSONForSentinels(t, root, []string{identity, eventID, deviceID, clipID, trackID, activation, sequenceKey}); err != nil {
+		if err := scanDurableJSONForSentinels(t, root, sentinels); err != nil {
 			t.Fatal(err)
 		}
 	}
+}
+
+func TestBusCoreCGEDurableRedactionRejectsSpoofedTokens(t *testing.T) {
+	h := newBusCoreE2EHarness(t)
+	const (
+		eventID     = "PASS64-2-SPOOF-EVENT"
+		rawEntity   = "cgeid-v1:entity:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		rawDevice   = "cgeid-v1:entity:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		clipID      = "PASS64-2-SPOOF-CLIP"
+		trackID     = "PASS64-2-SPOOF-TRACK"
+		activation  = "PASS64-2-SPOOF-ACTIVATION"
+		sequenceKey = "PASS64-2-SPOOF-SEQUENCE"
+	)
+	h.publish(t, contract.EventVisionIdentity, map[string]any{
+		"event_id": eventID, "device_id": rawDevice, "node_id": "entry", "clip_id": clipID,
+		"track_id": trackID, "activation_id": activation, "sequence_key": sequenceKey,
+		"identity": rawEntity, "confidence": 0.91,
+	})
+	waitForE2ECommit(t, h)
+	chains := h.shadow.ListChains()
+	if len(chains) != 1 || len(chains[0].Observations) != 1 {
+		t.Fatalf("unexpected spoofed-token chain snapshot: %#v", chains)
+	}
+	observation := chains[0].Observations[0]
+	if observation.ID == eventID || observation.EntityID == rawEntity || observation.DeviceID == rawDevice {
+		t.Fatalf("spoofed Core identifiers were retained: %#v", observation)
+	}
+	if !durableids.IsProtectedFor(durableids.KindObservation, observation.ID) ||
+		!durableids.IsProtectedFor(durableids.KindEntity, observation.EntityID) ||
+		!durableids.IsProtectedFor(durableids.KindDevice, observation.DeviceID) ||
+		!durableids.IsProtectedFor(durableids.KindClip, observation.ClipID) ||
+		!durableids.IsProtectedFor(durableids.KindTrack, observation.TrackID) ||
+		!durableids.IsProtectedFor(durableids.KindActivation, observation.ActivationID) ||
+		!durableids.IsProtectedFor(durableids.KindSequence, observation.SequenceKey) {
+		t.Fatalf("stored observation references have incorrect domains: %#v", observation)
+	}
+	h.stopCore()
+	if err := h.shadow.Close(); err != nil {
+		t.Fatalf("close shadow before durable scan: %v", err)
+	}
+	h.shadow = nil
+	scanE2EDurableRoots(t, h, []string{eventID, rawEntity, rawDevice, clipID, trackID, activation, sequenceKey})
 }
 
 func scanDurableJSONForSentinels(t *testing.T, path string, sentinels []string) error {

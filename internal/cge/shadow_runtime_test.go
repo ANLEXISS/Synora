@@ -170,10 +170,19 @@ func TestShadowRecoveryKeepsProtectedSubjectRelations(t *testing.T) {
 	}
 	for _, value := range chainSnapshots {
 		for _, observation := range value.Observations {
-			if durableids.IsProtected(observation.ID) == false || durableids.IsProtected(observation.EntityID) == false {
+			if !durableids.IsProtectedFor(durableids.KindObservation, observation.ID) ||
+				!durableids.IsProtectedFor(durableids.KindEntity, observation.EntityID) ||
+				!durableids.IsProtectedFor(durableids.KindDevice, observation.DeviceID) ||
+				!durableids.IsProtectedFor(durableids.KindClip, observation.ClipID) ||
+				!durableids.IsProtectedFor(durableids.KindTrack, observation.TrackID) ||
+				!durableids.IsProtectedFor(durableids.KindActivation, observation.ActivationID) ||
+				!durableids.IsProtectedFor(durableids.KindSequence, observation.SequenceKey) {
 				t.Fatalf("unprotected recovered observation: %#v", observation)
 			}
 		}
+	}
+	if observations := byEntity[string(entityA)].Observations; observations[0].DeviceID != observations[1].DeviceID {
+		t.Fatalf("same device lost its stable protected identity after recovery: %#v", observations)
 	}
 }
 

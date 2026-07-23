@@ -78,8 +78,8 @@ func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, histori
 		// The historical decision remains authoritative in Core. The Shadow
 		// copy carries only a stable opaque reference, so cognitive projections
 		// and calibration records cannot persist a raw event identifier.
-		copy.ID = durableids.Protect(durableids.KindObservation, copy.ID)
-		copy.SourceEventRef = durableids.Protect(durableids.KindObservation, copy.SourceEventRef)
+		copy.ID = durableids.ProtectRaw(durableids.KindObservation, copy.ID)
+		copy.SourceEventRef = durableids.ProtectRaw(durableids.KindObservation, copy.SourceEventRef)
 		copy.Fingerprint = decisioncomparison.HistoricalDecisionFingerprint(copy)
 		input.HistoricalDecision = &copy
 	}

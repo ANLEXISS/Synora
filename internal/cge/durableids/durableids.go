@@ -27,35 +27,60 @@ const (
 	hexLength    = sha256.Size * 2
 )
 
-// Protect returns a deterministic, domain-separated pseudonym suitable for
-// CGE durable state. It is pseudonymisation, not encryption: no secret is
-// involved and the result is not reversible by this package.
-//
-// Empty values remain empty. A value already in the protected format is
-// returned unchanged, which makes the boundary idempotent.
-func Protect(kind Kind, value string) string {
-	if value == "" || IsProtected(value) {
-		return value
+// ProtectRaw always treats value as a raw Core identifier. It is
+// pseudonymisation, not encryption: no secret is involved and the result is
+// not reversible by this package.
+func ProtectRaw(kind Kind, value string) string {
+	if value == "" {
+		return ""
 	}
 	digest := sha256.Sum256([]byte(namespace + "\x00" + string(kind) + "\x00" + value))
 	return formatPrefix + string(kind) + ":" + hex.EncodeToString(digest[:])
 }
 
+// Protect returns a deterministic, domain-separated pseudonym suitable for
+// CGE durable state when value may already be an internal reference. Empty
+// values remain empty. A token is retained only when it is valid for the
+// requested domain; a token from another domain is pseudonymised again into
+// the requested domain.
+func Protect(kind Kind, value string) string {
+	if value == "" || IsProtectedFor(kind, value) {
+		return value
+	}
+	return ProtectRaw(kind, value)
+}
+
 // IsProtected reports whether value is a complete v1 CGE durable identifier.
 func IsProtected(value string) bool {
+	_, ok := protectedKind(value)
+	return ok
+}
+
+// IsProtectedFor reports whether value is a complete v1 CGE durable
+// identifier in exactly the requested domain.
+func IsProtectedFor(kind Kind, value string) bool {
+	parsed, ok := protectedKind(value)
+	return ok && parsed == kind
+}
+
+func protectedKind(value string) (Kind, bool) {
 	if !strings.HasPrefix(value, formatPrefix) {
-		return false
+		return "", false
 	}
 	rest := strings.TrimPrefix(value, formatPrefix)
 	separator := strings.LastIndexByte(rest, ':')
 	if separator <= 0 || separator == len(rest)-1 {
-		return false
+		return "", false
 	}
-	if !validKind(Kind(rest[:separator])) || len(rest[separator+1:]) != hexLength {
-		return false
+	kind := Kind(rest[:separator])
+	if !validKind(kind) || len(rest[separator+1:]) != hexLength {
+		return "", false
 	}
 	decoded, err := hex.DecodeString(rest[separator+1:])
-	return err == nil && len(decoded) == sha256.Size
+	if err != nil || len(decoded) != sha256.Size {
+		return "", false
+	}
+	return kind, true
 }
 
 func validKind(kind Kind) bool {

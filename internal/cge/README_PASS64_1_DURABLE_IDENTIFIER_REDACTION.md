@@ -31,9 +31,14 @@ empreinte restent inchangés lorsqu'ils ne contiennent aucune valeur brute.
 `HouseMode`, `Occupancy`, la topologie et les états `known`/`unknown`/
 `uncertain` restent sémantiques.
 
-Une valeur vide reste vide. `Protect` reconnaît le format v1 et ne protège pas
-une seconde fois une valeur déjà protégée. Une même valeur brute est stable
-après redémarrage et produit des valeurs distinctes selon le domaine.
+Une valeur vide reste vide. La frontière Core utilise toujours
+`ProtectRaw(kind, value)` : son entrée est considérée comme brute, même si le
+texte imite déjà `cgeid-v1:<domain>:<sha256-hex>`. `Protect` est réservé aux
+références internes éventuellement déjà protégées ; il est idempotent
+uniquement pour le domaine demandé et re-protège un token d'un autre domaine.
+`IsProtected` valide le format v1 et `IsProtectedFor` vérifie en plus le
+domaine exact. Une même valeur brute est stable après redémarrage et produit
+des valeurs distinctes selon le domaine.
 
 ## Compatibilité et vérification
 
