@@ -256,8 +256,9 @@ func waitForE2ECommit(t *testing.T, h *busCoreE2EHarness) {
 	t.Helper()
 	waitE2EStep(t, "ingest, processLoop, historical processing, TrySubmit, worker and ledger commit", func() bool {
 		status := h.shadow.WorkflowStatus()
+		admission := h.shadow.AdmissionStatus()
 		metrics := h.shadow.Metrics()
-		return coreProcessed(h.app) == 1 && len(h.app.eventStore.List()) == 1 && metrics.EventsObserved == 1 && metrics.EventsEligible == 1 && status.Accepted == 1 && status.CyclesSucceeded == 1 && status.CommitsSucceeded == 1 && status.CalibrationLedger.RecordCount == 1
+		return coreProcessed(h.app) == 1 && len(h.app.eventStore.List()) == 1 && metrics.EventsObserved == 1 && metrics.EventsEligible == 1 && admission.AcceptedTotal == 1 && admission.LastCode == cge.ShadowAdmissionAccepted && status.Accepted == 1 && status.CyclesSucceeded == 1 && status.CommitsSucceeded == 1 && status.CalibrationLedger.RecordCount == 1
 	})
 }
 
@@ -292,6 +293,13 @@ func TestBusCoreCGECalibrationLedgerEndToEnd(t *testing.T) {
 	}
 	if h.bus.actionCount() != 0 || len(h.bus.messagesOfType(contract.EventActionRequest)) != 0 {
 		t.Fatalf("CGE or Core produced an action: count=%d", h.bus.actionCount())
+	}
+	admission := h.shadow.AdmissionStatus()
+	if admission.LastCode != cge.ShadowAdmissionAccepted || admission.AcceptedTotal != 1 || !admission.HistoricalAuthorityUnchanged || !admission.NoActionProduced {
+		t.Fatalf("unexpected end-to-end Shadow admission: %+v", admission)
+	}
+	if h.shadow.AdmissionMetrics()["cge_shadow_admission_accepted_total"] != 1 {
+		t.Fatalf("accepted admission metric missing: %v", h.shadow.AdmissionMetrics())
 	}
 
 	projection := h.shadow.WorkflowProjection()
@@ -375,9 +383,10 @@ func TestBusCoreCGEAllowlistedEvents(t *testing.T) {
 			h.publish(t, tc.eventType, mainE2EPayload("evt-"+tc.name, "cam_01", tc.identity, "clip-"+tc.name))
 			waitForE2ECommit(t, h)
 			status := h.shadow.WorkflowStatus()
+			admission := h.shadow.AdmissionStatus()
 			metrics := h.shadow.Metrics()
-			if status.Accepted != 1 || status.CommitsSucceeded != 1 || status.CalibrationLedger.RecordCount != 1 || metrics.EventsEligible != 1 || len(h.shadow.WorkflowProjection().Comparisons.Comparisons) != 1 {
-				t.Fatalf("allowlisted %s invariant failed: status=%+v metrics=%+v projection=%+v", tc.eventType, status, metrics, h.shadow.WorkflowProjection())
+			if status.Accepted != 1 || status.CommitsSucceeded != 1 || status.CalibrationLedger.RecordCount != 1 || admission.LastCode != cge.ShadowAdmissionAccepted || admission.AcceptedTotal != 1 || metrics.EventsEligible != 1 || len(h.shadow.WorkflowProjection().Comparisons.Comparisons) != 1 {
+				t.Fatalf("allowlisted %s invariant failed: status=%+v admission=%+v metrics=%+v projection=%+v", tc.eventType, status, admission, metrics, h.shadow.WorkflowProjection())
 			}
 			if h.bus.actionCount() != 0 {
 				t.Fatalf("allowlisted %s produced an action", tc.eventType)
@@ -394,8 +403,9 @@ func TestBusCoreCGENonAllowlistedEventIsHistoricalOnly(t *testing.T) {
 	})
 	metrics := h.shadow.Metrics()
 	status := h.shadow.WorkflowStatus()
-	if metrics.EventsEligible != 0 || metrics.EventsSkipped != 1 || status.Accepted != 0 || status.CommitsSucceeded != 0 || status.CalibrationLedger.RecordCount != 0 {
-		t.Fatalf("non-allowlisted event entered Shadow workflow: metrics=%+v status=%+v", metrics, status)
+	admission := h.shadow.AdmissionStatus()
+	if metrics.EventsEligible != 0 || metrics.EventsSkipped != 1 || admission.LastCode != cge.ShadowAdmissionIgnoredByPolicy || admission.IgnoredByPolicyTotal != 1 || status.Accepted != 0 || status.CommitsSucceeded != 0 || status.CalibrationLedger.RecordCount != 0 {
+		t.Fatalf("non-allowlisted event entered Shadow workflow: metrics=%+v admission=%+v status=%+v", metrics, admission, status)
 	}
 	if len(h.bus.messagesOfType("engine.decision")) == 0 {
 		t.Fatal("historical engine did not process non-allowlisted event")

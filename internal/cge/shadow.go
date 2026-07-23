@@ -61,7 +61,9 @@ type ShadowEngine struct {
 	dataDir           string
 	policy            association.Policy
 	evidencePolicy    evidence.Policy
-	allowlist         map[string]struct{}
+	admissionPolicy   ShadowEventAdmissionPolicy
+	admissionMu       sync.RWMutex
+	admission         ShadowAdmissionStatus
 	actor             string
 	clock             Clock
 	logger            Logger
@@ -154,6 +156,42 @@ func (e *ShadowEngine) WorkflowCalibrationSnapshot() calibrationledger.Snapshot 
 	return e.workflow.CalibrationSnapshot()
 }
 
+// AdmissionStatus returns a defensive, aggregate-only view of the latest
+// Core-to-Shadow admission result.
+func (e *ShadowEngine) AdmissionStatus() ShadowAdmissionStatus {
+	if e == nil {
+		return ShadowAdmissionStatus{LastCode: ShadowAdmissionDisabled, HistoricalAuthorityUnchanged: true, NoActionProduced: true}
+	}
+	e.admissionMu.RLock()
+	defer e.admissionMu.RUnlock()
+	return e.admission.clone()
+}
+
+// AdmissionMetrics returns aggregate admission counters with bounded names.
+func (e *ShadowEngine) AdmissionMetrics() map[string]uint64 {
+	return e.AdmissionStatus().Metrics()
+}
+
+func (e *ShadowEngine) recordAdmission(result ShadowAdmissionResult) {
+	if e == nil {
+		return
+	}
+	if err := result.Validate(); err != nil {
+		result = ShadowAdmissionResult{
+			Code:                         ShadowAdmissionInvalid,
+			EventType:                    result.EventType,
+			HistoricalAuthorityUnchanged: true,
+			NoActionProduced:             true,
+		}
+	}
+	e.admissionMu.Lock()
+	e.admission.record(result)
+	e.admissionMu.Unlock()
+	if e.metrics != nil {
+		e.metrics.admission(result.Code)
+	}
+}
+
 // ListRoutines returns defensive routine snapshots for development analysis.
 func (e *ShadowEngine) ListRoutines() []routines.Snapshot {
 	if e == nil || e.coordinator == nil {
@@ -190,7 +228,7 @@ func (e *ShadowEngine) PlanAssociationForEvent(ctx context.Context, event Event)
 	if e == nil || e.coordinator == nil {
 		return association.Plan{}, ErrShadowStartup
 	}
-	adapted, err := AdaptEventWithAllowlist(event, mapKeys(e.allowlist))
+	adapted, err := AdaptEventWithPolicy(event, e.admissionPolicy)
 	if err != nil {
 		return association.Plan{}, err
 	}
@@ -354,7 +392,13 @@ func (e *ShadowEngine) CreateCheckpoint(ctx context.Context, createdAt time.Time
 
 // NewShadowEngine returns a concurrency-safe, non-decision-making observer.
 func NewShadowEngine() *ShadowEngine {
-	return &ShadowEngine{}
+	return &ShadowEngine{
+		admissionPolicy: DefaultShadowEventAdmissionPolicy(),
+		admission: ShadowAdmissionStatus{
+			HistoricalAuthorityUnchanged: true,
+			NoActionProduced:             true,
+		},
+	}
 }
 
 // SetContextProvider installs an explicit detached provider for embedding and
@@ -400,6 +444,12 @@ func (e *ShadowEngine) Observe(ctx context.Context, event Event) (ObservationRes
 		LastEventType:    e.lastEventType,
 	}
 	e.mu.Unlock()
+	e.recordAdmission(ShadowAdmissionResult{
+		Code:                         ShadowAdmissionDisabled,
+		EventType:                    admissionEventType(event),
+		HistoricalAuthorityUnchanged: true,
+		NoActionProduced:             true,
+	})
 	return result, nil
 }
 

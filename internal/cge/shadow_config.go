@@ -125,11 +125,6 @@ func DefaultShadowConfig() ShadowConfig {
 	}
 }
 
-// DefaultEligibleEventTypes returns a fresh conservative allowlist.
-func DefaultEligibleEventTypes() []string {
-	return []string{"vision.identity", "vision.unknown", "vision.uncertain"}
-}
-
 // LoadShadowConfig parses only the explicit environment settings for this
 // pass. An invalid setting is an error; it is never silently corrected.
 func LoadShadowConfig(getenv func(string) string) (ShadowConfig, error) {
@@ -329,21 +324,8 @@ func (c ShadowConfig) Validate() error {
 	if err := c.AssociationPolicy.Validate(); err != nil {
 		return fmt.Errorf("%w: association policy: %v", ErrInvalidShadowConfig, err)
 	}
-	if len(c.EligibleEventTypes) == 0 {
-		return fmt.Errorf("%w: eligible event types are empty", ErrInvalidShadowConfig)
-	}
-	seen := make(map[string]struct{}, len(c.EligibleEventTypes))
-	for _, eventType := range c.EligibleEventTypes {
-		if err := validateSafeText(eventType, "eligible event type", 128, true); err != nil {
-			return fmt.Errorf("%w: %v", ErrInvalidShadowConfig, err)
-		}
-		if strings.TrimSpace(eventType) != eventType || strings.ToLower(eventType) != eventType {
-			return fmt.Errorf("%w: eligible event type must be normalized", ErrInvalidShadowConfig)
-		}
-		if _, exists := seen[eventType]; exists {
-			return fmt.Errorf("%w: duplicate eligible event type", ErrInvalidShadowConfig)
-		}
-		seen[eventType] = struct{}{}
+	if _, err := NewShadowEventAdmissionPolicy(c.EligibleEventTypes); err != nil {
+		return fmt.Errorf("%w: admission policy: %v", ErrInvalidShadowConfig, err)
 	}
 	return nil
 }

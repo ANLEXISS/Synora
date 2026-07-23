@@ -5,16 +5,48 @@ import (
 	"synora/internal/cge/decisioncomparison"
 	"synora/internal/cge/episodes"
 	"synora/internal/cge/shadowworkflow"
+	"synora/pkg/contract"
 )
 
-func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, historical *decisioncomparison.HistoricalDecisionRef) {
+func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, historical *decisioncomparison.HistoricalDecisionRef) (result ShadowAdmissionResult) {
+	result = ShadowAdmissionResult{
+		Code:                         ShadowAdmissionUnavailable,
+		EventType:                    contract.NormalizeEventType(observation.EventType),
+		Eligible:                     true,
+		Adapted:                      true,
+		HistoricalAuthorityUnchanged: true,
+		NoActionProduced:             true,
+	}
 	defer func() {
-		if recover() != nil && e != nil {
-			e.safeLog("workflow_submit_panic_recovered")
+		if recover() != nil {
+			result.Code = ShadowAdmissionUnavailable
+			result.Submitted = false
+			if e != nil {
+				e.safeLog("workflow_submit_panic_recovered")
+			}
 		}
 	}()
-	if e == nil || e.workflow == nil || e.coordinator == nil {
-		return
+	if e == nil {
+		return result
+	}
+	if e.workflow == nil {
+		result.Code = ShadowAdmissionDisabled
+		return result
+	}
+	if e.coordinator == nil {
+		return result
+	}
+	workflowStatus := e.workflow.Status()
+	switch workflowStatus.State {
+	case shadowworkflow.StateStopping:
+		result.Code = ShadowAdmissionStopping
+		return result
+	case shadowworkflow.StateStopped:
+		result.Code = ShadowAdmissionStopped
+		return result
+	case shadowworkflow.StateDisabled:
+		result.Code = ShadowAdmissionDisabled
+		return result
 	}
 	status := e.coordinator.Status()
 	observed := observation.Timestamp.UTC()
@@ -33,6 +65,8 @@ func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, histori
 		copy := historical.Clone()
 		input.HistoricalDecision = &copy
 	}
-	// TrySubmit is intentionally fire-and-forget from the historical path.
-	_ = e.workflow.TrySubmit(input)
+	submit := e.workflow.TrySubmit(input)
+	result.Code = mapSubmitStatus(submit.Status, workflowStatus.State)
+	result.Submitted = result.Code == ShadowAdmissionAccepted
+	return result
 }

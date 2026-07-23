@@ -48,8 +48,13 @@ func TestShadowWorkflowGoldenHistoricalRegression(t *testing.T) {
 	if !reflect.DeepEqual(withoutResults, withResults) {
 		t.Fatalf("historical observation results changed\nwithout=%+v\nwith=%+v", withoutResults, withResults)
 	}
+	if withoutMetrics.AdmissionDisabled != uint64(len(events)) || withMetrics.AdmissionAccepted != uint64(len(events)) {
+		t.Fatalf("admission observability did not distinguish disabled and accepted workflow: without=%+v with=%+v", withoutMetrics, withMetrics)
+	}
+	withoutMetrics.AdmissionDisabled = 0
+	withMetrics.AdmissionAccepted = 0
 	if !reflect.DeepEqual(withoutMetrics, withMetrics) {
-		t.Fatalf("historical metrics changed\nwithout=%+v\nwith=%+v", withoutMetrics, withMetrics)
+		t.Fatalf("historical metrics changed outside admission observability\nwithout=%+v\nwith=%+v", withoutMetrics, withMetrics)
 	}
 	if withoutDigest != withDigest {
 		t.Fatalf("historical digest changed without=%s with=%s", withoutDigest, withDigest)

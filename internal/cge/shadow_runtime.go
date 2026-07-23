@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 
 	"synora/internal/cge/chains"
@@ -96,6 +95,10 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 	if logger == nil {
 		return nil, fmt.Errorf("%w: logger is required", ErrShadowStartup)
 	}
+	admissionPolicy, err := NewShadowEventAdmissionPolicy(config.EligibleEventTypes)
+	if err != nil {
+		return nil, fmt.Errorf("%w: admission policy", ErrShadowStartup)
+	}
 	fileJournal, err := journal.NewFileJournal(config.JournalPath, journal.FileJournalOptions{CreateParentDirs: true})
 	if err != nil {
 		return nil, fmt.Errorf("%w: journal configuration", ErrShadowStartup)
@@ -104,13 +107,13 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 	if err != nil {
 		return nil, err
 	}
-	allowlist := make(map[string]struct{}, len(config.EligibleEventTypes))
-	for _, eventType := range config.EligibleEventTypes {
-		allowlist[eventType] = struct{}{}
-	}
 	metrics := &shadowMetrics{}
 	engine := &ShadowEngine{
-		coordinator: coordinator, policy: config.AssociationPolicy, evidencePolicy: config.EvidencePolicy, allowlist: allowlist,
+		coordinator: coordinator, policy: config.AssociationPolicy, evidencePolicy: config.EvidencePolicy, admissionPolicy: admissionPolicy,
+		admission: ShadowAdmissionStatus{
+			HistoricalAuthorityUnchanged: true,
+			NoActionProduced:             true,
+		},
 		actor: config.Actor, clock: clock, logger: logger, metrics: metrics,
 		dataDir:          config.DataDir,
 		contextConfig:    config.Context,
@@ -254,13 +257,26 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event, historic
 	e.lastObservedAt = event.Timestamp
 	e.lastEventType = event.Type
 	e.mu.Unlock()
-	adapted, adaptErr := AdaptEventWithAllowlist(event, mapKeys(e.allowlist))
+	adapted, adaptErr := AdaptEventWithPolicy(event, e.admissionPolicy)
 	if adaptErr != nil {
+		e.recordAdmission(ShadowAdmissionResult{
+			Code:                         ShadowAdmissionInvalid,
+			EventType:                    admissionEventType(event),
+			Eligible:                     e.admissionPolicy.allows(admissionEventType(event)),
+			HistoricalAuthorityUnchanged: true,
+			NoActionProduced:             true,
+		})
 		e.metrics.malformed(now, ErrorCode(adaptErr))
 		e.safeLog(ErrorCode(adaptErr))
 		return result, adaptErr
 	}
 	if !adapted.Eligible {
+		e.recordAdmission(ShadowAdmissionResult{
+			Code:                         ShadowAdmissionIgnoredByPolicy,
+			EventType:                    admissionEventType(event),
+			HistoricalAuthorityUnchanged: true,
+			NoActionProduced:             true,
+		})
 		e.metrics.skipped()
 		return result, nil
 	}
@@ -283,9 +299,7 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event, historic
 			}
 		}
 	}
-	if e.workflow != nil {
-		e.submitWorkflow(adapted.Input.Observation, historical)
-	}
+	e.recordAdmission(e.submitWorkflow(adapted.Input.Observation, historical))
 	trialObservation = adapted.Input.Observation.Clone()
 	e.mu.Lock()
 	e.lastOrchestration = ShadowOrchestrationResult{}
@@ -611,17 +625,6 @@ func (e *ShadowEngine) resolveContext(ctx context.Context, observation chains.Ob
 		}
 	}()
 	return e.contextProvider.Resolve(ctx, observation.ID, observation.Timestamp, observation.NodeID)
-}
-
-func mapKeys(values map[string]struct{}) []string {
-	result := make([]string, 0, len(values))
-	for value := range values {
-		result = append(result, value)
-	}
-	// The adapter only performs membership checks; sorting makes tests and
-	// diagnostics deterministic without retaining caller-owned configuration.
-	sort.Strings(result)
-	return result
 }
 
 func (e *ShadowEngine) safeLog(code string) {
