@@ -76,6 +76,7 @@ type CognitiveSituationMarkers struct {
 
 type SourceFingerprints struct {
 	Episode                  string
+	Context                  string
 	Facts                    string
 	Hypotheses               string
 	Discrimination           string

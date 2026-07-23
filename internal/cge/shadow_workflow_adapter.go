@@ -1,6 +1,9 @@
 package cge
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+
 	"synora/internal/cge/chains"
 	"synora/internal/cge/decisioncomparison"
 	"synora/internal/cge/episodes"
@@ -59,14 +62,26 @@ func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, histori
 		value.HouseMode = string(observation.Context.HouseMode)
 		value.Occupancy = string(observation.Context.Occupancy)
 		value.ContextQuality = string(observation.Context.Quality)
+		value.ContextSnapshotFingerprint = observation.Context.SnapshotFingerprint
+		value.ContextFreshness = observation.Context.FreshnessCode
 	}
 	input := shadowworkflow.ShadowWorkflowInput{EventID: observation.ID, ObservedAt: observed, ReceivedAt: observed, Observation: value, SourceShadowRevision: status.JournalSequence, SourceShadowFingerprint: status.JournalHeadHash}
 	if historical != nil {
 		copy := historical.Clone()
+		// The historical decision remains authoritative in Core. The Shadow
+		// copy carries only a stable opaque reference, so cognitive projections
+		// and calibration records cannot persist a raw event identifier.
+		copy.SourceEventRef = redactedHistoricalEventRef(copy.SourceEventRef)
+		copy.Fingerprint = decisioncomparison.HistoricalDecisionFingerprint(copy)
 		input.HistoricalDecision = &copy
 	}
 	submit := e.workflow.TrySubmit(input)
 	result.Code = mapSubmitStatus(submit.Status, workflowStatus.State)
 	result.Submitted = result.Code == ShadowAdmissionAccepted
 	return result
+}
+
+func redactedHistoricalEventRef(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return "event-ref:sha256:" + hex.EncodeToString(digest[:])
 }

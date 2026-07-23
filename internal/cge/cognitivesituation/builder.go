@@ -1,6 +1,8 @@
 package cognitivesituation
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -77,6 +79,17 @@ func sourceFingerprints(state durableworkflow.EpisodeWorkflowState) SourceFinger
 	out := SourceFingerprints{}
 	if state.Episode != nil {
 		out.Episode = episodes.EpisodeFingerprint(*state.Episode)
+		contexts := make([]string, 0)
+		for _, observation := range state.Episode.Observations {
+			if observation.ContextSnapshotFingerprint != "" {
+				contexts = append(contexts, observation.ContextSnapshotFingerprint)
+			}
+		}
+		if len(contexts) > 0 {
+			sort.Strings(contexts)
+			digest := sha256.Sum256([]byte(strings.Join(contexts, "\n")))
+			out.Context = "core-context-chain:" + hex.EncodeToString(digest[:])
+		}
 	}
 	if state.Facts != nil {
 		out.Facts = state.Facts.Fingerprint

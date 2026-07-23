@@ -82,7 +82,7 @@ func (s CognitiveSituation) Validate(policy Policy) error {
 		return err
 	}
 	sourceCount := len(s.SourceFingerprints.AdvisoryRequests) + len(s.SourceFingerprints.CapabilityMappings) + len(s.SourceFingerprints.AuthorizationAssessments)
-	for _, value := range []string{s.SourceFingerprints.Episode, s.SourceFingerprints.Facts, s.SourceFingerprints.Hypotheses, s.SourceFingerprints.Discrimination} {
+	for _, value := range []string{s.SourceFingerprints.Episode, s.SourceFingerprints.Context, s.SourceFingerprints.Facts, s.SourceFingerprints.Hypotheses, s.SourceFingerprints.Discrimination} {
 		if value != "" {
 			sourceCount++
 		}

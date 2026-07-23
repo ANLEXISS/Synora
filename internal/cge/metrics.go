@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	cgecontext "synora/internal/cge/context"
 	"synora/internal/cge/fieldtrial"
 )
 
@@ -14,6 +15,15 @@ type MetricsSnapshot struct {
 	EventsEligible  uint64
 	EventsSkipped   uint64
 	EventsMalformed uint64
+
+	CoreContextSnapshotsRequested uint64
+	CoreContextSnapshotsSucceeded uint64
+	CoreContextSnapshotsFailed    uint64
+	CoreContextFreshSnapshots     uint64
+	CoreContextAgingSnapshots     uint64
+	CoreContextStaleSnapshots     uint64
+	CoreContextEmptySnapshots     uint64
+	CoreContextSnapshotDurationNS uint64
 
 	AdmissionAccepted        uint64
 	AdmissionIgnoredByPolicy uint64
@@ -154,6 +164,36 @@ type MetricsSnapshot struct {
 type shadowMetrics struct {
 	mu    sync.RWMutex
 	value MetricsSnapshot
+}
+
+func (m *shadowMetrics) coreContextFailed() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.value.CoreContextSnapshotsFailed++
+	m.mu.Unlock()
+}
+
+func (m *shadowMetrics) coreContextSucceeded(freshness cgecontext.FreshnessCode, durationNS uint64, empty bool) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.value.CoreContextSnapshotsSucceeded++
+	m.value.CoreContextSnapshotDurationNS += durationNS
+	switch freshness {
+	case cgecontext.FreshnessFresh:
+		m.value.CoreContextFreshSnapshots++
+	case cgecontext.FreshnessAging:
+		m.value.CoreContextAgingSnapshots++
+	case cgecontext.FreshnessStale:
+		m.value.CoreContextStaleSnapshots++
+	}
+	if empty {
+		m.value.CoreContextEmptySnapshots++
+	}
+	m.mu.Unlock()
 }
 
 func (m *shadowMetrics) observed(now time.Time) uint64 {

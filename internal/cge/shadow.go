@@ -64,6 +64,8 @@ type ShadowEngine struct {
 	admissionPolicy   ShadowEventAdmissionPolicy
 	admissionMu       sync.RWMutex
 	admission         ShadowAdmissionStatus
+	contextStatusMu   sync.RWMutex
+	contextStatus     CoreContextProviderStatus
 	actor             string
 	clock             Clock
 	logger            Logger
@@ -408,6 +410,12 @@ func (e *ShadowEngine) SetContextProvider(provider cgecontext.Provider) {
 		return
 	}
 	e.contextProvider = provider
+	e.contextStatusMu.Lock()
+	e.contextStatus.Enabled = false
+	if _, ok := provider.(cgecontext.CoreContextProvider); ok {
+		e.contextStatus.Enabled = true
+	}
+	e.contextStatusMu.Unlock()
 }
 
 // SetRoutineTopologyProvider installs the read-only topology boundary used by

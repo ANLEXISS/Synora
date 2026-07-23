@@ -164,11 +164,13 @@ func main() {
 	dangerRuntime.SetDebug(getenvBool("SYNORA_CGE_DEBUG", false))
 
 	var cognitiveEngine cge.CognitiveEngine = cge.NewNoopEngine()
+	var configuredShadow *cge.ShadowEngine
 	shadowConfig, shadowConfigErr := cge.LoadShadowConfig(os.Getenv)
 	if shadowConfigErr != nil {
 		log.Printf("cge shadow unavailable code=%s", cge.ErrorCode(shadowConfigErr))
 	} else if shadowConfig.Enabled {
-		configuredShadow, err := cge.NewShadowEngineWithConfig(context.Background(), shadowConfig, cge.SystemClock{}, log.Default())
+		var err error
+		configuredShadow, err = cge.NewShadowEngineWithConfig(context.Background(), shadowConfig, cge.SystemClock{}, log.Default())
 		if err != nil {
 			log.Printf("cge shadow unavailable code=%s", cge.ErrorCode(err))
 		} else {
@@ -196,6 +198,9 @@ func main() {
 		highPriority: make(chan *contract.Event, 128),
 		normalQueue:  make(chan *contract.Event, 512),
 		rpcQueue:     make(chan contract.Message, 256),
+	}
+	if configuredShadow != nil {
+		configuredShadow.SetContextProvider(newCoreReadOnlyContextProvider(app))
 	}
 	defer app.closeCognitive()
 	app.snapshotBuilder = &snapshotpkg.Builder{

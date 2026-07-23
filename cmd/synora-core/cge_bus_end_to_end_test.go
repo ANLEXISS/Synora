@@ -16,6 +16,7 @@ import (
 	"synora/internal/bus"
 	"synora/internal/cge"
 	"synora/internal/cge/calibrationledger"
+	cgecontext "synora/internal/cge/context"
 	"synora/internal/cge/shadowworkflow"
 	"synora/pkg/contract"
 )
@@ -69,6 +70,7 @@ func (b *strictE2EBus) actionCount() int {
 type busCoreE2EHarness struct {
 	app         *coreApp
 	shadow      *cge.ShadowEngine
+	context     *coreReadOnlyContextProvider
 	config      cge.ShadowConfig
 	ledger      string
 	bus         *strictE2EBus
@@ -118,7 +120,7 @@ func newBusCoreE2EHarness(t *testing.T) *busCoreE2EHarness {
 	config.DataDir = filepath.Join(root, "shadow")
 	config.JournalPath = filepath.Join(config.DataDir, "historical.ndjson")
 	config.InitializeIfMissing = true
-	config.JournalID = "pass-59-e2e-shadow"
+	config.JournalID = "pass-61-e2e-shadow"
 	config.Workflow.Enabled = true
 	config.Workflow.PipelineDepth = shadowworkflow.DepthAdvisoryRequests
 	config.Workflow.StoreMode = shadowworkflow.StoreFile
@@ -144,10 +146,13 @@ func newBusCoreE2EHarness(t *testing.T) *busCoreE2EHarness {
 	app.actionDispatcher.Bus = strictBus
 	app.rpc = nil
 	app.cognitive = shadow
+	provider := newCoreReadOnlyContextProvider(app)
+	provider.now = func() time.Time { return e2eAt }
+	shadow.SetContextProvider(provider)
 	stop := make(chan struct{})
 	app.processStop = stop
 	harness := &busCoreE2EHarness{
-		app: app, shadow: shadow, config: config, ledger: config.Workflow.CalibrationLedger.Path,
+		app: app, shadow: shadow, context: provider, config: config, ledger: config.Workflow.CalibrationLedger.Path,
 		bus: strictBus, core: coreClient, vision: visionClient, server: server,
 		serverErr: serverErr, stop: stop, processDone: make(chan struct{}), busDone: make(chan struct{}),
 	}
@@ -257,8 +262,9 @@ func waitForE2ECommit(t *testing.T, h *busCoreE2EHarness) {
 	waitE2EStep(t, "ingest, processLoop, historical processing, TrySubmit, worker and ledger commit", func() bool {
 		status := h.shadow.WorkflowStatus()
 		admission := h.shadow.AdmissionStatus()
+		contextStatus := h.shadow.ContextProviderStatus()
 		metrics := h.shadow.Metrics()
-		return coreProcessed(h.app) == 1 && len(h.app.eventStore.List()) == 1 && metrics.EventsObserved == 1 && metrics.EventsEligible == 1 && admission.AcceptedTotal == 1 && admission.LastCode == cge.ShadowAdmissionAccepted && status.Accepted == 1 && status.CyclesSucceeded == 1 && status.CommitsSucceeded == 1 && status.CalibrationLedger.RecordCount == 1
+		return coreProcessed(h.app) == 1 && len(h.app.eventStore.List()) == 1 && metrics.EventsObserved == 1 && metrics.EventsEligible == 1 && admission.AcceptedTotal == 1 && admission.LastCode == cge.ShadowAdmissionAccepted && contextStatus.Enabled && contextStatus.SnapshotsSucceeded == 1 && h.shadow.ContextProviderMetrics()["cge_core_context_snapshot_duration_ns"] > 0 && status.Accepted == 1 && status.CyclesSucceeded == 1 && status.CommitsSucceeded == 1 && status.CalibrationLedger.RecordCount == 1
 	})
 }
 
@@ -301,6 +307,16 @@ func TestBusCoreCGECalibrationLedgerEndToEnd(t *testing.T) {
 	if h.shadow.AdmissionMetrics()["cge_shadow_admission_accepted_total"] != 1 {
 		t.Fatalf("accepted admission metric missing: %v", h.shadow.AdmissionMetrics())
 	}
+	contextSnapshot, err := h.context.Snapshot(context.Background(), cgecontext.SnapshotRequest{ObservationID: eventID, ObservedAt: e2eAt, NodeID: "entry"})
+	if err != nil || len(contextSnapshot.Residents) == 0 || len(contextSnapshot.Devices) == 0 || len(contextSnapshot.Cameras) == 0 || contextSnapshot.Topology.Revision == "" || contextSnapshot.Freshness.Overall != cgecontext.FreshnessFresh {
+		t.Fatalf("live Core context snapshot incomplete: snapshot=%+v err=%v", contextSnapshot, err)
+	}
+	encodedContext, _ := json.Marshal(contextSnapshot)
+	for _, sentinel := range []string{identity, clipID, deviceID, eventID, "SENSITIVE-IP", "SENSITIVE-TOKEN"} {
+		if strings.Contains(string(encodedContext), sentinel) {
+			t.Fatalf("sensitive context sentinel persisted in snapshot: %q", sentinel)
+		}
+	}
 
 	projection := h.shadow.WorkflowProjection()
 	if len(projection.Situations.Situations) != 1 || len(projection.Recommendations.RecommendationSets) != 1 || len(projection.Comparisons.Comparisons) != 1 {
@@ -313,6 +329,15 @@ func TestBusCoreCGECalibrationLedgerEndToEnd(t *testing.T) {
 	comparison := projection.Comparisons.Comparisons[0]
 	if !comparison.Markers.HistoricalDecisionRetainsAuthority || !comparison.Markers.NotAnAction || !comparison.Markers.NoSecurityMeaning {
 		t.Fatalf("historical comparison authority markers invalid: %+v", comparison.Markers)
+	}
+	if projection.Situations.Situations[0].SourceFingerprints.Context == "" {
+		t.Fatalf("cognitive situation does not carry the live context fingerprint: %+v", projection.Situations.Situations[0].SourceFingerprints)
+	}
+	encodedProjection, _ := json.Marshal(projection)
+	for _, sentinel := range []string{identity, clipID, deviceID, eventID, "SENSITIVE-TRACK-SENTINEL", "SENSITIVE-IP", "SENSITIVE-TOKEN"} {
+		if strings.Contains(string(encodedProjection), sentinel) {
+			t.Fatalf("sensitive sentinel persisted in cognitive projection: %q projection=%s", sentinel, encodedProjection)
+		}
 	}
 
 	records, err := h.shadow.WorkflowCalibrationRecords(calibrationledger.Query{Limit: 10})
@@ -364,6 +389,33 @@ func TestBusCoreCGECalibrationLedgerEndToEnd(t *testing.T) {
 	recoveredRecords, err := reopened.WorkflowCalibrationRecords(calibrationledger.Query{Limit: 10})
 	if err != nil || len(recoveredRecords.Records) != 1 || recoveredRecords.Records[0].RecordFingerprint != record.RecordFingerprint {
 		t.Fatalf("recovered ledger records=%+v err=%v", recoveredRecords, err)
+	}
+}
+
+func TestBusCoreCGECoreContextStaleIsNotNegative(t *testing.T) {
+	h := newBusCoreE2EHarness(t)
+	h.context.now = func() time.Time { return e2eAt.Add(20 * time.Minute) }
+	h.publish(t, contract.EventVisionIdentity, mainE2EPayload("stale-context-event", "cam_01", "resident-stale", "stale-context-clip"))
+	waitForE2ECommit(t, h)
+	status := h.shadow.ContextProviderStatus()
+	if status.StaleSnapshots != 1 || status.SnapshotsFailed != 0 || !status.Degraded {
+		t.Fatalf("stale context status=%+v", status)
+	}
+	snapshot, err := h.context.Snapshot(context.Background(), cgecontext.SnapshotRequest{ObservationID: "stale-context-event", ObservedAt: e2eAt, NodeID: "entry"})
+	if err != nil || snapshot.Freshness.Overall != cgecontext.FreshnessStale {
+		t.Fatalf("stale context snapshot=%+v err=%v", snapshot, err)
+	}
+	var present bool
+	for _, resident := range snapshot.Residents {
+		if resident.PresenceCode == "present" {
+			present = true
+		}
+	}
+	if !present {
+		t.Fatal("stale present context was converted into a negative fact")
+	}
+	if len(h.bus.messagesOfType("engine.decision")) == 0 || h.bus.actionCount() != 0 {
+		t.Fatal("stale context changed historical/action behavior")
 	}
 }
 

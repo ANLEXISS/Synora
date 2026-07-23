@@ -624,6 +624,9 @@ func (e *ShadowEngine) resolveContext(ctx context.Context, observation chains.Ob
 			err = ErrShadowPanic
 		}
 	}()
+	if _, ok := e.contextProvider.(cgecontext.CoreContextProvider); ok {
+		return e.contextSnapshot(ctx, cgecontext.SnapshotRequest{ObservationID: observation.ID, ObservedAt: observation.Timestamp, NodeID: observation.NodeID})
+	}
 	return e.contextProvider.Resolve(ctx, observation.ID, observation.Timestamp, observation.NodeID)
 }
 
