@@ -3,6 +3,7 @@ package vision
 import (
 	"errors"
 	"os"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -65,8 +66,10 @@ func (e *fakeExecutor) Start(
 	e.starts++
 
 	process := &fakeProcess{
-		pid:    1000 + e.starts,
-		waitCh: make(chan error, 1),
+		pid:                  1000 + e.starts,
+		waitCh:               make(chan error, 1),
+		terminationRequested: make(chan struct{}),
+		waitReturned:         make(chan struct{}),
 	}
 
 	e.processes = append(
@@ -103,6 +106,10 @@ type fakeProcess struct {
 	mu      sync.Mutex
 	signals []os.Signal
 	killed  bool
+
+	terminationRequested chan struct{}
+	waitReturned         chan struct{}
+	signalOnce           sync.Once
 }
 
 func (p *fakeProcess) PID() int {
@@ -110,18 +117,18 @@ func (p *fakeProcess) PID() int {
 }
 
 func (p *fakeProcess) Wait() error {
-	return <-p.waitCh
+	err := <-p.waitCh
+	close(p.waitReturned)
+	return err
 }
 
 func (p *fakeProcess) Signal(
 	signal os.Signal,
 ) error {
 	p.mu.Lock()
-	p.signals = append(
-		p.signals,
-		signal,
-	)
+	p.signals = append(p.signals, signal)
 	p.mu.Unlock()
+	p.signalOnce.Do(func() { close(p.terminationRequested) })
 
 	p.waitCh <- nil
 
@@ -197,6 +204,9 @@ func TestWorkerManagerStopTracksExitAndPublishesEvent(t *testing.T) {
 	if err := manager.Stop("cam_01"); err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
+	if err := manager.Stop("cam_01"); err != nil {
+		t.Fatalf("second Stop() error = %v", err)
+	}
 
 	snapshot := manager.Snapshot()
 	if snapshot.Status != WorkerStatusStopped {
@@ -211,11 +221,23 @@ func TestWorkerManagerStopTracksExitAndPublishesEvent(t *testing.T) {
 		t.Fatal("last_exit is zero")
 	}
 
-	assertPublished(
-		t,
-		publisher,
-		contract.EventDiscoveryWorkerStopped,
-	)
+	if got := countPublished(publisher, contract.EventDiscoveryWorkerStopped); got != 1 {
+		t.Fatalf("stopped events=%d, want exactly 1, published=%v", got, publisher.types())
+	}
+	if got := publisher.types(); !reflect.DeepEqual(got, []string{contract.EventDiscoveryWorkerStarted, contract.EventDiscoveryWorkerStopped}) {
+		t.Fatalf("worker lifecycle event order=%v", got)
+	}
+	process := executor.lastProcess()
+	select {
+	case <-process.terminationRequested:
+	default:
+		t.Fatal("Stop returned before termination was requested")
+	}
+	select {
+	case <-process.waitReturned:
+	default:
+		t.Fatal("Stop returned before process Wait completed")
+	}
 }
 
 func TestWorkerManagerBacksOffAfterQuickCrash(t *testing.T) {
@@ -260,12 +282,18 @@ func TestWorkerManagerRateLimitsCrashEvents(t *testing.T) {
 	publisher := &fakePublisher{}
 	executor := &fakeExecutor{}
 	current := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	var currentMu sync.RWMutex
+	now := func() time.Time {
+		currentMu.RLock()
+		defer currentMu.RUnlock()
+		return current
+	}
 
 	manager := NewWorkerManager(
 		publisher,
 		WorkerManagerConfig{
 			Executor:         executor,
-			Now:              func() time.Time { return current },
+			Now:              now,
 			QuickCrashWindow: time.Minute,
 			BaseBackoff:      time.Millisecond,
 			CrashEventLimit:  time.Minute,
@@ -278,7 +306,9 @@ func TestWorkerManagerRateLimitsCrashEvents(t *testing.T) {
 	executor.lastProcess().waitCh <- errors.New("boom one")
 	waitForStatus(t, manager, WorkerStatusBackoff)
 
+	currentMu.Lock()
 	current = current.Add(2 * time.Millisecond)
+	currentMu.Unlock()
 	if err := manager.Start("cam_01"); err != nil {
 		t.Fatalf("second Start() error = %v", err)
 	}

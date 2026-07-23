@@ -431,8 +431,6 @@ func (m *WorkerManager) monitor(
 	lastExit := m.lastExit
 	m.mu.Unlock()
 
-	close(done)
-
 	eventType := contract.EventDiscoveryWorkerStopped
 	if crashed {
 		eventType = contract.EventDiscoveryWorkerCrashed
@@ -455,11 +453,13 @@ func (m *WorkerManager) monitor(
 			"",
 			payload,
 		)
+		close(done)
 		return
 	}
 
 	crashEvent, crashCount := m.crashEventDecision(now)
 	if crashEvent == "" {
+		close(done)
 		return
 	}
 	if crashEvent == contract.EventRuntimeComponentFlapping {
@@ -468,6 +468,7 @@ func (m *WorkerManager) monitor(
 		payload["window_seconds"] = int(m.crashEventLimit.Seconds())
 	}
 	m.publish(crashEvent, "", payload)
+	close(done)
 }
 
 func (m *WorkerManager) shouldPublishStartEvent(now time.Time) bool {
