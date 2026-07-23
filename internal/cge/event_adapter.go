@@ -6,6 +6,7 @@ import (
 
 	"synora/internal/cge/chains"
 	"synora/internal/cge/chains/association"
+	"synora/internal/cge/durableids"
 	"synora/pkg/contract"
 )
 
@@ -56,6 +57,11 @@ func AdaptEventWithPolicy(event Event, policy ShadowEventAdmissionPolicy) (Adapt
 	if event.Timestamp.IsZero() {
 		return AdaptationResult{}, adaptationError(ReasonEventTimestampInvalid)
 	}
+	for _, value := range []string{event.ID, event.DeviceID, event.Identity, event.ActivationID, event.ClipID, event.TrackID, event.SequenceKey} {
+		if len([]rune(value)) > 256 || strings.ContainsAny(value, "\r\n") {
+			return AdaptationResult{}, adaptationError("event.scalar_validation")
+		}
+	}
 	input := association.Input{
 		Observation: observationFromEvent(event, eventType), SituationKind: eventType,
 	}
@@ -67,10 +73,10 @@ func AdaptEventWithPolicy(event Event, policy ShadowEventAdmissionPolicy) (Adapt
 
 func observationFromEvent(event Event, eventType string) (observation chains.ObservationRef) {
 	return chains.ObservationRef{
-		ID: event.ID, EventType: eventType, Timestamp: event.Timestamp,
-		NodeID: event.NodeID, DeviceID: event.DeviceID, EntityID: event.Identity,
-		ActivationID: event.ActivationID, ClipID: event.ClipID, ClipIndex: event.ClipIndex,
-		TrackID: event.TrackID, SequenceKey: event.SequenceKey,
+		ID: durableids.Protect(durableids.KindObservation, event.ID), EventType: eventType, Timestamp: event.Timestamp,
+		NodeID: event.NodeID, DeviceID: durableids.Protect(durableids.KindDevice, event.DeviceID), EntityID: durableids.Protect(durableids.KindEntity, event.Identity),
+		ActivationID: durableids.Protect(durableids.KindActivation, event.ActivationID), ClipID: durableids.Protect(durableids.KindClip, event.ClipID), ClipIndex: event.ClipIndex,
+		TrackID: durableids.Protect(durableids.KindTrack, event.TrackID), SequenceKey: durableids.Protect(durableids.KindSequence, event.SequenceKey),
 	}
 }
 

@@ -1,11 +1,9 @@
 package cge
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-
 	"synora/internal/cge/chains"
 	"synora/internal/cge/decisioncomparison"
+	"synora/internal/cge/durableids"
 	"synora/internal/cge/episodes"
 	"synora/internal/cge/shadowworkflow"
 	"synora/pkg/contract"
@@ -53,10 +51,19 @@ func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, histori
 	}
 	status := e.coordinator.Status()
 	observed := observation.Timestamp.UTC()
-	value := episodes.ObservationRef{EventID: observation.ID, ObservedAt: observed, ReceivedAt: observed, EventType: observation.EventType, NodeID: observation.NodeID, Subject: episodes.SubjectRef{Kind: episodes.SubjectUnknown}, ActivationID: observation.ActivationID, ClipID: observation.ClipID, TrackID: observation.TrackID, SequenceKey: observation.SequenceKey}
-	if observation.EntityID != "" {
-		value.Subject = episodes.SubjectRef{Kind: episodes.SubjectKnown, EntityID: observation.EntityID}
+	subject := episodes.SubjectRef{Kind: episodes.SubjectUnknown}
+	switch contract.NormalizeEventType(observation.EventType) {
+	case contract.EventVisionIdentity:
+		if observation.EntityID != "" {
+			subject = episodes.SubjectRef{Kind: episodes.SubjectKnown, EntityID: observation.EntityID}
+		}
+	case contract.EventVisionUncertain:
+		subject = episodes.SubjectRef{Kind: episodes.SubjectUncertain}
+		if observation.EntityID != "" {
+			subject.CandidateEntityIDs = []string{observation.EntityID}
+		}
 	}
+	value := episodes.ObservationRef{EventID: observation.ID, ObservedAt: observed, ReceivedAt: observed, EventType: observation.EventType, NodeID: observation.NodeID, Subject: subject, ActivationID: observation.ActivationID, ClipID: observation.ClipID, TrackID: observation.TrackID, SequenceKey: observation.SequenceKey}
 	if observation.Context != nil {
 		value.ZoneID = observation.Context.ZoneID
 		value.HouseMode = string(observation.Context.HouseMode)
@@ -71,7 +78,8 @@ func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, histori
 		// The historical decision remains authoritative in Core. The Shadow
 		// copy carries only a stable opaque reference, so cognitive projections
 		// and calibration records cannot persist a raw event identifier.
-		copy.SourceEventRef = redactedHistoricalEventRef(copy.SourceEventRef)
+		copy.ID = durableids.Protect(durableids.KindObservation, copy.ID)
+		copy.SourceEventRef = durableids.Protect(durableids.KindObservation, copy.SourceEventRef)
 		copy.Fingerprint = decisioncomparison.HistoricalDecisionFingerprint(copy)
 		input.HistoricalDecision = &copy
 	}
@@ -79,9 +87,4 @@ func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, histori
 	result.Code = mapSubmitStatus(submit.Status, workflowStatus.State)
 	result.Submitted = result.Code == ShadowAdmissionAccepted
 	return result
-}
-
-func redactedHistoricalEventRef(value string) string {
-	digest := sha256.Sum256([]byte(value))
-	return "event-ref:sha256:" + hex.EncodeToString(digest[:])
 }

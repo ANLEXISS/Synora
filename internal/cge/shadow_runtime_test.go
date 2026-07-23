@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"synora/internal/cge/chains/generations"
+	"synora/internal/cge/durableids"
 	"synora/internal/cge/routines"
 )
 
@@ -44,7 +45,7 @@ func TestAdaptEventUsesOnlyScalarFieldsAndConservativeAllowlist(t *testing.T) {
 		t.Fatalf("identity adaptation failed: result=%#v err=%v", input, err)
 	}
 	observation := input.Input.Observation
-	if observation.ID != "event-1" || observation.EventType != "vision.identity" || !observation.Timestamp.Equal(at) || observation.EntityID != "resident-a" || observation.ActivationID != "activation-a" || observation.ClipIndex != 2 || observation.SequenceKey != "sequence-a" {
+	if observation.ID != durableids.Protect(durableids.KindObservation, "event-1") || observation.EventType != "vision.identity" || !observation.Timestamp.Equal(at) || observation.EntityID != durableids.Protect(durableids.KindEntity, "resident-a") || observation.ActivationID != durableids.Protect(durableids.KindActivation, "activation-a") || observation.ClipIndex != 2 || observation.SequenceKey != durableids.Protect(durableids.KindSequence, "sequence-a") {
 		t.Fatalf("scalar mapping incomplete: %#v", observation)
 	}
 	motion, err := AdaptEvent(shadowEvent("event-motion", "vision.motion", at))

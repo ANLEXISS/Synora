@@ -225,6 +225,21 @@ réussi, commit durable, situation, recommandation, comparaison, record ledger,
 analytics disponibles ou explicitement insuffisantes, absence de sensible,
 absence d'action CGE, puis recovery avec séquence et chaîne de hash intactes.
 
+Après chaque événement accepté, le smoke doit parcourir récursivement tous les
+fichiers réguliers produits sous `SYNORA_CGE_DATA_DIR`, le répertoire configuré
+par `SYNORA_CGE_SHADOW_WORKFLOW_STORE_DIRECTORY` et le chemin du Calibration
+Ledger. Le scan inclut sans exception `journal.ndjson`, les manifests et
+snapshots de générations, `workflow.wal`, `workflow.checkpoint.json` et
+`calibration-ledger.ndjson`. Il recherche les sentinelles dans le contenu brut
+et dans les champs JSON décodés, en identifiant le type de record et le champ
+concerné ; `journal.ndjson` ne doit pas être exclu.
+
+Les anciens fichiers peuvent contenir des identifiants bruts : ils sont
+signalés comme potentiellement sensibles et ne sont ni réécrits ni supprimés
+par le runtime. Les nouveaux records doivent utiliser le format
+`cgeid-v1:<domain>:<sha256-hex>` documenté dans
+`internal/cge/README_PASS64_1_DURABLE_IDENTIFIER_REDACTION.md`.
+
 Le smoke devra utiliser d'abord un événement synthétique autorisé et un
 événement synthétique non autorisé. Un événement caméra réel est une étape
 ultérieure et n'est pas simulé ici.

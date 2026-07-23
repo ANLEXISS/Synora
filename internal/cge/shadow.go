@@ -18,6 +18,7 @@ import (
 	"synora/internal/cge/chains/generations"
 	cgecontext "synora/internal/cge/context"
 	"synora/internal/cge/decisioncomparison"
+	"synora/internal/cge/durableids"
 	"synora/internal/cge/fieldtrial"
 	"synora/internal/cge/hypotheses"
 	"synora/internal/cge/routines"
@@ -260,7 +261,7 @@ func (e *ShadowEngine) EvaluateEvidenceForObservation(ctx context.Context, chain
 	if err != nil {
 		return evidence.EvidenceEvaluation{}, err
 	}
-	return evidence.EvaluateObservation(chainSnapshot, observationID, at, e.evidencePolicy)
+	return evidence.EvaluateObservation(chainSnapshot, durableids.Protect(durableids.KindObservation, observationID), at, e.evidencePolicy)
 }
 
 // SeedAssociationAmbiguityFixture creates a duplicate, synthetic branch from

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -273,6 +274,119 @@ func waitForE2ECommit(t *testing.T, h *busCoreE2EHarness) {
 		metrics := h.shadow.Metrics()
 		return coreProcessed(h.app) == 1 && len(h.app.eventStore.List()) == 1 && metrics.EventsObserved == 1 && metrics.EventsEligible == 1 && admission.AcceptedTotal == 1 && admission.LastCode == cge.ShadowAdmissionAccepted && contextStatus.Enabled && contextStatus.SnapshotsSucceeded == 1 && h.shadow.ContextProviderMetrics()["cge_core_context_snapshot_duration_ns"] > 0 && status.Accepted == 1 && status.CyclesSucceeded == 1 && status.CommitsSucceeded == 1 && status.CalibrationLedger.RecordCount == 1
 	})
+}
+
+func TestBusCoreCGEDurableSensitiveIdentifierReproduction(t *testing.T) {
+	h := newBusCoreE2EHarness(t)
+	const (
+		identity    = "PASS64-SENSITIVE-IDENTITY"
+		eventID     = "PASS64-SENSITIVE-EVENT"
+		deviceID    = "PASS64-SENSITIVE-DEVICE"
+		clipID      = "PASS64-SENSITIVE-CLIP"
+		trackID     = "PASS64-SENSITIVE-TRACK"
+		activation  = "PASS64-SENSITIVE-ACTIVATION"
+		sequenceKey = "PASS64-SENSITIVE-SEQUENCE"
+	)
+	h.publish(t, contract.EventVisionIdentity, map[string]any{
+		"event_id": eventID, "device_id": deviceID, "node_id": "entry", "clip_id": clipID,
+		"track_id": trackID, "activation_id": activation, "sequence_key": sequenceKey,
+		"identity": identity, "confidence": 0.91,
+	})
+	waitForE2ECommit(t, h)
+	if _, err := h.shadow.CreateCheckpoint(context.Background(), e2eAt.Add(time.Minute)); err != nil {
+		t.Fatalf("create historical generation: %v", err)
+	}
+	h.stopCore()
+	if err := h.shadow.Close(); err != nil {
+		t.Fatalf("close shadow before durable scan: %v", err)
+	}
+	h.shadow = nil
+
+	paths := []string{h.config.DataDir, h.config.Workflow.StoreDirectory, h.config.Workflow.CalibrationLedger.Path}
+	for _, root := range paths {
+		info, err := os.Stat(root)
+		if err != nil {
+			t.Fatalf("durable root %s: %v", root, err)
+		}
+		if info.IsDir() {
+			err = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+				if walkErr != nil || info.IsDir() {
+					return walkErr
+				}
+				return scanDurableJSONForSentinels(t, path, []string{identity, eventID, deviceID, clipID, trackID, activation, sequenceKey})
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if err := scanDurableJSONForSentinels(t, root, []string{identity, eventID, deviceID, clipID, trackID, activation, sequenceKey}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func scanDurableJSONForSentinels(t *testing.T, path string, sentinels []string) error {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	rawSentinel := ""
+	for _, sentinel := range sentinels {
+		if bytes.Contains(data, []byte(sentinel)) {
+			rawSentinel = sentinel
+			break
+		}
+	}
+	lines := bytes.Split(data, []byte("\n"))
+	for lineNumber, line := range lines {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var value any
+		if err := json.Unmarshal(line, &value); err != nil {
+			continue
+		}
+		var recordKind any
+		if object, ok := value.(map[string]any); ok {
+			recordKind = object["kind"]
+			if recordKind == nil {
+				recordKind = object["record_kind"]
+			}
+		}
+		if field, sentinel, ok := findDurableSentinel(value, sentinels, "$"); ok {
+			return fmt.Errorf("durable sentinel %q in file=%s record=%v line=%d json_field=%s", sentinel, path, recordKind, lineNumber+1, field)
+		}
+	}
+	if rawSentinel != "" {
+		return fmt.Errorf("durable sentinel %q in file=%s json_field=<unparsed>", rawSentinel, path)
+	}
+	return nil
+}
+
+func findDurableSentinel(value any, sentinels []string, field string) (string, string, bool) {
+	switch typed := value.(type) {
+	case string:
+		for _, sentinel := range sentinels {
+			if strings.Contains(typed, sentinel) {
+				return field, sentinel, true
+			}
+		}
+	case []any:
+		for index, item := range typed {
+			if foundField, sentinel, ok := findDurableSentinel(item, sentinels, fmt.Sprintf("%s[%d]", field, index)); ok {
+				return foundField, sentinel, true
+			}
+		}
+	case map[string]any:
+		for key, item := range typed {
+			if foundField, sentinel, ok := findDurableSentinel(item, sentinels, field+"."+key); ok {
+				return foundField, sentinel, true
+			}
+		}
+	}
+	return "", "", false
 }
 
 func TestBusCoreCGECalibrationLedgerEndToEnd(t *testing.T) {
