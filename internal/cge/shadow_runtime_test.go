@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"synora/internal/cge/chains"
 	"synora/internal/cge/chains/generations"
 	"synora/internal/cge/durableids"
 	"synora/internal/cge/routines"
@@ -118,6 +119,62 @@ func TestShadowInitializesPersistsAndReloadsWithoutAutomaticSnapshot(t *testing.
 		t.Fatalf("reload did not preserve idempotence: %#v", got)
 	}
 	_ = reloaded.Close()
+}
+
+func TestShadowRecoveryKeepsProtectedSubjectRelations(t *testing.T) {
+	root := t.TempDir()
+	base := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	config := enabledShadowConfig(root, true)
+	engine, err := NewShadowEngineWithConfig(context.Background(), config, fixedShadowClock{now: base}, quietShadowLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := shadowEvent("recovery-subject-1", "vision.identity", base)
+	if _, err := engine.Observe(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	config.InitializeIfMissing = false
+	recovered, err := NewShadowEngineWithConfig(context.Background(), config, fixedShadowClock{now: base.Add(2 * time.Second)}, quietShadowLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := shadowEvent("recovery-subject-2", "vision.identity", base.Add(time.Second))
+	if _, err := recovered.Observe(context.Background(), second); err != nil {
+		t.Fatal(err)
+	}
+	third := shadowEvent("recovery-subject-3", "vision.identity", base.Add(2*time.Second))
+	third.Identity = "resident-b"
+	if _, err := recovered.Observe(context.Background(), third); err != nil {
+		t.Fatal(err)
+	}
+	defer recovered.Close()
+
+	chainSnapshots := recovered.ListChains()
+	if len(chainSnapshots) != 2 {
+		t.Fatalf("same-subject relation or distinct-subject chain lost: %#v", chainSnapshots)
+	}
+	entityA := durableids.Protect(durableids.KindEntity, "resident-a")
+	entityB := durableids.Protect(durableids.KindEntity, "resident-b")
+	byEntity := map[string]chains.Snapshot{}
+	for _, value := range chainSnapshots {
+		if len(value.Observations) > 0 {
+			byEntity[value.Observations[0].EntityID] = value
+		}
+	}
+	if len(byEntity) != 2 || len(byEntity[string(entityA)].Observations) != 2 || len(byEntity[string(entityB)].Observations) != 1 {
+		t.Fatalf("protected subject relation mismatch: %#v", chainSnapshots)
+	}
+	for _, value := range chainSnapshots {
+		for _, observation := range value.Observations {
+			if durableids.IsProtected(observation.ID) == false || durableids.IsProtected(observation.EntityID) == false {
+				t.Fatalf("unprotected recovered observation: %#v", observation)
+			}
+		}
+	}
 }
 
 func TestShadowRoutineLearningIsOptionalDurableAndIdempotent(t *testing.T) {
