@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"sort"
 	"sync"
 	"time"
 
@@ -560,6 +561,42 @@ func (s *Store) SystemState() SystemState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.systemStateLocked()
+}
+
+// ContextSnapshot returns a defensive copy of only the operational facts
+// needed by a read-only context provider. The Store remains the sole owner of
+// the source state.
+func (s *Store) ContextSnapshot() ContextSourceSnapshot {
+	if s == nil {
+		return ContextSourceSnapshot{}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := ContextSourceSnapshot{}
+	if s.System != nil {
+		out.System = ContextSystemState{LastState: s.System.LastState, Armed: s.System.Armed, SecurityMode: string(s.System.Security.Mode)}
+	} else {
+		out.System = ContextSystemState{LastState: "idle", SecurityMode: "unknown"}
+	}
+	for _, value := range s.DeviceStates {
+		if value != nil {
+			out.Devices = append(out.Devices, *value)
+		}
+	}
+	for _, value := range s.CameraStates {
+		if value != nil {
+			out.Cameras = append(out.Cameras, *value)
+		}
+	}
+	for _, value := range s.Presence {
+		if value != nil {
+			out.Presence = append(out.Presence, *value)
+		}
+	}
+	sort.Slice(out.Devices, func(i, j int) bool { return out.Devices[i].ID < out.Devices[j].ID })
+	sort.Slice(out.Cameras, func(i, j int) bool { return out.Cameras[i].ID < out.Cameras[j].ID })
+	sort.Slice(out.Presence, func(i, j int) bool { return out.Presence[i].ID < out.Presence[j].ID })
+	return out
 }
 
 func (s *Store) systemStateLocked() SystemState {

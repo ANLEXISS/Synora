@@ -1,0 +1,2499 @@
+catalog:
+  schema_version: 1
+  namespace: synora.cge
+  authority_ceiling: advisory
+  categories:
+    - raw_measurement
+    - external_event
+    - normalized_observation
+    - context_fact
+    - derived_fact
+    - entity_reference
+    - relation
+    - hypothesis
+    - evidence
+    - assessment
+    - cognitive_situation
+    - recommendation
+    - historical_comparison
+    - feedback
+    - diagnostic
+    - audit_record
+    - configuration
+  trust_levels:
+    - untrusted
+    - sensor_reported
+    - validated
+    - derived
+    - corroborated
+    - confirmed
+    - invalidated
+  sensitivity_classes:
+    - public
+    - operational
+    - personal
+    - sensitive_personal
+    - biometric
+    - security_sensitive
+    - secret
+  authority_levels:
+    - descriptive
+    - diagnostic
+    - advisory
+    - authorized_decision
+    - authorized_action
+  stability_statuses:
+    - experimental
+    - internal
+    - stable
+    - deprecated
+  data_controls:
+    - name: identity
+      classification: sensitive_personal
+      memory: allowed_only_at_core_to_cge_boundary
+      logs: forbidden_raw
+      journal: protected_only
+      wal: protected_only
+      ledger: protected_only
+      protection: cgeid_v1_entity
+    - name: candidate_identities
+      classification: sensitive_personal
+      memory: allowed_as_bounded_candidates
+      logs: forbidden_raw
+      journal: protected_only
+      wal: protected_only
+      ledger: protected_only
+      protection: cgeid_v1_entity
+    - name: device_id
+      classification: sensitive_personal
+      memory: allowed_at_core_and_boundary
+      logs: forbidden_raw_in_cge
+      journal: protected_only
+      wal: protected_only
+      ledger: protected_only
+      protection: cgeid_v1_device
+    - name: camera_id
+      classification: sensitive_personal
+      memory: allowed_at_core_and_boundary
+      logs: forbidden_raw_in_cge
+      journal: protected_only
+      wal: protected_only
+      ledger: protected_only
+      protection: cgeid_v1_device
+    - name: event_id
+      classification: sensitive_personal
+      memory: allowed_at_core_and_boundary
+      logs: forbidden_raw_in_cge
+      journal: protected_only
+      wal: protected_only
+      ledger: protected_only
+      protection: cgeid_v1_observation
+    - name: clip_id
+      classification: sensitive_personal
+      memory: allowed_at_core_and_boundary
+      logs: forbidden_raw_in_cge
+      journal: protected_only
+      wal: protected_only
+      ledger: protected_only
+      protection: cgeid_v1_clip
+    - name: track_id
+      classification: sensitive_personal
+      memory: allowed_at_core_and_boundary
+      logs: forbidden_raw_in_cge
+      journal: protected_only
+      wal: protected_only
+      ledger: protected_only
+      protection: cgeid_v1_track
+    - name: activation_id
+      classification: sensitive_personal
+      memory: allowed_at_core_and_boundary
+      logs: forbidden_raw_in_cge
+      journal: protected_only
+      wal: protected_only
+      ledger: protected_only
+      protection: cgeid_v1_activation
+    - name: sequence_key
+      classification: operational
+      memory: allowed_at_core_and_boundary
+      logs: protected_or_omitted
+      journal: protected_only
+      wal: protected_only
+      ledger: protected_only
+      protection: cgeid_v1_sequence
+    - name: ip
+      classification: security_sensitive
+      memory: source_specific
+      logs: redacted_or_omitted
+      journal: prohibited
+      wal: prohibited
+      ledger: prohibited
+      protection: no_cge_persistence
+    - name: tokens
+      classification: secret
+      memory: configuration_boundary_only
+      logs: forbidden
+      journal: prohibited
+      wal: prohibited
+      ledger: prohibited
+      protection: secret_manager_out_of_scope
+    - name: images
+      classification: biometric
+      memory: source_specific_not_cge
+      logs: forbidden
+      journal: prohibited
+      wal: prohibited
+      ledger: prohibited
+      protection: no_cge_persistence
+    - name: videos
+      classification: biometric
+      memory: source_specific_not_cge
+      logs: forbidden
+      journal: prohibited
+      wal: prohibited
+      ledger: prohibited
+      protection: no_cge_persistence
+    - name: embeddings
+      classification: biometric
+      memory: source_specific_not_cge
+      logs: forbidden
+      journal: prohibited
+      wal: prohibited
+      ledger: prohibited
+      protection: no_cge_persistence
+    - name: faces
+      classification: biometric
+      memory: source_specific_not_cge
+      logs: forbidden
+      journal: prohibited
+      wal: prohibited
+      ledger: prohibited
+      protection: no_cge_persistence
+    - name: localisation
+      classification: sensitive_personal
+      memory: allowed_as_node_zone_context
+      logs: category_only
+      journal: node_zone_only
+      wal: node_zone_only
+      ledger: category_or_fingerprint_only
+      protection: preserve_topology_without_raw_identity
+    - name: resident_presence
+      classification: sensitive_personal
+      memory: allowed_as_context_enum
+      logs: aggregate_or_enum_only
+      journal: enum_only
+      wal: enum_only
+      ledger: aggregate_or_enum_only
+      protection: no_raw_identity
+    - name: topology
+      classification: operational
+      memory: allowed
+      logs: node_zone_only
+      journal: node_zone_only
+      wal: node_zone_only
+      ledger: fingerprint_or_category_only
+      protection: retain_node_and_zone_semantics
+
+contracts:
+  - id: synora.contract.external-source.v1
+    category: raw_measurement
+    owner: ingest
+    producers: [external_source]
+    consumers: [bus]
+    transport: adapter_input
+    persistence: []
+    authority: descriptive
+    trust: untrusted
+    sensitivity: operational
+    status: internal
+    justification: Adapter-only input; not a durable CGE contract.
+    implementation:
+      kind: external
+      wire_format: json
+      justification: Adapter payload is owned by external sources.
+    fields:
+      - name: source_payload
+        type: opaque_object
+        required: true
+        nullable: false
+        description: External source payload before contract validation.
+        source: external_source
+        trust: untrusted
+        sensitivity: operational
+        protection: reject_unvalidated_payload
+        persistence: []
+        retention: none
+        validation: adapter_schema_and_size_limit
+
+  - id: synora.contract.bus.message.v1
+    category: external_event
+    owner: bus
+    producers: [ingest, services]
+    consumers: [ingest, historical_core]
+    transport: bus
+    persistence: []
+    authority: descriptive
+    trust: sensor_reported
+    sensitivity: operational
+    status: stable
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: Message
+      wire_format: json
+    fields:
+      - name: id
+        type: string
+        required: false
+        nullable: false
+        description: Bus message identifier.
+        source: producer
+        trust: sensor_reported
+        sensitivity: operational
+        protection: none_at_bus_boundary
+        persistence: []
+        retention: transport_lifetime
+        validation: bounded_scalar
+      - name: type
+        type: string
+        required: true
+        nullable: false
+        description: Contract event or command type.
+        source: producer
+        trust: sensor_reported
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: transport_lifetime
+        validation: known_contract_type
+      - name: timestamp
+        type: time_rfc3339_or_epoch
+        required: false
+        nullable: false
+        description: Producer-reported event time; not receipt time.
+        source: producer
+        trust: sensor_reported
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: transport_lifetime
+        validation: parseable_time
+      - name: payload
+        type: json_object
+        required: false
+        nullable: false
+        description: Typed event payload decoded by the historical Core.
+        source: producer
+        trust: untrusted
+        sensitivity: sensitive_personal
+        protection: boundary_validation
+        persistence: []
+        retention: transport_lifetime
+        validation: size_and_json_validation
+
+  - id: synora.contract.ingested-event.v1
+    category: external_event
+    owner: ingest
+    producers: [ingest]
+    consumers: [historical_core, cge_boundary]
+    transport: internal
+    persistence: [synora.store.core-state]
+    authority: descriptive
+    trust: validated
+    sensitivity: sensitive_personal
+    status: stable
+    justification: Historical Core state is the owner of this durable event representation.
+    migration_policy: legacy_event_replay; explicit_future_migration
+    compatibility_policy: preserve_event_json_and_legacy_fields
+    retention_policy: core_configured_event_retention
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: Event
+      wire_format: json
+    fields:
+      - name: event_id
+        type: string
+        required: false
+        nullable: false
+        description: Event identity used by historical Core ingestion.
+        source: bus_message.id_or_generated
+        trust: validated
+        sensitivity: sensitive_personal
+        protection: cge_pseudonymization_only_after_core
+        persistence: [synora.store.core-state]
+        retention: core_policy
+        validation: bounded_scalar
+      - name: event_type
+        type: string
+        required: true
+        nullable: false
+        description: Normalized contract event type.
+        source: bus_message.type
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.core-state]
+        retention: core_policy
+        validation: contract_normalization
+      - name: device_id
+        type: string
+        required: false
+        nullable: false
+        description: Source device or camera identifier.
+        source: bus_message.payload
+        trust: sensor_reported
+        sensitivity: sensitive_personal
+        protection: cge_pseudonymization_only_after_core
+        persistence: [synora.store.core-state]
+        retention: core_policy
+        validation: bounded_scalar
+      - name: observed_at
+        type: time
+        required: false
+        nullable: false
+        description: Time reported by the event, when present.
+        source: bus_message.timestamp
+        trust: sensor_reported
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.core-state]
+        retention: core_policy
+        validation: zero_allowed_for_legacy_core_paths
+
+  - id: synora.contract.historical-decision.v1
+    category: assessment
+    owner: historical_core
+    producers: [historical_core]
+    consumers: [automation, cge_comparison]
+    transport: internal
+    persistence: [synora.store.core-state]
+    authority: authorized_decision
+    trust: validated
+    sensitivity: security_sensitive
+    status: stable
+    justification: Historical Core decision is authoritative and separately owned.
+    migration_policy: historical_core_migration_only
+    compatibility_policy: preserve_decision_json_for_core_replay
+    retention_policy: core_configured_decision_retention
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: Decision
+      wire_format: json
+    fields:
+      - name: decision_id
+        type: string
+        required: false
+        nullable: false
+        description: Historical decision reference.
+        source: historical_core
+        trust: validated
+        sensitivity: security_sensitive
+        protection: pseudonymized_in_cge_copy
+        persistence: [synora.store.core-state]
+        retention: core_policy
+        validation: bounded_scalar
+      - name: event_id
+        type: string
+        required: false
+        nullable: false
+        description: Source event reference owned by historical Core.
+        source: historical_core
+        trust: validated
+        sensitivity: sensitive_personal
+        protection: pseudonymized_in_cge_copy
+        persistence: [synora.store.core-state]
+        retention: core_policy
+        validation: bounded_scalar
+      - name: decided_at
+        type: time
+        required: false
+        nullable: false
+        description: Time at which the historical decision was made.
+        source: historical_core
+        trust: validated
+        sensitivity: security_sensitive
+        protection: none
+        persistence: [synora.store.core-state]
+        retention: core_policy
+        validation: parseable_time
+
+  - id: synora.cge.boundary-event.v1
+    category: normalized_observation
+    owner: cge
+    producers: [historical_core]
+    consumers: [cge_adapter]
+    transport: internal
+    persistence: []
+    authority: descriptive
+    trust: validated
+    sensitivity: sensitive_personal
+    status: stable
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: Event
+      wire_format: internal_scalar
+    fields:
+      - name: id
+        type: string
+        required: true
+        nullable: false
+        description: Raw Core event ID at the non-persistent boundary.
+        source: ingested_event.event_id
+        trust: validated
+        sensitivity: sensitive_personal
+        protection: protect_raw_before_cge_storage
+        persistence: []
+        retention: memory_only
+        validation: bounded_scalar
+      - name: event_type
+        type: string
+        required: true
+        nullable: false
+        description: Normalized event type.
+        source: ingested_event.event_type
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: memory_only
+        validation: allowlist_checked
+      - name: identity_and_references
+        type: scalar_identifier_set
+        required: false
+        nullable: false
+        description: Raw Core identifiers; never durable in this form.
+        source: ingested_event
+        trust: sensor_reported
+        sensitivity: sensitive_personal
+        protection: protect_raw_before_persistence
+        persistence: []
+        retention: memory_only
+        validation: bounded_no_newline
+
+  - id: synora.cge.observation.v1
+    category: normalized_observation
+    owner: cge
+    producers: [cge_adapter]
+    consumers: [chains, context, episodes, shadow_workflow, comparison]
+    transport: internal
+    persistence: [synora.store.cge-journal, synora.store.cge-generations, synora.store.workflow-wal, synora.store.workflow-checkpoint]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Observation is a durable CGE boundary contract with protected identifiers.
+    migration_policy: cge_v1_legacy_replay_without_rewrite
+    compatibility_policy: preserve_observation_wire_fields_and_protected_domains
+    retention_policy: configured_cge_journal_and_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains
+      type: ObservationRef
+      wire_format: json
+    fields:
+      - name: observation_id
+        type: protected_identifier_observation
+        wire_name: id
+        required: true
+        nullable: false
+        description: Stable protected reference for the source event.
+        source: boundary_event.id
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_observation
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: cgeid_v1_observation
+      - name: event_type
+        type: string
+        required: true
+        nullable: false
+        description: Admitted event type.
+        source: boundary_event.event_type
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal]
+        retention: configured_store_policy
+        validation: allowlist_checked
+      - name: entity_id
+        type: protected_identifier_entity
+        wire_name: entity_id
+        required: false
+        nullable: false
+        description: Protected known subject reference; absent for unknown subjects.
+        source: boundary_event.identity
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_entity
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: cgeid_v1_entity_or_empty
+      - name: device_id
+        type: protected_identifier_device
+        wire_name: device_id
+        required: false
+        nullable: false
+        description: Protected source device reference.
+        source: boundary_event.device_id
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_device
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal]
+        retention: configured_store_policy
+        validation: cgeid_v1_device_or_empty
+      - name: clip_track_activation_sequence
+        type: protected_identifier_set
+        required: false
+        nullable: false
+        description: Protected media, tracking, activation and ordering references.
+        source: boundary_event
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_by_kind
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal]
+        retention: configured_store_policy
+        validation: cgeid_v1_by_kind_or_empty
+      - name: observed_at
+        type: time
+        required: true
+        nullable: false
+        description: Time at which the source observation occurred.
+        source: boundary_event.timestamp
+        trust: sensor_reported
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal]
+        retention: configured_store_policy
+        validation: non_zero_time
+
+  - id: synora.cge.context-frame.v1
+    category: context_fact
+    owner: cge_context
+    producers: [context_provider]
+    consumers: [chains, episodes, workflow]
+    transport: internal
+    persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.workflow-checkpoint]
+    authority: descriptive
+    trust: derived
+    sensitivity: personal
+    status: internal
+    justification: Context frame is persisted only as descriptive context attached to an observation.
+    migration_policy: context_schema_version_and_replay
+    compatibility_policy: preserve_context_v1_fields
+    retention_policy: configured_journal_and_checkpoint_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/context
+      type: Frame
+      wire_format: json
+    fields:
+      - name: observation_id
+        type: protected_identifier_observation
+        wire_name: observation_id
+        required: true
+        nullable: false
+        description: Observation to which the frame is attached.
+        source: observation.observation_id
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_observation
+        persistence: [synora.store.cge-journal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: cgeid_v1_observation
+      - name: topology
+        type: topology_reference
+        required: false
+        nullable: false
+        description: Node, parent and zone context needed for topology resolution.
+        source: core_context_provider
+        trust: validated
+        sensitivity: operational
+        protection: retain_node_and_zone_semantics
+        persistence: [synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: topology_or_partial_context
+      - name: occupancy_and_house_mode
+        type: enum_pair
+        required: true
+        nullable: false
+        description: Contextual domestic state; descriptive only.
+        source: core_context_provider
+        trust: corroborated
+        sensitivity: personal
+        protection: no_raw_identity
+        persistence: [synora.store.cge-journal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: known_enum_values
+      - name: fingerprint
+        type: sha256_fingerprint
+        required: true
+        nullable: false
+        description: Deterministic frame fingerprint.
+        source: cge_context
+        trust: derived
+        sensitivity: operational
+        protection: hash_only
+        persistence: [synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: deterministic_fingerprint
+
+  - id: synora.cge.episode-snapshot.v1
+    category: derived_fact
+    owner: cge_episodes
+    producers: [episode_engine]
+    consumers: [workflow, diagnostics, comparison]
+    transport: internal
+    persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: experimental
+    justification: Episode snapshots are workflow durable working-memory state.
+    migration_policy: workflow_schema_fingerprint_and_explicit_migration
+    compatibility_policy: preserve_episode_replay_shape
+    retention_policy: configured_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/episodes
+      type: Episode
+      wire_format: json
+    fields:
+      - name: episode_id
+        type: protected_or_derived_identifier
+        required: true
+        nullable: false
+        description: Bounded episode aggregate identity.
+        source: episode_engine
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: derived_fingerprint_only
+        persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: non_empty_bounded
+      - name: observations
+        type: bounded_observation_reference_list
+        required: true
+        nullable: false
+        description: Redacted observation references in the episode window.
+        source: cge_observation
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_references
+        persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: bounded_list
+      - name: status_and_revision
+        type: status_revision
+        required: true
+        nullable: false
+        description: Episode lifecycle and monotonic revision.
+        source: episode_engine
+        trust: derived
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: lifecycle_and_monotonic_revision
+
+  - id: synora.cge.fact-set.v1
+    category: derived_fact
+    owner: cge_situationfacts
+    producers: [fact_engine]
+    consumers: [hypothesis_engine, workflow, diagnostics]
+    transport: internal
+    persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+    authority: descriptive
+    trust: derived
+    sensitivity: operational
+    status: experimental
+    justification: Fact sets are workflow durable derived state.
+    migration_policy: workflow_schema_fingerprint_and_explicit_migration
+    compatibility_policy: preserve_fact_set_replay_shape
+    retention_policy: configured_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/situationfacts
+      type: FactSet
+      wire_format: json
+    fields:
+      - name: facts
+        type: fact_list
+        required: true
+        nullable: false
+        description: Bounded normalized facts with quality and origin.
+        source: episode_and_context
+        trust: derived
+        sensitivity: operational
+        protection: no_raw_identity
+        persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: fact_schema_and_bounds
+      - name: source_observation_ids
+        type: protected_identifier_list
+        required: false
+        nullable: false
+        description: Protected observations supporting the fact set.
+        source: cge_observation
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_observation
+        persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: cgeid_v1_observation_list
+      - name: revision_and_digest
+        type: revision_digest
+        required: true
+        nullable: false
+        description: Deterministic set revision and digest.
+        source: fact_engine
+        trust: derived
+        sensitivity: operational
+        protection: hash_only
+        persistence: [synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: digest_consistency
+
+  - id: synora.cge.hypothesis-set.v1
+    category: hypothesis
+    owner: cge_hypotheses
+    producers: [hypothesis_engine]
+    consumers: [evidence_engine, workflow, diagnostics]
+    transport: internal
+    persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.workflow-checkpoint]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: experimental
+    justification: Hypothesis sets are durable advisory model state.
+    migration_policy: cge_journal_and_workflow_schema_migration
+    compatibility_policy: preserve_hypothesis_lineage_and_replay
+    retention_policy: configured_cge_journal_and_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: Snapshot
+      wire_format: json
+    fields:
+      - name: hypothesis_set_id
+        type: protected_or_derived_identifier
+        required: true
+        nullable: false
+        description: Versioned hypothesis set identity.
+        source: hypothesis_engine
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: derived_fingerprint_only
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal]
+        retention: configured_store_policy
+        validation: non_empty_bounded
+      - name: alternatives
+        type: hypothesis_alternative_list
+        required: true
+        nullable: false
+        description: Competing interpretations and scores, not decisions.
+        source: facts_and_associations
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_references
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: bounded_ranked_list
+      - name: provenance
+        type: cognitive_provenance
+        required: true
+        nullable: false
+        description: Source schema, policy, revision and evaluation time.
+        source: hypothesis_engine
+        trust: derived
+        sensitivity: operational
+        protection: pseudonymized_references
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: provenance_complete
+
+  - id: synora.cge.evidence-evaluation.v1
+    category: evidence
+    owner: cge_evidence
+    producers: [evidence_engine]
+    consumers: [hypothesis_engine, situation_engine, workflow]
+    transport: internal
+    persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.workflow-checkpoint]
+    authority: advisory
+    trust: corroborated
+    sensitivity: sensitive_personal
+    status: experimental
+    justification: Evidence evaluations are durable derived evidence state.
+    migration_policy: cge_journal_and_workflow_schema_migration
+    compatibility_policy: preserve_evidence_reference_and_score_shape
+    retention_policy: configured_cge_journal_and_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains/evidence
+      type: EvidenceEvaluation
+      wire_format: json
+    fields:
+      - name: evaluation_id
+        type: derived_identifier
+        required: true
+        nullable: false
+        description: Deterministic evidence evaluation identity.
+        source: evidence_engine
+        trust: derived
+        sensitivity: operational
+        protection: derived_fingerprint_only
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal]
+        retention: configured_store_policy
+        validation: non_empty_bounded
+      - name: evidence_references
+        type: protected_reference_list
+        required: true
+        nullable: false
+        description: Source observations and facts supporting the evaluation.
+        source: observation_and_fact_sets
+        trust: corroborated
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_references
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal]
+        retention: configured_store_policy
+        validation: references_resolve
+      - name: assessment
+        type: bounded_assessment
+        required: true
+        nullable: false
+        description: Evidence status and bounded score.
+        source: evidence_engine
+        trust: corroborated
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal]
+        retention: configured_store_policy
+        validation: score_bounds
+
+  - id: synora.cge.cognitive-situation.v1
+    category: cognitive_situation
+    owner: cge_situation
+    producers: [situation_engine]
+    consumers: [recommendation_engine, comparison, workflow, diagnostics]
+    transport: internal
+    persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+    authority: advisory
+    trust: corroborated
+    sensitivity: sensitive_personal
+    status: experimental
+    justification: Cognitive situations are durable advisory workflow state.
+    migration_policy: workflow_schema_fingerprint_and_explicit_migration
+    compatibility_policy: preserve_situation_markers_and_replay
+    retention_policy: configured_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: CognitiveSituation
+      wire_format: json
+    fields:
+      - name: situation_id
+        type: derived_identifier
+        required: true
+        nullable: false
+        description: Bounded cognitive situation identity.
+        source: situation_engine
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: derived_fingerprint_only
+        persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: non_empty_bounded
+      - name: facts_and_hypotheses
+        type: situation_model
+        required: true
+        nullable: false
+        description: Consolidated descriptive model of current evidence.
+        source: fact_and_hypothesis_sets
+        trust: corroborated
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_references
+        persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: model_consistency
+      - name: markers
+        type: authority_markers
+        required: true
+        nullable: false
+        description: Explicit non-authority markers.
+        source: cge_situation
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: no_action_authority
+
+  - id: synora.cge.recommendation-set.v1
+    category: recommendation
+    owner: cge_recommendation
+    producers: [recommendation_engine]
+    consumers: [comparison, diagnostics, advisory_ui]
+    transport: internal
+    persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: experimental
+    justification: Advisory output only; no automation consumer is permitted.
+    migration_policy: workflow_schema_fingerprint_and_explicit_migration
+    compatibility_policy: preserve_recommendation_markers_and_read_only_shape
+    retention_policy: configured_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitiverecommendation
+      type: CognitiveRecommendationSet
+      wire_format: json
+    fields:
+      - name: recommendation_set_id
+        type: derived_identifier
+        required: true
+        nullable: false
+        description: Recommendation set identity.
+        source: recommendation_engine
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: derived_fingerprint_only
+        persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: non_empty_bounded
+      - name: recommendations
+        type: bounded_recommendation_list
+        required: true
+        nullable: false
+        description: Ranked advisory candidates, never commands or actions.
+        source: cognitive_situation
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_references
+        persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: bounded_and_read_only
+      - name: markers
+        type: recommendation_authority_markers
+        required: true
+        nullable: false
+        description: NotADecision, NotAnAction, NoSecurityMeaning markers.
+        source: cge_recommendation
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: historical_authority_retained
+
+  - id: synora.cge.historical-decision-ref.v1
+    category: historical_comparison
+    owner: historical_core
+    producers: [historical_core]
+    consumers: [cge_comparison]
+    transport: internal
+    persistence: []
+    authority: authorized_decision
+    trust: validated
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Read-only historical decision reference crossing B12; it retains Core authority and is not a CGE decision.
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/decisioncomparison
+      type: HistoricalDecisionRef
+      wire_format: json
+    fields:
+      - {name: id, go_field: ID, wire_name: ID, type: observation_reference, required: true, nullable: false, description: Protected historical decision reference ID, source: historical_core, trust: validated, sensitivity: sensitive_personal, protection: cgeid_v1_observation, persistence: [], retention: transport_lifetime, validation: protected_reference}
+      - {name: source_event_ref, go_field: SourceEventRef, wire_name: SourceEventRef, type: observation_reference, required: true, nullable: false, description: Protected source event reference, source: historical_core, trust: validated, sensitivity: sensitive_personal, protection: cgeid_v1_observation, persistence: [], retention: transport_lifetime, validation: protected_reference}
+      - {name: authority_marker, type: authority_marker, required: true, nullable: false, description: Historical authority remains with Core, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: transport_lifetime, validation: historical_authority_retained}
+
+  - id: synora.cge.historical-comparison.v1
+    category: historical_comparison
+    owner: cge_comparison
+    producers: [comparison_engine]
+    consumers: [calibration_ledger, diagnostics, advisory_ui]
+    transport: internal
+    persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint, synora.store.calibration-ledger]
+    authority: advisory
+    trust: derived
+    sensitivity: security_sensitive
+    status: internal
+    justification: Comparison is durable calibration material and never overrides historical authority.
+    migration_policy: workflow_and_ledger_schema_migration
+    compatibility_policy: preserve_historical_authority_markers_and_fingerprints
+    retention_policy: configured_workflow_and_ledger_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/decisioncomparison
+      type: HistoricalDecisionComparison
+      wire_format: json
+    fields:
+      - name: comparison_id
+        type: derived_identifier
+        required: true
+        nullable: false
+        description: Comparison identity and revision anchor.
+        source: comparison_engine
+        trust: derived
+        sensitivity: security_sensitive
+        protection: derived_fingerprint_only
+        persistence: [synora.store.workflow-wal, synora.store.calibration-ledger]
+        retention: configured_store_policy
+        validation: non_empty_bounded
+      - name: historical_reference
+        type: historical_decision_reference
+        required: true
+        nullable: false
+        description: Opaque reference to authoritative historical decision.
+        source: historical_decision
+        trust: validated
+        sensitivity: security_sensitive
+        protection: pseudonymized_in_cge
+        persistence: [synora.store.workflow-wal, synora.store.calibration-ledger]
+        retention: configured_store_policy
+        validation: authority_marker_and_protected_refs
+      - name: dimensions
+        type: comparison_dimension_list
+        required: true
+        nullable: false
+        description: Bounded descriptive alignment/divergence dimensions.
+        source: historical_and_cognitive_outputs
+        trust: derived
+        sensitivity: security_sensitive
+        protection: cgeid_v1_references
+        persistence: [synora.store.workflow-wal, synora.store.calibration-ledger]
+        retention: configured_store_policy
+        validation: bounded_scores_and_markers
+
+  - id: synora.cge.workflow-commit.v1
+    category: audit_record
+    owner: cge_workflow
+    producers: [workflow_coordinator]
+    consumers: [workflow_store, recovery]
+    transport: internal
+    persistence: [synora.store.workflow-wal]
+    authority: diagnostic
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Workflow records are the versioned durable WAL envelope.
+    migration_policy: workflow_schema_fingerprint_and_explicit_migration
+    compatibility_policy: preserve_legacy_record_replay
+    retention_policy: configured_wal_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/durableworkflow
+      type: Record
+      wire_format: json
+      validator: durableworkflow.RecordV1
+    fields:
+      - name: sequence
+        type: uint64
+        required: true
+        nullable: false
+        description: Monotonic workflow WAL sequence.
+        source: workflow_coordinator
+        trust: derived
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.workflow-wal]
+        retention: append_only_until_policy
+        validation: monotonic_sequence
+      - name: mutation
+        type: workflow_mutation
+        required: true
+        nullable: false
+        description: Durable workflow state mutation.
+        source: workflow_coordinator
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_references
+        persistence: [synora.store.workflow-wal]
+        retention: append_only_until_policy
+        validation: transaction_and_schema_fingerprint
+      - name: digest_and_fingerprint
+        type: sha256_fingerprint_set
+        required: true
+        nullable: false
+        description: Integrity and idempotency material.
+        source: workflow_coordinator
+        trust: derived
+        sensitivity: operational
+        protection: hash_only
+        persistence: [synora.store.workflow-wal]
+        retention: append_only_until_policy
+        validation: deterministic_digest
+
+  - id: synora.cge.recovery-result.v1
+    category: diagnostic
+    owner: cge_recovery
+    producers: [workflow_store, journal_store, ledger_store]
+    consumers: [cge_runtime, diagnostics]
+    transport: internal
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    implementation:
+      kind: derived_projection
+      package: synora/internal/cge/durableworkflow
+      type: RecoveryReport
+      wire_format: internal
+    fields:
+      - name: recovered_sequence
+        type: uint64
+        required: true
+        nullable: false
+        description: Last recovered durable sequence.
+        source: durable_store
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: memory_only
+        validation: monotonic_sequence
+      - name: digest
+        type: sha256_fingerprint
+        required: true
+        nullable: false
+        description: Recovered state digest.
+        source: durable_store
+        trust: validated
+        sensitivity: operational
+        protection: hash_only
+        persistence: []
+        retention: memory_only
+        validation: digest_consistency
+      - name: warnings
+        type: bounded_string_list
+        required: false
+        nullable: false
+        description: Bounded recovery warnings and fallback indicators.
+        source: recovery
+        trust: validated
+        sensitivity: operational
+        protection: bounded_diagnostics
+        persistence: []
+        retention: process_lifetime
+        validation: closed_error_codes
+
+  - id: synora.cge.admission-status.v1
+    category: diagnostic
+    owner: cge_admission
+    producers: [cge_runtime]
+    consumers: [diagnostics, rpc_api]
+    transport: internal
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: stable
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: ShadowAdmissionStatus
+      wire_format: internal
+    fields:
+      - name: code
+        type: admission_code
+        required: true
+        nullable: false
+        description: Accepted, ignored, invalid or unavailable disposition.
+        source: admission_policy
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: process_lifetime
+        validation: closed_vocabulary
+      - name: event_type
+        type: string
+        required: true
+        nullable: false
+        description: Normalized event type without identifier data.
+        source: boundary_event.event_type
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: process_lifetime
+        validation: bounded_no_newline
+      - name: authority_markers
+        type: authority_markers
+        required: true
+        nullable: false
+        description: HistoricalAuthorityUnchanged and NoActionProduced.
+        source: cge_runtime
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: process_lifetime
+        validation: both_true
+
+  - id: synora.cge.workflow-status.v1
+    category: diagnostic
+    owner: cge_workflow
+    producers: [workflow_runtime]
+    consumers: [diagnostics, rpc_api]
+    transport: internal
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: stable
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/shadowworkflow
+      type: StatusSnapshot
+      wire_format: internal
+    fields:
+      - name: state
+        type: workflow_runtime_state
+        required: true
+        nullable: false
+        description: Disabled, recovering, running, degraded or stopped state.
+        source: workflow_runtime
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: process_lifetime
+        validation: closed_vocabulary
+      - name: workflow_revision
+        type: uint64
+        required: true
+        nullable: false
+        description: Current workflow revision.
+        source: workflow_coordinator
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: process_lifetime
+        validation: monotonic_sequence
+      - name: digest
+        type: sha256_fingerprint
+        required: true
+        nullable: false
+        description: Current workflow digest.
+        source: workflow_coordinator
+        trust: validated
+        sensitivity: operational
+        protection: hash_only
+        persistence: []
+        retention: process_lifetime
+        validation: digest_consistency
+
+  - id: synora.cge.workflow-projection.v1
+    category: diagnostic
+    owner: cge_workflow
+    producers: [workflow_runtime]
+    consumers: [diagnostics, rpc_api, advisory_ui]
+    transport: internal
+    persistence: []
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: experimental
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/shadowworkflow
+      type: CognitiveProjectionSnapshot
+      wire_format: json
+    fields:
+      - name: episodes
+        type: episode_projection_list
+        required: true
+        nullable: false
+        description: Read-only workflow projection.
+        source: workflow_state
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_references
+        persistence: []
+        retention: process_lifetime
+        validation: bounded_projection
+      - name: recommendations
+        type: recommendation_projection_list
+        required: true
+        nullable: false
+        description: Read-only advisory projection.
+        source: workflow_state
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_references
+        persistence: []
+        retention: process_lifetime
+        validation: no_action_authority
+      - name: markers
+        type: authority_markers
+        required: true
+        nullable: false
+        description: Explicit advisory and historical-authority markers.
+        source: workflow_runtime
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: process_lifetime
+        validation: historical_authority_retained
+
+  - id: synora.cge.calibration-record.v1
+    category: feedback
+    owner: cge_calibration
+    producers: [calibration_adapter]
+    consumers: [calibration_ledger, calibration_analytics]
+    transport: internal
+    persistence: [synora.store.calibration-ledger]
+    authority: advisory
+    trust: derived
+    sensitivity: security_sensitive
+    status: internal
+    justification: Calibration records are append-only advisory ledger records.
+    migration_policy: calibration_ledger_schema_version_migration
+    compatibility_policy: preserve_hash_chain_and_marker_fields
+    retention_policy: configured_calibration_ledger_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationledger
+      type: CalibrationRecord
+      wire_format: json
+    fields:
+      - name: record_id_and_sequence
+        type: ledger_identity
+        required: true
+        nullable: false
+        description: Ledger record identity and append sequence.
+        source: calibration_ledger
+        trust: derived
+        sensitivity: operational
+        protection: derived_fingerprint_only
+        persistence: [synora.store.calibration-ledger]
+        retention: append_only_until_policy
+        validation: monotonic_sequence_and_unique_record
+      - name: comparison_fingerprint
+        type: sha256_fingerprint
+        required: true
+        nullable: false
+        description: Link to the compared historical and cognitive outputs.
+        source: historical_comparison
+        trust: derived
+        sensitivity: security_sensitive
+        protection: hash_only
+        persistence: [synora.store.calibration-ledger]
+        retention: append_only_until_policy
+        validation: fingerprint_chain
+      - name: markers
+        type: calibration_authority_markers
+        required: true
+        nullable: false
+        description: Calibration-only and no-production-authority markers.
+        source: calibration_adapter
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.calibration-ledger]
+        retention: append_only_until_policy
+        validation: no_threshold_update_and_no_action
+
+  - id: synora.cge.analytics-report.v1
+    category: diagnostic
+    owner: cge_analytics
+    producers: [calibration_analytics]
+    consumers: [diagnostics, advisory_ui]
+    transport: internal
+    persistence: []
+    authority: diagnostic
+    trust: derived
+    sensitivity: operational
+    status: experimental
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: CalibrationAnalyticsReport
+      wire_format: json
+    fields:
+      - name: ledger_fingerprint
+        type: sha256_fingerprint
+        required: true
+        nullable: false
+        description: Ledger state used for analysis.
+        source: calibration_ledger
+        trust: validated
+        sensitivity: operational
+        protection: hash_only
+        persistence: []
+        retention: process_lifetime
+        validation: fingerprint_format
+      - name: aggregates
+        type: bounded_aggregate_map
+        required: true
+        nullable: false
+        description: Counts and bounded rates, not model truth or decisions.
+        source: calibration_ledger
+        trust: derived
+        sensitivity: operational
+        protection: aggregate_only
+        persistence: []
+        retention: process_lifetime
+        validation: bounded_analytics
+      - name: markers
+        type: analytics_authority_markers
+        required: true
+        nullable: false
+        description: Descriptive and not automatic calibration markers.
+        source: calibration_analytics
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: process_lifetime
+        validation: calibration_only
+
+  - id: synora.cge.diagnostic-snapshot.v1
+    category: diagnostic
+    owner: cge
+    producers: [cge_runtime]
+    consumers: [rpc_api, advisory_ui, operators]
+    transport: internal_rpc_or_http
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: stable
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: Snapshot
+      wire_format: internal
+    fields:
+      - name: observation_and_admission_metrics
+        type: aggregate_metrics
+        required: true
+        nullable: false
+        description: Bounded event and admission counters without identifiers.
+        source: cge_runtime
+        trust: validated
+        sensitivity: operational
+        protection: aggregate_only
+        persistence: []
+        retention: process_lifetime
+        validation: no_sensitive_keys
+      - name: workflow_and_recovery_status
+        type: workflow_status_and_recovery_result
+        required: true
+        nullable: false
+        description: Read-only runtime, recovery and ledger status.
+        source: cge_runtime
+        trust: validated
+        sensitivity: operational
+        protection: bounded_diagnostics
+        persistence: []
+        retention: process_lifetime
+        validation: closed_error_codes
+      - name: authority_markers
+        type: authority_markers
+        required: true
+        nullable: false
+        description: No action and historical authority unchanged markers.
+        source: cge_runtime
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: process_lifetime
+        validation: both_true
+
+  - id: synora.cge.observation-result.v1
+    category: diagnostic
+    owner: cge
+    producers: [cge_runtime]
+    consumers: [cge_caller, rpc_api]
+    transport: internal_api
+    persistence: []
+    authority: descriptive
+    trust: validated
+    sensitivity: operational
+    status: stable
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: ObservationResult
+      wire_format: internal
+    fields:
+      - name: observed_at_and_count
+        type: time_and_uint64
+        required: true
+        nullable: false
+        description: Read-only observation timestamp and aggregate count.
+        source: cge_runtime
+        trust: validated
+        sensitivity: operational
+        protection: aggregate_only
+        persistence: []
+        retention: process_lifetime
+        validation: non_zero_time_and_monotonic_count
+      - name: last_event_type
+        type: string
+        required: true
+        nullable: false
+        description: Last normalized event type without identifiers.
+        source: cge_runtime
+        trust: validated
+        sensitivity: operational
+        protection: no_identifiers
+        persistence: []
+        retention: process_lifetime
+        validation: bounded_event_type
+
+  - id: synora.cge.engine-snapshot.v1
+    category: diagnostic
+    owner: cge
+    producers: [cge_runtime]
+    consumers: [cge_caller, rpc_api, advisory_ui]
+    transport: internal_api
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: stable
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: Snapshot
+      wire_format: internal
+    fields:
+      - name: runtime_state
+        type: cge_runtime_snapshot
+        required: true
+        nullable: false
+        description: Read-only feature, workflow and field-trial status.
+        source: cge_runtime
+        trust: validated
+        sensitivity: operational
+        protection: aggregate_only
+        persistence: []
+        retention: process_lifetime
+        validation: no_sensitive_identifiers
+      - name: metrics
+        type: metrics_snapshot
+        required: true
+        nullable: false
+        description: Detached in-memory metrics.
+        source: cge_runtime
+        trust: validated
+        sensitivity: operational
+        protection: aggregate_only
+        persistence: []
+        retention: process_lifetime
+        validation: bounded_counters
+
+  - id: synora.cge.explanation.v1
+    category: diagnostic
+    owner: cge
+    producers: [cge_runtime]
+    consumers: [cge_caller, rpc_api, advisory_ui]
+    transport: internal_api
+    persistence: []
+    authority: diagnostic
+    trust: derived
+    sensitivity: operational
+    status: experimental
+    justification: Reserved read-only explanation shape; current pass exposes no decision or action content.
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: Explanation
+      wire_format: internal
+    fields:
+      - name: situation_reference
+        type: protected_or_derived_identifier
+        required: false
+        nullable: false
+        description: Optional cognitive situation reference.
+        source: cge_runtime
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: pseudonymized_reference
+        persistence: []
+        retention: process_lifetime
+        validation: protected_or_empty
+      - name: availability_and_text
+        type: bounded_explanation
+        required: true
+        nullable: false
+        description: Read-only availability and bounded explanation text.
+        source: cge_runtime
+        trust: derived
+        sensitivity: operational
+        protection: redacted_and_bounded
+        persistence: []
+        retention: process_lifetime
+        validation: no_action_or_secret_content
+
+  - id: synora.cge.feedback.v1
+    category: feedback
+    owner: cge_feedback
+    producers: [validation_or_operator]
+    consumers: [calibration, field_trial]
+    transport: internal
+    persistence: [synora.store.feedback]
+    authority: advisory
+    trust: sensor_reported
+    sensitivity: sensitive_personal
+    status: experimental
+    justification: Feedback is a CGE-owned durable input to calibration, not an automatic training command.
+    migration_policy: feedback_schema_explicit_migration
+    compatibility_policy: preserve_feedback_review_and_replay_shape
+    retention_policy: explicit_feedback_retention_policy
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: FeedbackFile
+      wire_format: json
+    fields:
+      - name: feedback_id
+        type: string
+        required: true
+        nullable: false
+        description: Feedback record identity.
+        source: feedback_source
+        trust: sensor_reported
+        sensitivity: sensitive_personal
+        protection: pseudonymized_reference
+        persistence: [synora.store.feedback]
+        retention: explicit_policy_required
+        validation: bounded_scalar
+      - name: source_reference
+        type: protected_reference
+        required: false
+        nullable: false
+        description: Observation or comparison reference associated with feedback.
+        source: cge_output
+        trust: sensor_reported
+        sensitivity: sensitive_personal
+        protection: cgeid_v1_or_fingerprint
+        persistence: [synora.store.feedback]
+        retention: explicit_policy_required
+        validation: protected_or_empty
+      - name: value
+        type: bounded_feedback_value
+        required: true
+        nullable: false
+        description: Validation signal; never an automatic training command.
+        source: feedback_source
+        trust: sensor_reported
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.feedback]
+        retention: explicit_policy_required
+        validation: schema_and_size_limit
+
+  - id: synora.cge.field-trial-record.v1
+    category: audit_record
+    owner: cge_field_trial
+    producers: [field_trial_recorder]
+    consumers: [operators, validation]
+    transport: file
+    persistence: [synora.store.field-trial-recorder]
+    authority: diagnostic
+    trust: derived
+    sensitivity: sensitive_personal
+    status: experimental
+    justification: Field trial records are bounded CGE validation evidence.
+    migration_policy: field_trial_schema_version_migration
+    compatibility_policy: preserve_segment_replay_and_privacy_markers
+    retention_policy: configured_trial_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/fieldtrial
+      type: AnnotationEnvelope
+      wire_format: json
+      validator: fieldtrial.RecordV1
+    fields:
+      - name: event_reference
+        type: protected_reference
+        required: false
+        nullable: false
+        description: Redacted event reference in a trial record.
+        source: cge_runtime
+        trust: derived
+        sensitivity: sensitive_personal
+        protection: pseudonymized_reference
+        persistence: [synora.store.field-trial-recorder]
+        retention: configured_trial_retention
+        validation: protected_or_empty
+      - name: context_categories
+        type: bounded_context_categories
+        required: false
+        nullable: false
+        description: Optional descriptive context categories.
+        source: cge_context
+        trust: derived
+        sensitivity: personal
+        protection: category_only
+        persistence: [synora.store.field-trial-recorder]
+        retention: configured_trial_retention
+        validation: bounded_categories
+      - name: timing_breakdown
+        type: bounded_latency_map
+        required: false
+        nullable: false
+        description: Processing latency measurements.
+        source: cge_runtime
+        trust: derived
+        sensitivity: operational
+        protection: aggregate_only
+        persistence: [synora.store.field-trial-recorder]
+        retention: configured_trial_retention
+        validation: non_negative_duration
+
+  - id: synora.cge.error.v1
+    category: diagnostic
+    owner: cge
+    producers: [cge_runtime, cge_stores]
+    consumers: [rpc_api, operators, tests]
+    transport: internal
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: stable
+    implementation:
+      kind: envelope
+      package: synora/internal/cge/contractcatalog
+      type: CatalogError
+      wire_format: json
+    fields:
+      - name: code
+        type: closed_error_code
+        required: true
+        nullable: false
+        description: Bounded machine-readable error code.
+        source: cge_component
+        trust: validated
+        sensitivity: operational
+        protection: no_raw_error_text
+        persistence: []
+        retention: process_lifetime
+        validation: errors_catalog
+      - name: retryable
+        type: boolean
+        required: true
+        nullable: false
+        description: Whether the caller may retry without changing authority.
+        source: cge_component
+        trust: validated
+        sensitivity: operational
+        protection: none
+        persistence: []
+        retention: process_lifetime
+        validation: boolean
+      - name: detail
+        type: bounded_safe_detail
+        required: false
+        nullable: false
+        description: Non-sensitive bounded diagnostic detail.
+        source: cge_component
+        trust: validated
+        sensitivity: operational
+        protection: redacted_and_bounded
+        persistence: []
+        retention: process_lifetime
+        validation: no_paths_or_secrets
+
+  - id: synora.cge.journal-genesis-payload.v1
+    category: audit_record
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for journal.genesis; the journal envelope is validated separately.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: GenesisPayload, wire_format: json, validator: journal.GenesisPayloadV1}
+    fields: []
+  - id: synora.cge.journal-chain-added-payload.v1
+    category: audit_record
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for chain.added.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: ChainAddedPayload, wire_format: json, validator: journal.ChainAddedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-lifecycle-payload.v1
+    category: audit_record
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for chain.lifecycle_transitioned.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: LifecycleTransitionPayload, wire_format: json, validator: journal.LifecycleTransitionPayloadV1}
+    fields: []
+  - id: synora.cge.journal-snapshot-checkpoint-payload.v1
+    category: audit_record
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for snapshot.checkpointed.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: SnapshotCheckpointPayload, wire_format: json, validator: journal.SnapshotCheckpointPayloadV1}
+    fields: []
+  - id: synora.cge.journal-observation-added-payload.v1
+    category: normalized_observation
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for chain.observation_added.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: ObservationAddedPayload, wire_format: json, validator: journal.ObservationAddedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-contribution-added-payload.v1
+    category: audit_record
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for chain.contribution_added.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: ContributionAddedPayload, wire_format: json, validator: journal.ContributionAddedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-hypothesis-opened-payload.v1
+    category: hypothesis
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for hypothesis.opened.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: HypothesisOpenedPayload, wire_format: json, validator: journal.HypothesisOpenedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-hypothesis-status-payload.v1
+    category: hypothesis
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for hypothesis.status_changed.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: HypothesisStatusChangedPayload, wire_format: json, validator: journal.HypothesisStatusChangedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-hypothesis-rebased-payload.v1
+    category: hypothesis
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for hypothesis.rebased.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: HypothesisRebasedPayload, wire_format: json, validator: journal.HypothesisRebasedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-hypothesis-superseded-payload.v1
+    category: hypothesis
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for hypothesis.superseded.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: HypothesisSupersededPayload, wire_format: json, validator: journal.HypothesisSupersededPayloadV1}
+    fields: []
+  - id: synora.cge.journal-hypothesis-resolved-payload.v1
+    category: hypothesis
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for hypothesis.resolved.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: HypothesisResolvedPayload, wire_format: json, validator: journal.HypothesisResolvedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-routine-created-payload.v1
+    category: derived_fact
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: operational
+    status: internal
+    justification: Exact v1 payload for routine.created.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: RoutineCreatedPayload, wire_format: json, validator: journal.RoutineCreatedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-routine-occurrence-payload.v1
+    category: derived_fact
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: operational
+    status: internal
+    justification: Exact v1 payload for routine.occurrence_added.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: RoutineOccurrenceAddedPayload, wire_format: json, validator: journal.RoutineOccurrenceAddedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-routine-status-payload.v1
+    category: derived_fact
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: operational
+    status: internal
+    justification: Exact v1 payload for routine.status_changed.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: RoutineStatusChangedPayload, wire_format: json, validator: journal.RoutineStatusChangedPayloadV1}
+    fields: []
+
+  - id: synora.cge.journal-record.v1
+    category: audit_record
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 root envelope for a durable CGE journal line.
+    migration_policy: journal_envelope_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: Record, wire_format: json}
+    fields: []
+
+  - id: synora.cge.generation-manifest.v1
+    category: audit_record
+    owner: cge_chains_generations
+    producers: [cge_generations]
+    consumers: [cge_generations_recovery]
+    transport: internal
+    persistence: [synora.store.cge-generations]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 active generation manifest payload.
+    migration_policy: generation_manifest_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: generation_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/generations, type: Manifest, wire_format: json}
+    fields: []
+
+  - id: synora.cge.generation-snapshot.v1
+    category: audit_record
+    owner: cge_chains_persistence
+    producers: [cge_generations]
+    consumers: [cge_generations_recovery]
+    transport: internal
+    persistence: [synora.store.cge-generations]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 generation snapshot payload.
+    migration_policy: generation_snapshot_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: generation_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/persistence, type: RegistryPayload, wire_format: json}
+    fields: []
+
+  - id: synora.cge.workflow-checkpoint.v1
+    category: audit_record
+    owner: cge_shadow_workflow
+    producers: [cge_shadow_workflow]
+    consumers: [cge_shadow_workflow_recovery]
+    transport: internal
+    persistence: [synora.store.workflow-checkpoint]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 workflow checkpoint payload.
+    migration_policy: workflow_checkpoint_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: latest_checkpoint
+    implementation: {kind: go_struct, package: synora/internal/cge/durableworkflow, type: Checkpoint, wire_format: json}
+    fields: []
+
+  - id: synora.cge.field-trial-envelope.v1
+    category: audit_record
+    owner: cge_field_trial
+    producers: [cge_field_trial]
+    consumers: [cge_field_trial_replay]
+    transport: internal
+    persistence: [synora.store.field-trial-recorder]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 field-trial event envelope.
+    migration_policy: field_trial_envelope_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: field_trial_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/fieldtrial, type: Envelope, wire_format: json}
+    fields: []
+
+  - id: synora.cge.field-trial-annotation-envelope.v1
+    category: audit_record
+    owner: cge_field_trial
+    producers: [cge_field_trial]
+    consumers: [cge_field_trial_replay]
+    transport: internal
+    persistence: [synora.store.field-trial-recorder]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 field-trial annotation envelope.
+    migration_policy: field_trial_annotation_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: field_trial_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/fieldtrial, type: AnnotationEnvelope, wire_format: json}
+    fields: []
+
+  - id: synora.cge.field-trial-manifest.v1
+    category: audit_record
+    owner: cge_field_trial
+    producers: [cge_field_trial]
+    consumers: [cge_field_trial_replay]
+    transport: internal
+    persistence: [synora.store.field-trial-recorder]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 field-trial session manifest.
+    migration_policy: field_trial_manifest_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: field_trial_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/fieldtrial, type: SessionManifest, wire_format: json}
+    fields: []
+
+  - id: synora.cge.audit-record.v1
+    category: audit_record
+    owner: cge
+    producers: [cge_runtime]
+    consumers: [operators, validation]
+    transport: internal
+    persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.calibration-ledger]
+    authority: diagnostic
+    trust: derived
+    sensitivity: operational
+    status: internal
+    justification: Audit records are integrity metadata for CGE durable operations.
+    migration_policy: audit_schema_version_migration
+    compatibility_policy: preserve_integrity_metadata_and_replay
+    retention_policy: store_specific_audit_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/contractcatalog
+      type: AuditRecord
+      wire_format: json
+      validator: contractcatalog.AuditRecordV1
+    fields:
+      - name: operation
+        type: closed_operation_code
+        required: true
+        nullable: false
+        description: Durable operation or lifecycle marker.
+        source: cge_component
+        trust: derived
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.calibration-ledger]
+        retention: store_policy
+        validation: closed_vocabulary
+      - name: sequence_revision_digest
+        type: integrity_metadata
+        required: true
+        nullable: false
+        description: Ordering, revision and digest metadata.
+        source: cge_store
+        trust: derived
+        sensitivity: operational
+        protection: hash_only
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.calibration-ledger]
+        retention: store_policy
+        validation: integrity_chain
+
+  - id: synora.contract.action-request.v1
+    category: recommendation
+    owner: automation
+    producers: [historical_core, automation]
+    consumers: [actions]
+    transport: bus
+    persistence: []
+    authority: authorized_action
+    trust: validated
+    sensitivity: security_sensitive
+    status: stable
+    justification: Historical Core/automation contract inventoried for authority separation; CGE is forbidden to produce it.
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: ActionRequest
+      wire_format: json
+    fields:
+      - name: request_id
+        type: string
+        required: true
+        nullable: false
+        description: Action request identity outside CGE authority.
+        source: historical_core_or_automation
+        trust: validated
+        sensitivity: security_sensitive
+        protection: historical_policy
+        persistence: []
+        retention: transport_lifetime
+        validation: action_policy_validation
+      - name: command
+        type: action_command
+        required: true
+        nullable: false
+        description: Executable action command; never a CGE output.
+        source: historical_core_or_automation
+        trust: validated
+        sensitivity: security_sensitive
+        protection: historical_policy
+        persistence: []
+        retention: transport_lifetime
+        validation: action_policy_validation
+
+admission_events:
+  - event_type: vision.identity
+    contract: synora.contract.ingested-event.v1
+    disposition: admitted
+    workflow: true
+  - event_type: vision.unknown
+    contract: synora.contract.ingested-event.v1
+    disposition: admitted
+    workflow: true
+  - event_type: vision.uncertain
+    contract: synora.contract.ingested-event.v1
+    disposition: admitted
+    workflow: true
+  - event_type: vision.motion
+    contract: synora.contract.ingested-event.v1
+    disposition: historical_only
+    workflow: false
+
+output_profiles:
+  - name: ObservationResult
+    contract: synora.cge.observation-result.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: true
+    ui: true
+    automation: false
+    authority: descriptive
+  - name: Snapshot
+    contract: synora.cge.engine-snapshot.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: true
+    ui: true
+    automation: false
+    authority: diagnostic
+  - name: Explanation
+    contract: synora.cge.explanation.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: diagnostic
+  - name: AdmissionStatus
+    contract: synora.cge.admission-status.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: true
+    ui: true
+    automation: false
+    authority: diagnostic
+  - name: AdmissionMetrics
+    contract: synora.cge.diagnostic-snapshot.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: true
+    ui: true
+    automation: false
+    authority: diagnostic
+  - name: WorkflowStatus
+    contract: synora.cge.workflow-status.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: true
+    ui: true
+    automation: false
+    authority: diagnostic
+  - name: WorkflowProjection
+    contract: synora.cge.workflow-projection.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: advisory
+  - name: EpisodeSnapshots
+    contract: synora.cge.episode-snapshot.v1
+    visibility: internal
+    read_only: true
+    persisted: true
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: descriptive
+  - name: Facts
+    contract: synora.cge.fact-set.v1
+    visibility: internal
+    read_only: true
+    persisted: true
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: descriptive
+  - name: Hypotheses
+    contract: synora.cge.hypothesis-set.v1
+    visibility: internal
+    read_only: true
+    persisted: true
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: advisory
+  - name: EvidenceEvaluations
+    contract: synora.cge.evidence-evaluation.v1
+    visibility: internal
+    read_only: true
+    persisted: true
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: advisory
+  - name: CognitiveSituations
+    contract: synora.cge.cognitive-situation.v1
+    visibility: internal
+    read_only: true
+    persisted: true
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: advisory
+  - name: RecommendationSets
+    contract: synora.cge.recommendation-set.v1
+    visibility: internal
+    read_only: true
+    persisted: true
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: advisory
+  - name: HistoricalComparisons
+    contract: synora.cge.historical-comparison.v1
+    visibility: internal
+    read_only: true
+    persisted: true
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: advisory
+  - name: CalibrationRecords
+    contract: synora.cge.calibration-record.v1
+    visibility: internal
+    read_only: true
+    persisted: true
+    bounded: true
+    paginable: true
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: advisory
+  - name: Analytics
+    contract: synora.cge.analytics-report.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: diagnostic
+  - name: Errors
+    contract: synora.cge.error.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: true
+    ui: true
+    automation: false
+    authority: diagnostic
+  - name: HealthStatus
+    contract: synora.cge.diagnostic-snapshot.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: true
+    ui: true
+    automation: false
+    authority: diagnostic

@@ -68,11 +68,42 @@ type Config struct {
 	Now func() time.Time
 }
 
+type healthDependencies struct {
+	loadNetworkStatus func() (network.Status, error)
+	loadNetworkConfig func(string) (network.NetworkConfig, error)
+	httpsHealth       func(time.Time) contract.RuntimeServiceHealth
+	diskHealth        func(string) contract.RuntimeDiskHealth
+}
+
+func productionHealthDependencies() healthDependencies {
+	return healthDependencies{
+		loadNetworkStatus: defaultNetworkStatus,
+		loadNetworkConfig: network.LoadConfig,
+		httpsHealth:       runtimeHTTPSHealth,
+		diskHealth:        systemDiskHealth,
+	}
+}
+
+func defaultNetworkStatus() (network.Status, error) {
+	return network.LoadStatus(os.Getenv("SYNORA_NETWORK_STATUS_FILE"))
+}
+
+func (deps healthDependencies) validate() {
+	if deps.loadNetworkStatus == nil || deps.loadNetworkConfig == nil || deps.httpsHealth == nil || deps.diskHealth == nil {
+		panic("manager health dependencies must be configured")
+	}
+}
+
 type Manager struct {
 	executor Executor
 
 	probeActions  func(context.Context) error
 	probeMediaMTX func(context.Context) error
+
+	loadNetworkStatus func() (network.Status, error)
+	loadNetworkConfig func(string) (network.NetworkConfig, error)
+	httpsHealth       func(time.Time) contract.RuntimeServiceHealth
+	diskHealthProbe   func(string) contract.RuntimeDiskHealth
 
 	configDir         string
 	snapshotDir       string
@@ -88,6 +119,22 @@ type Manager struct {
 func New(
 	cfg Config,
 ) *Manager {
+	if cfg.ProbeMediaMTX == nil {
+		cfg.ProbeMediaMTX = defaultMediaMTXProbe
+	}
+	return newWithHealthDependencies(cfg, productionHealthDependencies())
+}
+
+// newWithHealthDependencies is the hermetic construction boundary for health
+// tests. Production construction uses New, which supplies the real probes.
+func newWithHealthDependencies(
+	cfg Config,
+	deps healthDependencies,
+) *Manager {
+	deps.validate()
+	if cfg.ProbeMediaMTX == nil {
+		cfg.ProbeMediaMTX = missingMediaMTXProbe
+	}
 	if cfg.Executor == nil {
 		cfg.Executor = OSExecutor{}
 	}
@@ -123,6 +170,11 @@ func New(
 
 		probeActions:  cfg.ProbeActions,
 		probeMediaMTX: cfg.ProbeMediaMTX,
+
+		loadNetworkStatus: deps.loadNetworkStatus,
+		loadNetworkConfig: deps.loadNetworkConfig,
+		httpsHealth:       deps.httpsHealth,
+		diskHealthProbe:   deps.diskHealth,
 
 		configDir:         cfg.ConfigDir,
 		snapshotDir:       cfg.SnapshotDir,
@@ -181,13 +233,13 @@ func (m *Manager) Health(
 	networkHealth := contract.RuntimeNetworkHealth{Status: networkStatus, HostAPD: hostapd, DNSMasq: dnsmasq, Details: map[string]contract.RuntimeServiceHealth{}}
 	networkHealth.Details["mediamtx_rtsp"] = contract.RuntimeServiceHealth{Name: "mediamtx_rtsp", Status: mediaMTX.Status, Active: mediaMTX.Active, Checked: now, Message: "RTSP endpoint 8554"}
 	networkHealth.Details["mediamtx_webrtc_hls"] = contract.RuntimeServiceHealth{Name: "mediamtx_webrtc_hls", Status: mediaMTX.Status, Active: mediaMTX.Active, Checked: now, Message: "browser live endpoints 8888/8889"}
-	networkHealth.Details["https_api"] = runtimeHTTPSHealth(now)
+	networkHealth.Details["https_api"] = m.httpsHealth(now)
 	components["mediamtx_rtsp"] = networkHealth.Details["mediamtx_rtsp"]
 	components["mediamtx_webrtc_hls"] = networkHealth.Details["mediamtx_webrtc_hls"]
 	components["https_api"] = networkHealth.Details["https_api"]
-	snapshot, statusErr := network.LoadStatus(os.Getenv("SYNORA_NETWORK_STATUS_FILE"))
+	snapshot, statusErr := m.loadNetworkStatus()
 	if statusErr != nil {
-		if cfg, configErr := network.LoadConfig(m.networkConfigPath); configErr == nil && !cfg.SynoraNet.Enabled {
+		if cfg, configErr := m.loadNetworkConfig(m.networkConfigPath); configErr == nil && !cfg.SynoraNet.Enabled {
 			disabled := network.RuntimePart{Status: "disabled", Message: "SynoraNet disabled"}
 			snapshot = network.Status{Status: "disabled", SynoraNet: disabled, AP5GHz: disabled, AP2GHz: disabled, DHCP: disabled, DNS: disabled, WifiSecurity: network.WifiSecurityStatus{RuntimePart: disabled}, Visibility: network.VisibilityStatus{RuntimePart: disabled}, AccessControl: network.AccessControlStatus{RuntimePart: disabled}, ConnectionPolicy: network.ConnectionPolicyStatus{RuntimePart: disabled}, PairingSecurity: network.PairingSecurityStatus{RuntimePart: disabled}, NetworkIsolation: disabled, Firewall: disabled}
 			statusErr = nil
@@ -195,7 +247,7 @@ func (m *Manager) Health(
 	}
 	if statusErr == nil {
 		networkHealth = mergeSynoraNetHealth(networkHealth, snapshot, now)
-		networkHealth.Details["https_api"] = runtimeHTTPSHealth(now)
+		networkHealth.Details["https_api"] = m.httpsHealth(now)
 		networkHealth.Details["mediamtx_rtsp"] = contract.RuntimeServiceHealth{Name: "mediamtx_rtsp", Status: mediaMTX.Status, Active: mediaMTX.Active, Checked: now, Message: "RTSP endpoint 8554"}
 		networkHealth.Details["mediamtx_webrtc_hls"] = contract.RuntimeServiceHealth{Name: "mediamtx_webrtc_hls", Status: mediaMTX.Status, Active: mediaMTX.Active, Checked: now, Message: "browser live endpoints 8888/8889"}
 		for name, item := range networkHealth.Details {
@@ -599,9 +651,6 @@ func (m *Manager) mediaMTXServiceHealth(
 		return health
 	}
 	probe := m.probeMediaMTX
-	if probe == nil {
-		probe = defaultMediaMTXProbe
-	}
 	probeCtx, cancel := context.WithTimeout(ctx, 350*time.Millisecond)
 	defer cancel()
 	if err := probe(probeCtx); err != nil {
@@ -615,6 +664,10 @@ func (m *Manager) mediaMTXServiceHealth(
 	}
 	health.Checked = now
 	return health
+}
+
+func missingMediaMTXProbe(context.Context) error {
+	return errors.New("MediaMTX probe dependency is not configured")
 }
 
 func defaultMediaMTXProbe(ctx context.Context) error {
@@ -631,14 +684,18 @@ func defaultMediaMTXProbe(ctx context.Context) error {
 }
 
 func (m *Manager) diskHealth() contract.RuntimeDiskHealth {
+	return m.diskHealthProbe(m.diskPath)
+}
+
+func systemDiskHealth(diskPath string) contract.RuntimeDiskHealth {
 	var stat syscall.Statfs_t
 
 	if err := syscall.Statfs(
-		m.diskPath,
+		diskPath,
 		&stat,
 	); err != nil {
 		return contract.RuntimeDiskHealth{
-			Path:   m.diskPath,
+			Path:   diskPath,
 			Status: "unknown",
 			Error:  err.Error(),
 		}
@@ -663,7 +720,7 @@ func (m *Manager) diskHealth() contract.RuntimeDiskHealth {
 	}
 
 	return contract.RuntimeDiskHealth{
-		Path:        m.diskPath,
+		Path:        diskPath,
 		TotalBytes:  total,
 		FreeBytes:   free,
 		UsedBytes:   used,

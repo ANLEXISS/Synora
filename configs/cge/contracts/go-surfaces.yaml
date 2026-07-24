@@ -1,0 +1,68 @@
+schema_version: 1
+namespace: synora.cge
+packages:
+  - import: synora/pkg/contract
+    role: historical_and_bus_contracts
+    types: [Message, Event, Decision, ActionRequest]
+  - import: synora/internal/cge
+    role: cge_engine_boundary_and_outputs
+    types: [Event, ObservationResult, Snapshot, Explanation, ShadowAdmissionStatus, FeedbackFile]
+  - import: synora/internal/cge/chains
+    role: durable_observation
+    types: [ObservationRef]
+  - import: synora/internal/cge/chains/journal
+    role: durable_journal
+    types: [Record, GenesisPayload, ChainAddedPayload, LifecycleTransitionPayload, SnapshotCheckpointPayload, ObservationAddedPayload, ContributionAddedPayload, HypothesisOpenedPayload, HypothesisStatusChangedPayload, HypothesisRebasedPayload, HypothesisSupersededPayload, HypothesisResolvedPayload, RoutineCreatedPayload, RoutineOccurrenceAddedPayload, RoutineStatusChangedPayload]
+  - import: synora/internal/cge/chains/generations
+    role: generation_manifest
+    types: [Manifest]
+  - import: synora/internal/cge/chains/persistence
+    role: generation_snapshot
+    types: [RegistryPayload]
+  - import: synora/internal/cge/context
+    role: context_frame
+    types: [Frame]
+  - import: synora/internal/cge/episodes
+    role: episode_snapshot
+    types: [Episode]
+  - import: synora/internal/cge/situationfacts
+    role: fact_set
+    types: [FactSet]
+  - import: synora/internal/cge/hypotheses
+    role: hypothesis_snapshot
+    types: [Snapshot]
+  - import: synora/internal/cge/chains/evidence
+    role: evidence_evaluation
+    types: [EvidenceEvaluation]
+  - import: synora/internal/cge/cognitivesituation
+    role: cognitive_situation
+    types: [CognitiveSituation]
+  - import: synora/internal/cge/cognitiverecommendation
+    role: recommendation_set
+    types: [CognitiveRecommendationSet]
+  - import: synora/internal/cge/decisioncomparison
+    role: historical_comparison
+    types: [HistoricalDecisionComparison, HistoricalDecisionRef]
+  - import: synora/internal/cge/durableworkflow
+    role: workflow_envelopes
+    types: [Record, Checkpoint, RecoveryReport]
+  - import: synora/internal/cge/shadowworkflow
+    role: workflow_status_and_projection
+    types: [StatusSnapshot, CognitiveProjectionSnapshot]
+  - import: synora/internal/cge/calibrationledger
+    role: calibration_ledger
+    types: [CalibrationRecord]
+  - import: synora/internal/cge/calibrationanalytics
+    role: calibration_analytics
+    types: [CalibrationAnalyticsReport]
+  - import: synora/internal/cge/fieldtrial
+    role: field_trial_records
+    types: [Envelope, AnnotationEnvelope, SessionManifest]
+  - import: synora/internal/cge/contractcatalog
+    role: catalog_error_and_audit_envelopes
+    types: [CatalogError, AuditRecord]
+exemptions:
+  - package: synora/internal/cge
+    type: internal_runtime_helper
+    reason: Non-serialized helper state and constructor options.
+    scope: non_serialized_helpers_only

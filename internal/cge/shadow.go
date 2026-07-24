@@ -10,15 +10,19 @@ import (
 	"sync"
 	"time"
 
+	"synora/internal/cge/calibrationledger"
 	"synora/internal/cge/chains"
 	"synora/internal/cge/chains/association"
 	"synora/internal/cge/chains/durable"
 	"synora/internal/cge/chains/evidence"
 	"synora/internal/cge/chains/generations"
 	cgecontext "synora/internal/cge/context"
+	"synora/internal/cge/decisioncomparison"
+	"synora/internal/cge/durableids"
 	"synora/internal/cge/fieldtrial"
 	"synora/internal/cge/hypotheses"
 	"synora/internal/cge/routines"
+	"synora/internal/cge/shadowworkflow"
 )
 
 // RoutineTopologyProvider is a detached, read-only topology boundary. A
@@ -58,7 +62,11 @@ type ShadowEngine struct {
 	dataDir           string
 	policy            association.Policy
 	evidencePolicy    evidence.Policy
-	allowlist         map[string]struct{}
+	admissionPolicy   ShadowEventAdmissionPolicy
+	admissionMu       sync.RWMutex
+	admission         ShadowAdmissionStatus
+	contextStatusMu   sync.RWMutex
+	contextStatus     CoreContextProviderStatus
 	actor             string
 	clock             Clock
 	logger            Logger
@@ -75,6 +83,7 @@ type ShadowEngine struct {
 	lastAssessment    *DeviationAssessmentSummary
 	lastOrchestration ShadowOrchestrationResult
 	topologyProvider  RoutineTopologyProvider
+	workflow          *shadowworkflow.Runtime
 	closeOnce         sync.Once
 	closeErr          error
 }
@@ -115,6 +124,77 @@ func (e *ShadowEngine) Status() durable.StatusSnapshot {
 	return e.coordinator.Status()
 }
 
+// WorkflowStatus returns the detached status of the optional experimental
+// workflow. It is not part of the historical decision boundary.
+func (e *ShadowEngine) WorkflowStatus() shadowworkflow.StatusSnapshot {
+	if e == nil || e.workflow == nil {
+		return shadowworkflow.StatusSnapshot{State: shadowworkflow.StateDisabled, StoreMode: shadowworkflow.StoreMemory}
+	}
+	return e.workflow.Status()
+}
+
+// WorkflowProjection returns the detached read-only projections produced by
+// the optional workflow. It exposes existing diagnostics only; the Core never
+// consumes these values as decisions, commands, or actions.
+func (e *ShadowEngine) WorkflowProjection() shadowworkflow.CognitiveProjectionSnapshot {
+	if e == nil || e.workflow == nil {
+		return shadowworkflow.CognitiveProjectionSnapshot{}
+	}
+	return e.workflow.CognitiveProjection()
+}
+
+// WorkflowCalibrationRecords returns defensive ledger records for diagnostics.
+func (e *ShadowEngine) WorkflowCalibrationRecords(q calibrationledger.Query) (calibrationledger.QueryResult, error) {
+	if e == nil || e.workflow == nil {
+		return calibrationledger.QueryResult{}, calibrationledger.ErrSnapshotUnavailable
+	}
+	return e.workflow.CalibrationRecords(q)
+}
+
+// WorkflowCalibrationSnapshot returns the detached durable ledger snapshot.
+func (e *ShadowEngine) WorkflowCalibrationSnapshot() calibrationledger.Snapshot {
+	if e == nil || e.workflow == nil {
+		return calibrationledger.Snapshot{}
+	}
+	return e.workflow.CalibrationSnapshot()
+}
+
+// AdmissionStatus returns a defensive, aggregate-only view of the latest
+// Core-to-Shadow admission result.
+func (e *ShadowEngine) AdmissionStatus() ShadowAdmissionStatus {
+	if e == nil {
+		return ShadowAdmissionStatus{LastCode: ShadowAdmissionDisabled, HistoricalAuthorityUnchanged: true, NoActionProduced: true}
+	}
+	e.admissionMu.RLock()
+	defer e.admissionMu.RUnlock()
+	return e.admission.clone()
+}
+
+// AdmissionMetrics returns aggregate admission counters with bounded names.
+func (e *ShadowEngine) AdmissionMetrics() map[string]uint64 {
+	return e.AdmissionStatus().Metrics()
+}
+
+func (e *ShadowEngine) recordAdmission(result ShadowAdmissionResult) {
+	if e == nil {
+		return
+	}
+	if err := result.Validate(); err != nil {
+		result = ShadowAdmissionResult{
+			Code:                         ShadowAdmissionInvalid,
+			EventType:                    result.EventType,
+			HistoricalAuthorityUnchanged: true,
+			NoActionProduced:             true,
+		}
+	}
+	e.admissionMu.Lock()
+	e.admission.record(result)
+	e.admissionMu.Unlock()
+	if e.metrics != nil {
+		e.metrics.admission(result.Code)
+	}
+}
+
 // ListRoutines returns defensive routine snapshots for development analysis.
 func (e *ShadowEngine) ListRoutines() []routines.Snapshot {
 	if e == nil || e.coordinator == nil {
@@ -151,7 +231,7 @@ func (e *ShadowEngine) PlanAssociationForEvent(ctx context.Context, event Event)
 	if e == nil || e.coordinator == nil {
 		return association.Plan{}, ErrShadowStartup
 	}
-	adapted, err := AdaptEventWithAllowlist(event, mapKeys(e.allowlist))
+	adapted, err := AdaptEventWithPolicy(event, e.admissionPolicy)
 	if err != nil {
 		return association.Plan{}, err
 	}
@@ -181,7 +261,7 @@ func (e *ShadowEngine) EvaluateEvidenceForObservation(ctx context.Context, chain
 	if err != nil {
 		return evidence.EvidenceEvaluation{}, err
 	}
-	return evidence.EvaluateObservation(chainSnapshot, observationID, at, e.evidencePolicy)
+	return evidence.EvaluateObservation(chainSnapshot, durableids.Protect(durableids.KindObservation, observationID), at, e.evidencePolicy)
 }
 
 // SeedAssociationAmbiguityFixture creates a duplicate, synthetic branch from
@@ -315,7 +395,13 @@ func (e *ShadowEngine) CreateCheckpoint(ctx context.Context, createdAt time.Time
 
 // NewShadowEngine returns a concurrency-safe, non-decision-making observer.
 func NewShadowEngine() *ShadowEngine {
-	return &ShadowEngine{}
+	return &ShadowEngine{
+		admissionPolicy: DefaultShadowEventAdmissionPolicy(),
+		admission: ShadowAdmissionStatus{
+			HistoricalAuthorityUnchanged: true,
+			NoActionProduced:             true,
+		},
+	}
 }
 
 // SetContextProvider installs an explicit detached provider for embedding and
@@ -325,6 +411,12 @@ func (e *ShadowEngine) SetContextProvider(provider cgecontext.Provider) {
 		return
 	}
 	e.contextProvider = provider
+	e.contextStatusMu.Lock()
+	e.contextStatus.Enabled = false
+	if _, ok := provider.(cgecontext.CoreContextProvider); ok {
+		e.contextStatus.Enabled = true
+	}
+	e.contextStatusMu.Unlock()
 }
 
 // SetRoutineTopologyProvider installs the read-only topology boundary used by
@@ -348,7 +440,7 @@ func (e *ShadowEngine) Observe(ctx context.Context, event Event) (ObservationRes
 		return ObservationResult{}, nil
 	}
 	if e.coordinator != nil {
-		return e.observeRuntime(ctx, event)
+		return e.observeRuntime(ctx, event, nil)
 	}
 
 	e.mu.Lock()
@@ -361,7 +453,26 @@ func (e *ShadowEngine) Observe(ctx context.Context, event Event) (ObservationRes
 		LastEventType:    e.lastEventType,
 	}
 	e.mu.Unlock()
+	e.recordAdmission(ShadowAdmissionResult{
+		Code:                         ShadowAdmissionDisabled,
+		EventType:                    admissionEventType(event),
+		HistoricalAuthorityUnchanged: true,
+		NoActionProduced:             true,
+	})
 	return result, nil
+}
+
+func (e *ShadowEngine) ObserveHistoricalDecision(ctx context.Context, event Event, historical decisioncomparison.HistoricalDecisionRef) (ObservationResult, error) {
+	if err := contextErr(ctx); err != nil {
+		return ObservationResult{}, err
+	}
+	if e == nil {
+		return ObservationResult{}, nil
+	}
+	if e.coordinator != nil {
+		return e.observeRuntime(ctx, event, &historical)
+	}
+	return e.Observe(ctx, event)
 }
 
 func (e *ShadowEngine) Snapshot(ctx context.Context) (Snapshot, error) {

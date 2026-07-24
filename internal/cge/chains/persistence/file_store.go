@@ -18,6 +18,7 @@ import (
 
 	"synora/internal/cge/chains"
 	"synora/internal/cge/chains/registry"
+	"synora/internal/cge/contractcatalog"
 )
 
 const defaultFileMode fs.FileMode = 0o640
@@ -92,6 +93,9 @@ func (s *FileStore) Save(ctx context.Context, source *registry.Registry, created
 		return SnapshotMetadata{}, err
 	}
 	payload := RegistryPayload{ChainCount: len(snapshots), Chains: snapshots}
+	if err := contractcatalog.ValidateStoreWrite("synora.store.cge-generations", "synora.cge.generation-snapshot.v1", payload); err != nil {
+		return SnapshotMetadata{}, fmt.Errorf("%w: contract guard: %v", ErrInvalidPayload, err)
+	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return SnapshotMetadata{}, fmt.Errorf("%w: encode payload: %v", ErrInvalidPayload, err)

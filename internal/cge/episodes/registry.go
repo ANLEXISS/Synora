@@ -156,6 +156,11 @@ func (r *Registry) ApplyIngestPlan(plan IngestPlan, observation ObservationRef, 
 		return ApplyResult{Decision: plan.Decision, RegistryRevision: r.revision}, ErrAmbiguousPlan
 	case DecisionRejected:
 		r.metrics.RejectedCount++
+		for _, code := range plan.ReasonCodes {
+			if code == "late_observation_outside_grace" {
+				return ApplyResult{Decision: plan.Decision, RegistryRevision: r.revision}, ErrLateObservationOutsideGrace
+			}
+		}
 		return ApplyResult{Decision: plan.Decision, RegistryRevision: r.revision}, ErrRejectedPlan
 	case DecisionCreateEpisode:
 		id, err := DeriveEpisodeID(r.policy, observation)
@@ -218,7 +223,9 @@ func (r *Registry) ApplyIngestPlan(plan IngestPlan, observation ObservationRef, 
 }
 
 func newEpisode(id EpisodeID, observation ObservationRef) Episode {
-	return Episode{ID: id, Status: StatusOpen, CreatedAt: observation.ObservedAt, StartedAt: observation.ObservedAt, LastObservedAt: observation.ObservedAt, StatusChangedAt: observation.ObservedAt, Observations: []ObservationRef{observation.Clone()}, Revision: 1}
+	episode := Episode{ID: id, Status: StatusOpen, CreatedAt: observation.ObservedAt, StartedAt: observation.ObservedAt, LastObservedAt: observation.ObservedAt, StatusChangedAt: observation.ObservedAt, Observations: []ObservationRef{observation.Clone()}, Revision: 1}
+	recomputeAggregates(&episode)
+	return episode
 }
 
 func recomputeAggregates(episode *Episode) {

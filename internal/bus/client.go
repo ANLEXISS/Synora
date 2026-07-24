@@ -19,6 +19,8 @@ func NewClient(path string, service string) (*Client, error) {
 		service:  service,
 		pending:  make(map[string]chan contract.Message),
 		incoming: make(chan contract.Message, 100),
+		closeCh:  make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 
 	if err := c.reconnect(); err != nil {
@@ -31,10 +33,20 @@ func NewClient(path string, service string) (*Client, error) {
 }
 
 func (c *Client) listen() {
+	defer close(c.done)
 	for {
+		select {
+		case <-c.closeCh:
+			return
+		default:
+		}
 		conn, err := c.ensureConn()
 		if err != nil {
-			time.Sleep(2 * time.Second)
+			select {
+			case <-c.closeCh:
+				return
+			case <-time.After(2 * time.Second):
+			}
 			continue
 		}
 
@@ -48,8 +60,33 @@ func (c *Client) listen() {
 		}
 
 		c.invalidateConn(conn)
-		time.Sleep(2 * time.Second)
+		select {
+		case <-c.closeCh:
+			return
+		case <-time.After(2 * time.Second):
+		}
 	}
+}
+
+// Close stops the client listener and closes its Unix connection. It is
+// intentionally idempotent so hermetic callers can use t.Cleanup safely.
+func (c *Client) Close() error {
+	if c == nil {
+		return nil
+	}
+	c.closeOnce.Do(func() {
+		close(c.closeCh)
+		c.mu.Lock()
+		conn := c.conn
+		c.conn = nil
+		c.mu.Unlock()
+		if conn != nil {
+			_ = conn.Close()
+		}
+	})
+	<-c.done
+	c.incomingOnce.Do(func() { close(c.incoming) })
+	return nil
 }
 
 func (c *Client) readLoop(conn net.Conn) error {

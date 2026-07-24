@@ -14,9 +14,23 @@ import (
 
 	"synora/internal/cge/chains"
 	cgecontext "synora/internal/cge/context"
+	"synora/internal/cge/contractcatalog"
 )
 
 var journalTestBase = time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+
+func TestBuildRecordUsesExactKindContract(t *testing.T) {
+	kind, ok := contractcatalog.JournalKind(string(RecordKindChainAdded))
+	if !ok {
+		t.Fatal("chain.added kind is not catalogued")
+	}
+	if kind.Contract == "synora.cge.audit-record.v1" {
+		t.Fatal("journal kind still uses the generic audit contract")
+	}
+	if _, err := buildRecord(1, RecordKindChainAdded, journalTestBase, "test", "correlation", GenesisPayload{}); err == nil {
+		t.Fatal("wrong payload type from the same journal package was accepted")
+	}
+}
 
 func journalMutation(at time.Time, actor, correlation, reason string) chains.MutationContext {
 	return chains.MutationContext{At: at, Actor: actor, CorrelationID: correlation, Reason: reason}

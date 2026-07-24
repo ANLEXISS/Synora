@@ -60,7 +60,12 @@ func (r *Registry) ApplyLifecycleBatch(batch LifecycleBatch, actor string) (Life
 		return LifecycleApplyResult{}, ErrSourceRevisionConflict
 	}
 	working := make(map[EpisodeID]Episode, len(batch.Changes))
+	seen := make(map[EpisodeID]struct{}, len(batch.Changes))
 	for _, change := range batch.Changes {
+		if _, exists := seen[change.EpisodeID]; exists {
+			return LifecycleApplyResult{}, fmt.Errorf("%w: duplicate lifecycle change", ErrInvalidTransition)
+		}
+		seen[change.EpisodeID] = struct{}{}
 		episode, ok := r.episodes[change.EpisodeID]
 		if !ok {
 			return LifecycleApplyResult{}, ErrEpisodeNotFound
@@ -95,6 +100,10 @@ func (r *Registry) ApplyLifecycleBatch(batch LifecycleBatch, actor string) (Life
 	}
 	return LifecycleApplyResult{Applied: len(working), RegistryRevision: r.revision}, nil
 }
+
+// CanTransition reports whether a lifecycle transition is allowed by the
+// episode state machine. It has no side effects.
+func CanTransition(from, to EpisodeStatus) bool { return validLifecycleTransition(from, to) }
 
 func validLifecycleTransition(from, to EpisodeStatus) bool {
 	if from == to {

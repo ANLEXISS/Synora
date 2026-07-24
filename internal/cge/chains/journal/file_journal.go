@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"synora/internal/cge/chains"
+	"synora/internal/cge/contractcatalog"
 	"synora/internal/cge/hypotheses"
 )
 
@@ -630,6 +631,16 @@ func buildRecord(sequence uint64, kind RecordKind, recordedAt time.Time, actor, 
 	if recordedAt.IsZero() {
 		return Record{}, fmt.Errorf("%w: recorded_at is zero", ErrInvalidRecord)
 	}
+	kindDescriptor, ok := contractcatalog.JournalKind(string(kind))
+	if !ok {
+		return Record{}, fmt.Errorf("%w: uncatalogued journal kind", ErrInvalidRecordKind)
+	}
+	if err := contractcatalog.ValidateTypedPayload(kindDescriptor.GoPackage, kindDescriptor.GoType, kindDescriptor.Validator, payload); err != nil {
+		return Record{}, fmt.Errorf("%w: journal payload type: %v", ErrInvalidPayload, err)
+	}
+	if err := contractcatalog.ValidateStoreWrite("synora.store.cge-journal", kindDescriptor.Contract, payload); err != nil {
+		return Record{}, fmt.Errorf("%w: contract guard: %v", ErrInvalidPayload, err)
+	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return Record{}, fmt.Errorf("%w: encode payload: %v", ErrInvalidPayload, err)
@@ -648,6 +659,9 @@ func buildRecord(sequence uint64, kind RecordKind, recordedAt time.Time, actor, 
 }
 
 func encodeRecordLine(record Record) ([]byte, error) {
+	if err := contractcatalog.ValidateStoreWrite("synora.store.cge-journal", "synora.cge.journal-record.v1", record); err != nil {
+		return nil, fmt.Errorf("journal envelope contract: %w", err)
+	}
 	if record.Sequence == 1 {
 		if record.PreviousHash == "" {
 			record.PreviousHash = GenesisPreviousHash

@@ -1,0 +1,255 @@
+schema_version: 1
+namespace: synora.cge
+errors:
+  - id: cge.input.invalid
+    owner: ingest
+    category: validation
+    retryable: false
+    public: true
+    authority: descriptive
+  - id: cge.input.oversized
+    owner: ingest
+    category: validation
+    retryable: false
+    public: true
+    authority: descriptive
+  - id: cge.event.type_invalid
+    owner: cge_admission
+    category: validation
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.event.type_not_allowlisted
+    owner: cge_admission
+    category: policy
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.event.observation_id_missing
+    owner: cge_adapter
+    category: validation
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.event.timestamp_invalid
+    owner: cge_adapter
+    category: validation
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.event.scalar_validation
+    owner: cge_adapter
+    category: validation
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.context.invalid
+    owner: cge_context
+    category: validation
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.context.unknown_node
+    owner: cge_context
+    category: context
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.context.stale
+    owner: cge_context
+    category: context
+    retryable: true
+    public: true
+    authority: diagnostic
+  - id: cge.model.invalid
+    owner: cge
+    category: validation
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.hypothesis.invalid
+    owner: cge_hypotheses
+    category: validation
+    retryable: false
+    public: true
+    authority: advisory
+  - id: cge.hypothesis.transition_invalid
+    owner: cge_hypotheses
+    category: state
+    retryable: false
+    public: true
+    authority: advisory
+  - id: cge.evidence.invalid
+    owner: cge_evidence
+    category: validation
+    retryable: false
+    public: true
+    authority: advisory
+  - id: cge.evidence.evaluation_failed
+    owner: cge_evidence
+    category: evaluation
+    retryable: true
+    public: true
+    authority: advisory
+  - id: cge.situation.invalid
+    owner: cge_situation
+    category: validation
+    retryable: false
+    public: true
+    authority: advisory
+  - id: cge.recommendation.invalid
+    owner: cge_recommendation
+    category: validation
+    retryable: false
+    public: true
+    authority: advisory
+  - id: cge.comparison.invalid
+    owner: cge_comparison
+    category: validation
+    retryable: false
+    public: true
+    authority: advisory
+  - id: cge.calibration.invalid
+    owner: cge_calibration
+    category: validation
+    retryable: false
+    public: true
+    authority: advisory
+  - id: cge.authorization.forbidden
+    owner: cge_authorization_boundary
+    category: authority
+    retryable: false
+    public: true
+    authority: advisory
+  - id: cge.store.corrupt
+    owner: cge_stores
+    category: persistence
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.store.append_failed
+    owner: cge_stores
+    category: persistence
+    retryable: true
+    public: true
+    authority: diagnostic
+  - id: cge.store.checkpoint_failed
+    owner: cge_stores
+    category: persistence
+    retryable: true
+    public: true
+    authority: diagnostic
+  - id: cge.ledger.append_failed
+    owner: cge_calibration_ledger
+    category: persistence
+    retryable: true
+    public: true
+    authority: diagnostic
+  - id: cge.ledger.recovery_failed
+    owner: cge_calibration_ledger
+    category: recovery
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.workflow.recovery_failed
+    owner: cge_shadow_workflow
+    category: recovery
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.journal.recovery_failed
+    owner: cge_chains_journal
+    category: recovery
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.storage_limit
+    owner: cge_stores
+    category: persistence
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.diagnostics.invalid
+    owner: cge
+    category: diagnostics
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.api.invalid_request
+    owner: cge_api
+    category: api
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.api.not_found
+    owner: cge_api
+    category: api
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.api.forbidden
+    owner: cge_api
+    category: authority
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.unknown
+    owner: cge_contractcatalog
+    category: contract
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.type_mismatch
+    owner: cge_contractcatalog
+    category: contract
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.field_mismatch
+    owner: cge_contractcatalog
+    category: contract
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.store_forbidden
+    owner: cge_contractcatalog
+    category: authority
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.authority_violation
+    owner: cge_contractcatalog
+    category: authority
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.protection_violation
+    owner: cge_contractcatalog
+    category: privacy
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.sensitive_write_forbidden
+    owner: cge_contractcatalog
+    category: privacy
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.generated_registry_stale
+    owner: cge_contractcatalog
+    category: generation
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: core.event_rejected
+    owner: historical_core
+    category: historical
+    retryable: false
+    public: true
+    authority: authorized_decision
+  - id: core.state_error
+    owner: historical_core
+    category: historical
+    retryable: true
+    public: true
+    authority: authorized_decision

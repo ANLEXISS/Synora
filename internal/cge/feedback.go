@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"synora/internal/cge/contractcatalog"
 	"synora/internal/idgen"
 	"synora/pkg/contract"
 )
@@ -20,7 +21,7 @@ type FeedbackStore struct {
 	chains      []contract.CgeChainFeedback
 }
 
-type feedbackFile struct {
+type FeedbackFile struct {
 	Evaluations []contract.CgeEvaluationFeedback `json:"evaluations,omitempty"`
 	Chains      []contract.CgeChainFeedback      `json:"chains,omitempty"`
 }
@@ -42,7 +43,7 @@ func (s *FeedbackStore) Load() error {
 	if err != nil {
 		return err
 	}
-	var file feedbackFile
+	var file FeedbackFile
 	if err := json.Unmarshal(data, &file); err != nil {
 		return err
 	}
@@ -289,7 +290,10 @@ func (s *FeedbackStore) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0750); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(feedbackFile{Evaluations: s.evaluations, Chains: s.chains}, "", "  ")
+	if err := contractcatalog.ValidateStoreWrite("synora.store.feedback", "synora.cge.feedback.v1", FeedbackFile{Evaluations: s.evaluations, Chains: s.chains}); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(FeedbackFile{Evaluations: s.evaluations, Chains: s.chains}, "", "  ")
 	if err != nil {
 		return err
 	}

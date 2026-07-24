@@ -14,6 +14,7 @@ import (
 	"synora/internal/cge/deviation"
 	"synora/internal/cge/fieldtrial"
 	"synora/internal/cge/routines"
+	"synora/internal/cge/shadowworkflow"
 )
 
 const (
@@ -39,6 +40,7 @@ const (
 	ShadowDeviationEnabledEnv                   = "SYNORA_CGE_SHADOW_DEVIATION_ENABLED"
 	ShadowDeviationRecentLimitEnv               = "SYNORA_CGE_SHADOW_DEVIATION_RECENT_LIMIT"
 	ShadowDeviationMaxAssessmentsEnv            = "SYNORA_CGE_SHADOW_DEVIATION_MAX_ASSESSMENTS_PER_OBSERVATION"
+	ShadowWorkflowEnabledEnv                    = "SYNORA_CGE_SHADOW_WORKFLOW_ENABLED"
 	MaxShadowEvidenceReevaluations              = 64
 	MaxShadowDeviationRecentAssessments         = 4096
 	MaxShadowDeviationAssessmentsPerObservation = 4
@@ -72,6 +74,7 @@ type ShadowConfig struct {
 	Routines          ShadowRoutineConfig
 	Deviation         ShadowDeviationConfig
 	FieldTrial        fieldtrial.Config
+	Workflow          shadowworkflow.Config
 
 	EligibleEventTypes []string
 }
@@ -113,18 +116,13 @@ func DefaultShadowConfig() ShadowConfig {
 	return ShadowConfig{
 		DataDir: dataDir, JournalPath: filepath.Join(dataDir, DefaultShadowJournalName),
 		Actor: DefaultShadowActor, AssociationPolicy: association.DefaultPolicy(), EvidencePolicy: evidence.DefaultPolicy(),
-		Cognitive:          CognitiveShadowConfig{MaxEvidenceReevaluationsPerObservation: 8},
-		Context:            ShadowContextConfig{Timezone: "UTC", AllowPartial: true},
-		Routines:           ShadowRoutineConfig{TemporalBucketMinutes: 15, AllowPartialContext: true, MaxTransitionGap: 15 * time.Minute, RequireSameTopologyRevision: true},
-		Deviation:          ShadowDeviationConfig{RecentAssessmentLimit: 256, MaxAssessmentsPerObservation: 2, Policy: deviation.DefaultPolicy()},
-		FieldTrial:         fieldtrial.DefaultConfig(),
+		Cognitive:  CognitiveShadowConfig{MaxEvidenceReevaluationsPerObservation: 8},
+		Context:    ShadowContextConfig{Timezone: "UTC", AllowPartial: true},
+		Routines:   ShadowRoutineConfig{TemporalBucketMinutes: 15, AllowPartialContext: true, MaxTransitionGap: 15 * time.Minute, RequireSameTopologyRevision: true},
+		Deviation:  ShadowDeviationConfig{RecentAssessmentLimit: 256, MaxAssessmentsPerObservation: 2, Policy: deviation.DefaultPolicy()},
+		FieldTrial: fieldtrial.DefaultConfig(), Workflow: shadowworkflow.DefaultConfig(),
 		EligibleEventTypes: DefaultEligibleEventTypes(),
 	}
-}
-
-// DefaultEligibleEventTypes returns a fresh conservative allowlist.
-func DefaultEligibleEventTypes() []string {
-	return []string{"vision.identity", "vision.unknown", "vision.uncertain"}
 }
 
 // LoadShadowConfig parses only the explicit environment settings for this
@@ -157,6 +155,33 @@ func LoadShadowConfig(getenv func(string) string) (ShadowConfig, error) {
 	if config.Cognitive.Enabled, err = parseOptionalBool(getenv(ShadowCognitiveEnabledEnv), false); err != nil {
 		return ShadowConfig{}, fmt.Errorf("%w: cognitive enabled", ErrInvalidShadowConfig)
 	}
+	if config.Workflow.Enabled, err = parseOptionalBool(getenv(ShadowWorkflowEnabledEnv), false); err != nil {
+		return ShadowConfig{}, fmt.Errorf("%w: workflow enabled", ErrInvalidShadowConfig)
+	}
+	storeMode, storeDirectory, storeErr := shadowworkflow.LoadStoreConfig(getenv)
+	if storeErr != nil {
+		return ShadowConfig{}, fmt.Errorf("%w: workflow store: %v", ErrInvalidShadowConfig, storeErr)
+	}
+	config.Workflow.StoreMode = storeMode
+	config.Workflow.StoreDirectory = storeDirectory
+	qualificationConfig, qualificationErr := shadowworkflow.LoadQualificationConfig(getenv)
+	if qualificationErr != nil {
+		return ShadowConfig{}, fmt.Errorf("%w: qualification: %v", ErrInvalidShadowConfig, qualificationErr)
+	}
+	config.Workflow.Qualification = qualificationConfig
+	calibrationConfig, calibrationErr := shadowworkflow.LoadCalibrationLedgerConfig(getenv)
+	if calibrationErr != nil {
+		return ShadowConfig{}, fmt.Errorf("%w: calibration ledger: %v", ErrInvalidShadowConfig, calibrationErr)
+	}
+	if calibrationConfig.Path == shadowworkflow.DefaultCalibrationLedgerPath {
+		calibrationConfig.Path = filepath.Join(config.DataDir, "calibration-ledger.ndjson")
+	}
+	config.Workflow.CalibrationLedger = calibrationConfig
+	analyticsConfig, analyticsErr := shadowworkflow.LoadCalibrationAnalyticsConfig(getenv)
+	if analyticsErr != nil {
+		return ShadowConfig{}, fmt.Errorf("%w: calibration analytics: %v", ErrInvalidShadowConfig, analyticsErr)
+	}
+	config.Workflow.CalibrationAnalytics = analyticsConfig
 	if config.Cognitive.AutoApplyDecisiveEvidence, err = parseOptionalBool(getenv(ShadowAutoEvidenceEnv), false); err != nil {
 		return ShadowConfig{}, fmt.Errorf("%w: auto evidence enabled", ErrInvalidShadowConfig)
 	}
@@ -280,6 +305,11 @@ func (c ShadowConfig) Validate() error {
 	if err := c.EvidencePolicy.Validate(); err != nil {
 		return fmt.Errorf("%w: evidence policy: %v", ErrInvalidShadowConfig, err)
 	}
+	if c.Workflow.Enabled || c.Workflow.Qualification.Enabled || c.Workflow.CalibrationLedger.Enabled || c.Workflow.CalibrationAnalytics.Enabled {
+		if err := c.Workflow.Validate(); err != nil {
+			return fmt.Errorf("%w: workflow: %v", ErrInvalidShadowConfig, err)
+		}
+	}
 	if err := validateAbsolutePath(c.DataDir, "data directory"); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidShadowConfig, err)
 	}
@@ -300,21 +330,8 @@ func (c ShadowConfig) Validate() error {
 	if err := c.AssociationPolicy.Validate(); err != nil {
 		return fmt.Errorf("%w: association policy: %v", ErrInvalidShadowConfig, err)
 	}
-	if len(c.EligibleEventTypes) == 0 {
-		return fmt.Errorf("%w: eligible event types are empty", ErrInvalidShadowConfig)
-	}
-	seen := make(map[string]struct{}, len(c.EligibleEventTypes))
-	for _, eventType := range c.EligibleEventTypes {
-		if err := validateSafeText(eventType, "eligible event type", 128, true); err != nil {
-			return fmt.Errorf("%w: %v", ErrInvalidShadowConfig, err)
-		}
-		if strings.TrimSpace(eventType) != eventType || strings.ToLower(eventType) != eventType {
-			return fmt.Errorf("%w: eligible event type must be normalized", ErrInvalidShadowConfig)
-		}
-		if _, exists := seen[eventType]; exists {
-			return fmt.Errorf("%w: duplicate eligible event type", ErrInvalidShadowConfig)
-		}
-		seen[eventType] = struct{}{}
+	if _, err := NewShadowEventAdmissionPolicy(c.EligibleEventTypes); err != nil {
+		return fmt.Errorf("%w: admission policy: %v", ErrInvalidShadowConfig, err)
 	}
 	return nil
 }
