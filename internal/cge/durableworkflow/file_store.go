@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"synora/internal/cge/contractcatalog"
 )
 
 type FileStore struct {
@@ -52,6 +54,9 @@ func (s *FileStore) Append(record Record) error {
 	defer s.mu.Unlock()
 	if s.closed || s.wal == nil {
 		return ErrStoreClosed
+	}
+	if err := contractcatalog.ValidateStoreWrite("synora.store.workflow-wal", "synora.cge.audit-record.v1", record); err != nil {
+		return err
 	}
 	encoded, err := EncodeRecord(record, s.policy.MaxRecordBytes)
 	if err != nil {
@@ -139,6 +144,9 @@ func (s *FileStore) WriteCheckpoint(checkpoint Checkpoint) error {
 	defer s.mu.Unlock()
 	if s.closed {
 		return ErrStoreClosed
+	}
+	if err := contractcatalog.ValidateStoreWrite("synora.store.workflow-checkpoint", "synora.cge.audit-record.v1", checkpoint); err != nil {
+		return err
 	}
 	encoded, err := encodeCheckpoint(checkpoint, s.policy.MaxCheckpointBytes)
 	if err != nil {

@@ -35,3 +35,15 @@ documentés. Les modèles cognitifs encore expérimentaux restent marqués
 `experimental`; les frontières et objets internes peuvent être `internal`.
 Une dépréciation doit préciser une fenêtre, les consommateurs restants et le
 plan de migration dans une mise à jour du catalogue.
+
+## Processus contractuel obligatoire
+
+1. Ajouter l'ID versionné, son propriétaire, son autorité, sa sensibilité, ses
+   stores et son implémentation dans le catalogue.
+2. Ajouter le type à `go-surfaces.yaml`, les champs wire et les tests de
+   frontière/store nécessaires.
+3. Exécuter `go run ./cmd/cge-contractgen generate`, puis `check`.
+4. Pour une modification compatible, conserver l'ID, n'ajouter que des
+   champs optionnels et mettre à jour la compatibilité/replay.
+5. Pour une modification breaking, créer un nouvel ID, une migration explicite
+   et des fixtures legacy ; aucune réécriture automatique n'est permise.

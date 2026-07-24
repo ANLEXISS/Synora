@@ -19,6 +19,7 @@ import (
 	"synora/internal/cge/chains/journal"
 	"synora/internal/cge/chains/persistence"
 	"synora/internal/cge/chains/registry"
+	"synora/internal/cge/contractcatalog"
 )
 
 const (
@@ -380,6 +381,9 @@ func checksumJSON(value any) (string, error) {
 func writeManifestAtomic(ctx context.Context, path string, manifest Manifest, mode fs.FileMode) error {
 	if err := checkContext(ctx); err != nil {
 		return err
+	}
+	if err := contractcatalog.ValidateStoreWrite("synora.store.cge-generations", "synora.cge.audit-record.v1", manifest); err != nil {
+		return fmt.Errorf("contract guard: %w", err)
 	}
 	data, err := json.Marshal(manifest)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"synora/internal/cge/contractcatalog"
 	"synora/internal/idgen"
 	"synora/pkg/contract"
 )
@@ -287,6 +288,9 @@ func (s *FeedbackStore) saveLocked() error {
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(s.path), 0750); err != nil {
+		return err
+	}
+	if err := contractcatalog.ValidateStoreWrite("synora.store.feedback", "synora.cge.feedback.v1", feedbackFile{Evaluations: s.evaluations, Chains: s.chains}); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(feedbackFile{Evaluations: s.evaluations, Chains: s.chains}, "", "  ")

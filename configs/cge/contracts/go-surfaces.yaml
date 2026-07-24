@@ -1,0 +1,59 @@
+schema_version: 1
+namespace: synora.cge
+packages:
+  - import: synora/pkg/contract
+    role: historical_and_bus_contracts
+    types: [Message, Event, Decision, ActionRequest, CgeEvaluationFeedback]
+  - import: synora/internal/cge
+    role: cge_engine_boundary_and_outputs
+    types: [Event, ObservationResult, Snapshot, Explanation, ShadowAdmissionStatus]
+  - import: synora/internal/cge/chains
+    role: durable_observation
+    types: [ObservationRef]
+  - import: synora/internal/cge/context
+    role: context_frame
+    types: [Frame]
+  - import: synora/internal/cge/episodes
+    role: episode_snapshot
+    types: [Episode]
+  - import: synora/internal/cge/situationfacts
+    role: fact_set
+    types: [FactSet]
+  - import: synora/internal/cge/hypotheses
+    role: hypothesis_snapshot
+    types: [Snapshot]
+  - import: synora/internal/cge/chains/evidence
+    role: evidence_evaluation
+    types: [EvidenceEvaluation]
+  - import: synora/internal/cge/cognitivesituation
+    role: cognitive_situation
+    types: [CognitiveSituation]
+  - import: synora/internal/cge/cognitiverecommendation
+    role: recommendation_set
+    types: [CognitiveRecommendationSet]
+  - import: synora/internal/cge/decisioncomparison
+    role: historical_comparison
+    types: [HistoricalDecisionComparison]
+  - import: synora/internal/cge/durableworkflow
+    role: workflow_envelopes
+    types: [Record, RecoveryReport]
+  - import: synora/internal/cge/shadowworkflow
+    role: workflow_status_and_projection
+    types: [StatusSnapshot, CognitiveProjectionSnapshot]
+  - import: synora/internal/cge/calibrationledger
+    role: calibration_ledger
+    types: [CalibrationRecord]
+  - import: synora/internal/cge/calibrationanalytics
+    role: calibration_analytics
+    types: [CalibrationAnalyticsReport]
+  - import: synora/internal/cge/fieldtrial
+    role: field_trial_records
+    types: [AnnotationEnvelope]
+  - import: synora/internal/cge/contractcatalog
+    role: catalog_error_and_audit_envelopes
+    types: [CatalogError, AuditRecord]
+exemptions:
+  - package: synora/internal/cge
+    type: internal_runtime_helper
+    reason: Non-serialized helper state and constructor options.
+    scope: non_serialized_helpers_only

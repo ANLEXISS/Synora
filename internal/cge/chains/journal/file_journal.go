@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"synora/internal/cge/chains"
+	"synora/internal/cge/contractcatalog"
 	"synora/internal/cge/hypotheses"
 )
 
@@ -629,6 +630,9 @@ func buildRecord(sequence uint64, kind RecordKind, recordedAt time.Time, actor, 
 	}
 	if recordedAt.IsZero() {
 		return Record{}, fmt.Errorf("%w: recorded_at is zero", ErrInvalidRecord)
+	}
+	if err := contractcatalog.ValidateStoreWrite("synora.store.cge-journal", "synora.cge.audit-record.v1", payload); err != nil {
+		return Record{}, fmt.Errorf("%w: contract guard: %v", ErrInvalidPayload, err)
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {

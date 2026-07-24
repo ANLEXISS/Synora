@@ -206,6 +206,10 @@ contracts:
     sensitivity: operational
     status: internal
     justification: Adapter-only input; not a durable CGE contract.
+    implementation:
+      kind: external
+      wire_format: json
+      justification: Adapter payload is owned by external sources.
     fields:
       - name: source_payload
         type: opaque_object
@@ -231,6 +235,11 @@ contracts:
     trust: sensor_reported
     sensitivity: operational
     status: stable
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: Message
+      wire_format: json
     fields:
       - name: id
         type: string
@@ -292,6 +301,15 @@ contracts:
     trust: validated
     sensitivity: sensitive_personal
     status: stable
+    justification: Historical Core state is the owner of this durable event representation.
+    migration_policy: legacy_event_replay; explicit_future_migration
+    compatibility_policy: preserve_event_json_and_legacy_fields
+    retention_policy: core_configured_event_retention
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: Event
+      wire_format: json
     fields:
       - name: event_id
         type: string
@@ -353,6 +371,15 @@ contracts:
     trust: validated
     sensitivity: security_sensitive
     status: stable
+    justification: Historical Core decision is authoritative and separately owned.
+    migration_policy: historical_core_migration_only
+    compatibility_policy: preserve_decision_json_for_core_replay
+    retention_policy: core_configured_decision_retention
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: Decision
+      wire_format: json
     fields:
       - name: decision_id
         type: string
@@ -402,6 +429,11 @@ contracts:
     trust: validated
     sensitivity: sensitive_personal
     status: stable
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: Event
+      wire_format: internal_scalar
     fields:
       - name: id
         type: string
@@ -451,9 +483,19 @@ contracts:
     trust: derived
     sensitivity: sensitive_personal
     status: internal
+    justification: Observation is a durable CGE boundary contract with protected identifiers.
+    migration_policy: cge_v1_legacy_replay_without_rewrite
+    compatibility_policy: preserve_observation_wire_fields_and_protected_domains
+    retention_policy: configured_cge_journal_and_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains
+      type: ObservationRef
+      wire_format: json
     fields:
       - name: observation_id
         type: protected_identifier_observation
+        wire_name: id
         required: true
         nullable: false
         description: Stable protected reference for the source event.
@@ -478,6 +520,7 @@ contracts:
         validation: allowlist_checked
       - name: entity_id
         type: protected_identifier_entity
+        wire_name: entity_id
         required: false
         nullable: false
         description: Protected known subject reference; absent for unknown subjects.
@@ -490,6 +533,7 @@ contracts:
         validation: cgeid_v1_entity_or_empty
       - name: device_id
         type: protected_identifier_device
+        wire_name: device_id
         required: false
         nullable: false
         description: Protected source device reference.
@@ -536,9 +580,19 @@ contracts:
     trust: derived
     sensitivity: personal
     status: internal
+    justification: Context frame is persisted only as descriptive context attached to an observation.
+    migration_policy: context_schema_version_and_replay
+    compatibility_policy: preserve_context_v1_fields
+    retention_policy: configured_journal_and_checkpoint_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/context
+      type: Frame
+      wire_format: json
     fields:
       - name: observation_id
         type: protected_identifier_observation
+        wire_name: observation_id
         required: true
         nullable: false
         description: Observation to which the frame is attached.
@@ -597,6 +651,15 @@ contracts:
     trust: derived
     sensitivity: sensitive_personal
     status: experimental
+    justification: Episode snapshots are workflow durable working-memory state.
+    migration_policy: workflow_schema_fingerprint_and_explicit_migration
+    compatibility_policy: preserve_episode_replay_shape
+    retention_policy: configured_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/episodes
+      type: Episode
+      wire_format: json
     fields:
       - name: episode_id
         type: protected_or_derived_identifier
@@ -646,6 +709,15 @@ contracts:
     trust: derived
     sensitivity: operational
     status: experimental
+    justification: Fact sets are workflow durable derived state.
+    migration_policy: workflow_schema_fingerprint_and_explicit_migration
+    compatibility_policy: preserve_fact_set_replay_shape
+    retention_policy: configured_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/situationfacts
+      type: FactSet
+      wire_format: json
     fields:
       - name: facts
         type: fact_list
@@ -695,6 +767,15 @@ contracts:
     trust: derived
     sensitivity: sensitive_personal
     status: experimental
+    justification: Hypothesis sets are durable advisory model state.
+    migration_policy: cge_journal_and_workflow_schema_migration
+    compatibility_policy: preserve_hypothesis_lineage_and_replay
+    retention_policy: configured_cge_journal_and_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: Snapshot
+      wire_format: json
     fields:
       - name: hypothesis_set_id
         type: protected_or_derived_identifier
@@ -744,6 +825,15 @@ contracts:
     trust: corroborated
     sensitivity: sensitive_personal
     status: experimental
+    justification: Evidence evaluations are durable derived evidence state.
+    migration_policy: cge_journal_and_workflow_schema_migration
+    compatibility_policy: preserve_evidence_reference_and_score_shape
+    retention_policy: configured_cge_journal_and_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains/evidence
+      type: EvidenceEvaluation
+      wire_format: json
     fields:
       - name: evaluation_id
         type: derived_identifier
@@ -793,6 +883,15 @@ contracts:
     trust: corroborated
     sensitivity: sensitive_personal
     status: experimental
+    justification: Cognitive situations are durable advisory workflow state.
+    migration_policy: workflow_schema_fingerprint_and_explicit_migration
+    compatibility_policy: preserve_situation_markers_and_replay
+    retention_policy: configured_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: CognitiveSituation
+      wire_format: json
     fields:
       - name: situation_id
         type: derived_identifier
@@ -843,6 +942,14 @@ contracts:
     sensitivity: sensitive_personal
     status: experimental
     justification: Advisory output only; no automation consumer is permitted.
+    migration_policy: workflow_schema_fingerprint_and_explicit_migration
+    compatibility_policy: preserve_recommendation_markers_and_read_only_shape
+    retention_policy: configured_workflow_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitiverecommendation
+      type: CognitiveRecommendationSet
+      wire_format: json
     fields:
       - name: recommendation_set_id
         type: derived_identifier
@@ -892,6 +999,15 @@ contracts:
     trust: derived
     sensitivity: security_sensitive
     status: internal
+    justification: Comparison is durable calibration material and never overrides historical authority.
+    migration_policy: workflow_and_ledger_schema_migration
+    compatibility_policy: preserve_historical_authority_markers_and_fingerprints
+    retention_policy: configured_workflow_and_ledger_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/decisioncomparison
+      type: HistoricalDecisionComparison
+      wire_format: json
     fields:
       - name: comparison_id
         type: derived_identifier
@@ -941,6 +1057,15 @@ contracts:
     trust: derived
     sensitivity: sensitive_personal
     status: internal
+    justification: Workflow records are the versioned durable WAL envelope.
+    migration_policy: workflow_schema_fingerprint_and_explicit_migration
+    compatibility_policy: preserve_legacy_record_replay
+    retention_policy: configured_wal_retention
+    implementation:
+      kind: envelope
+      package: synora/internal/cge/durableworkflow
+      type: Record
+      wire_format: json
     fields:
       - name: sequence
         type: uint64
@@ -990,6 +1115,11 @@ contracts:
     trust: validated
     sensitivity: operational
     status: internal
+    implementation:
+      kind: derived_projection
+      package: synora/internal/cge/durableworkflow
+      type: RecoveryReport
+      wire_format: internal
     fields:
       - name: recovered_sequence
         type: uint64
@@ -1039,6 +1169,11 @@ contracts:
     trust: validated
     sensitivity: operational
     status: stable
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: ShadowAdmissionStatus
+      wire_format: internal
     fields:
       - name: code
         type: admission_code
@@ -1088,6 +1223,11 @@ contracts:
     trust: validated
     sensitivity: operational
     status: stable
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/shadowworkflow
+      type: StatusSnapshot
+      wire_format: internal
     fields:
       - name: state
         type: workflow_runtime_state
@@ -1137,6 +1277,11 @@ contracts:
     trust: derived
     sensitivity: sensitive_personal
     status: experimental
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/shadowworkflow
+      type: CognitiveProjectionSnapshot
+      wire_format: json
     fields:
       - name: episodes
         type: episode_projection_list
@@ -1186,6 +1331,15 @@ contracts:
     trust: derived
     sensitivity: security_sensitive
     status: internal
+    justification: Calibration records are append-only advisory ledger records.
+    migration_policy: calibration_ledger_schema_version_migration
+    compatibility_policy: preserve_hash_chain_and_marker_fields
+    retention_policy: configured_calibration_ledger_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationledger
+      type: CalibrationRecord
+      wire_format: json
     fields:
       - name: record_id_and_sequence
         type: ledger_identity
@@ -1235,6 +1389,11 @@ contracts:
     trust: derived
     sensitivity: operational
     status: experimental
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: CalibrationAnalyticsReport
+      wire_format: json
     fields:
       - name: ledger_fingerprint
         type: sha256_fingerprint
@@ -1284,6 +1443,11 @@ contracts:
     trust: validated
     sensitivity: operational
     status: stable
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: Snapshot
+      wire_format: internal
     fields:
       - name: observation_and_admission_metrics
         type: aggregate_metrics
@@ -1333,6 +1497,11 @@ contracts:
     trust: validated
     sensitivity: operational
     status: stable
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: ObservationResult
+      wire_format: internal
     fields:
       - name: observed_at_and_count
         type: time_and_uint64
@@ -1370,6 +1539,11 @@ contracts:
     trust: validated
     sensitivity: operational
     status: stable
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: Snapshot
+      wire_format: internal
     fields:
       - name: runtime_state
         type: cge_runtime_snapshot
@@ -1408,6 +1582,11 @@ contracts:
     sensitivity: operational
     status: experimental
     justification: Reserved read-only explanation shape; current pass exposes no decision or action content.
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: Explanation
+      wire_format: internal
     fields:
       - name: situation_reference
         type: protected_or_derived_identifier
@@ -1445,6 +1624,15 @@ contracts:
     trust: sensor_reported
     sensitivity: sensitive_personal
     status: experimental
+    justification: Feedback is a CGE-owned durable input to calibration, not an automatic training command.
+    migration_policy: feedback_schema_explicit_migration
+    compatibility_policy: preserve_feedback_review_and_replay_shape
+    retention_policy: explicit_feedback_retention_policy
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: CgeEvaluationFeedback
+      wire_format: json
     fields:
       - name: feedback_id
         type: string
@@ -1494,6 +1682,15 @@ contracts:
     trust: derived
     sensitivity: sensitive_personal
     status: experimental
+    justification: Field trial records are bounded CGE validation evidence.
+    migration_policy: field_trial_schema_version_migration
+    compatibility_policy: preserve_segment_replay_and_privacy_markers
+    retention_policy: configured_trial_retention
+    implementation:
+      kind: envelope
+      package: synora/internal/cge/fieldtrial
+      type: AnnotationEnvelope
+      wire_format: json
     fields:
       - name: event_reference
         type: protected_reference
@@ -1543,6 +1740,11 @@ contracts:
     trust: validated
     sensitivity: operational
     status: stable
+    implementation:
+      kind: envelope
+      package: synora/internal/cge/contractcatalog
+      type: CatalogError
+      wire_format: json
     fields:
       - name: code
         type: closed_error_code
@@ -1592,6 +1794,15 @@ contracts:
     trust: derived
     sensitivity: operational
     status: internal
+    justification: Audit records are integrity metadata for CGE durable operations.
+    migration_policy: audit_schema_version_migration
+    compatibility_policy: preserve_integrity_metadata_and_replay
+    retention_policy: store_specific_audit_retention
+    implementation:
+      kind: envelope
+      package: synora/internal/cge/contractcatalog
+      type: AuditRecord
+      wire_format: json
     fields:
       - name: operation
         type: closed_operation_code
@@ -1630,6 +1841,11 @@ contracts:
     sensitivity: security_sensitive
     status: stable
     justification: Historical Core/automation contract inventoried for authority separation; CGE is forbidden to produce it.
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: ActionRequest
+      wire_format: json
     fields:
       - name: request_id
         type: string

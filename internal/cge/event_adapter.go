@@ -6,6 +6,7 @@ import (
 
 	"synora/internal/cge/chains"
 	"synora/internal/cge/chains/association"
+	"synora/internal/cge/contractcatalog"
 	"synora/internal/cge/durableids"
 	"synora/pkg/contract"
 )
@@ -64,6 +65,9 @@ func AdaptEventWithPolicy(event Event, policy ShadowEventAdmissionPolicy) (Adapt
 	}
 	input := association.Input{
 		Observation: observationFromEvent(event, eventType), SituationKind: eventType,
+	}
+	if err := contractcatalog.ValidateOutput("synora.cge.observation.v1", input.Observation); err != nil {
+		return AdaptationResult{}, adaptationError("event.contract_validation")
 	}
 	if err := input.Validate(); err != nil {
 		return AdaptationResult{}, adaptationError("event.scalar_validation")

@@ -2,6 +2,7 @@ package cge
 
 import (
 	"synora/internal/cge/chains"
+	"synora/internal/cge/contractcatalog"
 	"synora/internal/cge/decisioncomparison"
 	"synora/internal/cge/durableids"
 	"synora/internal/cge/episodes"
@@ -81,6 +82,10 @@ func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, histori
 		copy.ID = durableids.ProtectRaw(durableids.KindObservation, copy.ID)
 		copy.SourceEventRef = durableids.ProtectRaw(durableids.KindObservation, copy.SourceEventRef)
 		copy.Fingerprint = decisioncomparison.HistoricalDecisionFingerprint(copy)
+		if err := contractcatalog.ValidateInput("synora.cge.historical-comparison.v1", copy); err != nil {
+			result.Code = ShadowAdmissionUnavailable
+			return result
+		}
 		input.HistoricalDecision = &copy
 	}
 	submit := e.workflow.TrySubmit(input)

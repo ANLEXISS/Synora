@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"synora/internal/cge/contractcatalog"
 )
 
 type FileStore struct {
@@ -59,6 +61,9 @@ func (s *FileStore) Append(ctx context.Context, input CalibrationRecord) (Append
 		return AppendResult{}, ErrStoreClosed
 	}
 	if err := input.Validate(s.policy); err != nil {
+		return AppendResult{}, err
+	}
+	if err := contractcatalog.ValidateStoreWrite("synora.store.calibration-ledger", "synora.cge.calibration-record.v1", input); err != nil {
 		return AppendResult{}, err
 	}
 	// Canonicalize and reject an oversized record before taking the writer

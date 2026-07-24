@@ -30,3 +30,12 @@ sortie, les erreurs, les effets de bord et les validations. Une frontière
 historique peut avoir une autorité historique ; cette autorité ne traverse pas
 B04/B05 sous forme d’autorité CGE. B17 est une barrière explicite : le CGE ne
 peut produire ni `ActionRequest`, ni commande, ni automation.
+
+## Enforcement
+
+B04 conserve le contrat historique et ne mute pas `contract.Event`. B05
+construit l'observation détachée, applique `durableids.ProtectRaw`, puis passe
+par `contractcatalog.ValidateOutput` avant l'admission. B12 protège les
+références historiques et vérifie le contrat de comparaison. Les writers de
+B13 appellent `ValidateStoreWrite` avant toute sérialisation durable. Un refus
+ne crée donc ni record partiel ni append parasite.

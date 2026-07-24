@@ -5,12 +5,17 @@ Cette liste est volontairement descriptive. La passe 65 ne corrige pas ces
 
 ## Critical
 
-- Le catalogue n’est pas encore généré depuis les structures Go : une dérive
-  entre YAML et code reste possible tant que la génération ou un lint de
-  couverture de champs n’existe pas.
-- Il n’existe pas de mécanisme universel empêchant à lui seul toute nouvelle
-  donnée sensible d’entrer dans un store non déclaré ; le validateur contrôle
-  le catalogue, pas les écritures runtime.
+- La couverture champ-par-champ de toutes les structures complexes n'est pas
+  encore exprimée dans le YAML : `gosurface.CompareFields` et ses fixtures
+  détectent la dérive, mais les mappings `go_field` doivent encore être
+  complétés contrat par contrat. Le générateur refuse toutefois toute
+  implémentation Go absente de la surface surveillée.
+- Tous les writers CGE actuellement identifiés sont derrière
+  `ValidateStoreWrite`. Les enveloppes legacy opaques utilisent une garde
+  générique (secrets/biométrie et contrat/store) et ne permettent pas toujours
+  une inspection sémantique de chaque identifiant imbriqué. La fermeture
+  complète exige de remplacer ces enveloppes par des contrats structurés ou
+  des validateurs dédiés, sans réécrire les historiques.
 
 ## High
 

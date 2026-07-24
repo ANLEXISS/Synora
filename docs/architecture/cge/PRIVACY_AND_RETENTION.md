@@ -40,3 +40,12 @@ configurables.
 Lorsque le code ne définit pas une politique explicite de rétention,
 compaction, permissions ou migration, `GAPS.md` le dit au lieu d’inventer une
 règle opérationnelle.
+
+## Garde exécutable
+
+Le registre généré associe les champs protégés à leur domaine `durableids` et
+associe chaque contrat aux stores autorisés. La garde refuse un token brut, un
+token d'un autre domaine, un secret ou une biométrie en clair ; elle ne
+pseudonymise jamais au moment d'écrire. Les contrôles s'exécutent avant
+`json.Marshal`, l'append du journal/WAL, le remplacement atomique d'un snapshot
+ou checkpoint et l'append du ledger.

@@ -5,9 +5,11 @@ package contractcatalog
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -42,11 +44,21 @@ var validStatus = map[string]bool{
 	"experimental": true, "internal": true, "stable": true, "deprecated": true,
 }
 
+var canonicalCategories = []string{
+	"raw_measurement", "external_event", "normalized_observation", "context_fact", "derived_fact",
+	"entity_reference", "relation", "hypothesis", "evidence", "assessment", "cognitive_situation",
+	"recommendation", "historical_comparison", "feedback", "diagnostic", "audit_record", "configuration",
+}
+var canonicalTrust = []string{"untrusted", "sensor_reported", "validated", "derived", "corroborated", "confirmed", "invalidated"}
+var canonicalSensitivity = []string{"public", "operational", "personal", "sensitive_personal", "biometric", "security_sensitive", "secret"}
+var canonicalAuthority = []string{"descriptive", "diagnostic", "advisory", "authorized_decision", "authorized_action"}
+var canonicalStatus = []string{"experimental", "internal", "stable", "deprecated"}
+
 type CatalogFile struct {
-	Catalog         Catalog          `yaml:"catalog"`
-	Contracts       []Contract       `yaml:"contracts"`
-	AdmissionEvents []AdmissionEvent `yaml:"admission_events"`
-	OutputProfiles  []OutputProfile  `yaml:"output_profiles"`
+	Catalog         Catalog           `yaml:"catalog"`
+	Contracts       []CatalogContract `yaml:"contracts"`
+	AdmissionEvents []AdmissionEvent  `yaml:"admission_events"`
+	OutputProfiles  []OutputProfile   `yaml:"output_profiles"`
 }
 
 type Catalog struct {
@@ -72,35 +84,54 @@ type DataControl struct {
 	Protection     string `yaml:"protection"`
 }
 
-type Contract struct {
-	ID            string   `yaml:"id"`
-	Category      string   `yaml:"category"`
-	Owner         string   `yaml:"owner"`
-	Producers     []string `yaml:"producers"`
-	Consumers     []string `yaml:"consumers"`
-	Transport     string   `yaml:"transport"`
-	Persistence   []string `yaml:"persistence"`
-	Authority     string   `yaml:"authority"`
-	Trust         string   `yaml:"trust"`
-	Sensitivity   string   `yaml:"sensitivity"`
-	Status        string   `yaml:"status"`
-	Justification string   `yaml:"justification"`
-	Fields        []Field  `yaml:"fields"`
+type CatalogContract struct {
+	ID                  string         `yaml:"id"`
+	Category            string         `yaml:"category"`
+	Owner               string         `yaml:"owner"`
+	Producers           []string       `yaml:"producers"`
+	Consumers           []string       `yaml:"consumers"`
+	Transport           string         `yaml:"transport"`
+	Persistence         []string       `yaml:"persistence"`
+	Authority           string         `yaml:"authority"`
+	Trust               string         `yaml:"trust"`
+	Sensitivity         string         `yaml:"sensitivity"`
+	Status              string         `yaml:"status"`
+	Justification       string         `yaml:"justification"`
+	MigrationPolicy     string         `yaml:"migration_policy"`
+	CompatibilityPolicy string         `yaml:"compatibility_policy"`
+	RetentionPolicy     string         `yaml:"retention_policy"`
+	Implementation      Implementation `yaml:"implementation"`
+	Fields              []Field        `yaml:"fields"`
+}
+
+type Implementation struct {
+	Kind          string `yaml:"kind"`
+	Package       string `yaml:"package"`
+	Type          string `yaml:"type"`
+	WireFormat    string `yaml:"wire_format"`
+	Justification string `yaml:"justification"`
 }
 
 type Field struct {
-	Name        string   `yaml:"name"`
-	Type        string   `yaml:"type"`
-	Required    bool     `yaml:"required"`
-	Nullable    bool     `yaml:"nullable"`
-	Description string   `yaml:"description"`
-	Source      string   `yaml:"source"`
-	Trust       string   `yaml:"trust"`
-	Sensitivity string   `yaml:"sensitivity"`
-	Protection  string   `yaml:"protection"`
-	Persistence []string `yaml:"persistence"`
-	Retention   string   `yaml:"retention"`
-	Validation  string   `yaml:"validation"`
+	Name            string   `yaml:"name"`
+	Type            string   `yaml:"type"`
+	Required        bool     `yaml:"required"`
+	Nullable        bool     `yaml:"nullable"`
+	Description     string   `yaml:"description"`
+	Source          string   `yaml:"source"`
+	Trust           string   `yaml:"trust"`
+	Sensitivity     string   `yaml:"sensitivity"`
+	Protection      string   `yaml:"protection"`
+	Persistence     []string `yaml:"persistence"`
+	Retention       string   `yaml:"retention"`
+	Validation      string   `yaml:"validation"`
+	GoField         string   `yaml:"go_field"`
+	WireName        string   `yaml:"wire_name"`
+	FieldPath       string   `yaml:"field_path"`
+	Omitempty       *bool    `yaml:"omitempty"`
+	RuntimeOnly     bool     `yaml:"runtime_only"`
+	CatalogOnly     bool     `yaml:"catalog_only"`
+	ExceptionReason string   `yaml:"exception_reason"`
 }
 
 type AdmissionEvent struct {
@@ -126,12 +157,12 @@ type OutputProfile struct {
 }
 
 type StoresFile struct {
-	SchemaVersion int     `yaml:"schema_version"`
-	Namespace     string  `yaml:"namespace"`
-	Stores        []Store `yaml:"stores"`
+	SchemaVersion int            `yaml:"schema_version"`
+	Namespace     string         `yaml:"namespace"`
+	Stores        []CatalogStore `yaml:"stores"`
 }
 
-type Store struct {
+type CatalogStore struct {
 	ID                    string   `yaml:"id"`
 	Owner                 string   `yaml:"owner"`
 	Format                string   `yaml:"format"`
@@ -155,12 +186,12 @@ type Store struct {
 }
 
 type BoundariesFile struct {
-	SchemaVersion int        `yaml:"schema_version"`
-	Namespace     string     `yaml:"namespace"`
-	Boundaries    []Boundary `yaml:"boundaries"`
+	SchemaVersion int               `yaml:"schema_version"`
+	Namespace     string            `yaml:"namespace"`
+	Boundaries    []CatalogBoundary `yaml:"boundaries"`
 }
 
-type Boundary struct {
+type CatalogBoundary struct {
 	ID              string   `yaml:"id"`
 	Name            string   `yaml:"name"`
 	Producer        string   `yaml:"producer"`
@@ -178,12 +209,12 @@ type Boundary struct {
 }
 
 type ErrorsFile struct {
-	SchemaVersion int     `yaml:"schema_version"`
-	Namespace     string  `yaml:"namespace"`
-	Errors        []Error `yaml:"errors"`
+	SchemaVersion int            `yaml:"schema_version"`
+	Namespace     string         `yaml:"namespace"`
+	Errors        []CatalogError `yaml:"errors"`
 }
 
-type Error struct {
+type CatalogError struct {
 	ID        string `yaml:"id"`
 	Owner     string `yaml:"owner"`
 	Category  string `yaml:"category"`
@@ -214,15 +245,37 @@ func Load(root string) (CatalogSet, error) {
 	if err := decode(filepath.Join(root, "configs/cge/contracts/errors.yaml"), &result.Errors); err != nil {
 		return CatalogSet{}, err
 	}
+	if result.Boundaries.SchemaVersion != 1 || result.Boundaries.Namespace != "synora.cge" {
+		return CatalogSet{}, fmt.Errorf("boundaries header must be schema 1, namespace synora.cge")
+	}
+	if result.Stores.SchemaVersion != 1 || result.Stores.Namespace != "synora.cge" {
+		return CatalogSet{}, fmt.Errorf("stores header must be schema 1, namespace synora.cge")
+	}
+	if result.Errors.SchemaVersion != 1 || result.Errors.Namespace != "synora.cge" {
+		return CatalogSet{}, fmt.Errorf("errors header must be schema 1, namespace synora.cge")
+	}
 	return result, nil
 }
 
 func decode(path string, target any) error {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
-	if err := yaml.Unmarshal(data, target); err != nil {
+	defer file.Close()
+	decoder := yaml.NewDecoder(file)
+	decoder.KnownFields(true)
+	if err := decoder.Decode(target); err != nil {
+		if err == io.EOF {
+			return fmt.Errorf("parse %s: empty YAML document", path)
+		}
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	var second any
+	if err := decoder.Decode(&second); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("parse %s: multiple YAML documents", path)
+		}
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
 	return nil
@@ -244,19 +297,19 @@ func validateSet(set CatalogSet) error {
 	if set.Catalog.Catalog.SchemaVersion != 1 || set.Catalog.Catalog.Namespace != "synora.cge" || set.Catalog.Catalog.AuthorityCeiling != "advisory" {
 		return fmt.Errorf("catalog header must be schema 1, namespace synora.cge and advisory")
 	}
-	if err := validateEnumList("category", set.Catalog.Catalog.Categories, validCategories); err != nil {
+	if err := validateExactList("category", set.Catalog.Catalog.Categories, canonicalCategories); err != nil {
 		return err
 	}
-	if err := validateEnumList("trust", set.Catalog.Catalog.TrustLevels, validTrust); err != nil {
+	if err := validateExactList("trust", set.Catalog.Catalog.TrustLevels, canonicalTrust); err != nil {
 		return err
 	}
-	if err := validateEnumList("sensitivity", set.Catalog.Catalog.SensitivityClasses, validSensitivity); err != nil {
+	if err := validateExactList("sensitivity", set.Catalog.Catalog.SensitivityClasses, canonicalSensitivity); err != nil {
 		return err
 	}
-	if err := validateEnumList("authority", set.Catalog.Catalog.AuthorityLevels, validAuthority); err != nil {
+	if err := validateExactList("authority", set.Catalog.Catalog.AuthorityLevels, canonicalAuthority); err != nil {
 		return err
 	}
-	if err := validateEnumList("status", set.Catalog.Catalog.StabilityStatuses, validStatus); err != nil {
+	if err := validateExactList("status", set.Catalog.Catalog.StabilityStatuses, canonicalStatus); err != nil {
 		return err
 	}
 	controls := make(map[string]bool, len(set.Catalog.Catalog.DataControls))
@@ -272,7 +325,7 @@ func validateSet(set CatalogSet) error {
 		}
 	}
 
-	contracts := make(map[string]Contract, len(set.Catalog.Contracts))
+	contracts := make(map[string]CatalogContract, len(set.Catalog.Contracts))
 	for _, contract := range set.Catalog.Contracts {
 		if contract.ID == "" || contracts[contract.ID].ID != "" {
 			return fmt.Errorf("contract IDs must be unique and non-empty: %q", contract.ID)
@@ -289,8 +342,13 @@ func validateSet(set CatalogSet) error {
 		if strings.HasPrefix(contract.Owner, "cge") && (contract.Authority == "authorized_action" || contract.Authority == "authorized_decision") {
 			return fmt.Errorf("CGE contract %q exceeds advisory authority ceiling", contract.ID)
 		}
-		if len(contract.Persistence) > 0 && contract.Justification == "" && contract.Status == "experimental" && contract.ID == "" {
-			return fmt.Errorf("unjustified persistent contract %q", contract.ID)
+		if len(contract.Persistence) > 0 {
+			if strings.TrimSpace(contract.Justification) == "" || strings.TrimSpace(contract.MigrationPolicy) == "" || strings.TrimSpace(contract.CompatibilityPolicy) == "" || strings.TrimSpace(contract.RetentionPolicy) == "" {
+				return fmt.Errorf("persistent contract %q lacks justification, migration, compatibility or retention policy", contract.ID)
+			}
+		}
+		if err := validateImplementation(contract.ID, contract.Implementation); err != nil {
+			return err
 		}
 		fields := make(map[string]bool, len(contract.Fields))
 		for _, field := range contract.Fields {
@@ -311,7 +369,7 @@ func validateSet(set CatalogSet) error {
 		contracts[contract.ID] = contract
 	}
 
-	stores := make(map[string]Store, len(set.Stores.Stores))
+	stores := make(map[string]CatalogStore, len(set.Stores.Stores))
 	for _, store := range set.Stores.Stores {
 		if store.ID == "" || stores[store.ID].ID != "" {
 			return fmt.Errorf("store IDs must be unique and non-empty: %q", store.ID)
@@ -350,7 +408,7 @@ func validateSet(set CatalogSet) error {
 		}
 	}
 
-	errors := make(map[string]Error, len(set.Errors.Errors))
+	errors := make(map[string]CatalogError, len(set.Errors.Errors))
 	for _, item := range set.Errors.Errors {
 		if item.ID == "" || errors[item.ID].ID != "" {
 			return fmt.Errorf("error IDs must be unique and non-empty: %q", item.ID)
@@ -440,6 +498,38 @@ func validateEnumList(name string, values []string, allowed map[string]bool) err
 			return fmt.Errorf("invalid or duplicate catalog %s %q", name, value)
 		}
 		seen[value] = true
+	}
+	return nil
+}
+
+func validateExactList(name string, values, canonical []string) error {
+	if len(values) != len(canonical) {
+		return fmt.Errorf("catalog %s list must contain exactly %d values, found %d", name, len(canonical), len(values))
+	}
+	left, right := append([]string(nil), values...), append([]string(nil), canonical...)
+	sort.Strings(left)
+	sort.Strings(right)
+	for i := range left {
+		if left[i] != right[i] {
+			return fmt.Errorf("catalog %s list differs from canonical v1 set", name)
+		}
+	}
+	return nil
+}
+
+func validateImplementation(contractID string, implementation Implementation) error {
+	allowed := map[string]bool{"go_struct": true, "go_alias": true, "go_scalar": true, "external": true, "derived_projection": true, "envelope": true}
+	if !allowed[implementation.Kind] {
+		return fmt.Errorf("contract %q has invalid implementation kind %q", contractID, implementation.Kind)
+	}
+	if implementation.Kind == "external" {
+		if strings.TrimSpace(implementation.Justification) == "" {
+			return fmt.Errorf("external contract %q lacks implementation justification", contractID)
+		}
+		return nil
+	}
+	if strings.TrimSpace(implementation.Package) == "" || strings.TrimSpace(implementation.Type) == "" || strings.TrimSpace(implementation.WireFormat) == "" {
+		return fmt.Errorf("contract %q lacks implementation package, type or wire format", contractID)
 	}
 	return nil
 }

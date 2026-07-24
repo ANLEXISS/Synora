@@ -193,6 +193,54 @@ errors:
     retryable: false
     public: true
     authority: diagnostic
+  - id: cge.contract.unknown
+    owner: cge_contractcatalog
+    category: contract
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.type_mismatch
+    owner: cge_contractcatalog
+    category: contract
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.field_mismatch
+    owner: cge_contractcatalog
+    category: contract
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.store_forbidden
+    owner: cge_contractcatalog
+    category: authority
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.authority_violation
+    owner: cge_contractcatalog
+    category: authority
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.protection_violation
+    owner: cge_contractcatalog
+    category: privacy
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.sensitive_write_forbidden
+    owner: cge_contractcatalog
+    category: privacy
+    retryable: false
+    public: true
+    authority: diagnostic
+  - id: cge.contract.generated_registry_stale
+    owner: cge_contractcatalog
+    category: generation
+    retryable: false
+    public: true
+    authority: diagnostic
   - id: core.event_rejected
     owner: historical_core
     category: historical

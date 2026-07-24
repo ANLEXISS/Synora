@@ -29,6 +29,25 @@ La frontière historique conserve les identifiants nécessaires au moteur
 historique. Les pseudonymes `cgeid-v1:<kind>:<hex>` ne reviennent jamais dans
 le moteur historique, le StateStore ou les automations.
 
+## Registre exécutable (passe 66)
+
+Les quatre YAML sont chargés strictement : en-têtes, types, clés inconnues,
+doublons et documents multiples sont refusés. Le validateur impose les 17
+catégories v1 exactes, les vocabulaires de confiance/sensibilité/autorité/
+stabilité, ainsi qu'une version et une politique pour chaque contrat durable.
+
+Le registre compilé est produit par `go run ./cmd/cge-contractgen generate`,
+puis vérifié par `go run ./cmd/cge-contractgen check`. Le runtime utilise
+`generated_registry.go` et ne lit jamais les YAML installés. `gosurface` surveille
+les packages/types déclarés dans `go-surfaces.yaml` et ses fixtures détectent
+les dérives de champs, tags et types.
+
+Chaque writer CGE durable déclare un StoreID et un ContractID et appelle
+`ValidateStoreWrite` avant marshal, append, rename ou fsync. Cette garde ne
+transforme aucune donnée : la frontière protège les identifiants et la garde
+vérifie ensuite le domaine, l'autorité, la sensibilité et le store. Les anciens
+records restent lisibles sans métadonnées générées.
+
 ## Contrats
 
 Les contrats sont dans `catalog.yaml`. Chaque contrat possède un ID versionné,
@@ -109,3 +128,7 @@ supprimés automatiquement par cette architecture.
 
 Toute incohérence actuelle est un gap explicite. Une passe ultérieure doit
 proposer la correction et sa migration séparément.
+
+Toute nouvelle entrée, sortie, structure sérialisée, persistance, métrique,
+RPC ou donnée cognitive doit mettre à jour le catalogue, la surface Go, le
+registre généré et les tests avant d'être acceptée.
