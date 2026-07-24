@@ -382,7 +382,7 @@ func writeManifestAtomic(ctx context.Context, path string, manifest Manifest, mo
 	if err := checkContext(ctx); err != nil {
 		return err
 	}
-	if err := contractcatalog.ValidateStoreWrite("synora.store.cge-generations", "synora.cge.audit-record.v1", manifest); err != nil {
+	if err := contractcatalog.ValidateStoreWrite("synora.store.cge-generations", "synora.cge.generation-manifest.v1", manifest); err != nil {
 		return fmt.Errorf("contract guard: %w", err)
 	}
 	data, err := json.Marshal(manifest)

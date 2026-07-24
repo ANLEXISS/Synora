@@ -10,6 +10,15 @@ packages:
   - import: synora/internal/cge/chains
     role: durable_observation
     types: [ObservationRef]
+  - import: synora/internal/cge/chains/journal
+    role: durable_journal
+    types: [Record, GenesisPayload, ChainAddedPayload, LifecycleTransitionPayload, SnapshotCheckpointPayload, ObservationAddedPayload, ContributionAddedPayload, HypothesisOpenedPayload, HypothesisStatusChangedPayload, HypothesisRebasedPayload, HypothesisSupersededPayload, HypothesisResolvedPayload, RoutineCreatedPayload, RoutineOccurrenceAddedPayload, RoutineStatusChangedPayload]
+  - import: synora/internal/cge/chains/generations
+    role: generation_manifest
+    types: [Manifest]
+  - import: synora/internal/cge/chains/persistence
+    role: generation_snapshot
+    types: [RegistryPayload]
   - import: synora/internal/cge/context
     role: context_frame
     types: [Frame]
@@ -36,7 +45,7 @@ packages:
     types: [HistoricalDecisionComparison, HistoricalDecisionRef]
   - import: synora/internal/cge/durableworkflow
     role: workflow_envelopes
-    types: [Record, RecoveryReport]
+    types: [Record, Checkpoint, RecoveryReport]
   - import: synora/internal/cge/shadowworkflow
     role: workflow_status_and_projection
     types: [StatusSnapshot, CognitiveProjectionSnapshot]
@@ -48,7 +57,7 @@ packages:
     types: [CalibrationAnalyticsReport]
   - import: synora/internal/cge/fieldtrial
     role: field_trial_records
-    types: [AnnotationEnvelope]
+    types: [Envelope, AnnotationEnvelope, SessionManifest]
   - import: synora/internal/cge/contractcatalog
     role: catalog_error_and_audit_envelopes
     types: [CatalogError, AuditRecord]

@@ -1807,6 +1807,371 @@ contracts:
         retention: process_lifetime
         validation: no_paths_or_secrets
 
+  - id: synora.cge.journal-genesis-payload.v1
+    category: audit_record
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for journal.genesis; the journal envelope is validated separately.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: GenesisPayload, wire_format: json, validator: journal.GenesisPayloadV1}
+    fields: []
+  - id: synora.cge.journal-chain-added-payload.v1
+    category: audit_record
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for chain.added.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: ChainAddedPayload, wire_format: json, validator: journal.ChainAddedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-lifecycle-payload.v1
+    category: audit_record
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for chain.lifecycle_transitioned.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: LifecycleTransitionPayload, wire_format: json, validator: journal.LifecycleTransitionPayloadV1}
+    fields: []
+  - id: synora.cge.journal-snapshot-checkpoint-payload.v1
+    category: audit_record
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for snapshot.checkpointed.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: SnapshotCheckpointPayload, wire_format: json, validator: journal.SnapshotCheckpointPayloadV1}
+    fields: []
+  - id: synora.cge.journal-observation-added-payload.v1
+    category: normalized_observation
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for chain.observation_added.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: ObservationAddedPayload, wire_format: json, validator: journal.ObservationAddedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-contribution-added-payload.v1
+    category: audit_record
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for chain.contribution_added.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: ContributionAddedPayload, wire_format: json, validator: journal.ContributionAddedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-hypothesis-opened-payload.v1
+    category: hypothesis
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for hypothesis.opened.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: HypothesisOpenedPayload, wire_format: json, validator: journal.HypothesisOpenedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-hypothesis-status-payload.v1
+    category: hypothesis
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for hypothesis.status_changed.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: HypothesisStatusChangedPayload, wire_format: json, validator: journal.HypothesisStatusChangedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-hypothesis-rebased-payload.v1
+    category: hypothesis
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for hypothesis.rebased.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: HypothesisRebasedPayload, wire_format: json, validator: journal.HypothesisRebasedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-hypothesis-superseded-payload.v1
+    category: hypothesis
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for hypothesis.superseded.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: HypothesisSupersededPayload, wire_format: json, validator: journal.HypothesisSupersededPayloadV1}
+    fields: []
+  - id: synora.cge.journal-hypothesis-resolved-payload.v1
+    category: hypothesis
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 payload for hypothesis.resolved.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: HypothesisResolvedPayload, wire_format: json, validator: journal.HypothesisResolvedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-routine-created-payload.v1
+    category: derived_fact
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: operational
+    status: internal
+    justification: Exact v1 payload for routine.created.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: RoutineCreatedPayload, wire_format: json, validator: journal.RoutineCreatedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-routine-occurrence-payload.v1
+    category: derived_fact
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: operational
+    status: internal
+    justification: Exact v1 payload for routine.occurrence_added.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: RoutineOccurrenceAddedPayload, wire_format: json, validator: journal.RoutineOccurrenceAddedPayloadV1}
+    fields: []
+  - id: synora.cge.journal-routine-status-payload.v1
+    category: derived_fact
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: advisory
+    trust: derived
+    sensitivity: operational
+    status: internal
+    justification: Exact v1 payload for routine.status_changed.
+    migration_policy: journal_payload_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: RoutineStatusChangedPayload, wire_format: json, validator: journal.RoutineStatusChangedPayloadV1}
+    fields: []
+
+  - id: synora.cge.journal-record.v1
+    category: audit_record
+    owner: cge_chains_journal
+    producers: [cge_journal]
+    consumers: [cge_journal_replay]
+    transport: internal
+    persistence: [synora.store.cge-journal]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 root envelope for a durable CGE journal line.
+    migration_policy: journal_envelope_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: journal_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/journal, type: Record, wire_format: json}
+    fields: []
+
+  - id: synora.cge.generation-manifest.v1
+    category: audit_record
+    owner: cge_chains_generations
+    producers: [cge_generations]
+    consumers: [cge_generations_recovery]
+    transport: internal
+    persistence: [synora.store.cge-generations]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 active generation manifest payload.
+    migration_policy: generation_manifest_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: generation_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/generations, type: Manifest, wire_format: json}
+    fields: []
+
+  - id: synora.cge.generation-snapshot.v1
+    category: audit_record
+    owner: cge_chains_persistence
+    producers: [cge_generations]
+    consumers: [cge_generations_recovery]
+    transport: internal
+    persistence: [synora.store.cge-generations]
+    authority: descriptive
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 generation snapshot payload.
+    migration_policy: generation_snapshot_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: generation_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/chains/persistence, type: RegistryPayload, wire_format: json}
+    fields: []
+
+  - id: synora.cge.workflow-checkpoint.v1
+    category: audit_record
+    owner: cge_shadow_workflow
+    producers: [cge_shadow_workflow]
+    consumers: [cge_shadow_workflow_recovery]
+    transport: internal
+    persistence: [synora.store.workflow-checkpoint]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 workflow checkpoint payload.
+    migration_policy: workflow_checkpoint_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: latest_checkpoint
+    implementation: {kind: go_struct, package: synora/internal/cge/durableworkflow, type: Checkpoint, wire_format: json}
+    fields: []
+
+  - id: synora.cge.field-trial-envelope.v1
+    category: audit_record
+    owner: cge_field_trial
+    producers: [cge_field_trial]
+    consumers: [cge_field_trial_replay]
+    transport: internal
+    persistence: [synora.store.field-trial-recorder]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 field-trial event envelope.
+    migration_policy: field_trial_envelope_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: field_trial_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/fieldtrial, type: Envelope, wire_format: json}
+    fields: []
+
+  - id: synora.cge.field-trial-annotation-envelope.v1
+    category: audit_record
+    owner: cge_field_trial
+    producers: [cge_field_trial]
+    consumers: [cge_field_trial_replay]
+    transport: internal
+    persistence: [synora.store.field-trial-recorder]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 field-trial annotation envelope.
+    migration_policy: field_trial_annotation_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: field_trial_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/fieldtrial, type: AnnotationEnvelope, wire_format: json}
+    fields: []
+
+  - id: synora.cge.field-trial-manifest.v1
+    category: audit_record
+    owner: cge_field_trial
+    producers: [cge_field_trial]
+    consumers: [cge_field_trial_replay]
+    transport: internal
+    persistence: [synora.store.field-trial-recorder]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Exact v1 field-trial session manifest.
+    migration_policy: field_trial_manifest_v1_migration
+    compatibility_policy: legacy_replay_without_rewrite
+    retention_policy: field_trial_store_policy
+    implementation: {kind: go_struct, package: synora/internal/cge/fieldtrial, type: SessionManifest, wire_format: json}
+    fields: []
+
   - id: synora.cge.audit-record.v1
     category: audit_record
     owner: cge

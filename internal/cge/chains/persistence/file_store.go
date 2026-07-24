@@ -93,7 +93,7 @@ func (s *FileStore) Save(ctx context.Context, source *registry.Registry, created
 		return SnapshotMetadata{}, err
 	}
 	payload := RegistryPayload{ChainCount: len(snapshots), Chains: snapshots}
-	if err := contractcatalog.ValidateStoreWrite("synora.store.cge-generations", "synora.cge.audit-record.v1", payload); err != nil {
+	if err := contractcatalog.ValidateStoreWrite("synora.store.cge-generations", "synora.cge.generation-snapshot.v1", payload); err != nil {
 		return SnapshotMetadata{}, fmt.Errorf("%w: contract guard: %v", ErrInvalidPayload, err)
 	}
 	payloadBytes, err := json.Marshal(payload)

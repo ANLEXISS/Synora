@@ -29,7 +29,7 @@ La frontière historique conserve les identifiants nécessaires au moteur
 historique. Les pseudonymes `cgeid-v1:<kind>:<hex>` ne reviennent jamais dans
 le moteur historique, le StateStore ou les automations.
 
-## Registre exécutable et gel v1 (passes 66–67)
+## Registre exécutable et gel v1 (passes 66–67.1)
 
 Les catalogues YAML sont chargés strictement : en-têtes, types, clés inconnues,
 doublons et documents multiples sont refusés. Le validateur impose les 17
@@ -37,9 +37,12 @@ catégories v1 exactes, les vocabulaires de confiance/sensibilité/autorité/
 stabilité, ainsi qu'une version et une politique pour chaque contrat durable.
 
 Le registre compilé est produit par `go run ./cmd/cge-contractgen generate`,
-puis vérifié par `go run ./cmd/cge-contractgen check`. `check-compat` compare
-le jeu canonique avec `baselines/cge-contract-set-v1.json` et `coverage` refuse
-une couverture obligatoire incomplète. Le runtime utilise
+puis vérifié par `go run ./cmd/cge-contractgen check`. `generate` ne modifie
+jamais la baseline. `freeze-baseline` ne crée la baseline qu'une seule fois ;
+`check-compat` compare ensuite le jeu canonique avec
+`baselines/cge-contract-set-v1.json` sans l'écrire et classe chaque différence
+en compatible, migration requise ou breaking. `coverage` refuse une couverture
+obligatoire incomplète. Le runtime utilise
 `generated_registry.go` et ne lit jamais les YAML installés. `gosurface` surveille
 les packages déclarés dans `go-surfaces.yaml`, inventorie chaque type exporté de
 ces packages et les fixtures rendent rouges les dérives de champs, tags et
@@ -63,6 +66,13 @@ Les contrats sont dans `catalog.yaml`. Chaque contrat possède un ID versionné,
 un propriétaire, des producteurs et consommateurs, un niveau de confiance,
 une sensibilité, une autorité, un statut de stabilité et des champs décrits
 par source, protection, persistance, rétention et validation.
+
+`surface-inventory.yaml` est un artefact de découverte, pas une approbation.
+La preuve de couverture est la jointure indépendante entre les surfaces
+découvertes, `field-mappings.yaml`, les exemptions sûres, les contrats, stores
+et transports. Une simple régénération de l'inventaire ne peut donc pas rendre
+un champ approuvé. Les payloads durables ont des contrats exacts ; le contrat
+de l'enveloppe du journal est distinct des 14 contrats de payloads discriminés.
 
 Les contrats historiques `synora.contract.historical-decision.v1` et
 `synora.contract.action-request.v1` sont inventoriés pour rendre la frontière

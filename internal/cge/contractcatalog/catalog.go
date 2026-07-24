@@ -213,16 +213,23 @@ type TransportsFile struct {
 }
 
 type WriterSpec struct {
-	ID          string `yaml:"id"`
-	Owner       string `yaml:"owner"`
-	Package     string `yaml:"package"`
-	Type        string `yaml:"type"`
-	Function    string `yaml:"function"`
-	Store       string `yaml:"store"`
-	Contract    string `yaml:"contract"`
-	Guard       string `yaml:"guard"`
-	Format      string `yaml:"format"`
-	BeforeWrite string `yaml:"before_write"`
+	ID                 string             `yaml:"id"`
+	Owner              string             `yaml:"owner"`
+	Package            string             `yaml:"package"`
+	Type               string             `yaml:"type"`
+	Function           string             `yaml:"function"`
+	Store              string             `yaml:"store"`
+	Contract           string             `yaml:"contract"`
+	ContractResolution ContractResolution `yaml:"contract_resolution"`
+	Guard              string             `yaml:"guard"`
+	Format             string             `yaml:"format"`
+	BeforeWrite        string             `yaml:"before_write"`
+}
+
+type ContractResolution struct {
+	Mode     string `yaml:"mode"`
+	Field    string `yaml:"field"`
+	Registry string `yaml:"registry"`
 }
 
 type WritersFile struct {
@@ -244,6 +251,47 @@ type JournalKindsFile struct {
 	SchemaVersion int               `yaml:"schema_version"`
 	Namespace     string            `yaml:"namespace"`
 	Kinds         []JournalKindSpec `yaml:"kinds"`
+}
+
+type FieldMapping struct {
+	GoField            string   `yaml:"go_field"`
+	FieldPath          string   `yaml:"field_path"`
+	WireName           string   `yaml:"wire_name"`
+	GoType             string   `yaml:"go_type"`
+	WireType           string   `yaml:"wire_type"`
+	Required           bool     `yaml:"required"`
+	Nullable           bool     `yaml:"nullable"`
+	Omitempty          bool     `yaml:"omitempty"`
+	Sensitivity        string   `yaml:"sensitivity"`
+	Protection         string   `yaml:"protection"`
+	Persistence        []string `yaml:"persistence"`
+	Retention          string   `yaml:"retention"`
+	IdentifierSemantic string   `yaml:"identifier_semantic"`
+	TimestampSemantic  string   `yaml:"timestamp_semantic"`
+}
+
+type TypeMapping struct {
+	Contract string         `yaml:"contract"`
+	Package  string         `yaml:"package"`
+	Type     string         `yaml:"type"`
+	Fields   []FieldMapping `yaml:"fields"`
+}
+
+type MappingExemption struct {
+	Package             string `yaml:"package"`
+	Type                string `yaml:"type"`
+	Field               string `yaml:"field"`
+	Reason              string `yaml:"reason"`
+	Scope               string `yaml:"scope"`
+	PersistenceAllowed  bool   `yaml:"persistence_allowed"`
+	PublicOutputAllowed bool   `yaml:"public_output_allowed"`
+}
+
+type FieldMappingsFile struct {
+	SchemaVersion int                `yaml:"schema_version"`
+	Namespace     string             `yaml:"namespace"`
+	Mappings      []TypeMapping      `yaml:"mappings"`
+	Exemptions    []MappingExemption `yaml:"exemptions"`
 }
 
 type AdmissionEvent struct {
@@ -336,15 +384,16 @@ type CatalogError struct {
 }
 
 type CatalogSet struct {
-	Catalog      CatalogFile
-	Boundaries   BoundariesFile
-	Stores       StoresFile
-	Errors       ErrorsFile
-	Identifiers  IdentifiersFile
-	Timestamps   TimestampsFile
-	Transports   TransportsFile
-	Writers      WritersFile
-	JournalKinds JournalKindsFile
+	Catalog       CatalogFile
+	Boundaries    BoundariesFile
+	Stores        StoresFile
+	Errors        ErrorsFile
+	Identifiers   IdentifiersFile
+	Timestamps    TimestampsFile
+	Transports    TransportsFile
+	Writers       WritersFile
+	JournalKinds  JournalKindsFile
+	FieldMappings FieldMappingsFile
 }
 
 // Load reads the four catalog files below root.
@@ -377,6 +426,9 @@ func Load(root string) (CatalogSet, error) {
 	if err := decode(filepath.Join(root, "configs/cge/contracts/journal-kinds.yaml"), &result.JournalKinds); err != nil {
 		return CatalogSet{}, err
 	}
+	if err := decode(filepath.Join(root, "configs/cge/contracts/field-mappings.yaml"), &result.FieldMappings); err != nil {
+		return CatalogSet{}, err
+	}
 	if result.Boundaries.SchemaVersion != 1 || result.Boundaries.Namespace != "synora.cge" {
 		return CatalogSet{}, fmt.Errorf("boundaries header must be schema 1, namespace synora.cge")
 	}
@@ -401,6 +453,9 @@ func Load(root string) (CatalogSet, error) {
 	if result.JournalKinds.SchemaVersion != 1 || result.JournalKinds.Namespace != "synora.cge" {
 		return CatalogSet{}, fmt.Errorf("journal-kinds header must be schema 1, namespace synora.cge")
 	}
+	if result.FieldMappings.SchemaVersion != 1 || result.FieldMappings.Namespace != "synora.cge" {
+		return CatalogSet{}, fmt.Errorf("field-mappings header must be schema 1, namespace synora.cge")
+	}
 	return result, nil
 }
 
@@ -410,7 +465,29 @@ func decode(path string, target any) error {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
 	defer file.Close()
-	decoder := yaml.NewDecoder(file)
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	nodeDecoder := yaml.NewDecoder(strings.NewReader(string(data)))
+	var document yaml.Node
+	if err := nodeDecoder.Decode(&document); err != nil {
+		if err == io.EOF {
+			return fmt.Errorf("parse %s: empty YAML document", path)
+		}
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	if err := rejectDuplicateYAMLKeys(&document); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	var extra yaml.Node
+	if err := nodeDecoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("parse %s: multiple YAML documents", path)
+		}
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(target); err != nil {
 		if err == io.EOF {
@@ -424,6 +501,35 @@ func decode(path string, target any) error {
 			return fmt.Errorf("parse %s: multiple YAML documents", path)
 		}
 		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	return nil
+}
+
+func rejectDuplicateYAMLKeys(node *yaml.Node) error {
+	if node == nil {
+		return nil
+	}
+	switch node.Kind {
+	case yaml.MappingNode:
+		seen := make(map[string]bool, len(node.Content)/2)
+		for index := 0; index < len(node.Content); index += 2 {
+			key, value := node.Content[index], node.Content[index+1]
+			if key.Kind == yaml.ScalarNode && seen[key.Value] {
+				return fmt.Errorf("duplicate YAML key %q", key.Value)
+			}
+			if key.Kind == yaml.ScalarNode {
+				seen[key.Value] = true
+			}
+			if err := rejectDuplicateYAMLKeys(value); err != nil {
+				return err
+			}
+		}
+	case yaml.SequenceNode, yaml.DocumentNode:
+		for _, child := range node.Content {
+			if err := rejectDuplicateYAMLKeys(child); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -647,6 +753,42 @@ func validateSet(set CatalogSet) error {
 	if err := validateJournalKinds(set, contracts); err != nil {
 		return err
 	}
+	if err := validateFieldMappings(set, contracts); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateFieldMappings(set CatalogSet, contracts map[string]CatalogContract) error {
+	seen := map[string]bool{}
+	for _, mapping := range set.FieldMappings.Mappings {
+		if mapping.Contract == "" || seen[mapping.Contract] || mapping.Package == "" || mapping.Type == "" || len(mapping.Fields) == 0 {
+			return fmt.Errorf("field mapping %s.%s is incomplete or duplicated", mapping.Package, mapping.Type)
+		}
+		contract, ok := contracts[mapping.Contract]
+		if !ok {
+			return fmt.Errorf("field mapping references unknown contract %q", mapping.Contract)
+		}
+		if contract.Implementation.Package != mapping.Package || contract.Implementation.Type != mapping.Type {
+			return fmt.Errorf("field mapping %s does not match contract implementation", mapping.Contract)
+		}
+		fields := map[string]bool{}
+		for _, field := range mapping.Fields {
+			if field.GoField == "" || field.FieldPath == "" || field.WireName == "" || field.GoType == "" || field.WireType == "" || field.Sensitivity == "" || field.Protection == "" || field.Retention == "" || field.IdentifierSemantic == "" || field.TimestampSemantic == "" || fields[field.GoField] {
+				return fmt.Errorf("field mapping %s has incomplete or duplicate field %q", mapping.Contract, field.GoField)
+			}
+			if !validSensitivity[field.Sensitivity] {
+				return fmt.Errorf("field mapping %s.%s has invalid sensitivity", mapping.Contract, field.GoField)
+			}
+			fields[field.GoField] = true
+		}
+		seen[mapping.Contract] = true
+	}
+	for _, exemption := range set.FieldMappings.Exemptions {
+		if exemption.Package == "" || exemption.Type == "" || exemption.Reason == "" || exemption.Scope == "" || exemption.PersistenceAllowed || exemption.PublicOutputAllowed {
+			return fmt.Errorf("mapping exemption %s.%s.%s is incomplete or unsafe", exemption.Package, exemption.Type, exemption.Field)
+		}
+	}
 	return nil
 }
 
@@ -678,6 +820,11 @@ func validateWriters(set CatalogSet, contracts map[string]CatalogContract, store
 		}
 		if _, ok := contracts[writer.Contract]; !ok {
 			return fmt.Errorf("writer %q references unknown contract %q", writer.ID, writer.Contract)
+		}
+		if writer.ContractResolution.Mode != "" {
+			if writer.ContractResolution.Mode != "discriminator" || writer.ContractResolution.Field == "" || writer.ContractResolution.Registry == "" {
+				return fmt.Errorf("writer %q has invalid contract resolution", writer.ID)
+			}
 		}
 		if writer.Guard != "ValidateStoreWrite" {
 			return fmt.Errorf("writer %q is not protected by ValidateStoreWrite", writer.ID)

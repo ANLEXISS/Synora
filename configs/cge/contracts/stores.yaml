@@ -59,7 +59,7 @@ stores:
     sensitivity: sensitive_personal
     migration: old_records_replay_compatible; no_automatic_rewrite
     authority: descriptive
-    contract_refs: [synora.cge.observation.v1, synora.cge.hypothesis-set.v1, synora.cge.evidence-evaluation.v1, synora.cge.audit-record.v1]
+    contract_refs: [synora.cge.journal-record.v1, synora.cge.journal-genesis-payload.v1, synora.cge.journal-chain-added-payload.v1, synora.cge.journal-lifecycle-payload.v1, synora.cge.journal-snapshot-checkpoint-payload.v1, synora.cge.journal-observation-added-payload.v1, synora.cge.journal-contribution-added-payload.v1, synora.cge.journal-hypothesis-opened-payload.v1, synora.cge.journal-hypothesis-status-payload.v1, synora.cge.journal-hypothesis-rebased-payload.v1, synora.cge.journal-hypothesis-superseded-payload.v1, synora.cge.journal-hypothesis-resolved-payload.v1, synora.cge.journal-routine-created-payload.v1, synora.cge.journal-routine-occurrence-payload.v1, synora.cge.journal-routine-status-payload.v1]
     durable: true
     clear_secret_allowed: false
     clear_biometric_allowed: false
@@ -80,7 +80,7 @@ stores:
     sensitivity: sensitive_personal
     migration: version_field_required; no_automatic_migration
     authority: descriptive
-    contract_refs: [synora.cge.observation.v1, synora.cge.audit-record.v1]
+    contract_refs: [synora.cge.generation-manifest.v1, synora.cge.generation-snapshot.v1]
     durable: true
     clear_secret_allowed: false
     clear_biometric_allowed: false
@@ -101,7 +101,7 @@ stores:
     sensitivity: sensitive_personal
     migration: schema_fingerprint_compatibility; no_automatic_rewrite
     authority: advisory
-    contract_refs: [synora.cge.workflow-commit.v1, synora.cge.observation.v1, synora.cge.episode-snapshot.v1, synora.cge.recommendation-set.v1, synora.cge.audit-record.v1]
+    contract_refs: [synora.cge.workflow-commit.v1, synora.cge.observation.v1, synora.cge.episode-snapshot.v1, synora.cge.recommendation-set.v1]
     durable: true
     clear_secret_allowed: false
     clear_biometric_allowed: false
@@ -122,7 +122,7 @@ stores:
     sensitivity: sensitive_personal
     migration: schema_fingerprint_required
     authority: advisory
-    contract_refs: [synora.cge.workflow-commit.v1, synora.cge.observation.v1, synora.cge.workflow-projection.v1, synora.cge.audit-record.v1]
+    contract_refs: [synora.cge.workflow-checkpoint.v1, synora.cge.workflow-projection.v1]
     durable: true
     clear_secret_allowed: false
     clear_biometric_allowed: false
@@ -143,7 +143,7 @@ stores:
     sensitivity: security_sensitive
     migration: schema_version_replay; no_automatic_rewrite
     authority: advisory
-    contract_refs: [synora.cge.calibration-record.v1, synora.cge.historical-comparison.v1, synora.cge.audit-record.v1]
+    contract_refs: [synora.cge.calibration-record.v1, synora.cge.historical-comparison.v1]
     durable: true
     clear_secret_allowed: false
     clear_biometric_allowed: false
@@ -185,7 +185,7 @@ stores:
     sensitivity: sensitive_personal
     migration: schema_version_required
     authority: diagnostic
-    contract_refs: [synora.cge.field-trial-record.v1]
+    contract_refs: [synora.cge.field-trial-envelope.v1, synora.cge.field-trial-annotation-envelope.v1, synora.cge.field-trial-manifest.v1]
     durable: true
     clear_secret_allowed: false
     clear_biometric_allowed: false

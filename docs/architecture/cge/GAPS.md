@@ -1,7 +1,8 @@
 # Gaps connus du catalogue CGE
 
-Cette liste est volontairement descriptive. La passe 65 ne corrige pas ces
-écarts et ne modifie aucun runtime.
+Cette liste est volontairement descriptive. La passe 67.1 ferme les gaps
+contractuels démontrés par la jointure explicite de couverture ; elle ne modifie
+aucun comportement cognitif ni aucune opération système.
 
 ## Critical
 
@@ -16,7 +17,9 @@ durable_writer_coverage=100%
 ```
 
 Les anciennes enveloppes sont lues par les décodeurs legacy existants ; les
-nouvelles écritures passent par les contrats v1 et les validateurs nommés.
+nouvelles écritures passent par les contrats v1 exacts, les validateurs de type
+package+nom et les contrats de payload discriminés. `surface-inventory.yaml`
+reste une découverte et ne peut pas fermer un gap à elle seule.
 
 ## High
 

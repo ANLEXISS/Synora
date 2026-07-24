@@ -1,10 +1,13 @@
 # Versioning, replay et migration
 
 Le jeu complet gelé est `configs/cge/contracts/baselines/cge-contract-set-v1.json`.
-Les commandes `generate`, `check`, `check-compat` et `coverage` sont les gates
-de génération et de revue ; `check-compat` classe un jeu identique comme
-compatible et refuse un fingerprint différent tant qu'une migration/version
-n'est pas documentée.
+Il est immuable dans Git et `freeze-baseline` refuse de le remplacer. Les
+commandes `generate`, `check`, `check-compat` et `coverage` sont les gates de
+génération et de revue ; `check-compat` ne modifie aucun fichier et classe les
+différences en `compatible`, `migration_required` ou `breaking`.
+
+`generate` produit uniquement le registre Go et l'inventaire de découverte.
+L'inventaire n'est pas une baseline et ne vaut pas mapping approuvé.
 
 ## Versions
 

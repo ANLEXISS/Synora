@@ -7,7 +7,8 @@ writers:
     type: FileJournal
     function: buildRecord
     store: synora.store.cge-journal
-    contract: synora.cge.audit-record.v1
+    contract: synora.cge.journal-record.v1
+    contract_resolution: {mode: discriminator, field: kind, registry: journal_kinds}
     guard: ValidateStoreWrite
     format: ndjson
     before_write: before_json_marshal
@@ -17,7 +18,7 @@ writers:
     type: FileStore
     function: writeManifestAtomic
     store: synora.store.cge-generations
-    contract: synora.cge.audit-record.v1
+    contract: synora.cge.generation-manifest.v1
     guard: ValidateStoreWrite
     format: json
     before_write: before_temp_write
@@ -27,7 +28,7 @@ writers:
     type: FileStore
     function: Save
     store: synora.store.cge-generations
-    contract: synora.cge.audit-record.v1
+    contract: synora.cge.generation-snapshot.v1
     guard: ValidateStoreWrite
     format: json
     before_write: before_json_marshal
@@ -37,7 +38,7 @@ writers:
     type: FileStore
     function: Append
     store: synora.store.workflow-wal
-    contract: synora.cge.audit-record.v1
+    contract: synora.cge.workflow-commit.v1
     guard: ValidateStoreWrite
     format: binary_framed_wal
     before_write: before_frame_encode
@@ -47,7 +48,7 @@ writers:
     type: FileStore
     function: WriteCheckpoint
     store: synora.store.workflow-checkpoint
-    contract: synora.cge.audit-record.v1
+    contract: synora.cge.workflow-checkpoint.v1
     guard: ValidateStoreWrite
     format: json
     before_write: before_temp_write
@@ -77,7 +78,7 @@ writers:
     type: Recorder
     function: encodeEnvelope
     store: synora.store.field-trial-recorder
-    contract: synora.cge.field-trial-record.v1
+    contract: synora.cge.field-trial-envelope.v1
     guard: ValidateStoreWrite
     format: ndjson
     before_write: before_json_marshal
@@ -87,7 +88,7 @@ writers:
     type: Recorder
     function: encodeAnnotationEnvelope
     store: synora.store.field-trial-recorder
-    contract: synora.cge.field-trial-record.v1
+    contract: synora.cge.field-trial-annotation-envelope.v1
     guard: ValidateStoreWrite
     format: ndjson
     before_write: before_json_marshal
@@ -97,7 +98,7 @@ writers:
     type: Recorder
     function: writeManifestLocked
     store: synora.store.field-trial-recorder
-    contract: synora.cge.field-trial-record.v1
+    contract: synora.cge.field-trial-manifest.v1
     guard: ValidateStoreWrite
     format: json
     before_write: before_json_marshal

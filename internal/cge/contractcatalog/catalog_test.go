@@ -124,7 +124,7 @@ func copyCatalogFixture(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(fixture, "configs/cge/contracts"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"catalog.yaml", "boundaries.yaml", "stores.yaml", "errors.yaml"} {
+	for _, name := range []string{"catalog.yaml", "boundaries.yaml", "stores.yaml", "errors.yaml", "identifiers.yaml", "timestamps.yaml", "transports.yaml", "writers.yaml", "journal-kinds.yaml", "field-mappings.yaml"} {
 		data, err := os.ReadFile(filepath.Join(root, "configs/cge/contracts", name))
 		if err != nil {
 			t.Fatal(err)
@@ -186,7 +186,7 @@ func TestExecutableRegistryAndDurableGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateStoreWrite("synora.store.cge-journal", "synora.cge.observation.v1", payload); err != nil {
+	if err := ValidateStoreWrite("synora.store.workflow-wal", "synora.cge.observation.v1", payload); err != nil {
 		t.Fatal(err)
 	}
 	after, err := json.Marshal(payload)
@@ -196,14 +196,11 @@ func TestExecutableRegistryAndDurableGuard(t *testing.T) {
 	if string(before) != string(after) {
 		t.Fatal("store guard mutated payload")
 	}
-	if err := ValidateStoreWrite("synora.store.cge-journal", "synora.cge.observation.v1", chains.ObservationRef{ID: "PASS66-RAW-EVENT", EventType: "vision.identity", Timestamp: time.Now().UTC()}); err == nil {
+	if err := ValidateStoreWrite("synora.store.workflow-wal", "synora.cge.observation.v1", chains.ObservationRef{ID: "PASS66-RAW-EVENT", EventType: "vision.identity", Timestamp: time.Now().UTC()}); err == nil {
 		t.Fatal("raw observation identifier accepted")
 	}
-	if err := ValidateStoreWrite("synora.store.cge-journal", "synora.cge.observation.v1", chains.ObservationRef{ID: durableids.Protect(durableids.KindDevice, "PASS66-EVENT"), EventType: "vision.identity", Timestamp: time.Now().UTC()}); err == nil {
+	if err := ValidateStoreWrite("synora.store.workflow-wal", "synora.cge.observation.v1", chains.ObservationRef{ID: durableids.Protect(durableids.KindDevice, "PASS66-EVENT"), EventType: "vision.identity", Timestamp: time.Now().UTC()}); err == nil {
 		t.Fatal("wrong identifier domain accepted")
-	}
-	if err := ValidateStoreWrite("synora.store.workflow-wal", "synora.cge.observation.v1", payload); err != nil {
-		t.Fatal(err)
 	}
 	if err := ValidateStoreWrite("synora.store.calibration-ledger", "synora.cge.observation.v1", payload); err == nil {
 		t.Fatal("forbidden contract/store pair accepted")
@@ -250,7 +247,20 @@ func contractForStore(store string) string {
 		return "synora.cge.feedback.v1"
 	}
 	if store == "synora.store.field-trial-recorder" {
-		return "synora.cge.field-trial-record.v1"
+		return "synora.cge.field-trial-envelope.v1"
 	}
-	return "synora.cge.audit-record.v1"
+	switch store {
+	case "synora.store.cge-journal":
+		return "synora.cge.journal-record.v1"
+	case "synora.store.cge-generations":
+		return "synora.cge.generation-manifest.v1"
+	case "synora.store.workflow-wal":
+		return "synora.cge.workflow-commit.v1"
+	case "synora.store.workflow-checkpoint":
+		return "synora.cge.workflow-checkpoint.v1"
+	case "synora.store.calibration-ledger":
+		return "synora.cge.calibration-record.v1"
+	default:
+		return "synora.cge.audit-record.v1"
+	}
 }
