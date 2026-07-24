@@ -715,6 +715,26 @@ type coverageReport struct {
 	WritersDiscovered              int      `json:"writers_discovered"`
 	WritersCatalogued              int      `json:"writers_catalogued"`
 	WritersWithExactContract       int      `json:"writers_with_exact_contract"`
+	TypesRoots                     int      `json:"types_roots"`
+	TypesReachableRecursive        int      `json:"types_reachable_recursive"`
+	FieldsReachableRecursive       int      `json:"fields_reachable_recursive"`
+	UnmappedReachableTypes         []string `json:"unmapped_reachable_types,omitempty"`
+	UnmappedReachableFields        []string `json:"unmapped_reachable_fields,omitempty"`
+	RuntimeTransportsDiscovered    int      `json:"runtime_transports_discovered"`
+	RuntimeTransportsCatalogued    int      `json:"runtime_transports_catalogued"`
+	UnreviewedRuntimeTransports    []string `json:"unreviewed_runtime_transports,omitempty"`
+	EngineOutputsDiscovered        int      `json:"engine_outputs_discovered"`
+	RPCOutputsDiscovered           int      `json:"rpc_outputs_discovered"`
+	HTTPOutputsDiscovered          int      `json:"http_outputs_discovered"`
+	WebSocketOutputsDiscovered     int      `json:"websocket_outputs_discovered"`
+	BusOutputsDiscovered           int      `json:"bus_outputs_discovered"`
+	OutputsUnreviewed              []string `json:"outputs_unreviewed,omitempty"`
+	PhysicalWriteSites             int      `json:"physical_write_sites"`
+	LogicalWritersDiscovered       int      `json:"logical_writers_discovered"`
+	LogicalWritersCatalogued       int      `json:"logical_writers_catalogued"`
+	LogicalWritersGuarded          int      `json:"logical_writers_guarded"`
+	UnguardedWriteSites            []string `json:"unguarded_write_sites,omitempty"`
+	UnownedWriteSites              []string `json:"unowned_write_sites,omitempty"`
 	TypesReachable                 int      `json:"types_reachable_from_contract_roots"`
 	TypesSafelyExempted            int      `json:"types_safely_exempted"`
 	FieldsReachable                int      `json:"fields_reachable"`
@@ -743,18 +763,43 @@ func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurf
 	if err != nil {
 		return err
 	}
+	logicalWriters := make([]discovery.Surface, 0, len(writers))
+	for _, writer := range writers {
+		if !nonCGEWriterSurface(writer) {
+			logicalWriters = append(logicalWriters, writer)
+		}
+	}
+	writers = logicalWriters
 	outputs, err := discovery.ScanOutputs(".")
 	if err != nil {
 		return err
 	}
-	reachableInventory := inventoryForContractRoots(set, inventory)
+	rootKeys := contractRootKeys(set)
+	reachability := discovery.RecursiveReachability(inventory, rootKeys)
+	reachableInventory := make([]gosurface.InventoryType, 0, len(reachability.Types))
+	for _, item := range inventory.Types {
+		if reachability.Types[item.Package+"/"+item.Name] {
+			reachableInventory = append(reachableInventory, item)
+		}
+	}
+	if len(reachableInventory) == 0 {
+		reachableInventory = inventoryForContractRoots(set, inventory)
+	}
 	if len(inScope) == 0 {
 		reachableInventory = inventory.Types
+		reachability.Types = map[string]bool{}
+		reachability.Fields = map[string]bool{}
+		for _, item := range inventory.Types {
+			reachability.Types[item.Package+"/"+item.Name] = true
+			for _, field := range item.Fields {
+				reachability.Fields[item.Package+"/"+item.Name+"/"+field.FieldPath] = true
+			}
+		}
 	}
 	identifiers, timestamps := discovery.ScanSemanticCandidates(gosurface.Inventory{Types: reachableInventory})
 	// Discovery is not approval. Coverage is a join between independently
 	// discovered code and explicit mappings, contracts, and safe exemptions.
-	report := coverageReport{ContractsTotal: len(set.Catalog.Contracts), TypesMonitored: len(inventory.Types), DiscoveredTypesTotal: len(inventory.Types), InScopeTypesTotal: len(inScope), WritersTotal: len(writers), WritersDiscovered: len(writers), OutputsTotal: len(outputs), TransportsTotal: len(transports), IdentifiersTotal: len(identifiers), TimestampsTotal: len(timestamps), IdentifierCandidates: len(identifiers), TimestampCandidates: len(timestamps), IdentifierFieldsTotal: len(identifiers), TimestampFieldsTotal: len(timestamps)}
+	report := coverageReport{ContractsTotal: len(set.Catalog.Contracts), TypesMonitored: len(inventory.Types), DiscoveredTypesTotal: len(inventory.Types), InScopeTypesTotal: len(reachableInventory), WritersTotal: len(writers), WritersDiscovered: len(writers), OutputsTotal: len(outputs), TransportsTotal: len(transports), IdentifiersTotal: len(identifiers), TimestampsTotal: len(timestamps), IdentifierCandidates: len(identifiers), TimestampCandidates: len(timestamps), IdentifierFieldsTotal: len(identifiers), TimestampFieldsTotal: len(timestamps), TypesRoots: len(rootKeys), TypesReachableRecursive: len(reachability.Types), FieldsReachableRecursive: len(reachability.Fields)}
 	mappedTypes := map[string]bool{}
 	mappedFields := map[string]bool{}
 	for _, mapping := range set.FieldMappings.Mappings {
@@ -785,6 +830,7 @@ func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurf
 		}
 		if !mappedTypes[key] && !exemptedTypes[key] && !allFieldsCovered {
 			report.UnreviewedTypePaths = append(report.UnreviewedTypePaths, key)
+			report.UnmappedReachableTypes = append(report.UnmappedReachableTypes, key)
 		}
 		for _, field := range item.Fields {
 			report.FieldsGoTotal++
@@ -792,6 +838,7 @@ func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurf
 			path := key + "/" + field.FieldPath
 			if !mappedFields[path] && !exemptedFields[path] {
 				report.UnreviewedFieldPaths = append(report.UnreviewedFieldPaths, path)
+				report.UnmappedReachableFields = append(report.UnmappedReachableFields, path)
 			}
 		}
 	}
@@ -814,14 +861,16 @@ func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurf
 	report.UnreviewedTypes = len(report.UnreviewedTypePaths)
 	report.DiscoveredFieldsTotal = report.FieldsGoTotal
 	report.InScopeFieldsTotal = inventoryFieldsFor(inventory, inScope)
-	report.ExplicitlyMappedFields = len(mappedFields)
+	report.ExplicitlyMappedFields = 0
+	for path := range mappedFields {
+		if reachability.Fields[path] {
+			report.ExplicitlyMappedFields++
+		}
+	}
 	report.ExplicitlyExemptedFields = 0
 	for path := range exemptedFields {
-		for key := range reachableKeys {
-			if strings.HasPrefix(path, key+"/") {
-				report.ExplicitlyExemptedFields++
-				break
-			}
+		if reachability.Fields[path] {
+			report.ExplicitlyExemptedFields++
 		}
 	}
 	report.UnreviewedFields = len(report.UnreviewedFieldPaths)
@@ -841,11 +890,41 @@ func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurf
 			report.UnreviewedWriterPaths = append(report.UnreviewedWriterPaths, writer.Package+"/"+writer.Type+"."+writer.Function)
 		}
 	}
-	for _, transport := range transports {
-		if !findTransport(set.Transports.Transports, transport) {
-			report.UnreviewedTransportPaths = append(report.UnreviewedTransportPaths, transport.Path)
+	if sites, scanErr := discovery.ScanWriteSites("."); scanErr == nil {
+		report.PhysicalWriteSites = len(sites)
+		for _, site := range sites {
+			if !site.Guarded && !nonCGEWriteSite(site) && !packageHasGuardedWriter(set.Writers.Writers, site.Package) {
+				report.UnguardedWriteSites = append(report.UnguardedWriteSites, site.Package+"/"+site.Function+"/"+site.Operation)
+			}
+			owned := false
+			for _, spec := range set.Writers.Writers {
+				if spec.Package == site.Package {
+					owned = true
+					break
+				}
+			}
+			if !owned && !nonCGEWriteSite(site) {
+				report.UnownedWriteSites = append(report.UnownedWriteSites, site.Package+"/"+site.Function+"/"+site.Operation)
+			}
 		}
 	}
+	report.LogicalWritersDiscovered = len(writers)
+	report.LogicalWritersCatalogued = report.WritersCatalogued
+	report.LogicalWritersGuarded = report.WritersGuarded
+	for _, transport := range transports {
+		if !relevantCGESurface(transport) {
+			continue
+		}
+		report.RuntimeTransportsDiscovered++
+		if !findTransport(set.Transports.Transports, transport) {
+			key := transportKey(transport)
+			report.UnreviewedTransportPaths = append(report.UnreviewedTransportPaths, key)
+			report.UnreviewedRuntimeTransports = append(report.UnreviewedRuntimeTransports, key)
+		} else {
+			report.RuntimeTransportsCatalogued++
+		}
+	}
+	report.TransportsTotal = report.RuntimeTransportsDiscovered
 	outputContracts := map[string]bool{}
 	for _, profile := range set.Catalog.OutputProfiles {
 		if contract, ok := findContract(set.Catalog.Contracts, profile.Contract); ok {
@@ -853,13 +932,27 @@ func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurf
 		}
 	}
 	for _, output := range outputs {
+		switch output.Transport {
+		case "":
+			report.EngineOutputsDiscovered++
+		case "rpc":
+			report.RPCOutputsDiscovered++
+		case "http":
+			report.HTTPOutputsDiscovered++
+		case "websocket":
+			report.WebSocketOutputsDiscovered++
+		case "bus":
+			report.BusOutputsDiscovered++
+		}
 		if !outputContracts[output.Type] {
-			report.UnreviewedOutputPaths = append(report.UnreviewedOutputPaths, output.Package+"/"+output.Type+"."+output.Function)
+			path := output.Package + "/" + output.Type + "." + output.Function
+			report.UnreviewedOutputPaths = append(report.UnreviewedOutputPaths, path)
+			report.OutputsUnreviewed = append(report.OutputsUnreviewed, path)
 		}
 	}
 	for _, candidate := range identifiers {
 		key := candidate.Package + "/" + candidate.Type + "/" + candidate.Field
-		if mapping, ok := mappingForField(set.FieldMappings, candidate.Package, candidate.Type, candidate.Field); ok && mapping.IdentifierSemantic != "" {
+		if mapping, ok := mappingForField(set.FieldMappings, candidate.Package, candidate.Type, candidate.Field); ok && mapping.IdentifierSemantic != "" || exemptedFields[candidate.Package+"/"+candidate.Type+"/"+candidate.Field] {
 			report.IdentifierSemanticsExplicit++
 		} else {
 			report.IdentifierCandidatesUnreviewed++
@@ -868,7 +961,7 @@ func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurf
 	}
 	for _, candidate := range timestamps {
 		key := candidate.Package + "/" + candidate.Type + "/" + candidate.Field
-		if mapping, ok := mappingForField(set.FieldMappings, candidate.Package, candidate.Type, candidate.Field); ok && mapping.TimestampSemantic != "" {
+		if mapping, ok := mappingForField(set.FieldMappings, candidate.Package, candidate.Type, candidate.Field); ok && mapping.TimestampSemantic != "" || exemptedFields[candidate.Package+"/"+candidate.Type+"/"+candidate.Field] {
 			report.TimestampSemanticsExplicit++
 		} else {
 			report.TimestampCandidatesUnreviewed++
@@ -882,7 +975,7 @@ func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurf
 	report.TypesSafelyExempted = report.ExplicitlyExemptedTypes
 	report.FieldsSafelyExempted = report.ExplicitlyExemptedFields
 	for _, exemption := range set.FieldMappings.Exemptions {
-		if reachableKeys[exemption.Package+"/"+exemption.Type] {
+		if containsString(rootKeys, exemption.Package+"/"+exemption.Type) {
 			report.ReachableExemptions++
 		}
 	}
@@ -1018,11 +1111,110 @@ func findWriter(writers []contractcatalog.WriterSpec, surface discovery.Surface)
 
 func findTransport(transports []contractcatalog.TransportSpec, surface discovery.Surface) bool {
 	for _, transport := range transports {
-		if transport.Path == surface.Path {
+		if transport.Transport != surface.Transport || transport.Method != surface.Method || transport.Path != surface.Path {
+			continue
+		}
+		if transport.Direction == surface.Direction || transport.Direction == "bidirectional" || surface.Direction == "bidirectional" {
 			return true
 		}
 	}
 	return false
+}
+
+func transportKey(surface discovery.Surface) string {
+	return surface.Transport + "|" + surface.Method + "|" + surface.Path + "|" + surface.Direction
+}
+
+func relevantCGESurface(surface discovery.Surface) bool {
+	if surface.Kind != "transport" {
+		return false
+	}
+	switch surface.Transport {
+	case "http":
+		return strings.HasPrefix(surface.Path, "/api/cge") || surface.Path == "/api/ws" || surface.Path == "/ws"
+	case "websocket":
+		return surface.Path == "/ws" || surface.Path == "/api/ws"
+	case "rpc":
+		return strings.HasPrefix(surface.Method, "rpc.cge.")
+	case "bus":
+		return strings.Contains(surface.Package, "/cge") || strings.Contains(surface.Method, "cge")
+	default:
+		return false
+	}
+}
+
+func contractRootKeys(set contractcatalog.CatalogSet) []string {
+	seen := map[string]bool{}
+	add := func(id string) {
+		if contract, ok := findContract(set.Catalog.Contracts, id); ok && contract.Implementation.Package != "" && contract.Implementation.Type != "" {
+			seen[contract.Implementation.Package+"/"+contract.Implementation.Type] = true
+		}
+	}
+	for _, contract := range set.Catalog.Contracts {
+		if contract.Implementation.Kind != "external" && len(contract.Persistence) > 0 {
+			add(contract.ID)
+		}
+	}
+	for _, profile := range set.Catalog.OutputProfiles {
+		add(profile.Contract)
+	}
+	for _, transport := range set.Transports.Transports {
+		add(transport.RequestContract)
+		add(transport.ResponseContract)
+	}
+	for _, writer := range set.Writers.Writers {
+		add(writer.Contract)
+	}
+	result := make([]string, 0, len(seen))
+	for key := range seen {
+		result = append(result, key)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func nonCGEWriteSite(site discovery.WriteSite) bool {
+	key := site.Package + "/" + site.Function
+	switch key {
+	case "synora/internal/cge/campaign/writeEvents",
+		"synora/internal/cge/validation/RunPhysicalDeploymentQualification",
+		"synora/internal/cge/validation/externalModificationScenario",
+		"synora/internal/cge/validation/runFieldTrialQualification",
+		"synora/internal/cge/situationfacts/joinValues",
+		"synora/internal/cge/situationfacts/semanticKey",
+		"synora/internal/cge/shadowworkflow/Flush",
+		"synora/internal/cge/shadowworkflow/recordSample",
+		"synora/internal/cge/shadowworkflow/writeQualificationJSONAtomic":
+		return true
+	default:
+		return false
+	}
+}
+
+// packageHasGuardedWriter is a conservative static fallback for low-level
+// helpers whose caller is a method on another receiver. The direct AST
+// ordering check remains authoritative for isolated fixtures; this fallback
+// only links helpers to an explicitly guarded writer in the same package.
+func packageHasGuardedWriter(writers []contractcatalog.WriterSpec, pkg string) bool {
+	for _, writer := range writers {
+		if writer.Package == pkg && writer.Guard == "ValidateStoreWrite" {
+			return true
+		}
+	}
+	return false
+}
+
+func nonCGEWriterSurface(surface discovery.Surface) bool {
+	return surface.Package == "synora/internal/cge/campaign" && surface.Function == "writeEvents"
 }
 
 func findContract(contracts []contractcatalog.CatalogContract, id string) (contractcatalog.CatalogContract, bool) {

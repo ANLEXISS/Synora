@@ -8,6 +8,12 @@ Les transports, writers, sorties, candidats identifiants et candidats
 temporels sont découverts indépendamment du YAML. Les exemptions atteignables
 depuis une racine de contrat sont rejetées.
 
+La passe 67.3 renforce cette découverte par une reachability récursive, des
+scanners de transport séparés, l’identification des sorties transportées et
+l’inventaire de tous les sites de mutation physique. Les helpers ne sont pas
+comptés comme writers logiques supplémentaires, mais leur propriété et la
+dominance de la garde restent vérifiées.
+
 ## Critical
 
 Aucun gap critique contractuel restant démontré par

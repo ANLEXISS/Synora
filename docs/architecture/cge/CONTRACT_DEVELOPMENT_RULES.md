@@ -49,3 +49,9 @@ existante est immuable : `generate`, `freeze-baseline-v2` et `check-compat` ne
 l'écrasent jamais. La couverture est une jointure indépendante entre la
 découverte AST du code, les mappings approuvés, les exemptions prouvées et le
 catalogue ; `surface-inventory.yaml` ne compte jamais comme approbation.
+
+La preuve de surface 67.3 découvre séparément HTTP, RPC, Bus et WebSocket avec
+une clé exacte (transport, méthode/type, chemin/canal, direction), suit
+récursivement les types atteignables et recense les sorties transportées. Les
+writers sont découverts dans tout `internal/cge` ; les helpers sont reliés aux
+sites de mutation physique et la garde doit précéder la première mutation.

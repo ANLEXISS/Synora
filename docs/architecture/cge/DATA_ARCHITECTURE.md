@@ -46,7 +46,7 @@ obligatoire incomplète. Le runtime utilise
 `generated_registry.go` et ne lit jamais les YAML installés. `gosurface` surveille
 les packages déclarés dans `go-surfaces.yaml`, inventorie chaque type exporté de
 ces packages et les fixtures rendent rouges les dérives de champs, tags et
-types. Les 10 writers durables sont catalogués dans `writers.yaml` et chacun
+types. Les 16 writers logiques durables sont catalogués dans `writers.yaml` et chacun
 doit appeler `ValidateStoreWrite` avant sa première sérialisation ou écriture.
 
 Chaque writer CGE durable déclare un StoreID et un ContractID et appelle
@@ -147,6 +147,14 @@ supprimés automatiquement par cette architecture.
 
 Toute incohérence actuelle est un gap explicite. Une passe ultérieure doit
 proposer la correction et sa migration séparément.
+
+La preuve de surface 67.3 est indépendante de l’inventaire : elle construit
+le graphe récursif des types (pointeurs, slices, maps et structures embarquées),
+découvre les routes RPC/Bus/WebSocket et les réponses transportées, puis
+sépare les writers logiques des helpers et des sites d’écriture physiques. Une
+surface runtime non jointe à un contrat exact est une erreur ; une surface
+architecturale doit porter une preuve explicite. Les checksums des baselines v1
+et v2 restent inchangés par cet outillage.
 
 Toute nouvelle entrée, sortie, structure sérialisée, persistance, métrique,
 RPC ou donnée cognitive doit mettre à jour le catalogue, la surface Go, le
