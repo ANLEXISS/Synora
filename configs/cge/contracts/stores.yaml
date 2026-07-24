@@ -1,0 +1,254 @@
+schema_version: 1
+namespace: synora.cge
+stores:
+  - id: synora.store.core-state
+    owner: historical_core
+    format: in_memory_state_and_configured_state_file
+    schema_version: synora.core.state.v1
+    write_mode: mutable_snapshot
+    atomicity: implementation_defined
+    fsync: configuration_dependent
+    ordering: event_order
+    idempotence: event_and_state_policy
+    recovery: historical_core_recovery
+    retention: core_configuration
+    compaction: core_policy
+    permissions: service_user_policy
+    sensitivity: sensitive_personal
+    migration: legacy_compatibility; no CGE migration
+    authority: authorized_decision
+    contract_refs: [synora.contract.ingested-event.v1, synora.contract.historical-decision.v1]
+    durable: true
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
+  - id: synora.store.event-store
+    owner: historical_core
+    format: core_event_window_and_state_store
+    schema_version: synora.core.event-store.v1
+    write_mode: mutable_window
+    atomicity: implementation_defined
+    fsync: configuration_dependent
+    ordering: ingestion_order
+    idempotence: event_id_policy
+    recovery: historical_core_recovery
+    retention: configured_event_window
+    compaction: bounded_window
+    permissions: service_user_policy
+    sensitivity: sensitive_personal
+    migration: legacy_event_compatibility
+    authority: authorized_decision
+    contract_refs: [synora.contract.ingested-event.v1]
+    durable: true
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
+  - id: synora.store.cge-journal
+    owner: cge_chains_journal
+    format: ndjson
+    schema_version: synora.cge.chain-journal.v1
+    write_mode: append_only
+    atomicity: record_append
+    fsync: configured_file_journal_policy
+    ordering: journal_sequence
+    idempotence: duplicate_observation_and_record_checks
+    recovery: journal_replay_and_generation_recovery
+    retention: explicit_policy_required
+    compaction: generation_snapshot_policy
+    permissions: runtime_user_directory_policy
+    sensitivity: sensitive_personal
+    migration: old_records_replay_compatible; no_automatic_rewrite
+    authority: descriptive
+    contract_refs: [synora.cge.observation.v1, synora.cge.hypothesis-set.v1, synora.cge.evidence-evaluation.v1, synora.cge.audit-record.v1]
+    durable: true
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
+  - id: synora.store.cge-generations
+    owner: cge_chains_generations
+    format: manifest_json_and_snapshot_json
+    schema_version: synora.cge.generation.v1
+    write_mode: atomic_generation_replace
+    atomicity: temp_write_then_rename
+    fsync: configured_generation_store_policy
+    ordering: generation_sequence
+    idempotence: generation_fingerprint
+    recovery: manifest_validation_and_snapshot_replay
+    retention: explicit_policy_required
+    compaction: generation_rotation
+    permissions: runtime_user_directory_policy
+    sensitivity: sensitive_personal
+    migration: version_field_required; no_automatic_migration
+    authority: descriptive
+    contract_refs: [synora.cge.observation.v1, synora.cge.audit-record.v1]
+    durable: true
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
+  - id: synora.store.workflow-wal
+    owner: cge_shadow_workflow
+    format: binary_framed_wal
+    schema_version: synora.cge.workflow-record.v1
+    write_mode: append_only
+    atomicity: framed_record_append
+    fsync: sync_each_commit_configured
+    ordering: workflow_sequence
+    idempotence: transaction_id_and_digest
+    recovery: checkpoint_then_wal_replay
+    retention: explicit_policy_required
+    compaction: checkpoint_without_implicit_delete
+    permissions: runtime_user_directory_policy
+    sensitivity: sensitive_personal
+    migration: schema_fingerprint_compatibility; no_automatic_rewrite
+    authority: advisory
+    contract_refs: [synora.cge.workflow-commit.v1, synora.cge.episode-snapshot.v1, synora.cge.recommendation-set.v1]
+    durable: true
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
+  - id: synora.store.workflow-checkpoint
+    owner: cge_shadow_workflow
+    format: json
+    schema_version: synora.cge.workflow-checkpoint.v1
+    write_mode: atomic_replace
+    atomicity: temp_write_then_rename
+    fsync: directory_policy_not_centralized
+    ordering: workflow_sequence
+    idempotence: checksum_and_fingerprint
+    recovery: checkpoint_validation_then_wal_fallback
+    retention: latest_checkpoint
+    compaction: replaces_previous_checkpoint
+    permissions: runtime_user_directory_policy
+    sensitivity: sensitive_personal
+    migration: schema_fingerprint_required
+    authority: advisory
+    contract_refs: [synora.cge.workflow-commit.v1, synora.cge.workflow-projection.v1]
+    durable: true
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
+  - id: synora.store.calibration-ledger
+    owner: cge_calibration_ledger
+    format: ndjson_enveloped_hash_chain
+    schema_version: calibration-ledger-record-v1
+    write_mode: append_only
+    atomicity: envelope_append
+    fsync: configured_ledger_policy
+    ordering: ledger_sequence
+    idempotence: record_fingerprint
+    recovery: hash_chain_recovery_and_trailing_repair_policy
+    retention: explicit_policy_required
+    compaction: none_declared
+    permissions: runtime_user_directory_policy
+    sensitivity: security_sensitive
+    migration: schema_version_replay; no_automatic_rewrite
+    authority: advisory
+    contract_refs: [synora.cge.calibration-record.v1, synora.cge.historical-comparison.v1]
+    durable: true
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
+  - id: synora.store.feedback
+    owner: cge_feedback
+    format: configured_feedback_file
+    schema_version: synora.cge.feedback.v1
+    write_mode: implementation_defined
+    atomicity: implementation_defined
+    fsync: not_explicitly_catalogued
+    ordering: feedback_arrival_order
+    idempotence: feedback_policy
+    recovery: not_explicitly_catalogued
+    retention: not_explicitly_catalogued
+    compaction: not_explicitly_catalogued
+    permissions: configuration_dependent
+    sensitivity: sensitive_personal
+    migration: gap_documented
+    authority: advisory
+    contract_refs: [synora.cge.feedback.v1]
+    durable: true
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
+  - id: synora.store.field-trial-recorder
+    owner: cge_field_trial
+    format: segmented_json_or_ndjson
+    schema_version: synora.cge.field-trial-record.v1
+    write_mode: bounded_segment_append
+    atomicity: segment_append
+    fsync: configurable_sync_each_event
+    ordering: trial_sequence
+    idempotence: session_and_sequence_policy
+    recovery: segment_manifest_recovery
+    retention: configured_retention_days_and_bytes
+    compaction: segment_rotation
+    permissions: configured_trial_directory_policy
+    sensitivity: sensitive_personal
+    migration: schema_version_required
+    authority: diagnostic
+    contract_refs: [synora.cge.field-trial-record.v1]
+    durable: true
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
+  - id: synora.store.metrics-memory
+    owner: cge_runtime
+    format: in_memory_counters
+    schema_version: synora.cge.metrics.v1
+    write_mode: atomic_counter_updates
+    atomicity: process_memory
+    fsync: none
+    ordering: observation_processing_order
+    idempotence: not_applicable
+    recovery: reset_on_restart
+    retention: process_lifetime
+    compaction: bounded_counters
+    permissions: process_memory
+    sensitivity: operational
+    migration: code_version
+    authority: diagnostic
+    contract_refs: [synora.cge.diagnostic-snapshot.v1, synora.cge.admission-status.v1]
+    durable: false
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
+  - id: synora.store.recent-deviation
+    owner: cge_deviation
+    format: bounded_in_memory_assessment_store
+    schema_version: synora.cge.deviation.v1
+    write_mode: bounded_mutation
+    atomicity: process_memory_lock
+    fsync: none
+    ordering: observation_processing_order
+    idempotence: assessment_id_and_observation_policy
+    recovery: reset_on_restart
+    retention: configured_recent_limit
+    compaction: bounded_eviction
+    permissions: process_memory
+    sensitivity: sensitive_personal
+    migration: code_version
+    authority: advisory
+    contract_refs: [synora.cge.cognitive-situation.v1]
+    durable: false
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
+  - id: synora.store.diagnostics-memory
+    owner: cge_runtime
+    format: detached_snapshot_and_counters
+    schema_version: synora.cge.diagnostic-snapshot.v1
+    write_mode: replace_in_memory
+    atomicity: process_memory_lock
+    fsync: none
+    ordering: latest_observation
+    idempotence: not_applicable
+    recovery: reset_or_recovered_status
+    retention: process_lifetime
+    compaction: latest_snapshot
+    permissions: process_memory
+    sensitivity: operational
+    migration: code_version
+    authority: diagnostic
+    contract_refs: [synora.cge.diagnostic-snapshot.v1, synora.cge.workflow-status.v1]
+    durable: false
+    clear_secret_allowed: false
+    clear_biometric_allowed: false

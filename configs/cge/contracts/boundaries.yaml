@@ -1,0 +1,255 @@
+schema_version: 1
+namespace: synora.cge
+boundaries:
+  - id: B01
+    name: External Source -> Bus Contract
+    producer: external_source
+    consumer: bus
+    owner: ingest
+    input_contracts: [synora.contract.external-source.v1]
+    output_contracts: [synora.contract.bus.message.v1]
+    transport: adapter_to_bus
+    validation: source_adapter_validation_and_size_limits
+    transformation: encode_typed_bus_message
+    errors: [cge.input.invalid, cge.input.oversized]
+    side_effects: publish_bus_message
+    persistence: []
+    authority: descriptive
+  - id: B02
+    name: Bus Contract -> Ingested Event
+    producer: ingest
+    consumer: historical_core
+    owner: ingest
+    input_contracts: [synora.contract.bus.message.v1]
+    output_contracts: [synora.contract.ingested-event.v1]
+    transport: internal_bus_consumer
+    validation: contract_unmarshal_and_event_normalization
+    transformation: decode_message_payload_and_assign_core_event_fields
+    errors: [cge.input.invalid, cge.event.type_invalid]
+    side_effects: update_core_state
+    persistence: [synora.store.core-state, synora.store.event-store]
+    authority: authorized_decision
+  - id: B03
+    name: Ingested Event -> Historical Core
+    producer: ingest
+    consumer: historical_core
+    owner: historical_core
+    input_contracts: [synora.contract.ingested-event.v1]
+    output_contracts: [synora.contract.historical-decision.v1]
+    transport: internal
+    validation: historical_core_event_validation
+    transformation: evaluate_historical_rules_and_state
+    errors: [core.event_rejected, core.state_error]
+    side_effects: historical_state_and_decision_updates
+    persistence: [synora.store.core-state, synora.store.event-store]
+    authority: authorized_decision
+  - id: B04
+    name: Historical Core -> CGE Boundary Event
+    producer: historical_core
+    consumer: cge_adapter
+    owner: cge
+    input_contracts: [synora.contract.ingested-event.v1]
+    output_contracts: [synora.cge.boundary-event.v1]
+    transport: in_process_observer
+    validation: scalar_copy_and_no_payload_boundary
+    transformation: EventFromContract_scalar_detach
+    errors: [cge.event.type_invalid]
+    side_effects: none
+    persistence: []
+    authority: descriptive
+  - id: B05
+    name: CGE Boundary Event -> Normalized Observation
+    producer: cge_adapter
+    consumer: chains
+    owner: cge
+    input_contracts: [synora.cge.boundary-event.v1]
+    output_contracts: [synora.cge.observation.v1]
+    transport: internal
+    validation: admission_allowlist_scalar_validation_timestamp_validation
+    transformation: ProtectRaw_and_observation_normalization
+    errors: [cge.event.type_not_allowlisted, cge.event.observation_id_missing, cge.event.timestamp_invalid, cge.event.scalar_validation]
+    side_effects: none
+    persistence: []
+    authority: descriptive
+  - id: B06
+    name: Observation -> Context Frame
+    producer: cge_context
+    consumer: chains_and_episodes
+    owner: cge_context
+    input_contracts: [synora.cge.observation.v1]
+    output_contracts: [synora.cge.context-frame.v1]
+    transport: internal
+    validation: topology_timezone_domestic_state_and_observation_match
+    transformation: resolve_context_snapshot_and_fingerprint
+    errors: [cge.context.invalid, cge.context.unknown_node, cge.context.stale]
+    side_effects: context_provider_read_only_query
+    persistence: [synora.store.cge-journal, synora.store.workflow-checkpoint]
+    authority: descriptive
+  - id: B07
+    name: Observation + Context -> Cognitive Model
+    producer: chains_and_episodes
+    consumer: cge_situation
+    owner: cge
+    input_contracts: [synora.cge.observation.v1, synora.cge.context-frame.v1, synora.cge.episode-snapshot.v1]
+    output_contracts: [synora.cge.fact-set.v1]
+    transport: internal
+    validation: bounded_model_input_and_context_consistency
+    transformation: aggregate_observation_context_and_facts
+    errors: [cge.model.invalid, cge.store.corrupt]
+    side_effects: in_memory_cognitive_state
+    persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+    authority: descriptive
+  - id: B08
+    name: Cognitive Model -> Hypothesis Set
+    producer: cge_hypotheses
+    consumer: cge_evidence
+    owner: cge_hypotheses
+    input_contracts: [synora.cge.fact-set.v1]
+    output_contracts: [synora.cge.hypothesis-set.v1]
+    transport: internal
+    validation: schema_policy_and_lineage_validation
+    transformation: generate_ranked_competing_hypotheses
+    errors: [cge.hypothesis.invalid, cge.hypothesis.transition_invalid]
+    side_effects: workflow_mutation_candidate
+    persistence: [synora.store.cge-journal, synora.store.workflow-wal]
+    authority: advisory
+  - id: B09
+    name: Hypothesis Set + Evidence -> Evaluation
+    producer: cge_evidence
+    consumer: cge_situation
+    owner: cge_evidence
+    input_contracts: [synora.cge.hypothesis-set.v1, synora.cge.evidence-evaluation.v1]
+    output_contracts: [synora.cge.evidence-evaluation.v1]
+    transport: internal
+    validation: evidence_reference_and_score_bounds
+    transformation: evaluate_support_contradiction_and_neutrality
+    errors: [cge.evidence.invalid, cge.evidence.evaluation_failed]
+    side_effects: workflow_mutation_candidate
+    persistence: [synora.store.cge-journal, synora.store.workflow-wal]
+    authority: advisory
+  - id: B10
+    name: Evaluation -> Cognitive Situation
+    producer: cge_situation
+    consumer: cge_recommendation
+    owner: cge_situation
+    input_contracts: [synora.cge.evidence-evaluation.v1, synora.cge.fact-set.v1, synora.cge.hypothesis-set.v1]
+    output_contracts: [synora.cge.cognitive-situation.v1]
+    transport: internal
+    validation: situation_schema_and_authority_markers
+    transformation: consolidate_descriptive_cognitive_situation
+    errors: [cge.situation.invalid, cge.store.corrupt]
+    side_effects: workflow_mutation_candidate
+    persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+    authority: advisory
+  - id: B11
+    name: Cognitive Situation -> Recommendation Set
+    producer: cge_recommendation
+    consumer: comparison_and_advisory_ui
+    owner: cge_recommendation
+    input_contracts: [synora.cge.cognitive-situation.v1]
+    output_contracts: [synora.cge.recommendation-set.v1]
+    transport: internal
+    validation: bounded_read_only_recommendation_and_markers
+    transformation: produce_advisory_candidates
+    errors: [cge.recommendation.invalid]
+    side_effects: workflow_mutation_candidate
+    persistence: [synora.store.workflow-wal, synora.store.workflow-checkpoint]
+    authority: advisory
+  - id: B12
+    name: Historical Decision + Cognitive Output -> Comparison
+    producer: cge_comparison
+    consumer: calibration_ledger
+    owner: cge_comparison
+    input_contracts: [synora.contract.historical-decision.v1, synora.cge.cognitive-situation.v1, synora.cge.recommendation-set.v1]
+    output_contracts: [synora.cge.historical-comparison.v1]
+    transport: internal_post_history_observer
+    validation: protected_refs_and_historical_authority_markers
+    transformation: compare_without_overriding_historical_decision
+    errors: [cge.comparison.invalid, cge.authorization.forbidden]
+    side_effects: none
+    persistence: [synora.store.workflow-wal, synora.store.calibration-ledger]
+    authority: advisory
+  - id: B13
+    name: Workflow Commit -> Durable Stores
+    producer: cge_workflow
+    consumer: workflow_store_and_ledger
+    owner: cge_workflow
+    input_contracts: [synora.cge.workflow-commit.v1, synora.cge.calibration-record.v1]
+    output_contracts: [synora.cge.workflow-commit.v1, synora.cge.calibration-record.v1]
+    transport: file_store
+    validation: transaction_id_digest_schema_and_hash_chain_checks
+    transformation: append_wal_checkpoint_and_ledger_envelope
+    errors: [cge.store.append_failed, cge.store.checkpoint_failed, cge.ledger.append_failed, cge.storage_limit]
+    side_effects: durable_file_writes
+    persistence: [synora.store.cge-journal, synora.store.cge-generations, synora.store.workflow-wal, synora.store.workflow-checkpoint, synora.store.calibration-ledger]
+    authority: advisory
+  - id: B14
+    name: Durable Stores -> Recovery
+    producer: workflow_store_and_ledger
+    consumer: cge_recovery
+    owner: cge_recovery
+    input_contracts: [synora.cge.workflow-commit.v1, synora.cge.calibration-record.v1, synora.cge.recovery-result.v1]
+    output_contracts: [synora.cge.recovery-result.v1, synora.cge.workflow-status.v1]
+    transport: file_read_and_replay
+    validation: schema_checksum_fingerprint_sequence_and_hash_chain
+    transformation: checkpoint_then_wal_or_journal_replay
+    errors: [cge.workflow.recovery_failed, cge.journal.recovery_failed, cge.ledger.recovery_failed]
+    side_effects: in_memory_state_reconstruction
+    persistence: []
+    authority: diagnostic
+  - id: B15
+    name: CGE Runtime -> Diagnostics
+    producer: cge_runtime
+    consumer: diagnostics
+    owner: cge
+    input_contracts: [synora.cge.admission-status.v1, synora.cge.workflow-status.v1, synora.cge.recovery-result.v1]
+    output_contracts: [synora.cge.diagnostic-snapshot.v1, synora.cge.error.v1]
+    transport: in_process_snapshot
+    validation: bounded_aggregate_and_closed_error_codes
+    transformation: detach_runtime_status_without_identifiers
+    errors: [cge.diagnostics.invalid]
+    side_effects: update_metrics_memory
+    persistence: [synora.store.metrics-memory, synora.store.diagnostics-memory]
+    authority: diagnostic
+  - id: B16
+    name: CGE Diagnostics -> RPC/API
+    producer: diagnostics
+    consumer: rpc_api
+    owner: cge_api
+    input_contracts: [synora.cge.diagnostic-snapshot.v1, synora.cge.workflow-projection.v1, synora.cge.error.v1]
+    output_contracts: [synora.cge.diagnostic-snapshot.v1, synora.cge.workflow-projection.v1, synora.cge.error.v1]
+    transport: rpc_http_websocket
+    validation: endpoint_authorization_and_redaction
+    transformation: read_only_projection_and_bounded_error_mapping
+    errors: [cge.api.invalid_request, cge.api.not_found, cge.api.forbidden]
+    side_effects: none
+    persistence: []
+    authority: diagnostic
+  - id: B17
+    name: Recommendation -> Authority Boundary
+    producer: cge_recommendation
+    consumer: authority_boundary
+    owner: cge_authorization_boundary
+    input_contracts: [synora.cge.recommendation-set.v1]
+    output_contracts: [synora.cge.recommendation-set.v1]
+    transport: internal_guard
+    validation: reject_action_command_and_authorized_decision_semantics
+    transformation: retain_advisory_markers_and_block_execution
+    errors: [cge.authorization.forbidden]
+    side_effects: no_action_request
+    persistence: []
+    authority: advisory
+  - id: B18
+    name: Feedback/Validation -> Calibration
+    producer: validation_or_operator
+    consumer: cge_calibration
+    owner: cge_calibration
+    input_contracts: [synora.cge.feedback.v1, synora.cge.historical-comparison.v1]
+    output_contracts: [synora.cge.calibration-record.v1, synora.cge.analytics-report.v1]
+    transport: internal
+    validation: feedback_schema_comparison_reference_and_no_training_command
+    transformation: append_calibration_record_and_compute_descriptive_analytics
+    errors: [cge.calibration.invalid, cge.ledger.append_failed]
+    side_effects: append_ledger_record
+    persistence: [synora.store.calibration-ledger]
+    authority: advisory
