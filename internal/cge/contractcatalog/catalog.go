@@ -283,6 +283,8 @@ type MappingExemption struct {
 	Field               string `yaml:"field"`
 	Reason              string `yaml:"reason"`
 	Scope               string `yaml:"scope"`
+	ReviewStatus        string `yaml:"review_status"`
+	Proof               string `yaml:"proof"`
 	PersistenceAllowed  bool   `yaml:"persistence_allowed"`
 	PublicOutputAllowed bool   `yaml:"public_output_allowed"`
 }
@@ -785,8 +787,11 @@ func validateFieldMappings(set CatalogSet, contracts map[string]CatalogContract)
 		seen[mapping.Contract] = true
 	}
 	for _, exemption := range set.FieldMappings.Exemptions {
-		if exemption.Package == "" || exemption.Type == "" || exemption.Reason == "" || exemption.Scope == "" || exemption.PersistenceAllowed || exemption.PublicOutputAllowed {
+		if exemption.Package == "" || exemption.Type == "" || exemption.Reason == "" || exemption.Scope == "" || exemption.ReviewStatus != "approved" || exemption.Proof == "" || exemption.PersistenceAllowed || exemption.PublicOutputAllowed {
 			return fmt.Errorf("mapping exemption %s.%s.%s is incomplete or unsafe", exemption.Package, exemption.Type, exemption.Field)
+		}
+		if exemption.Proof != "not_reachable_from_contract_roots" && exemption.Proof != "not_serialized" && exemption.Proof != "not_returned" && exemption.Proof != "not_persisted" && exemption.Proof != "not_transported" {
+			return fmt.Errorf("mapping exemption %s.%s.%s has unsupported proof %q", exemption.Package, exemption.Type, exemption.Field, exemption.Proof)
 		}
 	}
 	return nil

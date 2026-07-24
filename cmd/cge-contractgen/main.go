@@ -17,16 +17,19 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"synora/internal/cge/contractcatalog"
+	"synora/internal/cge/contractcatalog/discovery"
 	"synora/internal/cge/contractcatalog/gosurface"
 )
 
 const generatedPath = "internal/cge/contractcatalog/generated_registry.go"
 const inventoryPath = "configs/cge/contracts/surface-inventory.yaml"
 const baselinePath = "configs/cge/contracts/baselines/cge-contract-set-v1.json"
+const baselineV2Path = "configs/cge/contracts/baselines/cge-contract-set-v2.json"
+const migrationV1V2Path = "configs/cge/contracts/migrations/contract-set-v1-to-v2.yaml"
 
 func main() {
-	if len(os.Args) != 2 || (os.Args[1] != "generate" && os.Args[1] != "check" && os.Args[1] != "check-compat" && os.Args[1] != "coverage" && os.Args[1] != "freeze-baseline" && os.Args[1] != "bootstrap-mappings") {
-		fmt.Fprintln(os.Stderr, "usage: cge-contractgen generate|check|check-compat|coverage|freeze-baseline|bootstrap-mappings")
+	if len(os.Args) < 2 || (os.Args[1] != "generate" && os.Args[1] != "check" && os.Args[1] != "check-compat" && os.Args[1] != "coverage" && os.Args[1] != "freeze-baseline" && os.Args[1] != "freeze-baseline-v2" && os.Args[1] != "bootstrap-mappings" && os.Args[1] != "scaffold-mappings") {
+		fmt.Fprintln(os.Stderr, "usage: cge-contractgen generate|check|check-compat [--baseline v1|v2]|coverage|freeze-baseline|freeze-baseline-v2|scaffold-mappings")
 		os.Exit(2)
 	}
 	root, err := os.Getwd()
@@ -34,12 +37,15 @@ func main() {
 		fatal(err)
 	}
 	command := os.Args[1]
-	if command == "bootstrap-mappings" {
+	if command != "check-compat" && len(os.Args) != 2 {
+		fatal(fmt.Errorf("command %s does not accept arguments", command))
+	}
+	if command == "bootstrap-mappings" || command == "scaffold-mappings" {
 		set, err := contractcatalog.Load(root)
 		if err != nil {
 			fatal(err)
 		}
-		if err := bootstrapMappings(root, set); err != nil {
+		if err := scaffoldMappings(root, set); err != nil {
 			fatal(err)
 		}
 		return
@@ -77,9 +83,11 @@ func main() {
 	if err := validateMappingsAgainstInventory(set, inventory); err != nil {
 		fatal(err)
 	}
-	if command == "freeze-baseline" {
+	if command == "freeze-baseline" || command == "freeze-baseline-v2" {
 		if _, err := os.Stat(filepath.Join(root, baselinePath)); err == nil {
-			fatal(fmt.Errorf("baseline already exists: refusing to overwrite"))
+			if command == "freeze-baseline" {
+				fatal(fmt.Errorf("baseline already exists: refusing to overwrite"))
+			}
 		} else if !os.IsNotExist(err) {
 			fatal(err)
 		}
@@ -95,7 +103,14 @@ func main() {
 		return
 	}
 	if command == "check-compat" {
-		if err := checkCompatibility(root, set); err != nil {
+		baselineVersion := "v1"
+		if len(os.Args) == 4 && os.Args[2] == "--baseline" && (os.Args[3] == "v1" || os.Args[3] == "v2") {
+			baselineVersion = os.Args[3]
+		} else if len(os.Args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: check-compat [--baseline v1|v2]")
+			os.Exit(2)
+		}
+		if err := checkCompatibilityAt(root, set, baselineVersion); err != nil {
 			fatal(err)
 		}
 		return
@@ -120,8 +135,15 @@ func main() {
 	if err := os.WriteFile(filepath.Join(root, inventoryPath), inventoryBytes, 0o644); err != nil {
 		fatal(err)
 	}
-	if command == "freeze-baseline" {
-		if err := writeBaseline(root, set); err != nil {
+	if command == "freeze-baseline" || command == "freeze-baseline-v2" {
+		path := baselinePath
+		if command == "freeze-baseline-v2" {
+			path = baselineV2Path
+			if err := validateMigration(root); err != nil {
+				fatal(err)
+			}
+		}
+		if err := writeBaselineAt(root, set, path); err != nil {
 			fatal(err)
 		}
 	}
@@ -129,7 +151,7 @@ func main() {
 
 func fatal(err error) { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
 
-func bootstrapMappings(root string, set contractcatalog.CatalogSet) error {
+func scaffoldMappings(root string, set contractcatalog.CatalogSet) error {
 	explicit, err := gosurface.Scan(root, filepath.Join(root, "configs/cge/contracts/go-surfaces.yaml"))
 	if err != nil {
 		return err
@@ -172,11 +194,16 @@ func bootstrapMappings(root string, set contractcatalog.CatalogSet) error {
 			result.Exemptions = append(result.Exemptions, exemptionsForType(item, "discovered helper is outside the CGE contract surface")...)
 		}
 	}
-	data, err := yaml.Marshal(result)
+	proposal := struct {
+		ReviewStatus string                             `yaml:"review_status"`
+		Mappings     []contractcatalog.TypeMapping      `yaml:"mappings"`
+		Exemptions   []contractcatalog.MappingExemption `yaml:"exemptions"`
+	}{ReviewStatus: "pending", Mappings: result.Mappings, Exemptions: result.Exemptions}
+	data, err := yaml.Marshal(proposal)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(root, "configs/cge/contracts/field-mappings.yaml"), data, 0o644)
+	return os.WriteFile("/tmp/cge-field-mapping-proposal.yaml", data, 0o600)
 }
 
 func typeMappingFromInventory(contractID string, item gosurface.InventoryType) contractcatalog.TypeMapping {
@@ -196,10 +223,10 @@ func typeMappingFromInventory(contractID string, item gosurface.InventoryType) c
 func exemptionsForType(item gosurface.InventoryType, reason string) []contractcatalog.MappingExemption {
 	result := make([]contractcatalog.MappingExemption, 0, len(item.Fields)+1)
 	if len(item.Fields) == 0 {
-		return []contractcatalog.MappingExemption{{Package: item.Package, Type: item.Name, Reason: reason, Scope: "non_contract_surface", PersistenceAllowed: false, PublicOutputAllowed: false}}
+		return []contractcatalog.MappingExemption{{Package: item.Package, Type: item.Name, Reason: reason, Scope: "non_contract_surface", ReviewStatus: "pending", PersistenceAllowed: false, PublicOutputAllowed: false}}
 	}
 	for _, field := range item.Fields {
-		result = append(result, contractcatalog.MappingExemption{Package: item.Package, Type: item.Name, Field: field.GoField, Reason: reason, Scope: "non_contract_surface", PersistenceAllowed: false, PublicOutputAllowed: false})
+		result = append(result, contractcatalog.MappingExemption{Package: item.Package, Type: item.Name, Field: field.GoField, Reason: reason, Scope: "non_contract_surface", ReviewStatus: "pending", PersistenceAllowed: false, PublicOutputAllowed: false})
 	}
 	return result
 }
@@ -425,6 +452,10 @@ func catalogFingerprint(set contractcatalog.CatalogSet) string {
 }
 
 func writeBaseline(root string, set contractcatalog.CatalogSet) error {
+	return writeBaselineAt(root, set, baselinePath)
+}
+
+func writeBaselineAt(root string, set contractcatalog.CatalogSet, relativePath string) error {
 	canonical := canonicalize(set)
 	baseline := baselineFile{SchemaVersion: 1, Namespace: "synora.cge", Fingerprint: catalogFingerprint(set), Catalog: canonical}
 	data, err := json.MarshalIndent(baseline, "", "  ")
@@ -432,7 +463,7 @@ func writeBaseline(root string, set contractcatalog.CatalogSet) error {
 		return err
 	}
 	data = append(data, '\n')
-	path := filepath.Join(root, baselinePath)
+	path := filepath.Join(root, relativePath)
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("baseline already exists: refusing to overwrite")
 	} else if !os.IsNotExist(err) {
@@ -445,16 +476,24 @@ func writeBaseline(root string, set contractcatalog.CatalogSet) error {
 }
 
 func checkCompatibility(root string, set contractcatalog.CatalogSet) error {
-	data, err := os.ReadFile(filepath.Join(root, baselinePath))
+	return checkCompatibilityAt(root, set, "v1")
+}
+
+func checkCompatibilityAt(root string, set contractcatalog.CatalogSet, baselineVersion string) error {
+	relativePath := baselinePath
+	if baselineVersion == "v2" {
+		relativePath = baselineV2Path
+	}
+	data, err := os.ReadFile(filepath.Join(root, relativePath))
 	if err != nil {
-		return fmt.Errorf("baseline v1 missing: %w", err)
+		return fmt.Errorf("baseline %s missing: %w", baselineVersion, err)
 	}
 	var baseline baselineFile
 	if err := json.Unmarshal(data, &baseline); err != nil {
-		return fmt.Errorf("baseline v1 invalid: %w", err)
+		return fmt.Errorf("baseline %s invalid: %w", baselineVersion, err)
 	}
 	if baseline.SchemaVersion != 1 || baseline.Namespace != "synora.cge" || baseline.Fingerprint == "" {
-		return fmt.Errorf("baseline v1 header or fingerprint is invalid")
+		return fmt.Errorf("baseline %s header or fingerprint is invalid", baselineVersion)
 	}
 	classification, changes := classifyCompatibility(baseline.Catalog, canonicalize(set))
 	if _, err := fmt.Fprintf(os.Stdout, "classification=%s\n", classification); err != nil {
@@ -464,6 +503,45 @@ func checkCompatibility(root string, set contractcatalog.CatalogSet) error {
 		if _, err := fmt.Fprintln(os.Stdout, change); err != nil {
 			return err
 		}
+	}
+	if classification == "migration_required" && baselineVersion == "v1" {
+		if err := validateMigration(root); err != nil {
+			return err
+		}
+	}
+	if classification == "breaking" {
+		return fmt.Errorf("compatibility classification is breaking")
+	}
+	return nil
+}
+
+type migrationDocument struct {
+	SchemaVersion  int      `yaml:"schema_version"`
+	Namespace      string   `yaml:"namespace"`
+	SourceBaseline string   `yaml:"source_baseline"`
+	TargetBaseline string   `yaml:"target_baseline"`
+	Classification string   `yaml:"classification"`
+	Approved       bool     `yaml:"approved"`
+	DurableRewrite bool     `yaml:"durable_rewrite_required"`
+	LegacyReplay   string   `yaml:"legacy_replay"`
+	BytesUnchanged bool     `yaml:"bytes_unchanged"`
+	Changes        []string `yaml:"changes"`
+	Tests          []string `yaml:"tests"`
+}
+
+func validateMigration(root string) error {
+	data, err := os.ReadFile(filepath.Join(root, migrationV1V2Path))
+	if err != nil {
+		return fmt.Errorf("migration v1 to v2 missing: %w", err)
+	}
+	var document migrationDocument
+	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&document); err != nil {
+		return fmt.Errorf("migration v1 to v2 invalid: %w", err)
+	}
+	if document.SchemaVersion != 1 || document.Namespace != "synora.cge" || document.SourceBaseline != "cge-contract-set-v1.json" || document.TargetBaseline != "cge-contract-set-v2.json" || document.Classification != "migration_required" || !document.Approved || document.DurableRewrite || document.LegacyReplay == "" || !document.BytesUnchanged || len(document.Changes) == 0 || len(document.Tests) == 0 {
+		return fmt.Errorf("migration v1 to v2 is not approved or complete")
 	}
 	return nil
 }
@@ -544,7 +622,7 @@ func classifyCompatibility(previous, current canonicalSet) (string, []string) {
 	}
 	for _, writer := range current.Writers.Writers {
 		old, ok := previousWriters[writer.ID]
-		if ok && old.Contract == "synora.cge.audit-record.v1" && writer.Contract != old.Contract {
+		if ok && (old.Contract != writer.Contract || old.Package != writer.Package || old.Type != writer.Type || old.Function != writer.Function || old.Store != writer.Store || old.ContractResolution != writer.ContractResolution) {
 			changes = append(changes, "migration_required: writer_exact_contract="+writer.ID)
 			if classification == "compatible" {
 				classification = "migration_required"
@@ -585,67 +663,98 @@ func equalFields(left, right []contractcatalog.Field) bool {
 }
 
 type coverageReport struct {
-	ContractsTotal               int      `json:"contracts_total"`
-	ContractsGoBound             int      `json:"contracts_go_bound"`
-	ContractsExternal            int      `json:"contracts_external"`
-	TypesMonitored               int      `json:"types_monitored"`
-	TypesCatalogued              int      `json:"types_catalogued"`
-	FieldsGoTotal                int      `json:"fields_go_total"`
-	FieldsCatalogued             int      `json:"fields_catalogued"`
-	WireFieldsTotal              int      `json:"wire_fields_total"`
-	WireFieldsCatalogued         int      `json:"wire_fields_catalogued"`
-	PersistentPayloadsTotal      int      `json:"persistent_payloads_total"`
-	PersistentPayloadsTyped      int      `json:"persistent_payloads_typed"`
-	OpaqueDurableEnvelopes       int      `json:"opaque_durable_envelopes"`
-	WritersTotal                 int      `json:"writers_total"`
-	WritersGuarded               int      `json:"writers_guarded"`
-	OutputsTotal                 int      `json:"outputs_total"`
-	OutputsCatalogued            int      `json:"outputs_catalogued"`
-	TransportsTotal              int      `json:"transports_total"`
-	TransportsCatalogued         int      `json:"transports_catalogued"`
-	IdentifiersTotal             int      `json:"identifiers_total"`
-	IdentifiersCatalogued        int      `json:"identifiers_catalogued"`
-	TimestampsTotal              int      `json:"timestamps_total"`
-	TimestampsCatalogued         int      `json:"timestamps_catalogued"`
-	CriticalGaps                 int      `json:"critical_gaps"`
-	HighContractGaps             int      `json:"high_contract_gaps"`
-	FieldMappingCoverage         int      `json:"field_mapping_coverage"`
-	WireFieldCoverage            int      `json:"wire_field_coverage"`
-	PersistentContractCoverage   int      `json:"persistent_contract_coverage"`
-	RuntimeOutputCoverage        int      `json:"runtime_output_coverage"`
-	TransportSurfaceCoverage     int      `json:"transport_surface_coverage"`
-	IdentifierSemanticsCoverage  int      `json:"identifier_semantics_coverage"`
-	TimestampSemanticsCoverage   int      `json:"timestamp_semantics_coverage"`
-	DurableWriterCoverage        int      `json:"durable_writer_coverage"`
-	UncataloguedDurableMaps      int      `json:"uncatalogued_durable_maps"`
-	DiscoveredTypesTotal         int      `json:"discovered_types_total"`
-	InScopeTypesTotal            int      `json:"in_scope_types_total"`
-	ExplicitlyMappedTypes        int      `json:"explicitly_mapped_types"`
-	ExplicitlyExemptedTypes      int      `json:"explicitly_exempted_types"`
-	UnreviewedTypes              int      `json:"unreviewed_types"`
-	DiscoveredFieldsTotal        int      `json:"discovered_fields_total"`
-	InScopeFieldsTotal           int      `json:"in_scope_fields_total"`
-	ExplicitlyMappedFields       int      `json:"explicitly_mapped_fields"`
-	ExplicitlyExemptedFields     int      `json:"explicitly_exempted_fields"`
-	UnreviewedFields             int      `json:"unreviewed_fields"`
-	PersistentPayloadsExact      int      `json:"persistent_payloads_with_exact_contract"`
-	PersistentPayloadsGeneric    int      `json:"persistent_payloads_using_generic_contract"`
-	IdentifierFieldsTotal        int      `json:"identifier_fields_total"`
-	IdentifierFieldsExplicit     int      `json:"identifier_fields_with_explicit_semantic"`
-	TimestampFieldsTotal         int      `json:"timestamp_fields_total"`
-	TimestampFieldsExplicit      int      `json:"timestamp_fields_with_explicit_semantic"`
-	WritersDiscovered            int      `json:"writers_discovered"`
-	WritersCatalogued            int      `json:"writers_catalogued"`
-	WritersWithExactContract     int      `json:"writers_with_exact_contract"`
-	UnreviewedTypePaths          []string `json:"unreviewed_type_paths,omitempty"`
-	UnreviewedFieldPaths         []string `json:"unreviewed_field_paths,omitempty"`
-	GenericPersistentContractIDs []string `json:"generic_persistent_contract_ids,omitempty"`
+	ContractsTotal                 int      `json:"contracts_total"`
+	ContractsGoBound               int      `json:"contracts_go_bound"`
+	ContractsExternal              int      `json:"contracts_external"`
+	TypesMonitored                 int      `json:"types_monitored"`
+	TypesCatalogued                int      `json:"types_catalogued"`
+	FieldsGoTotal                  int      `json:"fields_go_total"`
+	FieldsCatalogued               int      `json:"fields_catalogued"`
+	WireFieldsTotal                int      `json:"wire_fields_total"`
+	WireFieldsCatalogued           int      `json:"wire_fields_catalogued"`
+	PersistentPayloadsTotal        int      `json:"persistent_payloads_total"`
+	PersistentPayloadsTyped        int      `json:"persistent_payloads_typed"`
+	OpaqueDurableEnvelopes         int      `json:"opaque_durable_envelopes"`
+	WritersTotal                   int      `json:"writers_total"`
+	WritersGuarded                 int      `json:"writers_guarded"`
+	OutputsTotal                   int      `json:"outputs_total"`
+	OutputsCatalogued              int      `json:"outputs_catalogued"`
+	TransportsTotal                int      `json:"transports_total"`
+	TransportsCatalogued           int      `json:"transports_catalogued"`
+	IdentifiersTotal               int      `json:"identifiers_total"`
+	IdentifiersCatalogued          int      `json:"identifiers_catalogued"`
+	TimestampsTotal                int      `json:"timestamps_total"`
+	TimestampsCatalogued           int      `json:"timestamps_catalogued"`
+	CriticalGaps                   int      `json:"critical_gaps"`
+	HighContractGaps               int      `json:"high_contract_gaps"`
+	FieldMappingCoverage           int      `json:"field_mapping_coverage"`
+	WireFieldCoverage              int      `json:"wire_field_coverage"`
+	PersistentContractCoverage     int      `json:"persistent_contract_coverage"`
+	RuntimeOutputCoverage          int      `json:"runtime_output_coverage"`
+	TransportSurfaceCoverage       int      `json:"transport_surface_coverage"`
+	IdentifierSemanticsCoverage    int      `json:"identifier_semantics_coverage"`
+	TimestampSemanticsCoverage     int      `json:"timestamp_semantics_coverage"`
+	DurableWriterCoverage          int      `json:"durable_writer_coverage"`
+	UncataloguedDurableMaps        int      `json:"uncatalogued_durable_maps"`
+	DiscoveredTypesTotal           int      `json:"discovered_types_total"`
+	InScopeTypesTotal              int      `json:"in_scope_types_total"`
+	ExplicitlyMappedTypes          int      `json:"explicitly_mapped_types"`
+	ExplicitlyExemptedTypes        int      `json:"explicitly_exempted_types"`
+	UnreviewedTypes                int      `json:"unreviewed_types"`
+	DiscoveredFieldsTotal          int      `json:"discovered_fields_total"`
+	InScopeFieldsTotal             int      `json:"in_scope_fields_total"`
+	ExplicitlyMappedFields         int      `json:"explicitly_mapped_fields"`
+	ExplicitlyExemptedFields       int      `json:"explicitly_exempted_fields"`
+	UnreviewedFields               int      `json:"unreviewed_fields"`
+	PersistentPayloadsExact        int      `json:"persistent_payloads_with_exact_contract"`
+	PersistentPayloadsGeneric      int      `json:"persistent_payloads_using_generic_contract"`
+	IdentifierFieldsTotal          int      `json:"identifier_fields_total"`
+	IdentifierFieldsExplicit       int      `json:"identifier_fields_with_explicit_semantic"`
+	TimestampFieldsTotal           int      `json:"timestamp_fields_total"`
+	TimestampFieldsExplicit        int      `json:"timestamp_fields_with_explicit_semantic"`
+	WritersDiscovered              int      `json:"writers_discovered"`
+	WritersCatalogued              int      `json:"writers_catalogued"`
+	WritersWithExactContract       int      `json:"writers_with_exact_contract"`
+	TypesReachable                 int      `json:"types_reachable_from_contract_roots"`
+	TypesSafelyExempted            int      `json:"types_safely_exempted"`
+	FieldsReachable                int      `json:"fields_reachable"`
+	FieldsSafelyExempted           int      `json:"fields_safely_exempted"`
+	ReachableExemptions            int      `json:"reachable_exemptions"`
+	UnreviewedWriterPaths          []string `json:"unreviewed_writer_paths,omitempty"`
+	UnreviewedTransportPaths       []string `json:"unreviewed_transport_paths,omitempty"`
+	UnreviewedOutputPaths          []string `json:"unreviewed_output_paths,omitempty"`
+	IdentifierCandidates           int      `json:"identifier_candidates"`
+	IdentifierSemanticsExplicit    int      `json:"identifier_semantics_explicit"`
+	IdentifierCandidatesUnreviewed int      `json:"identifier_candidates_unreviewed"`
+	TimestampCandidates            int      `json:"timestamp_candidates"`
+	TimestampSemanticsExplicit     int      `json:"timestamp_semantics_explicit"`
+	TimestampCandidatesUnreviewed  int      `json:"timestamp_candidates_unreviewed"`
+	UnreviewedTypePaths            []string `json:"unreviewed_type_paths,omitempty"`
+	UnreviewedFieldPaths           []string `json:"unreviewed_field_paths,omitempty"`
+	GenericPersistentContractIDs   []string `json:"generic_persistent_contract_ids,omitempty"`
 }
 
 func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurface.Inventory, inScope []gosurface.TypeInfo) error {
-	// Discovery is not approval. Coverage is a join between discovered types,
-	// explicit mappings and explicit, safe exemptions.
-	report := coverageReport{ContractsTotal: len(set.Catalog.Contracts), TypesMonitored: len(inventory.Types), OutputsTotal: len(set.Catalog.OutputProfiles), OutputsCatalogued: len(set.Catalog.OutputProfiles), TransportsTotal: len(set.Transports.Transports), TransportsCatalogued: len(set.Transports.Transports), IdentifiersTotal: len(set.Identifiers.Identifiers), IdentifiersCatalogued: len(set.Identifiers.Identifiers), TimestampsTotal: len(set.Timestamps.Timestamps), TimestampsCatalogued: len(set.Timestamps.Timestamps), WritersTotal: len(set.Writers.Writers), DiscoveredTypesTotal: len(inventory.Types), InScopeTypesTotal: len(inScope), WritersDiscovered: len(set.Writers.Writers), WritersCatalogued: len(set.Writers.Writers)}
+	transports, err := discovery.ScanTransports(".")
+	if err != nil {
+		return err
+	}
+	writers, err := discovery.ScanWriters(".")
+	if err != nil {
+		return err
+	}
+	outputs, err := discovery.ScanOutputs(".")
+	if err != nil {
+		return err
+	}
+	reachableInventory := inventoryForContractRoots(set, inventory)
+	if len(inScope) == 0 {
+		reachableInventory = inventory.Types
+	}
+	identifiers, timestamps := discovery.ScanSemanticCandidates(gosurface.Inventory{Types: reachableInventory})
+	// Discovery is not approval. Coverage is a join between independently
+	// discovered code and explicit mappings, contracts, and safe exemptions.
+	report := coverageReport{ContractsTotal: len(set.Catalog.Contracts), TypesMonitored: len(inventory.Types), DiscoveredTypesTotal: len(inventory.Types), InScopeTypesTotal: len(inScope), WritersTotal: len(writers), WritersDiscovered: len(writers), OutputsTotal: len(outputs), TransportsTotal: len(transports), IdentifiersTotal: len(identifiers), TimestampsTotal: len(timestamps), IdentifierCandidates: len(identifiers), TimestampCandidates: len(timestamps), IdentifierFieldsTotal: len(identifiers), TimestampFieldsTotal: len(timestamps)}
 	mappedTypes := map[string]bool{}
 	mappedFields := map[string]bool{}
 	for _, mapping := range set.FieldMappings.Mappings {
@@ -653,62 +762,134 @@ func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurf
 		mappedTypes[key] = true
 		for _, field := range mapping.Fields {
 			mappedFields[key+"/"+field.FieldPath] = true
-			if field.IdentifierSemantic != "not_an_identifier" && field.IdentifierSemantic != "" {
-				report.IdentifierFieldsExplicit++
-			}
-			if field.TimestampSemantic != "not_a_timestamp" && field.TimestampSemantic != "" {
-				report.TimestampFieldsExplicit++
-			}
 		}
 	}
 	exemptedTypes := map[string]bool{}
 	exemptedFields := map[string]bool{}
 	for _, exemption := range set.FieldMappings.Exemptions {
 		key := exemption.Package + "/" + exemption.Type
-		exemptedTypes[key] = true
-		if exemption.Field != "" {
+		if exemption.Field == "" {
+			exemptedTypes[key] = true
+		} else {
 			exemptedFields[key+"/"+exemption.Field] = true
 		}
 	}
-	for _, item := range inventory.Types {
+	for _, item := range reachableInventory {
 		key := item.Package + "/" + item.Name
-		if !mappedTypes[key] && !exemptedTypes[key] {
+		allFieldsCovered := true
+		for _, field := range item.Fields {
+			path := key + "/" + field.FieldPath
+			if !mappedFields[path] && !exemptedFields[path] {
+				allFieldsCovered = false
+			}
+		}
+		if !mappedTypes[key] && !exemptedTypes[key] && !allFieldsCovered {
 			report.UnreviewedTypePaths = append(report.UnreviewedTypePaths, key)
 		}
 		for _, field := range item.Fields {
 			report.FieldsGoTotal++
 			report.WireFieldsTotal++
 			path := key + "/" + field.FieldPath
-			if mappedFields[path] && field.IdentifierSemantic != "not_an_identifier" && field.IdentifierSemantic != "" {
-				report.IdentifierFieldsTotal++
-			}
-			if mappedFields[path] && field.TimestampSemantic != "not_a_timestamp" && field.TimestampSemantic != "" {
-				report.TimestampFieldsTotal++
-			}
 			if !mappedFields[path] && !exemptedFields[path] {
 				report.UnreviewedFieldPaths = append(report.UnreviewedFieldPaths, path)
 			}
 		}
 	}
-	report.ExplicitlyMappedTypes = len(mappedTypes)
-	report.ExplicitlyExemptedTypes = len(exemptedTypes)
+	reachableKeys := map[string]bool{}
+	for _, item := range reachableInventory {
+		reachableKeys[item.Package+"/"+item.Name] = true
+	}
+	report.ExplicitlyMappedTypes = 0
+	for key := range mappedTypes {
+		if reachableKeys[key] {
+			report.ExplicitlyMappedTypes++
+		}
+	}
+	report.ExplicitlyExemptedTypes = 0
+	for key := range exemptedTypes {
+		if reachableKeys[key] {
+			report.ExplicitlyExemptedTypes++
+		}
+	}
 	report.UnreviewedTypes = len(report.UnreviewedTypePaths)
 	report.DiscoveredFieldsTotal = report.FieldsGoTotal
 	report.InScopeFieldsTotal = inventoryFieldsFor(inventory, inScope)
 	report.ExplicitlyMappedFields = len(mappedFields)
-	report.ExplicitlyExemptedFields = len(exemptedFields)
+	report.ExplicitlyExemptedFields = 0
+	for path := range exemptedFields {
+		for key := range reachableKeys {
+			if strings.HasPrefix(path, key+"/") {
+				report.ExplicitlyExemptedFields++
+				break
+			}
+		}
+	}
 	report.UnreviewedFields = len(report.UnreviewedFieldPaths)
 	report.TypesCatalogued = report.ExplicitlyMappedTypes + report.ExplicitlyExemptedTypes
 	report.FieldsCatalogued = report.ExplicitlyMappedFields + report.ExplicitlyExemptedFields
 	report.WireFieldsCatalogued = report.FieldsCatalogued
-	for _, writer := range set.Writers.Writers {
-		if writer.Guard == "ValidateStoreWrite" {
-			report.WritersGuarded++
-		}
-		if writer.Contract != "synora.cge.audit-record.v1" {
-			report.WritersWithExactContract++
+	for _, writer := range writers {
+		if spec, ok := findWriter(set.Writers.Writers, writer); ok {
+			report.WritersCatalogued++
+			if spec.Guard == "ValidateStoreWrite" {
+				report.WritersGuarded++
+			}
+			if spec.Contract != "synora.cge.audit-record.v1" || spec.ContractResolution.Mode != "" {
+				report.WritersWithExactContract++
+			}
+		} else {
+			report.UnreviewedWriterPaths = append(report.UnreviewedWriterPaths, writer.Package+"/"+writer.Type+"."+writer.Function)
 		}
 	}
+	for _, transport := range transports {
+		if !findTransport(set.Transports.Transports, transport) {
+			report.UnreviewedTransportPaths = append(report.UnreviewedTransportPaths, transport.Path)
+		}
+	}
+	outputContracts := map[string]bool{}
+	for _, profile := range set.Catalog.OutputProfiles {
+		if contract, ok := findContract(set.Catalog.Contracts, profile.Contract); ok {
+			outputContracts[contract.Implementation.Type] = true
+		}
+	}
+	for _, output := range outputs {
+		if !outputContracts[output.Type] {
+			report.UnreviewedOutputPaths = append(report.UnreviewedOutputPaths, output.Package+"/"+output.Type+"."+output.Function)
+		}
+	}
+	for _, candidate := range identifiers {
+		key := candidate.Package + "/" + candidate.Type + "/" + candidate.Field
+		if mapping, ok := mappingForField(set.FieldMappings, candidate.Package, candidate.Type, candidate.Field); ok && mapping.IdentifierSemantic != "" {
+			report.IdentifierSemanticsExplicit++
+		} else {
+			report.IdentifierCandidatesUnreviewed++
+			report.UnreviewedFieldPaths = append(report.UnreviewedFieldPaths, key+":identifier_semantic")
+		}
+	}
+	for _, candidate := range timestamps {
+		key := candidate.Package + "/" + candidate.Type + "/" + candidate.Field
+		if mapping, ok := mappingForField(set.FieldMappings, candidate.Package, candidate.Type, candidate.Field); ok && mapping.TimestampSemantic != "" {
+			report.TimestampSemanticsExplicit++
+		} else {
+			report.TimestampCandidatesUnreviewed++
+			report.UnreviewedFieldPaths = append(report.UnreviewedFieldPaths, key+":timestamp_semantic")
+		}
+	}
+	report.OutputsCatalogued = report.OutputsTotal - len(report.UnreviewedOutputPaths)
+	report.TransportsCatalogued = report.TransportsTotal - len(report.UnreviewedTransportPaths)
+	report.TypesReachable = len(reachableInventory)
+	report.FieldsReachable = report.FieldsGoTotal
+	report.TypesSafelyExempted = report.ExplicitlyExemptedTypes
+	report.FieldsSafelyExempted = report.ExplicitlyExemptedFields
+	for _, exemption := range set.FieldMappings.Exemptions {
+		if reachableKeys[exemption.Package+"/"+exemption.Type] {
+			report.ReachableExemptions++
+		}
+	}
+	report.IdentifierFieldsExplicit = report.IdentifierSemanticsExplicit
+	report.TimestampFieldsExplicit = report.TimestampSemanticsExplicit
+	report.IdentifiersCatalogued = report.IdentifierSemanticsExplicit
+	report.TimestampsCatalogued = report.TimestampSemanticsExplicit
 	for _, item := range set.Catalog.Contracts {
 		if item.Implementation.Kind == "external" {
 			report.ContractsExternal++
@@ -725,16 +906,16 @@ func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurf
 		}
 	}
 	report.PersistentPayloadsExact = report.PersistentPayloadsTyped
-	for _, writer := range set.Writers.Writers {
-		if writer.Contract == "synora.cge.audit-record.v1" {
+	for _, writer := range writers {
+		if spec, ok := findWriter(set.Writers.Writers, writer); ok && spec.Contract == "synora.cge.audit-record.v1" && spec.ContractResolution.Mode == "" {
 			report.PersistentPayloadsGeneric++
-			report.GenericPersistentContractIDs = append(report.GenericPersistentContractIDs, writer.ID)
+			report.GenericPersistentContractIDs = append(report.GenericPersistentContractIDs, spec.ID)
 		}
 	}
-	if report.PersistentPayloadsTotal != report.PersistentPayloadsExact || report.OpaqueDurableEnvelopes != 0 || report.UnreviewedTypes != 0 || report.UnreviewedFields != 0 {
+	if report.PersistentPayloadsTotal != report.PersistentPayloadsExact || report.OpaqueDurableEnvelopes != 0 || report.UnreviewedTypes != 0 || report.UnreviewedFields != 0 || report.ReachableExemptions != 0 {
 		report.CriticalGaps++
 	}
-	if report.PersistentPayloadsGeneric != 0 || report.WritersWithExactContract != report.WritersDiscovered || report.IdentifierFieldsExplicit != report.IdentifierFieldsTotal || report.TimestampFieldsExplicit != report.TimestampFieldsTotal {
+	if report.PersistentPayloadsGeneric != 0 || report.WritersCatalogued != report.WritersDiscovered || report.WritersGuarded != report.WritersCatalogued || report.WritersWithExactContract != report.WritersDiscovered || report.IdentifierSemanticsExplicit != report.IdentifierCandidates || report.TimestampSemanticsExplicit != report.TimestampCandidates || len(report.UnreviewedTransportPaths) != 0 || len(report.UnreviewedOutputPaths) != 0 || len(report.UnreviewedWriterPaths) != 0 {
 		report.HighContractGaps++
 	}
 	report.FieldMappingCoverage = percentage(report.FieldsGoTotal, report.FieldsCatalogued)
@@ -742,8 +923,8 @@ func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurf
 	report.PersistentContractCoverage = percentage(report.PersistentPayloadsTotal, report.PersistentPayloadsTyped)
 	report.RuntimeOutputCoverage = percentage(report.OutputsTotal, report.OutputsCatalogued)
 	report.TransportSurfaceCoverage = percentage(report.TransportsTotal, report.TransportsCatalogued)
-	report.IdentifierSemanticsCoverage = percentage(report.IdentifiersTotal, report.IdentifiersCatalogued)
-	report.TimestampSemanticsCoverage = percentage(report.TimestampsTotal, report.TimestampsCatalogued)
+	report.IdentifierSemanticsCoverage = percentage(report.IdentifierCandidates, report.IdentifierSemanticsExplicit)
+	report.TimestampSemanticsCoverage = percentage(report.TimestampCandidates, report.TimestampSemanticsExplicit)
 	report.DurableWriterCoverage = percentage(report.WritersTotal, report.WritersGuarded)
 	report.UncataloguedDurableMaps = report.OpaqueDurableEnvelopes
 	data, err := json.MarshalIndent(report, "", "  ")
@@ -772,6 +953,99 @@ func inventoryFieldsFor(inventory gosurface.Inventory, inScope []gosurface.TypeI
 		}
 	}
 	return total
+}
+
+func inventoryForTypes(inventory gosurface.Inventory, inScope []gosurface.TypeInfo) []gosurface.InventoryType {
+	allowed := map[string]bool{}
+	for _, item := range inScope {
+		allowed[item.Package+"/"+item.Name] = true
+	}
+	result := make([]gosurface.InventoryType, 0, len(inScope))
+	for _, item := range inventory.Types {
+		if allowed[item.Package+"/"+item.Name] {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func inventoryForContractRoots(set contractcatalog.CatalogSet, inventory gosurface.Inventory) []gosurface.InventoryType {
+	roots := map[string]bool{}
+	addContract := func(id string) {
+		if contract, ok := findContract(set.Catalog.Contracts, id); ok && contract.Implementation.Package != "" && contract.Implementation.Type != "" {
+			roots[contract.Implementation.Package+"/"+contract.Implementation.Type] = true
+		}
+	}
+	for _, contract := range set.Catalog.Contracts {
+		if contract.Implementation.Kind != "external" {
+			addContract(contract.ID)
+		}
+	}
+	for _, profile := range set.Catalog.OutputProfiles {
+		addContract(profile.Contract)
+	}
+	for _, transport := range set.Transports.Transports {
+		addContract(transport.RequestContract)
+		addContract(transport.ResponseContract)
+	}
+	for _, writer := range set.Writers.Writers {
+		addContract(writer.Contract)
+	}
+	result := make([]gosurface.InventoryType, 0, len(roots))
+	for _, item := range inventory.Types {
+		if roots[item.Package+"/"+item.Name] {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func findWriter(writers []contractcatalog.WriterSpec, surface discovery.Surface) (contractcatalog.WriterSpec, bool) {
+	for _, writer := range writers {
+		if writer.Package == surface.Package && writer.Type == surface.Type && writer.Function == surface.Function {
+			return writer, true
+		}
+	}
+	// Free functions have no Go receiver. Their exact identity is the
+	// package/function pair; the catalog records the logical owner type.
+	for _, writer := range writers {
+		if writer.Package == surface.Package && surface.Type == "" && writer.Function == surface.Function {
+			return writer, true
+		}
+	}
+	return contractcatalog.WriterSpec{}, false
+}
+
+func findTransport(transports []contractcatalog.TransportSpec, surface discovery.Surface) bool {
+	for _, transport := range transports {
+		if transport.Path == surface.Path {
+			return true
+		}
+	}
+	return false
+}
+
+func findContract(contracts []contractcatalog.CatalogContract, id string) (contractcatalog.CatalogContract, bool) {
+	for _, contract := range contracts {
+		if contract.ID == id {
+			return contract, true
+		}
+	}
+	return contractcatalog.CatalogContract{}, false
+}
+
+func mappingForField(file contractcatalog.FieldMappingsFile, pkg, typ, field string) (contractcatalog.FieldMapping, bool) {
+	for _, mapping := range file.Mappings {
+		if mapping.Package != pkg || mapping.Type != typ {
+			continue
+		}
+		for _, item := range mapping.Fields {
+			if item.GoField == field || item.FieldPath == field {
+				return item, true
+			}
+		}
+	}
+	return contractcatalog.FieldMapping{}, false
 }
 
 // validateMappingsAgainstInventory keeps the approval source independent from

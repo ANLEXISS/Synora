@@ -8,6 +8,9 @@ différences en `compatible`, `migration_required` ou `breaking`.
 
 `generate` produit uniquement le registre Go et l'inventaire de découverte.
 L'inventaire n'est pas une baseline et ne vaut pas mapping approuvé.
+La migration approuvée vers `cge-contract-set-v2.json` est décrite dans
+`configs/cge/contracts/migrations/contract-set-v1-to-v2.yaml`. La v1 et la v2
+sont immuables ; `freeze-baseline-v2` refuse tout écrasement.
 
 ## Versions
 
@@ -44,6 +47,11 @@ documentés. Les modèles cognitifs encore expérimentaux restent marqués
 `experimental`; les frontières et objets internes peuvent être `internal`.
 Une dépréciation doit préciser une fenêtre, les consommateurs restants et le
 plan de migration dans une mise à jour du catalogue.
+
+`check-compat` retourne zéro pour `compatible` et pour une migration
+`migration_required` approuvée, et retourne une erreur pour une migration
+manquante ou une rupture. `check-compat --baseline v2` doit être
+`classification=compatible` pour l'ensemble courant.
 
 ## Processus contractuel obligatoire
 

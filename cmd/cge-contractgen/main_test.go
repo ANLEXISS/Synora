@@ -45,6 +45,29 @@ func TestCoverageDoesNotApproveDiscoveryAlone(t *testing.T) {
 	}
 }
 
+func TestCoverageRejectsReachableExemption(t *testing.T) {
+	root := contractgenRoot(t)
+	set, err := contractcatalog.Validate(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := gosurface.BuildInventory(root, filepath.Join(root, "configs/cge/contracts/go-surfaces.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	set.FieldMappings.Exemptions = append(set.FieldMappings.Exemptions, contractcatalog.MappingExemption{
+		Package: "synora/internal/cge/chains", Type: "ObservationRef", Field: "ID",
+		Reason: "fixture", Scope: "fixture", ReviewStatus: "approved", Proof: "not_reachable_from_contract_roots",
+	})
+	var output bytes.Buffer
+	if err := writeCoverage(&output, set, inventory, nil); err == nil {
+		t.Fatal("reachable exemption was accepted")
+	}
+	if !strings.Contains(output.String(), "reachable_exemptions") {
+		t.Fatalf("coverage report omitted reachable exemption evidence: %s", output.String())
+	}
+}
+
 func TestBaselineCannotBeOverwrittenAndCompatibilityIsReadOnly(t *testing.T) {
 	root := t.TempDir()
 	set, err := contractcatalog.Validate(contractgenRoot(t))
@@ -72,6 +95,28 @@ func TestBaselineCannotBeOverwrittenAndCompatibilityIsReadOnly(t *testing.T) {
 	beforeSum, afterSum := sha256.Sum256(before), sha256.Sum256(after)
 	if beforeSum != afterSum {
 		t.Fatal("compatibility check modified the baseline")
+	}
+}
+
+func TestGenerateRenderingDoesNotTouchBaseline(t *testing.T) {
+	root := contractgenRoot(t)
+	set, err := contractcatalog.Validate(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(root, baselinePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := render(set); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(filepath.Join(root, baselinePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha256.Sum256(before) != sha256.Sum256(after) {
+		t.Fatal("rendering changed immutable baseline")
 	}
 }
 

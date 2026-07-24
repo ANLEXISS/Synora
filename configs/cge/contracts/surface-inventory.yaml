@@ -39107,6 +39107,44 @@ types:
           validation: generated_shape
           identifier_semantic: not_an_identifier
           timestamp_semantic: not_a_timestamp
+        - name: ReviewStatus
+          go_field: ReviewStatus
+          field_path: ReviewStatus
+          wire_name: ReviewStatus
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: Proof
+          go_field: Proof
+          field_path: Proof
+          wire_name: Proof
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
         - name: PersistenceAllowed
           go_field: PersistenceAllowed
           field_path: PersistenceAllowed

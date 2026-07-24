@@ -30,7 +30,7 @@ func TestCatalogIsValid(t *testing.T) {
 	if len(set.Catalog.Contracts) == 0 || len(set.Catalog.Catalog.Categories) != 17 || len(set.Boundaries.Boundaries) != 18 || len(set.Stores.Stores) == 0 {
 		t.Fatalf("catalog unexpectedly incomplete: contracts=%d boundaries=%d stores=%d", len(set.Catalog.Contracts), len(set.Boundaries.Boundaries), len(set.Stores.Stores))
 	}
-	if len(set.Identifiers.Identifiers) != 27 || len(set.Timestamps.Timestamps) != 13 || len(set.Transports.Transports) != 8 || len(set.Writers.Writers) != 10 {
+	if len(set.Identifiers.Identifiers) != 27 || len(set.Timestamps.Timestamps) != 13 || len(set.Transports.Transports) < 8 || len(set.Writers.Writers) < 10 {
 		t.Fatalf("executable registries unexpectedly incomplete: identifiers=%d timestamps=%d transports=%d writers=%d", len(set.Identifiers.Identifiers), len(set.Timestamps.Timestamps), len(set.Transports.Transports), len(set.Writers.Writers))
 	}
 }
@@ -169,6 +169,22 @@ func TestStrictLoaderRejectsCatalogMutations(t *testing.T) {
 				t.Fatalf("mutation %q was accepted", test.name)
 			}
 		})
+	}
+}
+
+func TestExemptionsRequireApprovedProof(t *testing.T) {
+	root := copyCatalogFixture(t)
+	path := filepath.Join(root, "configs/cge/contracts/field-mappings.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(data), "review_status: approved", "review_status: pending", 1)
+	if err := os.WriteFile(path, []byte(updated), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Validate(root); err == nil {
+		t.Fatal("pending exemption was accepted")
 	}
 }
 

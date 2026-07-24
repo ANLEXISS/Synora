@@ -1,8 +1,12 @@
 # Gaps connus du catalogue CGE
 
-Cette liste est volontairement descriptive. La passe 67.1 ferme les gaps
+Cette liste est volontairement descriptive. La passe 67.2 ferme les gaps
 contractuels démontrés par la jointure explicite de couverture ; elle ne modifie
 aucun comportement cognitif ni aucune opération système.
+
+Les transports, writers, sorties, candidats identifiants et candidats
+temporels sont découverts indépendamment du YAML. Les exemptions atteignables
+depuis une racine de contrat sont rejetées.
 
 ## Critical
 

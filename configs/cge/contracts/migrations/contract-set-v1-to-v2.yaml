@@ -1,0 +1,21 @@
+schema_version: 1
+namespace: synora.cge
+source_baseline: cge-contract-set-v1.json
+target_baseline: cge-contract-set-v2.json
+classification: migration_required
+approved: true
+durable_rewrite_required: false
+legacy_replay: preserved
+bytes_unchanged: true
+changes:
+  - exact_payload_contracts
+  - envelope_payload_separation
+  - explicit_field_mappings
+  - independent_transport_writer_output_discovery
+  - approved_exemption_proofs
+tests:
+  - explicit_mapping_join
+  - immutable_baseline
+  - exact_writer_contracts
+  - legacy_replay
+  - durable_byte_identity

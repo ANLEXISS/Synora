@@ -102,3 +102,115 @@ writers:
     guard: ValidateStoreWrite
     format: json
     before_write: before_json_marshal
+  - id: cge.writer.feedback.profile-atomic
+    owner: cge_runtime
+    package: synora/internal/cge
+    type: FeedbackStore
+    function: writeProfileAtomic
+    store: synora.store.feedback
+    contract: synora.cge.feedback.v1
+    guard: ValidateStoreWrite
+    format: json
+    before_write: before_temp_write
+  - id: cge.writer.calibration.build-record
+    owner: cge_calibration_ledger
+    package: synora/internal/cge/calibrationledger
+    type: FileStore
+    function: BuildRecord
+    store: synora.store.calibration-ledger
+    contract: synora.cge.calibration-record.v1
+    guard: ValidateStoreWrite
+    format: ndjson_enveloped_hash_chain
+    before_write: before_json_marshal
+  - id: cge.writer.calibration.write-full
+    owner: cge_calibration_ledger
+    package: synora/internal/cge/calibrationledger
+    type: FileStore
+    function: writeFull
+    store: synora.store.calibration-ledger
+    contract: synora.cge.calibration-record.v1
+    guard: ValidateStoreWrite
+    format: ndjson_enveloped_hash_chain
+    before_write: before_json_marshal
+  - id: cge.writer.journal.append-record-locked
+    owner: cge_chains_journal
+    package: synora/internal/cge/chains/journal
+    type: FileJournal
+    function: appendRecordLocked
+    store: synora.store.cge-journal
+    contract: synora.cge.journal-record.v1
+    contract_resolution: {mode: discriminator, field: kind, registry: journal_kinds}
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
+  - id: cge.writer.journal.encode-record-line
+    owner: cge_chains_journal
+    package: synora/internal/cge/chains/journal
+    type: FileJournal
+    function: encodeRecordLine
+    store: synora.store.cge-journal
+    contract: synora.cge.journal-record.v1
+    contract_resolution: {mode: discriminator, field: kind, registry: journal_kinds}
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
+  - id: cge.writer.persistence.atomic-write
+    owner: cge_chains_persistence
+    package: synora/internal/cge/chains/persistence
+    type: FileStore
+    function: atomicWrite
+    store: synora.store.cge-generations
+    contract: synora.cge.generation-snapshot.v1
+    guard: ValidateStoreWrite
+    format: json
+    before_write: before_temp_write
+  - id: cge.writer.workflow.checkpoint-at
+    owner: cge_shadow_workflow
+    package: synora/internal/cge/durableworkflow
+    type: Coordinator
+    function: CheckpointAt
+    store: synora.store.workflow-checkpoint
+    contract: synora.cge.workflow-checkpoint.v1
+    guard: ValidateStoreWrite
+    format: json
+    before_write: before_temp_write
+  - id: cge.writer.field-trial.record
+    owner: cge_field_trial
+    package: synora/internal/cge/fieldtrial
+    type: Recorder
+    function: Record
+    store: synora.store.field-trial-recorder
+    contract: synora.cge.field-trial-envelope.v1
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
+  - id: cge.writer.field-trial.deployment-manifest
+    owner: cge_field_trial
+    package: synora/internal/cge/fieldtrial
+    type: Recorder
+    function: WriteDeploymentManifest
+    store: synora.store.field-trial-recorder
+    contract: synora.cge.field-trial-manifest.v1
+    guard: ValidateStoreWrite
+    format: json
+    before_write: before_json_marshal
+  - id: cge.writer.field-trial.encode-envelope
+    owner: cge_field_trial
+    package: synora/internal/cge/fieldtrial
+    type: Recorder
+    function: encodeEnvelope
+    store: synora.store.field-trial-recorder
+    contract: synora.cge.field-trial-envelope.v1
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
+  - id: cge.writer.field-trial.encode-annotation
+    owner: cge_field_trial
+    package: synora/internal/cge/fieldtrial
+    type: Recorder
+    function: encodeAnnotationEnvelope
+    store: synora.store.field-trial-recorder
+    contract: synora.cge.field-trial-annotation-envelope.v1
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal

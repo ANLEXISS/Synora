@@ -3,7 +3,7 @@ namespace: synora.cge
 packages:
   - import: synora/pkg/contract
     role: historical_and_bus_contracts
-    types: [Message, Event, Decision, ActionRequest, CgeEvaluationFeedback]
+    types: [Message, Event, Decision, ActionRequest]
   - import: synora/internal/cge
     role: cge_engine_boundary_and_outputs
     types: [Event, ObservationResult, Snapshot, Explanation, ShadowAdmissionStatus, FeedbackFile]
