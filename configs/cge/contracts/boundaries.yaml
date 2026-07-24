@@ -160,7 +160,7 @@ boundaries:
     producer: cge_comparison
     consumer: calibration_ledger
     owner: cge_comparison
-    input_contracts: [synora.contract.historical-decision.v1, synora.cge.cognitive-situation.v1, synora.cge.recommendation-set.v1]
+    input_contracts: [synora.cge.historical-decision-ref.v1, synora.cge.cognitive-situation.v1, synora.cge.recommendation-set.v1]
     output_contracts: [synora.cge.historical-comparison.v1]
     transport: internal_post_history_observer
     validation: protected_refs_and_historical_authority_markers

@@ -988,6 +988,28 @@ contracts:
         retention: configured_store_policy
         validation: historical_authority_retained
 
+  - id: synora.cge.historical-decision-ref.v1
+    category: historical_comparison
+    owner: historical_core
+    producers: [historical_core]
+    consumers: [cge_comparison]
+    transport: internal
+    persistence: []
+    authority: authorized_decision
+    trust: validated
+    sensitivity: sensitive_personal
+    status: internal
+    justification: Read-only historical decision reference crossing B12; it retains Core authority and is not a CGE decision.
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/decisioncomparison
+      type: HistoricalDecisionRef
+      wire_format: json
+    fields:
+      - {name: id, go_field: ID, wire_name: ID, type: observation_reference, required: true, nullable: false, description: Protected historical decision reference ID, source: historical_core, trust: validated, sensitivity: sensitive_personal, protection: cgeid_v1_observation, persistence: [], retention: transport_lifetime, validation: protected_reference}
+      - {name: source_event_ref, go_field: SourceEventRef, wire_name: SourceEventRef, type: observation_reference, required: true, nullable: false, description: Protected source event reference, source: historical_core, trust: validated, sensitivity: sensitive_personal, protection: cgeid_v1_observation, persistence: [], retention: transport_lifetime, validation: protected_reference}
+      - {name: authority_marker, type: authority_marker, required: true, nullable: false, description: Historical authority remains with Core, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: transport_lifetime, validation: historical_authority_retained}
+
   - id: synora.cge.historical-comparison.v1
     category: historical_comparison
     owner: cge_comparison
@@ -1062,10 +1084,11 @@ contracts:
     compatibility_policy: preserve_legacy_record_replay
     retention_policy: configured_wal_retention
     implementation:
-      kind: envelope
+      kind: go_struct
       package: synora/internal/cge/durableworkflow
       type: Record
       wire_format: json
+      validator: durableworkflow.RecordV1
     fields:
       - name: sequence
         type: uint64
@@ -1630,8 +1653,8 @@ contracts:
     retention_policy: explicit_feedback_retention_policy
     implementation:
       kind: go_struct
-      package: synora/pkg/contract
-      type: CgeEvaluationFeedback
+      package: synora/internal/cge
+      type: FeedbackFile
       wire_format: json
     fields:
       - name: feedback_id
@@ -1687,10 +1710,11 @@ contracts:
     compatibility_policy: preserve_segment_replay_and_privacy_markers
     retention_policy: configured_trial_retention
     implementation:
-      kind: envelope
+      kind: go_struct
       package: synora/internal/cge/fieldtrial
       type: AnnotationEnvelope
       wire_format: json
+      validator: fieldtrial.RecordV1
     fields:
       - name: event_reference
         type: protected_reference
@@ -1799,10 +1823,11 @@ contracts:
     compatibility_policy: preserve_integrity_metadata_and_replay
     retention_policy: store_specific_audit_retention
     implementation:
-      kind: envelope
+      kind: go_struct
       package: synora/internal/cge/contractcatalog
       type: AuditRecord
       wire_format: json
+      validator: contractcatalog.AuditRecordV1
     fields:
       - name: operation
         type: closed_operation_code

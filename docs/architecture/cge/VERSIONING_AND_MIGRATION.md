@@ -1,5 +1,11 @@
 # Versioning, replay et migration
 
+Le jeu complet gelé est `configs/cge/contracts/baselines/cge-contract-set-v1.json`.
+Les commandes `generate`, `check`, `check-compat` et `coverage` sont les gates
+de génération et de revue ; `check-compat` classe un jeu identique comme
+compatible et refuse un fingerprint différent tant qu'une migration/version
+n'est pas documentée.
+
 ## Versions
 
 Chaque contrat durable porte un ID de forme `...vN`. Les stores portent une

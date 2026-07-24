@@ -109,6 +109,7 @@ type Implementation struct {
 	Package       string `yaml:"package"`
 	Type          string `yaml:"type"`
 	WireFormat    string `yaml:"wire_format"`
+	Validator     string `yaml:"validator"`
 	Justification string `yaml:"justification"`
 }
 
@@ -132,6 +133,117 @@ type Field struct {
 	RuntimeOnly     bool     `yaml:"runtime_only"`
 	CatalogOnly     bool     `yaml:"catalog_only"`
 	ExceptionReason string   `yaml:"exception_reason"`
+	GoType          string   `yaml:"go_type"`
+	WireType        string   `yaml:"wire_type"`
+	Identifier      string   `yaml:"identifier_semantic"`
+	Timestamp       string   `yaml:"timestamp_semantic"`
+}
+
+type IdentifierSpec struct {
+	ID               string   `yaml:"id"`
+	Semantic         string   `yaml:"semantic"`
+	Owner            string   `yaml:"owner"`
+	Generator        string   `yaml:"generator"`
+	Scope            string   `yaml:"scope"`
+	Uniqueness       string   `yaml:"uniqueness"`
+	WireType         string   `yaml:"wire_type"`
+	Protection       string   `yaml:"protection"`
+	Domain           string   `yaml:"domain"`
+	Nullable         bool     `yaml:"nullable"`
+	Deduplication    string   `yaml:"deduplication"`
+	Correlation      string   `yaml:"correlation"`
+	Ordering         string   `yaml:"ordering"`
+	Persistence      []string `yaml:"persistence"`
+	RestartStability string   `yaml:"restart_stability"`
+	LegacyBehavior   string   `yaml:"legacy_behavior"`
+}
+
+type IdentifiersFile struct {
+	SchemaVersion int              `yaml:"schema_version"`
+	Namespace     string           `yaml:"namespace"`
+	Identifiers   []IdentifierSpec `yaml:"identifiers"`
+}
+
+type TimestampSpec struct {
+	ID                string   `yaml:"id"`
+	Semantic          string   `yaml:"semantic"`
+	Producer          string   `yaml:"producer"`
+	Clock             string   `yaml:"clock"`
+	Timezone          string   `yaml:"timezone"`
+	Required          bool     `yaml:"required"`
+	Ordering          string   `yaml:"ordering"`
+	SourceSupplied    bool     `yaml:"can_be_source_supplied"`
+	FutureAllowed     bool     `yaml:"can_be_future"`
+	MaximumFutureSkew string   `yaml:"maximum_future_skew"`
+	MaximumPastAge    string   `yaml:"maximum_past_age"`
+	Persistence       []string `yaml:"persistence"`
+	UsedForReasoning  bool     `yaml:"used_for_reasoning"`
+	UsedForAudit      bool     `yaml:"used_for_audit"`
+	Fallback          string   `yaml:"fallback"`
+}
+
+type TimestampsFile struct {
+	SchemaVersion int             `yaml:"schema_version"`
+	Namespace     string          `yaml:"namespace"`
+	Timestamps    []TimestampSpec `yaml:"timestamps"`
+}
+
+type TransportSpec struct {
+	ID               string `yaml:"id"`
+	Transport        string `yaml:"transport"`
+	Direction        string `yaml:"direction"`
+	Owner            string `yaml:"owner"`
+	Method           string `yaml:"method_or_message_type"`
+	Path             string `yaml:"path_or_channel"`
+	RequestContract  string `yaml:"request_contract"`
+	ResponseContract string `yaml:"response_contract"`
+	ErrorContract    string `yaml:"error_contract"`
+	Version          string `yaml:"version"`
+	Authorization    string `yaml:"authorization"`
+	Redaction        string `yaml:"redaction"`
+	Pagination       string `yaml:"pagination"`
+	Bounded          bool   `yaml:"bounded"`
+	Authority        string `yaml:"authority"`
+}
+
+type TransportsFile struct {
+	SchemaVersion int             `yaml:"schema_version"`
+	Namespace     string          `yaml:"namespace"`
+	Transports    []TransportSpec `yaml:"transports"`
+}
+
+type WriterSpec struct {
+	ID          string `yaml:"id"`
+	Owner       string `yaml:"owner"`
+	Package     string `yaml:"package"`
+	Type        string `yaml:"type"`
+	Function    string `yaml:"function"`
+	Store       string `yaml:"store"`
+	Contract    string `yaml:"contract"`
+	Guard       string `yaml:"guard"`
+	Format      string `yaml:"format"`
+	BeforeWrite string `yaml:"before_write"`
+}
+
+type WritersFile struct {
+	SchemaVersion int          `yaml:"schema_version"`
+	Namespace     string       `yaml:"namespace"`
+	Writers       []WriterSpec `yaml:"writers"`
+}
+
+type JournalKindSpec struct {
+	Kind       string `yaml:"kind"`
+	GoPackage  string `yaml:"go_package"`
+	GoType     string `yaml:"go_type"`
+	Contract   string `yaml:"contract"`
+	Validator  string `yaml:"validator"`
+	LegacyRead bool   `yaml:"legacy_read"`
+}
+
+type JournalKindsFile struct {
+	SchemaVersion int               `yaml:"schema_version"`
+	Namespace     string            `yaml:"namespace"`
+	Kinds         []JournalKindSpec `yaml:"kinds"`
 }
 
 type AdmissionEvent struct {
@@ -224,10 +336,15 @@ type CatalogError struct {
 }
 
 type CatalogSet struct {
-	Catalog    CatalogFile
-	Boundaries BoundariesFile
-	Stores     StoresFile
-	Errors     ErrorsFile
+	Catalog      CatalogFile
+	Boundaries   BoundariesFile
+	Stores       StoresFile
+	Errors       ErrorsFile
+	Identifiers  IdentifiersFile
+	Timestamps   TimestampsFile
+	Transports   TransportsFile
+	Writers      WritersFile
+	JournalKinds JournalKindsFile
 }
 
 // Load reads the four catalog files below root.
@@ -245,6 +362,21 @@ func Load(root string) (CatalogSet, error) {
 	if err := decode(filepath.Join(root, "configs/cge/contracts/errors.yaml"), &result.Errors); err != nil {
 		return CatalogSet{}, err
 	}
+	if err := decode(filepath.Join(root, "configs/cge/contracts/identifiers.yaml"), &result.Identifiers); err != nil {
+		return CatalogSet{}, err
+	}
+	if err := decode(filepath.Join(root, "configs/cge/contracts/timestamps.yaml"), &result.Timestamps); err != nil {
+		return CatalogSet{}, err
+	}
+	if err := decode(filepath.Join(root, "configs/cge/contracts/transports.yaml"), &result.Transports); err != nil {
+		return CatalogSet{}, err
+	}
+	if err := decode(filepath.Join(root, "configs/cge/contracts/writers.yaml"), &result.Writers); err != nil {
+		return CatalogSet{}, err
+	}
+	if err := decode(filepath.Join(root, "configs/cge/contracts/journal-kinds.yaml"), &result.JournalKinds); err != nil {
+		return CatalogSet{}, err
+	}
 	if result.Boundaries.SchemaVersion != 1 || result.Boundaries.Namespace != "synora.cge" {
 		return CatalogSet{}, fmt.Errorf("boundaries header must be schema 1, namespace synora.cge")
 	}
@@ -253,6 +385,21 @@ func Load(root string) (CatalogSet, error) {
 	}
 	if result.Errors.SchemaVersion != 1 || result.Errors.Namespace != "synora.cge" {
 		return CatalogSet{}, fmt.Errorf("errors header must be schema 1, namespace synora.cge")
+	}
+	if result.Identifiers.SchemaVersion != 1 || result.Identifiers.Namespace != "synora.cge" {
+		return CatalogSet{}, fmt.Errorf("identifiers header must be schema 1, namespace synora.cge")
+	}
+	if result.Timestamps.SchemaVersion != 1 || result.Timestamps.Namespace != "synora.cge" {
+		return CatalogSet{}, fmt.Errorf("timestamps header must be schema 1, namespace synora.cge")
+	}
+	if result.Transports.SchemaVersion != 1 || result.Transports.Namespace != "synora.cge" {
+		return CatalogSet{}, fmt.Errorf("transports header must be schema 1, namespace synora.cge")
+	}
+	if result.Writers.SchemaVersion != 1 || result.Writers.Namespace != "synora.cge" {
+		return CatalogSet{}, fmt.Errorf("writers header must be schema 1, namespace synora.cge")
+	}
+	if result.JournalKinds.SchemaVersion != 1 || result.JournalKinds.Namespace != "synora.cge" {
+		return CatalogSet{}, fmt.Errorf("journal-kinds header must be schema 1, namespace synora.cge")
 	}
 	return result, nil
 }
@@ -484,6 +631,124 @@ func validateSet(set CatalogSet) error {
 		if !profiles[name] {
 			return fmt.Errorf("required output profile %q is missing", name)
 		}
+	}
+	if err := validateIdentifiers(set, stores); err != nil {
+		return err
+	}
+	if err := validateTimestamps(set, stores); err != nil {
+		return err
+	}
+	if err := validateTransports(set, contracts); err != nil {
+		return err
+	}
+	if err := validateWriters(set, contracts, stores); err != nil {
+		return err
+	}
+	if err := validateJournalKinds(set, contracts); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateJournalKinds(set CatalogSet, contracts map[string]CatalogContract) error {
+	seen := map[string]bool{}
+	for _, item := range set.JournalKinds.Kinds {
+		if item.Kind == "" || seen[item.Kind] || item.GoPackage == "" || item.GoType == "" || item.Contract == "" || item.Validator == "" {
+			return fmt.Errorf("journal kind %q is incomplete or duplicated", item.Kind)
+		}
+		if _, ok := contracts[item.Contract]; !ok {
+			return fmt.Errorf("journal kind %q references unknown contract %q", item.Kind, item.Contract)
+		}
+		seen[item.Kind] = true
+	}
+	if len(seen) != 14 {
+		return fmt.Errorf("journal kind catalog must contain 14 accepted v1 kinds, got %d", len(seen))
+	}
+	return nil
+}
+
+func validateWriters(set CatalogSet, contracts map[string]CatalogContract, stores map[string]CatalogStore) error {
+	seen := map[string]bool{}
+	for _, writer := range set.Writers.Writers {
+		if writer.ID == "" || seen[writer.ID] || writer.Owner == "" || writer.Package == "" || writer.Type == "" || writer.Function == "" || writer.Store == "" || writer.Contract == "" || writer.Guard == "" || writer.Format == "" || writer.BeforeWrite == "" {
+			return fmt.Errorf("writer %q is incomplete or duplicated", writer.ID)
+		}
+		if _, ok := stores[writer.Store]; !ok {
+			return fmt.Errorf("writer %q references unknown store %q", writer.ID, writer.Store)
+		}
+		if _, ok := contracts[writer.Contract]; !ok {
+			return fmt.Errorf("writer %q references unknown contract %q", writer.ID, writer.Contract)
+		}
+		if writer.Guard != "ValidateStoreWrite" {
+			return fmt.Errorf("writer %q is not protected by ValidateStoreWrite", writer.ID)
+		}
+		seen[writer.ID] = true
+	}
+	if len(seen) == 0 {
+		return fmt.Errorf("no CGE durable writers catalogued")
+	}
+	return nil
+}
+
+func validateIdentifiers(set CatalogSet, stores map[string]CatalogStore) error {
+	required := []string{"event_id", "observation_id", "entity_id", "candidate_entity_id", "device_id", "camera_id", "node_id", "zone_id", "clip_id", "track_id", "activation_id", "sequence_key", "episode_id", "chain_id", "hypothesis_set_id", "fact_id", "evaluation_id", "situation_id", "recommendation_set_id", "comparison_id", "transaction_id", "journal_id", "ledger_record_id", "revision", "sequence", "digest", "fingerprint"}
+	seen := map[string]bool{}
+	for _, item := range set.Identifiers.Identifiers {
+		if item.ID == "" || seen[item.ID] || item.Semantic == "" || item.Owner == "" || item.Generator == "" || item.Scope == "" || item.Uniqueness == "" || item.WireType == "" || item.Protection == "" || item.Domain == "" || item.Deduplication == "" || item.Correlation == "" || item.Ordering == "" || item.RestartStability == "" || item.LegacyBehavior == "" {
+			return fmt.Errorf("identifier %q is incomplete or duplicated", item.ID)
+		}
+		for _, storeID := range item.Persistence {
+			if _, ok := stores[storeID]; !ok {
+				return fmt.Errorf("identifier %q references unknown store %q", item.ID, storeID)
+			}
+		}
+		seen[item.ID] = true
+	}
+	for _, id := range required {
+		if !seen[id] {
+			return fmt.Errorf("required identifier %q is missing", id)
+		}
+	}
+	return nil
+}
+
+func validateTimestamps(set CatalogSet, stores map[string]CatalogStore) error {
+	required := []string{"observed_at", "produced_at", "received_at", "ingested_at", "processed_at", "committed_at", "persisted_at", "created_at", "updated_at", "status_changed_at", "closed_at", "last_seen_at", "recovered_at"}
+	seen := map[string]bool{}
+	for _, item := range set.Timestamps.Timestamps {
+		if item.ID == "" || seen[item.ID] || item.Semantic == "" || item.Producer == "" || item.Clock == "" || item.Timezone == "" || item.Ordering == "" || item.MaximumFutureSkew == "" || item.MaximumPastAge == "" || item.Fallback == "" {
+			return fmt.Errorf("timestamp %q is incomplete or duplicated", item.ID)
+		}
+		for _, storeID := range item.Persistence {
+			if _, ok := stores[storeID]; !ok {
+				return fmt.Errorf("timestamp %q references unknown store %q", item.ID, storeID)
+			}
+		}
+		seen[item.ID] = true
+	}
+	for _, id := range required {
+		if !seen[id] {
+			return fmt.Errorf("required timestamp %q is missing", id)
+		}
+	}
+	return nil
+}
+
+func validateTransports(set CatalogSet, contracts map[string]CatalogContract) error {
+	seen := map[string]bool{}
+	for _, item := range set.Transports.Transports {
+		if item.ID == "" || seen[item.ID] || item.Transport == "" || item.Direction == "" || item.Owner == "" || item.Method == "" || item.Path == "" || item.RequestContract == "" || item.ResponseContract == "" || item.ErrorContract == "" || item.Version == "" || item.Authorization == "" || item.Redaction == "" || item.Pagination == "" || item.Authority == "" {
+			return fmt.Errorf("transport %q is incomplete or duplicated", item.ID)
+		}
+		for _, contractID := range []string{item.RequestContract, item.ResponseContract, item.ErrorContract} {
+			if _, ok := contracts[contractID]; !ok {
+				return fmt.Errorf("transport %q references unknown contract %q", item.ID, contractID)
+			}
+		}
+		if !validAuthority[item.Authority] || (strings.HasPrefix(item.Owner, "cge") && (item.Authority == "authorized_action" || item.Authority == "authorized_decision")) {
+			return fmt.Errorf("transport %q has invalid authority", item.ID)
+		}
+		seen[item.ID] = true
 	}
 	return nil
 }

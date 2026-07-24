@@ -2,7 +2,7 @@
 
 Les détails machine-readable sont dans `configs/cge/contracts/boundaries.yaml`.
 Les noms de contrats sont résolus par `catalog.yaml`, les stores par
-`stores.yaml`, et les erreurs par `errors.yaml`.
+`stores.yaml`, les erreurs par `errors.yaml` et les writers par `writers.yaml`.
 
 | ID | Producteur → consommateur | Transformation / validation | Persistance | Autorité |
 |---|---|---|---|---|
@@ -39,3 +39,8 @@ par `contractcatalog.ValidateOutput` avant l'admission. B12 protège les
 références historiques et vérifie le contrat de comparaison. Les writers de
 B13 appellent `ValidateStoreWrite` avant toute sérialisation durable. Un refus
 ne crée donc ni record partiel ni append parasite.
+
+Le journal possède également une union v1 fermée dans `journal-kinds.yaml` :
+chaque `RecordKind` accepté est relié à un type payload Go et à un validateur.
+Les records legacy restent lisibles, mais aucun kind nouveau ne peut être
+écrit sans mise à jour du registre.

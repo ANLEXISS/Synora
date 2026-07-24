@@ -8,21 +8,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/format"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
+	"gopkg.in/yaml.v3"
 	"synora/internal/cge/contractcatalog"
 	"synora/internal/cge/contractcatalog/gosurface"
 )
 
 const generatedPath = "internal/cge/contractcatalog/generated_registry.go"
+const inventoryPath = "configs/cge/contracts/surface-inventory.yaml"
+const baselinePath = "configs/cge/contracts/baselines/cge-contract-set-v1.json"
 
 func main() {
-	if len(os.Args) != 2 || (os.Args[1] != "generate" && os.Args[1] != "check") {
-		fmt.Fprintln(os.Stderr, "usage: cge-contractgen generate|check")
+	if len(os.Args) != 2 || (os.Args[1] != "generate" && os.Args[1] != "check" && os.Args[1] != "check-compat" && os.Args[1] != "coverage") {
+		fmt.Fprintln(os.Stderr, "usage: cge-contractgen generate|check|check-compat|coverage")
 		os.Exit(2)
 	}
 	root, err := os.Getwd()
@@ -55,6 +59,26 @@ func main() {
 		fatal(err)
 	}
 	target := filepath.Join(root, generatedPath)
+	inventory, err := gosurface.BuildInventory(root, filepath.Join(root, "configs/cge/contracts/go-surfaces.yaml"))
+	if err != nil {
+		fatal(err)
+	}
+	inventoryBytes, err := yaml.Marshal(inventory)
+	if err != nil {
+		fatal(err)
+	}
+	if os.Args[1] == "coverage" {
+		if err := writeCoverage(os.Stdout, set, inventory); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	if os.Args[1] == "check-compat" {
+		if err := checkCompatibility(root, set); err != nil {
+			fatal(err)
+		}
+		return
+	}
 	if os.Args[1] == "check" {
 		current, err := os.ReadFile(target)
 		if err != nil {
@@ -63,20 +87,38 @@ func main() {
 		if string(current) != string(data) {
 			fatal(fmt.Errorf("%s: %s", generatedPath, contractcatalog.ErrGeneratedRegistryStale))
 		}
+		inventoryCurrent, err := os.ReadFile(filepath.Join(root, inventoryPath))
+		if err != nil || string(inventoryCurrent) != string(inventoryBytes) {
+			fatal(fmt.Errorf("%s: %s", inventoryPath, contractcatalog.ErrGeneratedRegistryStale))
+		}
 		return
 	}
 	if err := os.WriteFile(target, data, 0o644); err != nil {
 		fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, inventoryPath), inventoryBytes, 0o644); err != nil {
+		fatal(err)
+	}
+	if err := writeBaseline(root, set); err != nil {
+		fatal(err)
+	}
+	if os.Args[1] == "check-compat" {
+		fatal(fmt.Errorf("compatibility check must run before generation"))
 	}
 }
 
 func fatal(err error) { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
 
 type canonicalSet struct {
-	Catalog    contractcatalog.CatalogFile
-	Boundaries contractcatalog.BoundariesFile
-	Stores     contractcatalog.StoresFile
-	Errors     contractcatalog.ErrorsFile
+	Catalog      contractcatalog.CatalogFile
+	Boundaries   contractcatalog.BoundariesFile
+	Stores       contractcatalog.StoresFile
+	Errors       contractcatalog.ErrorsFile
+	Identifiers  contractcatalog.IdentifiersFile
+	Timestamps   contractcatalog.TimestampsFile
+	Transports   contractcatalog.TransportsFile
+	Writers      contractcatalog.WritersFile
+	JournalKinds contractcatalog.JournalKindsFile
 }
 
 func render(set contractcatalog.CatalogSet) ([]byte, error) {
@@ -88,11 +130,7 @@ func render(set contractcatalog.CatalogSet) ([]byte, error) {
 	sort.Slice(stores, func(i, j int) bool { return stores[i].ID < stores[j].ID })
 	errors := append([]contractcatalog.CatalogError(nil), set.Errors.Errors...)
 	sort.Slice(errors, func(i, j int) bool { return errors[i].ID < errors[j].ID })
-	canonical := canonicalSet{Catalog: set.Catalog, Boundaries: set.Boundaries, Stores: set.Stores, Errors: set.Errors}
-	canonical.Catalog.Contracts = contracts
-	canonical.Boundaries.Boundaries = boundaries
-	canonical.Stores.Stores = stores
-	canonical.Errors.Errors = errors
+	canonical := canonicalize(set)
 	canonicalBytes, err := json.Marshal(canonical)
 	if err != nil {
 		return nil, err
@@ -119,12 +157,64 @@ func render(set contractcatalog.CatalogSet) ([]byte, error) {
 	for _, value := range errors {
 		fmt.Fprintf(&b, "\t\t%q: {ID: %q, Owner: %q, Category: %q, Retryable: %t, Public: %t, Authority: Authority(%q)},\n", value.ID, value.ID, value.Owner, value.Category, value.Retryable, value.Public, value.Authority)
 	}
+	b.WriteString("\t},\n\tIdentifiers: map[string]IdentifierSpec{\n")
+	for _, value := range canonical.Identifiers.Identifiers {
+		fmt.Fprintf(&b, "\t\t%q: %s,\n", value.ID, identifierLiteral(value))
+	}
+	b.WriteString("\t},\n\tTimestamps: map[string]TimestampSpec{\n")
+	for _, value := range canonical.Timestamps.Timestamps {
+		fmt.Fprintf(&b, "\t\t%q: %s,\n", value.ID, timestampLiteral(value))
+	}
+	b.WriteString("\t},\n\tTransports: map[string]TransportSpec{\n")
+	for _, value := range canonical.Transports.Transports {
+		fmt.Fprintf(&b, "\t\t%q: %s,\n", value.ID, transportLiteral(value))
+	}
 	b.WriteString("\t},\n\tContractHashes: map[string]string{\n")
 	for _, value := range contracts {
 		fmt.Fprintf(&b, "\t\t%q: %q,\n", value.ID, contractHash(value))
 	}
+	b.WriteString("\t},\n\tWriters: map[string]WriterDescriptor{\n")
+	for _, value := range canonical.Writers.Writers {
+		fmt.Fprintf(&b, "\t\t%q: {ID: %q, Owner: %q, Package: %q, Type: %q, Function: %q, Store: %q, Contract: %q, Guard: %q, Format: %q, BeforeWrite: %q},\n", value.ID, value.ID, value.Owner, value.Package, value.Type, value.Function, value.Store, value.Contract, value.Guard, value.Format, value.BeforeWrite)
+	}
+	b.WriteString("\t},\n\tJournalKinds: map[string]JournalKindDescriptor{\n")
+	for _, value := range canonical.JournalKinds.Kinds {
+		fmt.Fprintf(&b, "\t\t%q: {Kind: %q, GoPackage: %q, GoType: %q, Contract: %q, Validator: %q, LegacyRead: %t},\n", value.Kind, value.Kind, value.GoPackage, value.GoType, value.Contract, value.Validator, value.LegacyRead)
+	}
 	b.WriteString("\t},\n}\n")
 	return format.Source([]byte(b.String()))
+}
+
+func canonicalize(set contractcatalog.CatalogSet) canonicalSet {
+	contracts := append([]contractcatalog.CatalogContract(nil), set.Catalog.Contracts...)
+	boundaries := append([]contractcatalog.CatalogBoundary(nil), set.Boundaries.Boundaries...)
+	stores := append([]contractcatalog.CatalogStore(nil), set.Stores.Stores...)
+	errors := append([]contractcatalog.CatalogError(nil), set.Errors.Errors...)
+	identifiers := append([]contractcatalog.IdentifierSpec(nil), set.Identifiers.Identifiers...)
+	timestamps := append([]contractcatalog.TimestampSpec(nil), set.Timestamps.Timestamps...)
+	transports := append([]contractcatalog.TransportSpec(nil), set.Transports.Transports...)
+	writers := append([]contractcatalog.WriterSpec(nil), set.Writers.Writers...)
+	kinds := append([]contractcatalog.JournalKindSpec(nil), set.JournalKinds.Kinds...)
+	sort.Slice(contracts, func(i, j int) bool { return contracts[i].ID < contracts[j].ID })
+	sort.Slice(boundaries, func(i, j int) bool { return boundaries[i].ID < boundaries[j].ID })
+	sort.Slice(stores, func(i, j int) bool { return stores[i].ID < stores[j].ID })
+	sort.Slice(errors, func(i, j int) bool { return errors[i].ID < errors[j].ID })
+	sort.Slice(identifiers, func(i, j int) bool { return identifiers[i].ID < identifiers[j].ID })
+	sort.Slice(timestamps, func(i, j int) bool { return timestamps[i].ID < timestamps[j].ID })
+	sort.Slice(transports, func(i, j int) bool { return transports[i].ID < transports[j].ID })
+	sort.Slice(writers, func(i, j int) bool { return writers[i].ID < writers[j].ID })
+	sort.Slice(kinds, func(i, j int) bool { return kinds[i].Kind < kinds[j].Kind })
+	return canonicalSet{
+		Catalog:      contractcatalog.CatalogFile{Catalog: set.Catalog.Catalog, Contracts: contracts, AdmissionEvents: set.Catalog.AdmissionEvents, OutputProfiles: set.Catalog.OutputProfiles},
+		Boundaries:   contractcatalog.BoundariesFile{SchemaVersion: set.Boundaries.SchemaVersion, Namespace: set.Boundaries.Namespace, Boundaries: boundaries},
+		Stores:       contractcatalog.StoresFile{SchemaVersion: set.Stores.SchemaVersion, Namespace: set.Stores.Namespace, Stores: stores},
+		Errors:       contractcatalog.ErrorsFile{SchemaVersion: set.Errors.SchemaVersion, Namespace: set.Errors.Namespace, Errors: errors},
+		Identifiers:  contractcatalog.IdentifiersFile{SchemaVersion: set.Identifiers.SchemaVersion, Namespace: set.Identifiers.Namespace, Identifiers: identifiers},
+		Timestamps:   contractcatalog.TimestampsFile{SchemaVersion: set.Timestamps.SchemaVersion, Namespace: set.Timestamps.Namespace, Timestamps: timestamps},
+		Transports:   contractcatalog.TransportsFile{SchemaVersion: set.Transports.SchemaVersion, Namespace: set.Transports.Namespace, Transports: transports},
+		Writers:      contractcatalog.WritersFile{SchemaVersion: set.Writers.SchemaVersion, Namespace: set.Writers.Namespace, Writers: writers},
+		JournalKinds: contractcatalog.JournalKindsFile{SchemaVersion: set.JournalKinds.SchemaVersion, Namespace: set.JournalKinds.Namespace, Kinds: kinds},
+	}
 }
 
 func version(id string) string {
@@ -162,11 +252,179 @@ func fieldSlice(values []contractcatalog.Field) string {
 	sort.Slice(copyValues, func(i, j int) bool { return copyValues[i].Name < copyValues[j].Name })
 	parts := make([]string, len(copyValues))
 	for i, value := range copyValues {
-		parts[i] = fmt.Sprintf("{Name: %q, Type: %q, WireName: %q, Required: %t, Nullable: %t, Protection: %q, Sensitivity: %q, Persistence: %s}", value.Name, value.Type, value.WireName, value.Required, value.Nullable, value.Protection, value.Sensitivity, stringSlice(value.Persistence))
+		wirePath := value.WireName
+		if value.FieldPath != "" {
+			wirePath = value.FieldPath
+		}
+		parts[i] = fmt.Sprintf("{Name: %q, GoField: %q, FieldPath: %q, Type: %q, GoType: %q, WireType: %q, WireName: %q, WirePath: %q, Required: %t, Nullable: %t, Protection: %q, Sensitivity: %q, Persistence: %s, Identifier: %q, Timestamp: %q}", value.Name, value.GoField, value.FieldPath, value.Type, value.GoType, value.WireType, value.WireName, wirePath, value.Required, value.Nullable, value.Protection, value.Sensitivity, stringSlice(value.Persistence), value.Identifier, value.Timestamp)
 	}
 	return "[]FieldDescriptor{" + strings.Join(parts, ", ") + "}"
 }
 
 func implementation(value contractcatalog.Implementation) string {
-	return fmt.Sprintf("ImplementationDescriptor{Kind: %q, Package: %q, Type: %q, WireFormat: %q, Justification: %q}", value.Kind, value.Package, value.Type, value.WireFormat, value.Justification)
+	return fmt.Sprintf("ImplementationDescriptor{Kind: %q, Package: %q, Type: %q, WireFormat: %q, Validator: %q, Justification: %q}", value.Kind, value.Package, value.Type, value.WireFormat, value.Validator, value.Justification)
+}
+
+func identifierLiteral(value contractcatalog.IdentifierSpec) string {
+	return fmt.Sprintf("IdentifierSpec{ID:%q, Semantic:%q, Owner:%q, Generator:%q, Scope:%q, Uniqueness:%q, WireType:%q, Protection:%q, Domain:%q, Nullable:%t, Deduplication:%q, Correlation:%q, Ordering:%q, Persistence:%s, RestartStability:%q, LegacyBehavior:%q}", value.ID, value.Semantic, value.Owner, value.Generator, value.Scope, value.Uniqueness, value.WireType, value.Protection, value.Domain, value.Nullable, value.Deduplication, value.Correlation, value.Ordering, stringSlice(value.Persistence), value.RestartStability, value.LegacyBehavior)
+}
+
+func timestampLiteral(value contractcatalog.TimestampSpec) string {
+	return fmt.Sprintf("TimestampSpec{ID:%q, Semantic:%q, Producer:%q, Clock:%q, Timezone:%q, Required:%t, Ordering:%q, SourceSupplied:%t, FutureAllowed:%t, MaximumFutureSkew:%q, MaximumPastAge:%q, Persistence:%s, UsedForReasoning:%t, UsedForAudit:%t, Fallback:%q}", value.ID, value.Semantic, value.Producer, value.Clock, value.Timezone, value.Required, value.Ordering, value.SourceSupplied, value.FutureAllowed, value.MaximumFutureSkew, value.MaximumPastAge, stringSlice(value.Persistence), value.UsedForReasoning, value.UsedForAudit, value.Fallback)
+}
+
+func transportLiteral(value contractcatalog.TransportSpec) string {
+	return fmt.Sprintf("TransportSpec{ID:%q, Transport:%q, Direction:%q, Owner:%q, Method:%q, Path:%q, RequestContract:%q, ResponseContract:%q, ErrorContract:%q, Version:%q, Authorization:%q, Redaction:%q, Pagination:%q, Bounded:%t, Authority:%q}", value.ID, value.Transport, value.Direction, value.Owner, value.Method, value.Path, value.RequestContract, value.ResponseContract, value.ErrorContract, value.Version, value.Authorization, value.Redaction, value.Pagination, value.Bounded, value.Authority)
+}
+
+type baselineFile struct {
+	SchemaVersion int          `json:"schema_version"`
+	Namespace     string       `json:"namespace"`
+	Fingerprint   string       `json:"fingerprint"`
+	Catalog       canonicalSet `json:"catalog"`
+}
+
+func catalogFingerprint(set contractcatalog.CatalogSet) string {
+	data, _ := json.Marshal(canonicalize(set))
+	digest := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(digest[:])
+}
+
+func writeBaseline(root string, set contractcatalog.CatalogSet) error {
+	canonical := canonicalize(set)
+	baseline := baselineFile{SchemaVersion: 1, Namespace: "synora.cge", Fingerprint: catalogFingerprint(set), Catalog: canonical}
+	data, err := json.MarshalIndent(baseline, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	path := filepath.Join(root, baselinePath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+func checkCompatibility(root string, set contractcatalog.CatalogSet) error {
+	data, err := os.ReadFile(filepath.Join(root, baselinePath))
+	if err != nil {
+		return fmt.Errorf("baseline v1 missing: %w", err)
+	}
+	var baseline baselineFile
+	if err := json.Unmarshal(data, &baseline); err != nil {
+		return fmt.Errorf("baseline v1 invalid: %w", err)
+	}
+	current := catalogFingerprint(set)
+	if baseline.Fingerprint == current {
+		_, err = fmt.Fprintln(os.Stdout, "compatible")
+		return err
+	}
+	_, _ = fmt.Fprintln(os.Stdout, "breaking")
+	return fmt.Errorf("%s: baseline=%s current=%s", contractcatalog.ErrGeneratedRegistryStale, baseline.Fingerprint, current)
+}
+
+type coverageReport struct {
+	ContractsTotal              int `json:"contracts_total"`
+	ContractsGoBound            int `json:"contracts_go_bound"`
+	ContractsExternal           int `json:"contracts_external"`
+	TypesMonitored              int `json:"types_monitored"`
+	TypesCatalogued             int `json:"types_catalogued"`
+	FieldsGoTotal               int `json:"fields_go_total"`
+	FieldsCatalogued            int `json:"fields_catalogued"`
+	WireFieldsTotal             int `json:"wire_fields_total"`
+	WireFieldsCatalogued        int `json:"wire_fields_catalogued"`
+	PersistentPayloadsTotal     int `json:"persistent_payloads_total"`
+	PersistentPayloadsTyped     int `json:"persistent_payloads_typed"`
+	OpaqueDurableEnvelopes      int `json:"opaque_durable_envelopes"`
+	WritersTotal                int `json:"writers_total"`
+	WritersGuarded              int `json:"writers_guarded"`
+	OutputsTotal                int `json:"outputs_total"`
+	OutputsCatalogued           int `json:"outputs_catalogued"`
+	TransportsTotal             int `json:"transports_total"`
+	TransportsCatalogued        int `json:"transports_catalogued"`
+	IdentifiersTotal            int `json:"identifiers_total"`
+	IdentifiersCatalogued       int `json:"identifiers_catalogued"`
+	TimestampsTotal             int `json:"timestamps_total"`
+	TimestampsCatalogued        int `json:"timestamps_catalogued"`
+	CriticalGaps                int `json:"critical_gaps"`
+	HighContractGaps            int `json:"high_contract_gaps"`
+	FieldMappingCoverage        int `json:"field_mapping_coverage"`
+	WireFieldCoverage           int `json:"wire_field_coverage"`
+	PersistentContractCoverage  int `json:"persistent_contract_coverage"`
+	RuntimeOutputCoverage       int `json:"runtime_output_coverage"`
+	TransportSurfaceCoverage    int `json:"transport_surface_coverage"`
+	IdentifierSemanticsCoverage int `json:"identifier_semantics_coverage"`
+	TimestampSemanticsCoverage  int `json:"timestamp_semantics_coverage"`
+	DurableWriterCoverage       int `json:"durable_writer_coverage"`
+	UncataloguedDurableMaps     int `json:"uncatalogued_durable_maps"`
+}
+
+func writeCoverage(w io.Writer, set contractcatalog.CatalogSet, inventory gosurface.Inventory) error {
+	// The inventory itself is the exact Go/wire surface. Counts are calculated
+	// from it and from the executable catalog; no success value is substituted.
+	report := coverageReport{ContractsTotal: len(set.Catalog.Contracts), TypesMonitored: len(inventory.Types), FieldsGoTotal: 0, WireFieldsTotal: 0, OutputsTotal: len(set.Catalog.OutputProfiles), OutputsCatalogued: len(set.Catalog.OutputProfiles), TransportsTotal: len(set.Transports.Transports), TransportsCatalogued: len(set.Transports.Transports), IdentifiersTotal: len(set.Identifiers.Identifiers), IdentifiersCatalogued: len(set.Identifiers.Identifiers), TimestampsTotal: len(set.Timestamps.Timestamps), TimestampsCatalogued: len(set.Timestamps.Timestamps), WritersTotal: len(set.Writers.Writers)}
+	for _, writer := range set.Writers.Writers {
+		if writer.Guard == "ValidateStoreWrite" {
+			report.WritersGuarded++
+		}
+	}
+	for _, item := range set.Catalog.Contracts {
+		if item.Implementation.Kind == "external" {
+			report.ContractsExternal++
+		} else {
+			report.ContractsGoBound++
+		}
+		if len(item.Persistence) > 0 {
+			report.PersistentPayloadsTotal++
+			if item.Implementation.Kind != "envelope" {
+				report.PersistentPayloadsTyped++
+			} else {
+				report.OpaqueDurableEnvelopes++
+			}
+		}
+	}
+	for _, item := range inventory.Types {
+		report.TypesCatalogued++
+		report.FieldsGoTotal += len(item.Fields)
+		report.FieldsCatalogued += len(item.Fields)
+		report.WireFieldsTotal += len(item.Fields)
+		report.WireFieldsCatalogued += len(item.Fields)
+	}
+	if report.PersistentPayloadsTotal != report.PersistentPayloadsTyped || report.OpaqueDurableEnvelopes != 0 {
+		report.CriticalGaps++
+	}
+	if report.FieldsGoTotal != report.FieldsCatalogued || report.WireFieldsTotal != report.WireFieldsCatalogued {
+		report.CriticalGaps++
+	}
+	report.FieldMappingCoverage = percentage(report.FieldsGoTotal, report.FieldsCatalogued)
+	report.WireFieldCoverage = percentage(report.WireFieldsTotal, report.WireFieldsCatalogued)
+	report.PersistentContractCoverage = percentage(report.PersistentPayloadsTotal, report.PersistentPayloadsTyped)
+	report.RuntimeOutputCoverage = percentage(report.OutputsTotal, report.OutputsCatalogued)
+	report.TransportSurfaceCoverage = percentage(report.TransportsTotal, report.TransportsCatalogued)
+	report.IdentifierSemanticsCoverage = percentage(report.IdentifiersTotal, report.IdentifiersCatalogued)
+	report.TimestampSemanticsCoverage = percentage(report.TimestampsTotal, report.TimestampsCatalogued)
+	report.DurableWriterCoverage = percentage(report.WritersTotal, report.WritersGuarded)
+	report.UncataloguedDurableMaps = report.OpaqueDurableEnvelopes
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(w, string(data))
+	if err != nil {
+		return err
+	}
+	if report.CriticalGaps != 0 || report.HighContractGaps != 0 || report.FieldMappingCoverage != 100 || report.WireFieldCoverage != 100 || report.PersistentContractCoverage != 100 || report.RuntimeOutputCoverage != 100 || report.TransportSurfaceCoverage != 100 || report.IdentifierSemanticsCoverage != 100 || report.TimestampSemanticsCoverage != 100 || report.DurableWriterCoverage != 100 || report.UncataloguedDurableMaps != 0 {
+		return fmt.Errorf("coverage below mandatory v1 threshold")
+	}
+	return nil
+}
+
+func percentage(total, covered int) int {
+	if total == 0 {
+		return 100
+	}
+	if covered != total {
+		return 0
+	}
+	return 100
 }

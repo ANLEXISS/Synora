@@ -7,7 +7,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"synora/internal/cge/chains"
 	"synora/internal/cge/durableids"
 )
 
@@ -28,6 +30,31 @@ func TestCatalogIsValid(t *testing.T) {
 	if len(set.Catalog.Contracts) == 0 || len(set.Catalog.Catalog.Categories) != 17 || len(set.Boundaries.Boundaries) != 18 || len(set.Stores.Stores) == 0 {
 		t.Fatalf("catalog unexpectedly incomplete: contracts=%d boundaries=%d stores=%d", len(set.Catalog.Contracts), len(set.Boundaries.Boundaries), len(set.Stores.Stores))
 	}
+	if len(set.Identifiers.Identifiers) != 27 || len(set.Timestamps.Timestamps) != 13 || len(set.Transports.Transports) != 8 || len(set.Writers.Writers) != 10 {
+		t.Fatalf("executable registries unexpectedly incomplete: identifiers=%d timestamps=%d transports=%d writers=%d", len(set.Identifiers.Identifiers), len(set.Timestamps.Timestamps), len(set.Transports.Transports), len(set.Writers.Writers))
+	}
+}
+
+func TestExecutableRegistriesHaveExpectedSemantics(t *testing.T) {
+	if value, ok := generatedRegistry.Identifiers["entity_id"]; !ok || value.Domain != "entity" || value.Protection != "cgeid_v1_entity" {
+		t.Fatal("entity identifier registry entry is incomplete")
+	}
+	if value, ok := generatedRegistry.Timestamps["observed_at"]; !ok || value.Semantic == "" || value.UsedForReasoning == false {
+		t.Fatal("observed_at timestamp registry entry is incomplete")
+	}
+	for id, value := range generatedRegistry.Writers {
+		if value.Guard != "ValidateStoreWrite" || value.Store == "" || value.Contract == "" {
+			t.Fatalf("writer %s is not guarded: %+v", id, value)
+		}
+	}
+	if len(generatedRegistry.JournalKinds) != 14 {
+		t.Fatalf("journal kind registry length=%d", len(generatedRegistry.JournalKinds))
+	}
+	for kind, value := range generatedRegistry.JournalKinds {
+		if value.GoPackage == "" || value.GoType == "" || value.Validator == "" || value.Contract == "" {
+			t.Fatalf("journal kind %s is incomplete: %+v", kind, value)
+		}
+	}
 }
 
 func TestRegistryContractAndErrorSurface(t *testing.T) {
@@ -40,10 +67,10 @@ func TestRegistryContractAndErrorSurface(t *testing.T) {
 			t.Fatalf("generated error descriptor missing: %s", id)
 		}
 	}
-	if err := ValidateOutput("synora.cge.observation.v1", map[string]any{"id": "PASS66-RAW"}); err == nil {
+	if err := ValidateOutput("synora.cge.observation.v1", chains.ObservationRef{ID: "PASS66-RAW", EventType: "vision.identity", Timestamp: time.Now().UTC()}); err == nil {
 		t.Fatal("raw output identifier accepted")
 	}
-	if err := ValidateOutput("synora.cge.observation.v1", map[string]any{"id": durableids.Protect(durableids.KindObservation, "PASS66-OUTPUT")}); err != nil {
+	if err := ValidateOutput("synora.cge.observation.v1", chains.ObservationRef{ID: durableids.Protect(durableids.KindObservation, "PASS66-OUTPUT"), EventType: "vision.identity", Timestamp: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ValidateOutput("synora.cge.observation.v1", "not-an-observation"); err == nil {
@@ -154,7 +181,7 @@ func TestExecutableRegistryAndDurableGuard(t *testing.T) {
 	}
 	entity := durableids.Protect(durableids.KindEntity, "PASS66-ENTITY")
 	observation := durableids.Protect(durableids.KindObservation, "PASS66-EVENT")
-	payload := map[string]any{"id": observation, "event_type": "vision.identity", "observed_at": "2026-07-24T00:00:00Z", "entity_id": entity}
+	payload := chains.ObservationRef{ID: observation, EventType: "vision.identity", Timestamp: time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC), EntityID: entity}
 	before, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
@@ -169,10 +196,10 @@ func TestExecutableRegistryAndDurableGuard(t *testing.T) {
 	if string(before) != string(after) {
 		t.Fatal("store guard mutated payload")
 	}
-	if err := ValidateStoreWrite("synora.store.cge-journal", "synora.cge.observation.v1", map[string]any{"id": "PASS66-RAW-EVENT"}); err == nil {
+	if err := ValidateStoreWrite("synora.store.cge-journal", "synora.cge.observation.v1", chains.ObservationRef{ID: "PASS66-RAW-EVENT", EventType: "vision.identity", Timestamp: time.Now().UTC()}); err == nil {
 		t.Fatal("raw observation identifier accepted")
 	}
-	if err := ValidateStoreWrite("synora.store.cge-journal", "synora.cge.observation.v1", map[string]any{"id": durableids.Protect(durableids.KindDevice, "PASS66-EVENT")}); err == nil {
+	if err := ValidateStoreWrite("synora.store.cge-journal", "synora.cge.observation.v1", chains.ObservationRef{ID: durableids.Protect(durableids.KindDevice, "PASS66-EVENT"), EventType: "vision.identity", Timestamp: time.Now().UTC()}); err == nil {
 		t.Fatal("wrong identifier domain accepted")
 	}
 	if err := ValidateStoreWrite("synora.store.workflow-wal", "synora.cge.observation.v1", payload); err != nil {

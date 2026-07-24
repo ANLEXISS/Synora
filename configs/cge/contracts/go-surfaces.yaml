@@ -6,7 +6,7 @@ packages:
     types: [Message, Event, Decision, ActionRequest, CgeEvaluationFeedback]
   - import: synora/internal/cge
     role: cge_engine_boundary_and_outputs
-    types: [Event, ObservationResult, Snapshot, Explanation, ShadowAdmissionStatus]
+    types: [Event, ObservationResult, Snapshot, Explanation, ShadowAdmissionStatus, FeedbackFile]
   - import: synora/internal/cge/chains
     role: durable_observation
     types: [ObservationRef]
@@ -33,7 +33,7 @@ packages:
     types: [CognitiveRecommendationSet]
   - import: synora/internal/cge/decisioncomparison
     role: historical_comparison
-    types: [HistoricalDecisionComparison]
+    types: [HistoricalDecisionComparison, HistoricalDecisionRef]
   - import: synora/internal/cge/durableworkflow
     role: workflow_envelopes
     types: [Record, RecoveryReport]

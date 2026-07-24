@@ -32,13 +32,20 @@ const (
 
 type FieldDescriptor struct {
 	Name        string
+	GoField     string
+	FieldPath   string
 	Type        string
+	GoType      string
+	WireType    string
 	WireName    string
+	WirePath    string
 	Required    bool
 	Nullable    bool
 	Protection  string
 	Sensitivity string
 	Persistence []string
+	Identifier  string
+	Timestamp   string
 }
 
 type ImplementationDescriptor struct {
@@ -46,6 +53,7 @@ type ImplementationDescriptor struct {
 	Package       string
 	Type          string
 	WireFormat    string
+	Validator     string
 	Justification string
 }
 
@@ -91,6 +99,28 @@ type ErrorDescriptor struct {
 	Authority Authority
 }
 
+type WriterDescriptor struct {
+	ID          string
+	Owner       string
+	Package     string
+	Type        string
+	Function    string
+	Store       string
+	Contract    string
+	Guard       string
+	Format      string
+	BeforeWrite string
+}
+
+type JournalKindDescriptor struct {
+	Kind       string
+	GoPackage  string
+	GoType     string
+	Contract   string
+	Validator  string
+	LegacyRead bool
+}
+
 // AuditRecord is the closed envelope used by the catalog for integrity-only
 // durable markers. Runtime stores may use a more specific envelope; this type
 // exists so the catalog has an explicit Go owner for the audit surface.
@@ -106,6 +136,11 @@ type Registry struct {
 	Boundaries         map[string]BoundaryDescriptor
 	Stores             map[string]StoreDescriptor
 	Errors             map[string]ErrorDescriptor
+	Identifiers        map[string]IdentifierSpec
+	Timestamps         map[string]TimestampSpec
+	Transports         map[string]TransportSpec
+	Writers            map[string]WriterDescriptor
+	JournalKinds       map[string]JournalKindDescriptor
 	ContractHashes     map[string]string
 	CatalogFingerprint string
 }
@@ -126,7 +161,28 @@ func ErrorDescriptorFor(id string) (ErrorDescriptor, bool) {
 	value, ok := generatedRegistry.Errors[id]
 	return value, ok
 }
+func JournalKind(kind string) (JournalKindDescriptor, bool) {
+	value, ok := generatedRegistry.JournalKinds[kind]
+	return value, ok
+}
 func CatalogFingerprint() string { return generatedRegistry.CatalogFingerprint }
+
+// ValidateTypedPayload verifies a closed union member before its enclosing
+// durable record is encoded. The validator name is retained in the catalog so
+// future members can add semantic checks without weakening the root type test.
+func ValidateTypedPayload(packagePath, typeName, validator string, value any) error {
+	if value == nil || packagePath == "" || typeName == "" || validator == "" {
+		return errors.New(ErrTypeMismatch)
+	}
+	typ := reflect.TypeOf(value)
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	if typ.Kind() != reflect.Struct || typ.PkgPath() != packagePath || typ.Name() != typeName {
+		return errors.New(ErrTypeMismatch)
+	}
+	return nil
+}
 
 func ValidateInput(contractID string, value any) error {
 	return validateContractValue(contractID, value)
@@ -221,11 +277,43 @@ func validateValue(contractID string, value any) error {
 		}
 		rv = rv.Elem()
 	}
-	kind := rv.Kind()
-	if kind != reflect.Struct && kind != reflect.Map {
+	if rv.Kind() != reflect.Struct {
+		return errors.New(ErrTypeMismatch)
+	}
+	if descriptor.Implementation.Validator != "" {
+		return validateNamedImplementation(descriptor.Implementation.Validator, rv.Type())
+	}
+	expected := descriptor.Implementation.Type
+	if expected == "" || rv.Type().Name() != expected || rv.Type().PkgPath() != descriptor.Implementation.Package {
 		return errors.New(ErrTypeMismatch)
 	}
 	return nil
+}
+
+// validateNamedImplementation is the small escape hatch for closed unions whose
+// wire representation is deliberately shared by several concrete payload
+// structs (journal records and the legacy-compatible store envelopes). It is
+// still type-directed: a map, RawMessage, or scalar can never cross a durable
+// writer, and only packages owned by the named validator are accepted.
+func validateNamedImplementation(validator string, typ reflect.Type) error {
+	if typ.Kind() != reflect.Struct {
+		return errors.New(ErrTypeMismatch)
+	}
+	allowed := map[string][]string{
+		"contractcatalog.AuditRecordV1": {"synora/internal/cge/chains/", "synora/internal/cge/durableworkflow", "synora/internal/cge/chains/persistence", "synora/internal/cge/chains/generations"},
+		"durableworkflow.RecordV1":      {"synora/internal/cge/durableworkflow"},
+		"fieldtrial.RecordV1":           {"synora/internal/cge/fieldtrial"},
+	}
+	prefixes, ok := allowed[validator]
+	if !ok {
+		return errors.New(ErrTypeMismatch)
+	}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(typ.PkgPath(), prefix) {
+			return nil
+		}
+	}
+	return errors.New(ErrTypeMismatch)
 }
 
 func validateProtectedFields(descriptor Descriptor, value any) error {

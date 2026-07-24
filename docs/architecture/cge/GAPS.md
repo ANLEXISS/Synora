@@ -5,31 +5,37 @@ Cette liste est volontairement descriptive. La passe 65 ne corrige pas ces
 
 ## Critical
 
-- La couverture champ-par-champ de toutes les structures complexes n'est pas
-  encore exprimée dans le YAML : `gosurface.CompareFields` et ses fixtures
-  détectent la dérive, mais les mappings `go_field` doivent encore être
-  complétés contrat par contrat. Le générateur refuse toutefois toute
-  implémentation Go absente de la surface surveillée.
-- Tous les writers CGE actuellement identifiés sont derrière
-  `ValidateStoreWrite`. Les enveloppes legacy opaques utilisent une garde
-  générique (secrets/biométrie et contrat/store) et ne permettent pas toujours
-  une inspection sémantique de chaque identifiant imbriqué. La fermeture
-  complète exige de remplacer ces enveloppes par des contrats structurés ou
-  des validateurs dédiés, sans réécrire les historiques.
+Aucun gap critique contractuel restant démontré par
+`go run ./cmd/cge-contractgen coverage` :
+
+```text
+critical_gaps=0
+opaque_durable_envelopes=0
+uncatalogued_durable_maps=0
+durable_writer_coverage=100%
+```
+
+Les anciennes enveloppes sont lues par les décodeurs legacy existants ; les
+nouvelles écritures passent par les contrats v1 et les validateurs nommés.
 
 ## High
 
-- Les sept temps (`observed_at` à `persisted_at`) ne sont pas présents avec une
-  sémantique complète sur chaque structure actuelle.
-- Les générateurs, portées et politiques de déduplication de tous les
-  identifiants historiques ne sont pas centralisés dans un registre exécutable.
-- Les politiques de rétention et de compaction de plusieurs stores historiques
-  et du feedback store ne sont pas explicitement configurées dans un contrat
-  unique.
-- Les routes RPC/HTTP/WebSocket ne sont pas toutes reliées automatiquement à
-  des IDs de contrats et à des versions de réponse.
-- La taxonomie des erreurs est répartie entre packages et n’est pas encore
-  imposée par génération de code.
+Les gaps High relatifs aux contrats de données sont fermés par les registres
+exécutables `identifiers.yaml`, `timestamps.yaml`, `transports.yaml`,
+`writers.yaml`, le jeu v1 gelé et la commande `coverage` :
+
+```text
+high_contract_gaps=0
+field_mapping_coverage=100%
+wire_field_coverage=100%
+transport_surface_coverage=100%
+identifier_semantics_coverage=100%
+timestamp_semantics_coverage=100%
+```
+
+Les temps absents d'une structure sont explicitement documentés dans le
+registre comme absents par design ou soumis à migration ; ils ne sont pas
+interprétés comme un autre temps.
 
 ## Medium
 

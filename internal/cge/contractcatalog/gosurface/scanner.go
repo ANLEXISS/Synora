@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -50,10 +51,15 @@ type TypeInfo struct {
 type FieldInfo struct {
 	Name      string
 	Type      string
+	WireType  string
 	WireName  string
 	Omitempty bool
 	Tagged    bool
 	Embedded  bool
+	Pointer   bool
+	Nullable  bool
+	Slice     bool
+	Map       bool
 }
 
 type FieldSpec struct {
@@ -122,6 +128,48 @@ func Scan(root, path string) ([]TypeInfo, error) {
 			result = append(result, info)
 		}
 	}
+	return result, nil
+}
+
+// ScanAll returns every exported struct or alias in the monitored packages.
+// It is used for the machine-readable inventory; unlike Scan it does not rely
+// on a hand-maintained type list.
+func ScanAll(root, path string) ([]TypeInfo, error) {
+	config, err := LoadConfig(path)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]TypeInfo, 0)
+	seen := map[string]bool{}
+	for _, pkg := range config.Packages {
+		directory, err := packageDirectory(root, pkg.Import)
+		if err != nil {
+			return nil, err
+		}
+		types, err := parsePackage(directory, pkg.Import)
+		if err != nil {
+			return nil, err
+		}
+		for _, info := range types {
+			if info.Kind != "struct" && info.Kind != "alias" {
+				continue
+			}
+			if info.Kind == "struct" && len(info.Fields) == 0 {
+				continue
+			}
+			key := info.Package + "/" + info.Name
+			if !seen[key] {
+				result = append(result, info)
+				seen[key] = true
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Package == result[j].Package {
+			return result[i].Name < result[j].Name
+		}
+		return result[i].Package < result[j].Package
+	})
 	return result, nil
 }
 
@@ -247,17 +295,26 @@ func structFields(structure *ast.StructType) []FieldInfo {
 	for _, field := range structure.Fields.List {
 		wireName, omitempty, tagged := jsonFieldTag(field.Tag)
 		if len(field.Names) == 0 {
-			fields = append(fields, FieldInfo{Name: exprString(field.Type), Type: exprString(field.Type), WireName: wireName, Omitempty: omitempty, Tagged: tagged, Embedded: true})
+			typeName := exprString(field.Type)
+			fields = append(fields, FieldInfo{Name: typeName, Type: typeName, WireType: typeName, WireName: wireName, Omitempty: omitempty, Tagged: tagged, Embedded: true, Pointer: isPointer(field.Type), Nullable: isNullable(field.Type), Slice: isSlice(field.Type), Map: isMap(field.Type)})
 			continue
 		}
 		for _, name := range field.Names {
 			if !ast.IsExported(name.Name) {
 				continue
 			}
-			fields = append(fields, FieldInfo{Name: name.Name, Type: exprString(field.Type), WireName: wireNameOrDefault(wireName, name.Name), Omitempty: omitempty, Tagged: tagged})
+			typeName := exprString(field.Type)
+			fields = append(fields, FieldInfo{Name: name.Name, Type: typeName, WireType: typeName, WireName: wireNameOrDefault(wireName, name.Name), Omitempty: omitempty, Tagged: tagged, Pointer: isPointer(field.Type), Nullable: isNullable(field.Type), Slice: isSlice(field.Type), Map: isMap(field.Type)})
 		}
 	}
 	return fields
+}
+
+func isPointer(expr ast.Expr) bool { _, ok := expr.(*ast.StarExpr); return ok }
+func isSlice(expr ast.Expr) bool   { _, ok := expr.(*ast.ArrayType); return ok }
+func isMap(expr ast.Expr) bool     { _, ok := expr.(*ast.MapType); return ok }
+func isNullable(expr ast.Expr) bool {
+	return isPointer(expr) || isSlice(expr) || isMap(expr)
 }
 
 func jsonFieldTag(tag *ast.BasicLit) (string, bool, bool) {

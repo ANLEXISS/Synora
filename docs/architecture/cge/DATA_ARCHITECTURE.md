@@ -29,24 +29,33 @@ La frontière historique conserve les identifiants nécessaires au moteur
 historique. Les pseudonymes `cgeid-v1:<kind>:<hex>` ne reviennent jamais dans
 le moteur historique, le StateStore ou les automations.
 
-## Registre exécutable (passe 66)
+## Registre exécutable et gel v1 (passes 66–67)
 
-Les quatre YAML sont chargés strictement : en-têtes, types, clés inconnues,
+Les catalogues YAML sont chargés strictement : en-têtes, types, clés inconnues,
 doublons et documents multiples sont refusés. Le validateur impose les 17
 catégories v1 exactes, les vocabulaires de confiance/sensibilité/autorité/
 stabilité, ainsi qu'une version et une politique pour chaque contrat durable.
 
 Le registre compilé est produit par `go run ./cmd/cge-contractgen generate`,
-puis vérifié par `go run ./cmd/cge-contractgen check`. Le runtime utilise
+puis vérifié par `go run ./cmd/cge-contractgen check`. `check-compat` compare
+le jeu canonique avec `baselines/cge-contract-set-v1.json` et `coverage` refuse
+une couverture obligatoire incomplète. Le runtime utilise
 `generated_registry.go` et ne lit jamais les YAML installés. `gosurface` surveille
-les packages/types déclarés dans `go-surfaces.yaml` et ses fixtures détectent
-les dérives de champs, tags et types.
+les packages déclarés dans `go-surfaces.yaml`, inventorie chaque type exporté de
+ces packages et les fixtures rendent rouges les dérives de champs, tags et
+types. Les 10 writers durables sont catalogués dans `writers.yaml` et chacun
+doit appeler `ValidateStoreWrite` avant sa première sérialisation ou écriture.
 
 Chaque writer CGE durable déclare un StoreID et un ContractID et appelle
 `ValidateStoreWrite` avant marshal, append, rename ou fsync. Cette garde ne
 transforme aucune donnée : la frontière protège les identifiants et la garde
 vérifie ensuite le domaine, l'autorité, la sensibilité et le store. Les anciens
 records restent lisibles sans métadonnées générées.
+
+La garde vérifie également le type Go racine pour les contrats `go_struct` et
+utilise un validateur nommé pour les unions fermées partageant une enveloppe
+wire legacy. Elle ne transforme jamais un payload invalide et aucun writer ne
+doit créer de fichier temporaire avant son retour positif.
 
 ## Contrats
 
@@ -132,3 +141,12 @@ proposer la correction et sa migration séparément.
 Toute nouvelle entrée, sortie, structure sérialisée, persistance, métrique,
 RPC ou donnée cognitive doit mettre à jour le catalogue, la surface Go, le
 registre généré et les tests avant d'être acceptée.
+
+Le jeu v1 gelé contient les contrats, champs wire, implémentations Go,
+frontières, stores, identifiants, temps, transports, writers et erreurs. Une
+suppression, un renommage, un changement de type wire, un durcissement de
+nullabilité, une réduction de protection, une hausse d'autorité ou un changement
+de sémantique d'identifiant/temps est breaking et exige un nouvel ID versionné,
+une migration documentée et une fixture de compatibilité. Une modification
+compatible conserve l'ID, les champs requis, la protection et l'autorité ; elle
+doit tout de même régénérer le registre et la baseline appropriée.

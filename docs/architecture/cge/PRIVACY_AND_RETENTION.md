@@ -49,3 +49,18 @@ token d'un autre domaine, un secret ou une biométrie en clair ; elle ne
 pseudonymise jamais au moment d'écrire. Les contrôles s'exécutent avant
 `json.Marshal`, l'append du journal/WAL, le remplacement atomique d'un snapshot
 ou checkpoint et l'append du ledger.
+# Privacy, protection et rétention
+
+Les classes de sensibilité et les règles champ par champ sont définies dans
+`catalog.yaml` et les politiques de store dans `stores.yaml`. Les identifiants
+durables utilisent le namespace versionné `synora.cge.durable-id.v1` et un
+digest séparé par domaine ; il s'agit d'une pseudonymisation déterministe, pas
+d'un chiffrement.
+
+Les stores CGE refusent avant écriture les secrets, les images, vidéos,
+embeddings, visages et identifiants bruts. Les anciens fichiers ne sont pas
+réécrits ni supprimés automatiquement et doivent être considérés comme
+potentiellement sensibles. La rétention, la compaction et les limites sont
+attachées à chaque store ; une valeur `explicit_policy_required` signifie que
+la politique est imposée par la configuration opérateur existante, pas qu'une
+suppression automatique est introduite par cette passe.

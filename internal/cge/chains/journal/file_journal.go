@@ -631,6 +631,13 @@ func buildRecord(sequence uint64, kind RecordKind, recordedAt time.Time, actor, 
 	if recordedAt.IsZero() {
 		return Record{}, fmt.Errorf("%w: recorded_at is zero", ErrInvalidRecord)
 	}
+	kindDescriptor, ok := contractcatalog.JournalKind(string(kind))
+	if !ok {
+		return Record{}, fmt.Errorf("%w: uncatalogued journal kind", ErrInvalidRecordKind)
+	}
+	if err := contractcatalog.ValidateTypedPayload(kindDescriptor.GoPackage, kindDescriptor.GoType, kindDescriptor.Validator, payload); err != nil {
+		return Record{}, fmt.Errorf("%w: journal payload type: %v", ErrInvalidPayload, err)
+	}
 	if err := contractcatalog.ValidateStoreWrite("synora.store.cge-journal", "synora.cge.audit-record.v1", payload); err != nil {
 		return Record{}, fmt.Errorf("%w: contract guard: %v", ErrInvalidPayload, err)
 	}

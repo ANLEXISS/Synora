@@ -1,0 +1,103 @@
+schema_version: 1
+namespace: synora.cge
+writers:
+  - id: cge.writer.journal.build-record
+    owner: cge_chains_journal
+    package: synora/internal/cge/chains/journal
+    type: FileJournal
+    function: buildRecord
+    store: synora.store.cge-journal
+    contract: synora.cge.audit-record.v1
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
+  - id: cge.writer.generations.manifest
+    owner: cge_chains_generations
+    package: synora/internal/cge/chains/generations
+    type: FileStore
+    function: writeManifestAtomic
+    store: synora.store.cge-generations
+    contract: synora.cge.audit-record.v1
+    guard: ValidateStoreWrite
+    format: json
+    before_write: before_temp_write
+  - id: cge.writer.generations.snapshot
+    owner: cge_chains_persistence
+    package: synora/internal/cge/chains/persistence
+    type: FileStore
+    function: Save
+    store: synora.store.cge-generations
+    contract: synora.cge.audit-record.v1
+    guard: ValidateStoreWrite
+    format: json
+    before_write: before_json_marshal
+  - id: cge.writer.workflow.wal
+    owner: cge_shadow_workflow
+    package: synora/internal/cge/durableworkflow
+    type: FileStore
+    function: Append
+    store: synora.store.workflow-wal
+    contract: synora.cge.audit-record.v1
+    guard: ValidateStoreWrite
+    format: binary_framed_wal
+    before_write: before_frame_encode
+  - id: cge.writer.workflow.checkpoint
+    owner: cge_shadow_workflow
+    package: synora/internal/cge/durableworkflow
+    type: FileStore
+    function: WriteCheckpoint
+    store: synora.store.workflow-checkpoint
+    contract: synora.cge.audit-record.v1
+    guard: ValidateStoreWrite
+    format: json
+    before_write: before_temp_write
+  - id: cge.writer.calibration.ledger
+    owner: cge_calibration_ledger
+    package: synora/internal/cge/calibrationledger
+    type: FileStore
+    function: Append
+    store: synora.store.calibration-ledger
+    contract: synora.cge.calibration-record.v1
+    guard: ValidateStoreWrite
+    format: ndjson_enveloped_hash_chain
+    before_write: before_json_marshal
+  - id: cge.writer.feedback
+    owner: cge_runtime
+    package: synora/internal/cge
+    type: FeedbackStore
+    function: saveLocked
+    store: synora.store.feedback
+    contract: synora.cge.feedback.v1
+    guard: ValidateStoreWrite
+    format: json
+    before_write: before_json_marshal
+  - id: cge.writer.field-trial.envelope
+    owner: cge_field_trial
+    package: synora/internal/cge/fieldtrial
+    type: Recorder
+    function: encodeEnvelope
+    store: synora.store.field-trial-recorder
+    contract: synora.cge.field-trial-record.v1
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
+  - id: cge.writer.field-trial.annotation
+    owner: cge_field_trial
+    package: synora/internal/cge/fieldtrial
+    type: Recorder
+    function: encodeAnnotationEnvelope
+    store: synora.store.field-trial-recorder
+    contract: synora.cge.field-trial-record.v1
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
+  - id: cge.writer.field-trial.manifest
+    owner: cge_field_trial
+    package: synora/internal/cge/fieldtrial
+    type: Recorder
+    function: writeManifestLocked
+    store: synora.store.field-trial-recorder
+    contract: synora.cge.field-trial-record.v1
+    guard: ValidateStoreWrite
+    format: json
+    before_write: before_json_marshal
