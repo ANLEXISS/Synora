@@ -55,3 +55,11 @@ une clé exacte (transport, méthode/type, chemin/canal, direction), suit
 récursivement les types atteignables et recense les sorties transportées. Les
 writers sont découverts dans tout `internal/cge` ; les helpers sont reliés aux
 sites de mutation physique et la garde doit précéder la première mutation.
+
+## Registre de portée et fermeture
+
+Chaque type audité possède une décision `approved` permanente. C et D exigent
+un contrat exact et des mappings champ par champ ; E est gouverné par
+`legacy-formats.yaml` sans nouvelle écriture ; G est corrigé dans le scanner ;
+H utilise des variantes wire fermées qui rejettent les champs inconnus. Le
+validateur refuse les entrées absentes, dupliquées, non prouvées ou sans cible.

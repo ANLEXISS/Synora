@@ -1,0 +1,1156 @@
+schema_version: 1
+namespace: synora.cge
+source: pass67.3.2
+entries:
+  - package: "synora/internal/cge"
+    type: "MetricsSnapshot"
+    classification: public_output
+    root_contracts: ["synora.cge.explanation.v1"]
+    reachability_paths: ["synora/internal/cge/Explanation.CognitiveMetrics"]
+    serialization_evidence: ["ShadowEngine.Snapshot/Explain — ShadowEngine.Snapshot()/Explain() returns MetricsSnapshot through CGE read-only API"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cge.metricssnapshot.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "AnalyticsMarkers"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.Markers"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.analyticsmarkers.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "CategoryAnalytics"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.Categories"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.categoryanalytics.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "DataSufficiency"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.DataSufficiency"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.datasufficiency.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "DriftAnalytics"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.Drift"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.driftanalytics.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "GlobalAnalytics"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.Global"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.globalanalytics.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "MetricDrift"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.Drift.Alignment"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.metricdrift.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "MetricTrend"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.Trend.Alignment"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.metrictrend.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "PolicyCohortAnalytics"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.PolicyCohorts"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.policycohortanalytics.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "PolicyCohortComparison"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.PolicyEvaluation.Comparisons"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.policycohortcomparison.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "PolicyCohortKey"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.PolicyCohorts.Key"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.policycohortkey.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "PolicyEvaluation"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.PolicyEvaluation"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.policyevaluation.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "PolicyEvaluationMarkers"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.PolicyEvaluation.Markers"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.policyevaluationmarkers.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "TrendAnalytics"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.Trend"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.trendanalytics.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationanalytics"
+    type: "WindowAnalytics"
+    classification: public_output
+    root_contracts: ["synora.cge.analytics-report.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationanalytics/CalibrationAnalyticsReport.Windows"]
+    serialization_evidence: ["Runtime.CalibrationAnalyticsReport — Runtime.CalibrationAnalyticsReport() returns detached report; json.Marshal(report) exists in qualification test only"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationanalytics.windowanalytics.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationledger"
+    type: "AggregateSnapshot"
+    classification: public_output
+    root_contracts: ["(undeclared CGE runtime output)"]
+    reachability_paths: ["WorkflowCalibrationSnapshot().Aggregate"]
+    serialization_evidence: ["ShadowEngine.WorkflowCalibrationSnapshot — ShadowEngine.WorkflowCalibrationSnapshot() returns detached ledger snapshot"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationledger.aggregatesnapshot.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationledger"
+    type: "CalibrationDimensionSummary"
+    classification: nested_wire
+    root_contracts: ["synora.cge.calibration-record.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationledger/CalibrationRecord.Dimensions"]
+    serialization_evidence: ["internal/cge/calibrationledger/file_store.go:116 canonicalJSON(envelope) -> json.Marshal"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.calibrationledger.calibrationdimensionsummary.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationledger"
+    type: "CalibrationRecordMarkers"
+    classification: nested_wire
+    root_contracts: ["synora.cge.calibration-record.v1"]
+    reachability_paths: ["synora/internal/cge/calibrationledger/CalibrationRecord.Markers"]
+    serialization_evidence: ["internal/cge/calibrationledger/file_store.go:116 canonicalJSON(envelope) -> json.Marshal"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.calibrationledger.calibrationrecordmarkers.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationledger"
+    type: "Snapshot"
+    classification: public_output
+    root_contracts: ["(undeclared CGE runtime output)"]
+    reachability_paths: ["WorkflowCalibrationSnapshot()"]
+    serialization_evidence: ["ShadowEngine.WorkflowCalibrationSnapshot — ShadowEngine.WorkflowCalibrationSnapshot() returns detached ledger snapshot"]
+    wire_role: public_output
+    future_contract: synora.cge.output.calibrationledger.snapshot.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/calibrationledger"
+    type: "Status"
+    classification: scanner_false_positive
+    root_contracts: ["(none)"]
+    reachability_paths: ["invalid scanner path: synora/internal/cge/chains/journal/HypothesisResolvedPayload.PreviousStatus"]
+    serialization_evidence: ["none"]
+    wire_role: scanner_false_positive
+    future_contract: synora.cge.scanner-correction.package-qualified-types.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/chains"
+    type: "ConfidenceContribution"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-contribution-added-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/ContributionAddedPayload.Contribution"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.chains.confidencecontribution.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/chains"
+    type: "RevisionRecord"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-contribution-added-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/ContributionAddedPayload.Revision"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.chains.revisionrecord.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/chains"
+    type: "Snapshot"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-chain-added-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/ChainAddedPayload.Chain"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.chains.snapshot.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/chains/evidence"
+    type: "ContributionProposal"
+    classification: nested_wire
+    root_contracts: ["synora.cge.evidence-evaluation.v1"]
+    reachability_paths: ["synora/internal/cge/chains/evidence/EvidenceEvaluation.Proposal"]
+    serialization_evidence: ["journal/workflow encoders marshal evidence evaluation"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.evidence.contributionproposal.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/chains/evidence"
+    type: "EvidenceFact"
+    classification: nested_wire
+    root_contracts: ["synora.cge.evidence-evaluation.v1"]
+    reachability_paths: ["synora/internal/cge/chains/evidence/EvidenceEvaluation.Facts"]
+    serialization_evidence: ["journal/workflow encoders marshal evidence evaluation"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.evidence.evidencefact.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/chains/evidence"
+    type: "ResolutionValues"
+    classification: nested_wire
+    root_contracts: ["synora.cge.evidence-evaluation.v1"]
+    reachability_paths: ["synora/internal/cge/chains/evidence/EvidenceEvaluation.ResolutionValues"]
+    serialization_evidence: ["journal/workflow encoders marshal evidence evaluation"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.evidence.resolutionvalues.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/chains/generations"
+    type: "Generation"
+    classification: nested_wire
+    root_contracts: ["synora.cge.generation-manifest.v1"]
+    reachability_paths: ["synora/internal/cge/chains/generations/Manifest.Active"]
+    serialization_evidence: ["internal/cge/chains/generations/store.go:388 json.Marshal(manifest)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.generations.generation.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/chains/journal"
+    type: "ResolutionChainDelta"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.ChainDelta"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.journal.resolutionchaindelta.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/chains/journal"
+    type: "ResolutionNoChainEffectPayload"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.ChainDelta.NoChainEffect"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.journal.resolutionnochaineffectpayload.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitiverecommendation"
+    type: "CognitiveRecommendation"
+    classification: public_output
+    root_contracts: ["synora.cge.recommendation-set.v1"]
+    reachability_paths: ["synora/internal/cge/cognitiverecommendation/CognitiveRecommendationSet.Recommendations"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Recommendations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitiverecommendation.cognitiverecommendation.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitiverecommendation"
+    type: "RecommendationMarkers"
+    classification: public_output
+    root_contracts: ["synora.cge.recommendation-set.v1"]
+    reachability_paths: ["synora/internal/cge/cognitiverecommendation/CognitiveRecommendationSet.Recommendations.Markers"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Recommendations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitiverecommendation.recommendationmarkers.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitiverecommendation"
+    type: "RecommendationSetMarkers"
+    classification: public_output
+    root_contracts: ["synora.cge.recommendation-set.v1"]
+    reachability_paths: ["synora/internal/cge/cognitiverecommendation/CognitiveRecommendationSet.Markers"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Recommendations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitiverecommendation.recommendationsetmarkers.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitiverecommendation"
+    type: "RecommendationTarget"
+    classification: public_output
+    root_contracts: ["synora.cge.recommendation-set.v1"]
+    reachability_paths: ["synora/internal/cge/cognitiverecommendation/CognitiveRecommendationSet.Recommendations.Target"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Recommendations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitiverecommendation.recommendationtarget.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitivesituation"
+    type: "AdvisorySummary"
+    classification: public_output
+    root_contracts: ["synora.cge.cognitive-situation.v1"]
+    reachability_paths: ["synora/internal/cge/cognitivesituation/CognitiveSituation.Advisory"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Situations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitivesituation.advisorysummary.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitivesituation"
+    type: "AuthorizationSummary"
+    classification: public_output
+    root_contracts: ["synora.cge.cognitive-situation.v1"]
+    reachability_paths: ["synora/internal/cge/cognitivesituation/CognitiveSituation.Authorization"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Situations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitivesituation.authorizationsummary.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitivesituation"
+    type: "CapabilitySummary"
+    classification: public_output
+    root_contracts: ["synora.cge.cognitive-situation.v1"]
+    reachability_paths: ["synora/internal/cge/cognitivesituation/CognitiveSituation.Capability"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Situations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitivesituation.capabilitysummary.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitivesituation"
+    type: "CognitiveSituationMarkers"
+    classification: public_output
+    root_contracts: ["synora.cge.cognitive-situation.v1"]
+    reachability_paths: ["synora/internal/cge/cognitivesituation/CognitiveSituation.Markers"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Situations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitivesituation.cognitivesituationmarkers.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitivesituation"
+    type: "EvidenceSummary"
+    classification: public_output
+    root_contracts: ["synora.cge.cognitive-situation.v1"]
+    reachability_paths: ["synora/internal/cge/cognitivesituation/CognitiveSituation.Evidence"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Situations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitivesituation.evidencesummary.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitivesituation"
+    type: "HypothesisAlternative"
+    classification: public_output
+    root_contracts: ["synora.cge.cognitive-situation.v1"]
+    reachability_paths: ["synora/internal/cge/cognitivesituation/CognitiveSituation.Hypotheses.Alternatives"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Situations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitivesituation.hypothesisalternative.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitivesituation"
+    type: "HypothesisSummary"
+    classification: public_output
+    root_contracts: ["synora.cge.cognitive-situation.v1"]
+    reachability_paths: ["synora/internal/cge/cognitivesituation/CognitiveSituation.Hypotheses"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Situations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitivesituation.hypothesissummary.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitivesituation"
+    type: "KnowledgeSummary"
+    classification: public_output
+    root_contracts: ["synora.cge.cognitive-situation.v1"]
+    reachability_paths: ["synora/internal/cge/cognitivesituation/CognitiveSituation.Knowledge"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Situations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitivesituation.knowledgesummary.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitivesituation"
+    type: "LayerKnowledgeState"
+    classification: public_output
+    root_contracts: ["synora.cge.cognitive-situation.v1"]
+    reachability_paths: ["synora/internal/cge/cognitivesituation/CognitiveSituation.Knowledge.LayerStates"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Situations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitivesituation.layerknowledgestate.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitivesituation"
+    type: "RecommendationReadiness"
+    classification: public_output
+    root_contracts: ["synora.cge.cognitive-situation.v1"]
+    reachability_paths: ["synora/internal/cge/cognitivesituation/CognitiveSituation.RecommendationReadiness"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Situations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitivesituation.recommendationreadiness.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/cognitivesituation"
+    type: "SourceFingerprints"
+    classification: public_output
+    root_contracts: ["synora.cge.cognitive-situation.v1"]
+    reachability_paths: ["synora/internal/cge/cognitivesituation/CognitiveSituation.SourceFingerprints"]
+    serialization_evidence: ["ShadowEngine.WorkflowProjection — ShadowEngine.WorkflowProjection() -> Situations projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.cognitivesituation.sourcefingerprints.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/context"
+    type: "TemporalContext"
+    classification: nested_wire
+    root_contracts: ["synora.cge.context-frame.v1"]
+    reachability_paths: ["synora/internal/cge/context/Frame.Time"]
+    serialization_evidence: ["journal/workflow encoders marshal Frame"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.context.temporalcontext.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/decisioncomparison"
+    type: "ComparisonDimension"
+    classification: nested_wire
+    root_contracts: ["synora.cge.historical-comparison.v1"]
+    reachability_paths: ["synora/internal/cge/decisioncomparison/HistoricalDecisionComparison.Dimensions"]
+    serialization_evidence: ["json.Marshal(root) at the owning CGE writer"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.decisioncomparison.comparisondimension.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/decisioncomparison"
+    type: "ComparisonMarkers"
+    classification: nested_wire
+    root_contracts: ["synora.cge.historical-comparison.v1"]
+    reachability_paths: ["synora/internal/cge/decisioncomparison/HistoricalDecisionComparison.Markers"]
+    serialization_evidence: ["json.Marshal(root) at the owning CGE writer"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.decisioncomparison.comparisonmarkers.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/durableworkflow"
+    type: "EpisodeWorkflowState"
+    classification: nested_wire
+    root_contracts: ["synora.cge.workflow-checkpoint.v1"]
+    reachability_paths: ["synora/internal/cge/durableworkflow/Checkpoint.State.Episodes"]
+    serialization_evidence: ["internal/cge/durableworkflow/codec.go:95 json.Marshal(checkpoint)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.durableworkflow.episodeworkflowstate.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/durableworkflow"
+    type: "WorkflowState"
+    classification: nested_wire
+    root_contracts: ["synora.cge.workflow-checkpoint.v1"]
+    reachability_paths: ["synora/internal/cge/durableworkflow/Checkpoint.State"]
+    serialization_evidence: ["internal/cge/durableworkflow/codec.go:95 json.Marshal(checkpoint)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.durableworkflow.workflowstate.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/episodes"
+    type: "ChainRef"
+    classification: nested_wire
+    root_contracts: ["synora.cge.episode-snapshot.v1"]
+    reachability_paths: ["synora/internal/cge/episodes/Episode.ChainRefs"]
+    serialization_evidence: ["durableworkflow/codec.go:95 json.Marshal(checkpoint)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.episodes.chainref.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/episodes"
+    type: "DeviationRef"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-observation-added-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/ObservationAddedPayload.Observation.Deviation"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.episodes.deviationref.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/episodes"
+    type: "NodeRef"
+    classification: nested_wire
+    root_contracts: ["synora.cge.episode-snapshot.v1"]
+    reachability_paths: ["synora/internal/cge/episodes/Episode.Nodes"]
+    serialization_evidence: ["durableworkflow/codec.go:95 json.Marshal(checkpoint)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.episodes.noderef.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/episodes"
+    type: "ObservationRef"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-observation-added-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/ObservationAddedPayload.Observation"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.episodes.observationref.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/episodes"
+    type: "RoutineRef"
+    classification: nested_wire
+    root_contracts: ["synora.cge.episode-snapshot.v1"]
+    reachability_paths: ["synora/internal/cge/episodes/Episode.RoutineRefs"]
+    serialization_evidence: ["durableworkflow/codec.go:95 json.Marshal(checkpoint)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.episodes.routineref.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/episodes"
+    type: "Snapshot"
+    classification: scanner_false_positive
+    root_contracts: ["(none)"]
+    reachability_paths: ["invalid scanner path: synora/internal/cge/chains/journal/ChainAddedPayload.Chain"]
+    serialization_evidence: ["none"]
+    wire_role: scanner_false_positive
+    future_contract: synora.cge.scanner-correction.package-qualified-types.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/episodes"
+    type: "SubjectRef"
+    classification: nested_wire
+    root_contracts: ["synora.cge.episode-snapshot.v1"]
+    reachability_paths: ["synora/internal/cge/episodes/Episode.Subjects"]
+    serialization_evidence: ["durableworkflow/codec.go:95 json.Marshal(checkpoint)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.episodes.subjectref.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/fieldtrial"
+    type: "Annotation"
+    classification: nested_wire
+    root_contracts: ["synora.cge.field-trial-record.v1;synora.cge.field-trial-annotation-envelope.v1"]
+    reachability_paths: ["synora/internal/cge/fieldtrial/AnnotationEnvelope.Payload"]
+    serialization_evidence: ["internal/cge/fieldtrial/segment.go:53/64 json.Marshal(envelope)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.fieldtrial.annotation.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/fieldtrial"
+    type: "ConfigurationSnapshot"
+    classification: nested_wire
+    root_contracts: ["synora.cge.field-trial-manifest.v1"]
+    reachability_paths: ["synora/internal/cge/fieldtrial/SessionManifest.CGEConfiguration"]
+    serialization_evidence: ["internal/cge/fieldtrial/operations.go:213 json.MarshalIndent(manifest)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.fieldtrial.configurationsnapshot.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/fieldtrial"
+    type: "PolicyVersions"
+    classification: nested_wire
+    root_contracts: ["synora.cge.field-trial-manifest.v1"]
+    reachability_paths: ["synora/internal/cge/fieldtrial/SessionManifest.PolicyVersions"]
+    serialization_evidence: ["internal/cge/fieldtrial/operations.go:213 json.MarshalIndent(manifest)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.fieldtrial.policyversions.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/fieldtrial"
+    type: "TrialEvent"
+    classification: nested_wire
+    root_contracts: ["synora.cge.field-trial-envelope.v1"]
+    reachability_paths: ["synora/internal/cge/fieldtrial/Envelope.Payload"]
+    serialization_evidence: ["internal/cge/fieldtrial/segment.go:53/64 json.Marshal(envelope)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.fieldtrial.trialevent.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "AddContributionEffect"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.Effect.AddContribution"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.addcontributioneffect.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "AddContributionOutcome"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.Outcome.AddContribution"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.addcontributionoutcome.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "AttachObservationEffect"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.Effect.AttachObservation"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.attachobservationeffect.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "AttachObservationOutcome"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.Outcome.AttachObservation"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.attachobservationoutcome.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "ContributionTemplate"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.Effect.AddContribution.ContributionTemplate"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.contributiontemplate.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "CreateCandidateEffect"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.Effect.CreateCandidate"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.createcandidateeffect.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "CreateCandidateOutcome"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.Outcome.CreateCandidate"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.createcandidateoutcome.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "Lineage"
+    classification: nested_wire
+    root_contracts: ["synora.cge.hypothesis-set.v1"]
+    reachability_paths: ["synora/internal/cge/hypotheses/Snapshot.Lineage"]
+    serialization_evidence: ["journal/workflow encoders marshal hypothesis snapshot"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.lineage.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "NoChainEffect"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.Effect.NoChainEffect"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.nochaineffect.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "NoChainEffectOutcome"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.Outcome.NoChainEffect"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.nochaineffectoutcome.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "Provenance"
+    classification: nested_wire
+    root_contracts: ["synora.cge.hypothesis-set.v1"]
+    reachability_paths: ["synora/internal/cge/hypotheses/Snapshot.Provenance"]
+    serialization_evidence: ["journal/workflow encoders marshal hypothesis snapshot"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.provenance.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "ResolutionEffect"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.Effect"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.resolutioneffect.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "ResolutionOutcome"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-hypothesis-resolved-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/HypothesisResolvedPayload.Outcome"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.resolutionoutcome.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "ResolutionSnapshot"
+    classification: nested_wire
+    root_contracts: ["synora.cge.hypothesis-set.v1"]
+    reachability_paths: ["synora/internal/cge/hypotheses/Snapshot.Resolution"]
+    serialization_evidence: ["journal/workflow encoders marshal hypothesis snapshot"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.resolutionsnapshot.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "RevisionRecord"
+    classification: nested_wire
+    root_contracts: ["synora.cge.journal-contribution-added-payload.v1"]
+    reachability_paths: ["synora/internal/cge/chains/journal/ContributionAddedPayload.Revision"]
+    serialization_evidence: ["internal/cge/chains/journal/file_journal.go:676 json.Marshal(record) (payload built with json.Marshal)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.revisionrecord.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/hypotheses"
+    type: "Subject"
+    classification: nested_wire
+    root_contracts: ["synora.cge.hypothesis-set.v1"]
+    reachability_paths: ["synora/internal/cge/hypotheses/Snapshot.Subject"]
+    serialization_evidence: ["journal/workflow encoders marshal hypothesis snapshot"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.hypotheses.subject.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/shadowworkflow"
+    type: "CalibrationAnalyticsStatus"
+    classification: public_output
+    root_contracts: ["synora.cge.workflow-status.v1"]
+    reachability_paths: ["synora/internal/cge/shadowworkflow/StatusSnapshot.CalibrationAnalytics"]
+    serialization_evidence: ["ShadowEngine.WorkflowStatus/WorkflowProjection — ShadowEngine.WorkflowStatus()/WorkflowProjection() returns detached read-only projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.shadowworkflow.calibrationanalyticsstatus.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/shadowworkflow"
+    type: "CalibrationLedgerStatus"
+    classification: public_output
+    root_contracts: ["synora.cge.workflow-status.v1"]
+    reachability_paths: ["synora/internal/cge/shadowworkflow/StatusSnapshot.CalibrationLedger"]
+    serialization_evidence: ["ShadowEngine.WorkflowStatus/WorkflowProjection — ShadowEngine.WorkflowStatus()/WorkflowProjection() returns detached read-only projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.shadowworkflow.calibrationledgerstatus.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/shadowworkflow"
+    type: "CognitiveRecommendationSnapshot"
+    classification: public_output
+    root_contracts: ["synora.cge.workflow-projection.v1"]
+    reachability_paths: ["synora/internal/cge/shadowworkflow/CognitiveProjectionSnapshot.Recommendations"]
+    serialization_evidence: ["ShadowEngine.WorkflowStatus/WorkflowProjection — ShadowEngine.WorkflowStatus()/WorkflowProjection() returns detached read-only projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.shadowworkflow.cognitiverecommendationsnapshot.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/shadowworkflow"
+    type: "CognitiveSituationSnapshot"
+    classification: public_output
+    root_contracts: ["synora.cge.workflow-projection.v1"]
+    reachability_paths: ["synora/internal/cge/shadowworkflow/CognitiveProjectionSnapshot.Situations"]
+    serialization_evidence: ["ShadowEngine.WorkflowStatus/WorkflowProjection — ShadowEngine.WorkflowStatus()/WorkflowProjection() returns detached read-only projection"]
+    wire_role: public_output
+    future_contract: synora.cge.output.shadowworkflow.cognitivesituationsnapshot.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/situationfacts"
+    type: "ConflictSet"
+    classification: nested_wire
+    root_contracts: ["synora.cge.fact-set.v1"]
+    reachability_paths: ["synora/internal/cge/situationfacts/FactSet.Conflicts"]
+    serialization_evidence: ["durableworkflow/codec.go:95 json.Marshal(checkpoint)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.situationfacts.conflictset.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/situationfacts"
+    type: "Fact"
+    classification: nested_wire
+    root_contracts: ["synora.cge.fact-set.v1"]
+    reachability_paths: ["synora/internal/cge/situationfacts/FactSet.Facts"]
+    serialization_evidence: ["durableworkflow/codec.go:95 json.Marshal(checkpoint)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.situationfacts.fact.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/situationfacts"
+    type: "FactQuality"
+    classification: nested_wire
+    root_contracts: ["synora.cge.fact-set.v1"]
+    reachability_paths: ["synora/internal/cge/situationfacts/FactSet.Facts.Quality"]
+    serialization_evidence: ["durableworkflow/codec.go:95 json.Marshal(checkpoint)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.situationfacts.factquality.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/situationfacts"
+    type: "FactSubject"
+    classification: nested_wire
+    root_contracts: ["synora.cge.fact-set.v1"]
+    reachability_paths: ["synora/internal/cge/situationfacts/FactSet.Facts.Subject"]
+    serialization_evidence: ["durableworkflow/codec.go:95 json.Marshal(checkpoint)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.situationfacts.factsubject.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/situationfacts"
+    type: "FactValue"
+    classification: nested_wire
+    root_contracts: ["synora.cge.fact-set.v1"]
+    reachability_paths: ["synora/internal/cge/situationfacts/FactSet.Facts.Value"]
+    serialization_evidence: ["durableworkflow/codec.go:95 json.Marshal(checkpoint)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.situationfacts.factvalue.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/situationfacts"
+    type: "ProvenanceRef"
+    classification: nested_wire
+    root_contracts: ["synora.cge.fact-set.v1"]
+    reachability_paths: ["synora/internal/cge/situationfacts/FactSet.Facts.Provenance"]
+    serialization_evidence: ["durableworkflow/codec.go:95 json.Marshal(checkpoint)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.situationfacts.provenanceref.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/internal/cge/situationfacts"
+    type: "Snapshot"
+    classification: scanner_false_positive
+    root_contracts: ["(none)"]
+    reachability_paths: ["invalid scanner path: synora/internal/cge/chains/journal/ChainAddedPayload.Chain"]
+    serialization_evidence: ["none"]
+    wire_role: scanner_false_positive
+    future_contract: synora.cge.scanner-correction.package-qualified-types.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/pkg/contract"
+    type: "ActionPlanItem"
+    classification: nested_wire
+    root_contracts: ["synora.contract.historical-decision.v1"]
+    reachability_paths: ["synora/pkg/contract/Decision.FinalActionPlan"]
+    serialization_evidence: ["Core state/bus JSON encoders (Decision marshalled at boundary)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.contract.actionplanitem.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/pkg/contract"
+    type: "CgeBlockedAction"
+    classification: nested_wire
+    root_contracts: ["synora.cge.feedback.v1"]
+    reachability_paths: ["synora/internal/cge/FeedbackFile.Evaluations.BlockedActions"]
+    serialization_evidence: ["internal/cge/feedback.go:296 json.MarshalIndent(FeedbackFile)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.contract.cgeblockedaction.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/pkg/contract"
+    type: "CgeChainFeedback"
+    classification: nested_wire
+    root_contracts: ["synora.cge.feedback.v1"]
+    reachability_paths: ["synora/internal/cge/FeedbackFile.Chains"]
+    serialization_evidence: ["internal/cge/feedback.go:296 json.MarshalIndent(FeedbackFile)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.contract.cgechainfeedback.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/pkg/contract"
+    type: "CgeEvaluationFeedback"
+    classification: nested_wire
+    root_contracts: ["synora.cge.feedback.v1"]
+    reachability_paths: ["synora/internal/cge/FeedbackFile.Evaluations"]
+    serialization_evidence: ["internal/cge/feedback.go:296 json.MarshalIndent(FeedbackFile)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.contract.cgeevaluationfeedback.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/pkg/contract"
+    type: "CgePreferredActionSpec"
+    classification: nested_wire
+    root_contracts: ["synora.cge.feedback.v1"]
+    reachability_paths: ["synora/internal/cge/FeedbackFile.Evaluations.PreferredActionDetails"]
+    serialization_evidence: ["internal/cge/feedback.go:296 json.MarshalIndent(FeedbackFile)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.contract.cgepreferredactionspec.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/pkg/contract"
+    type: "PolicyActionDecision"
+    classification: nested_wire
+    root_contracts: ["synora.contract.historical-decision.v1"]
+    reachability_paths: ["synora/pkg/contract/Decision.PolicyActions"]
+    serialization_evidence: ["Core state/bus JSON encoders (Decision marshalled at boundary)"]
+    wire_role: nested_wire
+    future_contract: synora.cge.subcontract.contract.policyactiondecision.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/pkg/contract"
+    type: "ResidentsSnapshot"
+    classification: opaque_container
+    root_contracts: ["(legacy RPC snapshot; no CGE v1/v2 contract)"]
+    reachability_paths: ["legacySnapshot()..Residents"]
+    serialization_evidence: ["internal/rpc/server.go:legacySnapshot"]
+    wire_role: opaque_container
+    future_contract: synora.cge.opaque.residents-snapshot.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: ["Residents"]
+    status: approved
+  - package: "synora/pkg/contract"
+    type: "Snapshot"
+    classification: legacy_read_only
+    root_contracts: ["(legacy RPC snapshot; no CGE v1/v2 contract)"]
+    reachability_paths: ["legacySnapshot()."]
+    serialization_evidence: ["internal/rpc/server.go:legacySnapshot"]
+    wire_role: legacy_read_only
+    future_contract: synora.cge.legacy.snapshot.v0
+    legacy_only: true
+    scanner_correction: "none"
+    opaque_fields: []
+    status: approved
+  - package: "synora/pkg/contract"
+    type: "StructureSnapshot"
+    classification: opaque_container
+    root_contracts: ["(legacy RPC snapshot; no CGE v1/v2 contract)"]
+    reachability_paths: ["legacySnapshot()..Structure"]
+    serialization_evidence: ["internal/rpc/server.go:legacySnapshot"]
+    wire_role: opaque_container
+    future_contract: synora.cge.opaque.structure-snapshot.v1
+    legacy_only: false
+    scanner_correction: "none"
+    opaque_fields: ["Devices", "Topology"]
+    status: approved

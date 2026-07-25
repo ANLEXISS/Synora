@@ -51,7 +51,13 @@ plan de migration dans une mise à jour du catalogue.
 `check-compat` retourne zéro pour `compatible` et pour une migration
 `migration_required` approuvée, et retourne une erreur pour une migration
 manquante ou une rupture. `check-compat --baseline v2` doit être
-`classification=compatible` pour l'ensemble courant.
+`classification=migration_required` avec `contract-set-v2-to-v3.yaml` approuvée.
+La baseline v3 est immuable et `check-compat --baseline v3` retourne
+`classification=compatible`.
+
+La migration v2→v3 ne réécrit aucun store durable et ne change aucun octet
+wire : elle enregistre la fermeture de portée, les contrats publics exacts,
+les sous-contrats réutilisables, la règle legacy et les unions opaques fermées.
 
 ## Processus contractuel obligatoire
 

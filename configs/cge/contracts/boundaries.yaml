@@ -203,7 +203,7 @@ boundaries:
     consumer: diagnostics
     owner: cge
     input_contracts: [synora.cge.admission-status.v1, synora.cge.workflow-status.v1, synora.cge.recovery-result.v1]
-    output_contracts: [synora.cge.diagnostic-snapshot.v1, synora.cge.error.v1]
+    output_contracts: [synora.cge.output.cge.snapshot.v1, synora.cge.error.v1]
     transport: in_process_snapshot
     validation: bounded_aggregate_and_closed_error_codes
     transformation: detach_runtime_status_without_identifiers
@@ -216,8 +216,8 @@ boundaries:
     producer: diagnostics
     consumer: rpc_api
     owner: cge_api
-    input_contracts: [synora.cge.diagnostic-snapshot.v1, synora.cge.workflow-projection.v1, synora.cge.error.v1]
-    output_contracts: [synora.cge.diagnostic-snapshot.v1, synora.cge.workflow-projection.v1, synora.cge.error.v1]
+    input_contracts: [synora.cge.output.cge.snapshot.v1, synora.cge.workflow-projection.v1, synora.cge.error.v1]
+    output_contracts: [synora.cge.output.cge.snapshot.v1, synora.cge.workflow-projection.v1, synora.cge.error.v1]
     transport: rpc_http_websocket
     validation: endpoint_authorization_and_redaction
     transformation: read_only_projection_and_bounded_error_mapping

@@ -25,10 +25,10 @@ type Snapshot struct {
 }
 
 type StructureSnapshot struct {
-	Topology []map[string]any `json:"topology"`
-	Devices  []map[string]any `json:"devices"`
+	Topology []LegacyTopologyNode `json:"topology"`
+	Devices  []LegacyDeviceView   `json:"devices"`
 }
 
 type ResidentsSnapshot struct {
-	Residents []map[string]any `json:"residents"`
+	Residents []LegacyResidentView `json:"residents"`
 }

@@ -1,0 +1,16 @@
+schema_version: 1
+namespace: synora.cge
+formats:
+  - id: synora.legacy.snapshot.v0
+    package: synora/pkg/contract
+    type: Snapshot
+    accepted_versions: [v0, legacy-json]
+    read_only: true
+    new_writes_allowed: false
+    decoder: internal/rpc/server.go:legacySnapshot bounded decoder
+    canonical_target_contract: synora.cge.legacy.snapshot.v0
+    maximum_record_size: 1MiB
+    unknown_fields: reject
+    unknown_kind: reject
+    sensitive_field_policy: redact-before-conversion
+    automatic_rewrite: false

@@ -64,3 +64,9 @@ potentiellement sensibles. La rétention, la compaction et les limites sont
 attachées à chaque store ; une valeur `explicit_policy_required` signifie que
 la politique est imposée par la configuration opérateur existante, pas qu'une
 suppression automatique est introduite par cette passe.
+
+La surface legacy `Snapshot` est lecture seule. Son décodage est borné,
+convertit vers des variantes canoniques fermées, rejette les champs inconnus
+et ne déclenche aucun append ni réécriture automatique. Les sorties CGE restent
+bornées, redacted, `read_only=true`, d’autorité descriptive/diagnostic/advisory
+et ne produisent ni décision ni action.

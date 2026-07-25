@@ -112,7 +112,29 @@ func TestRecursiveReachabilityFollowsSlicesMapsAndEmbeds(t *testing.T) {
 		{Package: "synora/test", Name: "SensitiveReference", Fields: []gosurface.InventoryField{{GoField: "EntityID", FieldPath: "EntityID", GoType: "string", WireName: "entity_id"}}},
 	}}
 	reachability := RecursiveReachability(inventory, []string{"synora/test/Root"})
-	if len(reachability.Types) != 4 || len(reachability.Fields) != 6 { t.Fatalf("container or embedded reachability incomplete: %+v", reachability) }
+	if len(reachability.Types) != 4 || len(reachability.Fields) != 6 {
+		t.Fatalf("container or embedded reachability incomplete: %+v", reachability)
+	}
+}
+
+func TestRecursiveReachabilityUsesExactImportPackageForQualifiedTypes(t *testing.T) {
+	inventory := gosurface.Inventory{Types: []gosurface.InventoryType{
+		{Package: "synora/internal/cge/root", Name: "Root", Imports: map[string]string{"chains": "synora/internal/cge/chains", "hypotheses": "synora/internal/cge/hypotheses"}, Fields: []gosurface.InventoryField{
+			{GoField: "Chain", FieldPath: "Chain", GoType: "chains.Snapshot", WireName: "chain"},
+			{GoField: "Status", FieldPath: "Status", GoType: "hypotheses.Status", WireName: "status"},
+		}},
+		{Package: "synora/internal/cge/chains", Name: "Snapshot", Fields: []gosurface.InventoryField{{GoField: "ChainID", FieldPath: "ChainID", GoType: "string", WireName: "chain_id"}}},
+		{Package: "synora/internal/cge/hypotheses", Name: "Status", Fields: []gosurface.InventoryField{{GoField: "State", FieldPath: "State", GoType: "string", WireName: "state"}}},
+		{Package: "synora/internal/cge/episodes", Name: "Snapshot", Fields: []gosurface.InventoryField{{GoField: "EpisodeID", FieldPath: "EpisodeID", GoType: "string", WireName: "episode_id"}}},
+		{Package: "synora/internal/cge/chains", Name: "Status", Fields: []gosurface.InventoryField{{GoField: "State", FieldPath: "State", GoType: "string", WireName: "state"}}},
+	}}
+	reachability := RecursiveReachability(inventory, []string{"synora/internal/cge/root/Root"})
+	if !reachability.Types["synora/internal/cge/chains/Snapshot"] || !reachability.Types["synora/internal/cge/hypotheses/Status"] {
+		t.Fatalf("qualified imports were not resolved: %+v", reachability.Types)
+	}
+	if reachability.Types["synora/internal/cge/episodes/Snapshot"] || reachability.Types["synora/internal/cge/chains/Status"] {
+		t.Fatalf("homonymous types leaked into reachability: %+v", reachability.Types)
+	}
 }
 
 func TestTransportDiscoveryFindsRPCBusAndWebSocket(t *testing.T) {
@@ -194,6 +216,59 @@ func bad(path string, data []byte) error { if err := os.WriteFile(path, data, 06
 func ValidateStoreWrite() error { return nil }
 `)
 	sites, err := ScanWriteSites(root)
-	if err != nil { t.Fatal(err) }
-	if len(sites) != 1 || sites[0].Guarded { t.Fatalf("write-after-guard was accepted: %+v", sites) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sites) != 1 || sites[0].Guarded {
+		t.Fatalf("write-after-guard was accepted: %+v", sites)
+	}
+}
+
+func TestPhysicalWriterDoesNotUseGuardedSiblingAsPackageExemption(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, "internal/cge/fixture/writers.go", `package fixture
+import "os"
+func guarded(path string, data []byte) error { if err := ValidateStoreWrite(); err != nil { return err }; return os.WriteFile(path, data, 0600) }
+func unguarded(path string, data []byte) error { return os.WriteFile(path, data, 0600) }
+func ValidateStoreWrite() error { return nil }
+`)
+	sites, err := ScanWriteSites(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guardedSeen, unguardedSeen := false, false
+	for _, site := range sites {
+		switch site.Function {
+		case "guarded":
+			guardedSeen = site.Guarded
+		case "unguarded":
+			unguardedSeen = true
+			if site.Guarded {
+				t.Fatalf("unguarded sibling inherited package guard: %+v", site)
+			}
+		}
+	}
+	if !guardedSeen || !unguardedSeen {
+		t.Fatalf("fixture sites missing: %+v", sites)
+	}
+}
+
+func TestPhysicalWriterRequiresAllCallersToBeGuarded(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, "internal/cge/fixture/shared.go", `package fixture
+import "os"
+func shared(path string, data []byte) error { return os.WriteFile(path, data, 0600) }
+func guardedCaller(path string, data []byte) error { if err := ValidateStoreWrite(); err != nil { return err }; return shared(path, data) }
+func unguardedCaller(path string, data []byte) error { return shared(path, data) }
+func ValidateStoreWrite() error { return nil }
+`)
+	sites, err := ScanWriteSites(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, site := range sites {
+		if site.Function == "shared" && site.Guarded {
+			t.Fatalf("shared write accepted despite an unguarded caller: %+v", site)
+		}
+	}
 }

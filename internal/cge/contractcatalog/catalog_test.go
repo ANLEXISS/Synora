@@ -124,7 +124,7 @@ func copyCatalogFixture(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(fixture, "configs/cge/contracts"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"catalog.yaml", "boundaries.yaml", "stores.yaml", "errors.yaml", "identifiers.yaml", "timestamps.yaml", "transports.yaml", "writers.yaml", "journal-kinds.yaml", "field-mappings.yaml"} {
+	for _, name := range []string{"catalog.yaml", "boundaries.yaml", "stores.yaml", "errors.yaml", "identifiers.yaml", "timestamps.yaml", "transports.yaml", "writers.yaml", "journal-kinds.yaml", "field-mappings.yaml", "scope-decisions.yaml", "legacy-formats.yaml"} {
 		data, err := os.ReadFile(filepath.Join(root, "configs/cge/contracts", name))
 		if err != nil {
 			t.Fatal(err)
@@ -179,7 +179,7 @@ func TestExemptionsRequireApprovedProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated := strings.Replace(string(data), "review_status: approved", "review_status: pending", 1)
+	updated := strings.Replace(string(data), "exemptions: []", "exemptions:\n    - package: synora/test\n      type: Pending\n      field: Value\n      reason: fixture\n      scope: fixture\n      persistence_allowed: false\n      public_output_allowed: false\n      review_status: pending\n      proof: not_reachable_from_contract_roots", 1)
 	if err := os.WriteFile(path, []byte(updated), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -2262,6 +2262,2139 @@ contracts:
         retention: transport_lifetime
         validation: action_policy_validation
 
+  - id: synora.cge.output.cge.metricssnapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/MetricsSnapshot"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: MetricsSnapshot
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.analyticsmarkers.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/AnalyticsMarkers"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: AnalyticsMarkers
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.categoryanalytics.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/CategoryAnalytics"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: CategoryAnalytics
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.datasufficiency.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/DataSufficiency"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: DataSufficiency
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.driftanalytics.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/DriftAnalytics"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: DriftAnalytics
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.globalanalytics.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/GlobalAnalytics"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: GlobalAnalytics
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.metricdrift.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/MetricDrift"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: MetricDrift
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.metrictrend.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/MetricTrend"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: MetricTrend
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.policycohortanalytics.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/PolicyCohortAnalytics"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: PolicyCohortAnalytics
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.policycohortcomparison.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/PolicyCohortComparison"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: PolicyCohortComparison
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.policycohortkey.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/PolicyCohortKey"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: PolicyCohortKey
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.policyevaluation.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/PolicyEvaluation"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: PolicyEvaluation
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.policyevaluationmarkers.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/PolicyEvaluationMarkers"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: PolicyEvaluationMarkers
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.trendanalytics.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/TrendAnalytics"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: TrendAnalytics
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationanalytics.windowanalytics.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationanalytics/WindowAnalytics"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationanalytics
+      type: WindowAnalytics
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationledger.aggregatesnapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationledger/AggregateSnapshot"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationledger
+      type: AggregateSnapshot
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.calibrationledger.calibrationdimensionsummary.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationledger/CalibrationDimensionSummary"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationledger
+      type: CalibrationDimensionSummary
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.calibrationledger.calibrationrecordmarkers.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationledger/CalibrationRecordMarkers"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationledger
+      type: CalibrationRecordMarkers
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.calibrationledger.snapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/calibrationledger/Snapshot"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/calibrationledger
+      type: Snapshot
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.chains.confidencecontribution.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/chains/ConfidenceContribution"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains
+      type: ConfidenceContribution
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.chains.revisionrecord.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/chains/RevisionRecord"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains
+      type: RevisionRecord
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.chains.snapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/chains/Snapshot"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains
+      type: Snapshot
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.evidence.contributionproposal.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/chains/evidence/ContributionProposal"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains/evidence
+      type: ContributionProposal
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.evidence.evidencefact.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/chains/evidence/EvidenceFact"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains/evidence
+      type: EvidenceFact
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.evidence.resolutionvalues.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/chains/evidence/ResolutionValues"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains/evidence
+      type: ResolutionValues
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.generations.generation.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/chains/generations/Generation"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains/generations
+      type: Generation
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.journal.resolutionchaindelta.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/chains/journal/ResolutionChainDelta"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains/journal
+      type: ResolutionChainDelta
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.journal.resolutionnochaineffectpayload.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/chains/journal/ResolutionNoChainEffectPayload"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/chains/journal
+      type: ResolutionNoChainEffectPayload
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitiverecommendation.cognitiverecommendation.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitiverecommendation/CognitiveRecommendation"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitiverecommendation
+      type: CognitiveRecommendation
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitiverecommendation.recommendationmarkers.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitiverecommendation/RecommendationMarkers"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitiverecommendation
+      type: RecommendationMarkers
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitiverecommendation.recommendationsetmarkers.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitiverecommendation/RecommendationSetMarkers"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitiverecommendation
+      type: RecommendationSetMarkers
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitiverecommendation.recommendationtarget.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitiverecommendation/RecommendationTarget"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitiverecommendation
+      type: RecommendationTarget
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitivesituation.advisorysummary.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitivesituation/AdvisorySummary"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: AdvisorySummary
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitivesituation.authorizationsummary.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitivesituation/AuthorizationSummary"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: AuthorizationSummary
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitivesituation.capabilitysummary.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitivesituation/CapabilitySummary"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: CapabilitySummary
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitivesituation.cognitivesituationmarkers.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitivesituation/CognitiveSituationMarkers"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: CognitiveSituationMarkers
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitivesituation.evidencesummary.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitivesituation/EvidenceSummary"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: EvidenceSummary
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitivesituation.hypothesisalternative.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitivesituation/HypothesisAlternative"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: HypothesisAlternative
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitivesituation.hypothesissummary.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitivesituation/HypothesisSummary"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: HypothesisSummary
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitivesituation.knowledgesummary.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitivesituation/KnowledgeSummary"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: KnowledgeSummary
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitivesituation.layerknowledgestate.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitivesituation/LayerKnowledgeState"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: LayerKnowledgeState
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitivesituation.recommendationreadiness.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitivesituation/RecommendationReadiness"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: RecommendationReadiness
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.cognitivesituation.sourcefingerprints.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/cognitivesituation/SourceFingerprints"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/cognitivesituation
+      type: SourceFingerprints
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.context.temporalcontext.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/context/TemporalContext"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/context
+      type: TemporalContext
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.decisioncomparison.comparisondimension.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/decisioncomparison/ComparisonDimension"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/decisioncomparison
+      type: ComparisonDimension
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.decisioncomparison.comparisonmarkers.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/decisioncomparison/ComparisonMarkers"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/decisioncomparison
+      type: ComparisonMarkers
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.durableworkflow.episodeworkflowstate.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/durableworkflow/EpisodeWorkflowState"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/durableworkflow
+      type: EpisodeWorkflowState
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.durableworkflow.workflowstate.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/durableworkflow/WorkflowState"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/durableworkflow
+      type: WorkflowState
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.episodes.chainref.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/episodes/ChainRef"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/episodes
+      type: ChainRef
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.episodes.deviationref.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/episodes/DeviationRef"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/episodes
+      type: DeviationRef
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.episodes.noderef.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/episodes/NodeRef"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/episodes
+      type: NodeRef
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.episodes.observationref.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/episodes/ObservationRef"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/episodes
+      type: ObservationRef
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.episodes.routineref.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/episodes/RoutineRef"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/episodes
+      type: RoutineRef
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.episodes.subjectref.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/episodes/SubjectRef"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/episodes
+      type: SubjectRef
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.fieldtrial.annotation.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/fieldtrial/Annotation"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/fieldtrial
+      type: Annotation
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.fieldtrial.configurationsnapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/fieldtrial/ConfigurationSnapshot"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/fieldtrial
+      type: ConfigurationSnapshot
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.fieldtrial.policyversions.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/fieldtrial/PolicyVersions"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/fieldtrial
+      type: PolicyVersions
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.fieldtrial.trialevent.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/fieldtrial/TrialEvent"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/fieldtrial
+      type: TrialEvent
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.addcontributioneffect.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/AddContributionEffect"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: AddContributionEffect
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.addcontributionoutcome.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/AddContributionOutcome"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: AddContributionOutcome
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.attachobservationeffect.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/AttachObservationEffect"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: AttachObservationEffect
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.attachobservationoutcome.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/AttachObservationOutcome"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: AttachObservationOutcome
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.contributiontemplate.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/ContributionTemplate"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: ContributionTemplate
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.createcandidateeffect.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/CreateCandidateEffect"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: CreateCandidateEffect
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.createcandidateoutcome.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/CreateCandidateOutcome"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: CreateCandidateOutcome
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.lineage.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/Lineage"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: Lineage
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.nochaineffect.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/NoChainEffect"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: NoChainEffect
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.nochaineffectoutcome.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/NoChainEffectOutcome"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: NoChainEffectOutcome
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.provenance.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/Provenance"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: Provenance
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.resolutioneffect.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/ResolutionEffect"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: ResolutionEffect
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.resolutionoutcome.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/ResolutionOutcome"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: ResolutionOutcome
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.resolutionsnapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/ResolutionSnapshot"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: ResolutionSnapshot
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.revisionrecord.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/RevisionRecord"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: RevisionRecord
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.subject.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/hypotheses/Subject"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/hypotheses
+      type: Subject
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.shadowworkflow.calibrationanalyticsstatus.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/shadowworkflow/CalibrationAnalyticsStatus"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/shadowworkflow
+      type: CalibrationAnalyticsStatus
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.shadowworkflow.calibrationledgerstatus.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/shadowworkflow/CalibrationLedgerStatus"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/shadowworkflow
+      type: CalibrationLedgerStatus
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.shadowworkflow.cognitiverecommendationsnapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/shadowworkflow/CognitiveRecommendationSnapshot"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/shadowworkflow
+      type: CognitiveRecommendationSnapshot
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.output.shadowworkflow.cognitivesituationsnapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/shadowworkflow/CognitiveSituationSnapshot"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/shadowworkflow
+      type: CognitiveSituationSnapshot
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.situationfacts.conflictset.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/situationfacts/ConflictSet"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/situationfacts
+      type: ConflictSet
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.situationfacts.fact.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/situationfacts/Fact"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/situationfacts
+      type: Fact
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.situationfacts.factquality.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/situationfacts/FactQuality"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/situationfacts
+      type: FactQuality
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.situationfacts.factsubject.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/situationfacts/FactSubject"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/situationfacts
+      type: FactSubject
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.situationfacts.factvalue.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/situationfacts/FactValue"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/situationfacts
+      type: FactValue
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.situationfacts.provenanceref.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/internal/cge/situationfacts/ProvenanceRef"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge/situationfacts
+      type: ProvenanceRef
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.contract.actionplanitem.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/pkg/contract/ActionPlanItem"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: ActionPlanItem
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.contract.cgeblockedaction.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/pkg/contract/CgeBlockedAction"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: CgeBlockedAction
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.contract.cgechainfeedback.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/pkg/contract/CgeChainFeedback"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: CgeChainFeedback
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.contract.cgeevaluationfeedback.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/pkg/contract/CgeEvaluationFeedback"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: CgeEvaluationFeedback
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.contract.cgepreferredactionspec.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/pkg/contract/CgePreferredActionSpec"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: CgePreferredActionSpec
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.contract.policyactiondecision.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/pkg/contract/PolicyActionDecision"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: PolicyActionDecision
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.opaque.residents-snapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/pkg/contract/ResidentsSnapshot"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: ResidentsSnapshot
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.legacy.snapshot.v0
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: deprecated
+    justification: "Pass 67.4 exact contract for synora/pkg/contract/Snapshot"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: Snapshot
+      wire_format: legacy_json_read_only
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.opaque.structure-snapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, cge_store, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Pass 67.4 exact contract for synora/pkg/contract/StructureSnapshot"
+    migration_policy: "versioned target; legacy bytes are decoded without rewrite"
+    compatibility_policy: "additive fields only; unknown fields rejected at validation boundary"
+    retention_policy: "process_lifetime unless parent durable contract governs retention"
+    implementation:
+      kind: go_struct
+      package: synora/pkg/contract
+      type: StructureSnapshot
+      wire_format: json
+      validator: "ValidateOutput; ValidateAuthority; redaction_and_bounds"
+    fields: []
+  - id: synora.cge.subcontract.episodes.episode-snapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Exact alias contract for episodes.EpisodeSnapshot."
+    migration_policy: alias_identity_preserved
+    compatibility_policy: alias_identity_preserved
+    retention_policy: process_lifetime
+    implementation: {kind: go_alias, package: synora/internal/cge/episodes, type: EpisodeSnapshot, wire_format: json, validator: ValidateOutput}
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.alternative-snapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Exact alias contract for hypotheses.AlternativeSnapshot."
+    migration_policy: alias_identity_preserved
+    compatibility_policy: alias_identity_preserved
+    retention_policy: process_lifetime
+    implementation: {kind: go_alias, package: synora/internal/cge/hypotheses, type: AlternativeSnapshot, wire_format: json, validator: ValidateOutput}
+    fields: []
+  - id: synora.cge.subcontract.hypotheses.assessment-version-snapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Exact alias contract for hypotheses.AssessmentVersionSnapshot."
+    migration_policy: alias_identity_preserved
+    compatibility_policy: alias_identity_preserved
+    retention_policy: process_lifetime
+    implementation: {kind: go_alias, package: synora/internal/cge/hypotheses, type: AssessmentVersionSnapshot, wire_format: json, validator: ValidateOutput}
+    fields: []
+  - id: synora.cge.subcontract.shadowworkflow.historical-decision-comparison-snapshot.v1
+    category: diagnostic
+    owner: cge_contracts
+    producers: [cge_runtime]
+    consumers: [cge_api, contract_review]
+    transport: internal_contract_boundary
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Exact alias contract for shadowworkflow.HistoricalDecisionComparisonSnapshot."
+    migration_policy: alias_identity_preserved
+    compatibility_policy: alias_identity_preserved
+    retention_policy: process_lifetime
+    implementation: {kind: go_alias, package: synora/internal/cge/shadowworkflow, type: HistoricalDecisionComparisonSnapshot, wire_format: json, validator: ValidateOutput}
+    fields: []
+
+  - id: synora.cge.output.cge.snapshot.v1
+    category: diagnostic
+    owner: cge_api
+    producers: [cge_runtime]
+    consumers: [rpc_api, advisory_ui, operators]
+    transport: http_rpc_websocket
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: "Exact read-only CGE projection envelope for runtime transport surfaces."
+    migration_policy: versioned_projection_only
+    compatibility_policy: additive_optional_fields
+    retention_policy: transport_lifetime
+    implementation: {kind: go_struct, package: synora/internal/cge, type: Snapshot, wire_format: json, validator: ValidateOutput}
+    fields: []
+
 admission_events:
   - event_type: vision.identity
     contract: synora.contract.ingested-event.v1

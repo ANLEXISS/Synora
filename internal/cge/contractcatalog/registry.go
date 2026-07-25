@@ -99,6 +99,23 @@ type ErrorDescriptor struct {
 	Authority Authority
 }
 
+type ScopeDecisionDescriptor struct {
+	Package        string
+	Type           string
+	Classification string
+	FutureContract string
+	Status         string
+}
+
+type LegacyFormatDescriptor struct {
+	ID                      string
+	Package                 string
+	Type                    string
+	ReadOnly                bool
+	NewWritesAllowed        bool
+	CanonicalTargetContract string
+}
+
 type WriterDescriptor struct {
 	ID                         string
 	Owner                      string
@@ -144,6 +161,8 @@ type Registry struct {
 	Transports         map[string]TransportSpec
 	Writers            map[string]WriterDescriptor
 	JournalKinds       map[string]JournalKindDescriptor
+	ScopeDecisions     map[string]ScopeDecisionDescriptor
+	LegacyFormats      map[string]LegacyFormatDescriptor
 	ContractHashes     map[string]string
 	CatalogFingerprint string
 }

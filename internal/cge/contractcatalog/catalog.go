@@ -296,6 +296,50 @@ type FieldMappingsFile struct {
 	Exemptions    []MappingExemption `yaml:"exemptions"`
 }
 
+type ScopeDecision struct {
+	Package               string   `yaml:"package"`
+	Type                  string   `yaml:"type"`
+	Classification        string   `yaml:"classification"`
+	RootContracts         []string `yaml:"root_contracts"`
+	ReachabilityPaths     []string `yaml:"reachability_paths"`
+	SerializationEvidence []string `yaml:"serialization_evidence"`
+	WireRole              string   `yaml:"wire_role"`
+	FutureContract        string   `yaml:"future_contract"`
+	LegacyOnly            bool     `yaml:"legacy_only"`
+	ScannerCorrection     string   `yaml:"scanner_correction"`
+	OpaqueFields          []string `yaml:"opaque_fields"`
+	Status                string   `yaml:"status"`
+}
+
+type ScopeDecisionsFile struct {
+	SchemaVersion int             `yaml:"schema_version"`
+	Namespace     string          `yaml:"namespace"`
+	Source        string          `yaml:"source"`
+	Entries       []ScopeDecision `yaml:"entries"`
+}
+
+type LegacyFormat struct {
+	ID                      string   `yaml:"id"`
+	Package                 string   `yaml:"package"`
+	Type                    string   `yaml:"type"`
+	AcceptedVersions        []string `yaml:"accepted_versions"`
+	ReadOnly                bool     `yaml:"read_only"`
+	NewWritesAllowed        bool     `yaml:"new_writes_allowed"`
+	Decoder                 string   `yaml:"decoder"`
+	CanonicalTargetContract string   `yaml:"canonical_target_contract"`
+	MaximumRecordSize       string   `yaml:"maximum_record_size"`
+	UnknownFields           string   `yaml:"unknown_fields"`
+	UnknownKind             string   `yaml:"unknown_kind"`
+	SensitiveFieldPolicy    string   `yaml:"sensitive_field_policy"`
+	AutomaticRewrite        bool     `yaml:"automatic_rewrite"`
+}
+
+type LegacyFormatsFile struct {
+	SchemaVersion int            `yaml:"schema_version"`
+	Namespace     string         `yaml:"namespace"`
+	Formats       []LegacyFormat `yaml:"formats"`
+}
+
 type AdmissionEvent struct {
 	EventType   string `yaml:"event_type"`
 	Contract    string `yaml:"contract"`
@@ -386,16 +430,18 @@ type CatalogError struct {
 }
 
 type CatalogSet struct {
-	Catalog       CatalogFile
-	Boundaries    BoundariesFile
-	Stores        StoresFile
-	Errors        ErrorsFile
-	Identifiers   IdentifiersFile
-	Timestamps    TimestampsFile
-	Transports    TransportsFile
-	Writers       WritersFile
-	JournalKinds  JournalKindsFile
-	FieldMappings FieldMappingsFile
+	Catalog        CatalogFile
+	Boundaries     BoundariesFile
+	Stores         StoresFile
+	Errors         ErrorsFile
+	Identifiers    IdentifiersFile
+	Timestamps     TimestampsFile
+	Transports     TransportsFile
+	Writers        WritersFile
+	JournalKinds   JournalKindsFile
+	FieldMappings  FieldMappingsFile
+	ScopeDecisions ScopeDecisionsFile
+	LegacyFormats  LegacyFormatsFile
 }
 
 // Load reads the four catalog files below root.
@@ -431,6 +477,12 @@ func Load(root string) (CatalogSet, error) {
 	if err := decode(filepath.Join(root, "configs/cge/contracts/field-mappings.yaml"), &result.FieldMappings); err != nil {
 		return CatalogSet{}, err
 	}
+	if err := decode(filepath.Join(root, "configs/cge/contracts/scope-decisions.yaml"), &result.ScopeDecisions); err != nil {
+		return CatalogSet{}, err
+	}
+	if err := decode(filepath.Join(root, "configs/cge/contracts/legacy-formats.yaml"), &result.LegacyFormats); err != nil {
+		return CatalogSet{}, err
+	}
 	if result.Boundaries.SchemaVersion != 1 || result.Boundaries.Namespace != "synora.cge" {
 		return CatalogSet{}, fmt.Errorf("boundaries header must be schema 1, namespace synora.cge")
 	}
@@ -457,6 +509,12 @@ func Load(root string) (CatalogSet, error) {
 	}
 	if result.FieldMappings.SchemaVersion != 1 || result.FieldMappings.Namespace != "synora.cge" {
 		return CatalogSet{}, fmt.Errorf("field-mappings header must be schema 1, namespace synora.cge")
+	}
+	if result.ScopeDecisions.SchemaVersion != 1 || result.ScopeDecisions.Namespace != "synora.cge" || result.ScopeDecisions.Source == "" {
+		return CatalogSet{}, fmt.Errorf("scope-decisions header must be schema 1, namespace synora.cge and sourced")
+	}
+	if result.LegacyFormats.SchemaVersion != 1 || result.LegacyFormats.Namespace != "synora.cge" {
+		return CatalogSet{}, fmt.Errorf("legacy-formats header must be schema 1, namespace synora.cge")
 	}
 	return result, nil
 }
@@ -758,13 +816,67 @@ func validateSet(set CatalogSet) error {
 	if err := validateFieldMappings(set, contracts); err != nil {
 		return err
 	}
+	if err := validateScopeDecisions(set, contracts); err != nil {
+		return err
+	}
+	if err := validateLegacyFormats(set, contracts); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateScopeDecisions(set CatalogSet, contracts map[string]CatalogContract) error {
+	allowed := map[string]bool{"public_output": true, "nested_wire": true, "legacy_read_only": true, "scanner_false_positive": true, "opaque_container": true}
+	seen := map[string]bool{}
+	counts := map[string]int{}
+	for _, entry := range set.ScopeDecisions.Entries {
+		key := entry.Package + "/" + entry.Type
+		if entry.Package == "" || entry.Type == "" || seen[key] || !allowed[entry.Classification] || entry.Status != "approved" || len(entry.RootContracts) == 0 || len(entry.ReachabilityPaths) == 0 || len(entry.SerializationEvidence) == 0 || entry.WireRole == "" || entry.FutureContract == "" || entry.ScannerCorrection == "" {
+			return fmt.Errorf("scope decision %s is incomplete, duplicated or has an invalid classification", key)
+		}
+		if entry.Classification != "scanner_false_positive" && !entry.LegacyOnly && entry.FutureContract == "" {
+			return fmt.Errorf("scope decision %s has no target contract", key)
+		}
+		if entry.Classification == "scanner_false_positive" && !strings.HasPrefix(entry.FutureContract, "synora.cge.scanner-correction.") {
+			return fmt.Errorf("scanner correction %s has no correction target", key)
+		}
+		if entry.Classification == "legacy_read_only" && (!entry.LegacyOnly || entry.FutureContract != "synora.cge.legacy.snapshot.v0") {
+			return fmt.Errorf("legacy scope decision %s is not read-only governed", key)
+		}
+		seen[key] = true
+		counts[entry.Classification]++
+	}
+	if len(seen) != 96 || counts["public_output"] != 36 || counts["nested_wire"] != 54 || counts["legacy_read_only"] != 1 || counts["scanner_false_positive"] != 3 || counts["opaque_container"] != 2 {
+		return fmt.Errorf("scope decisions must contain exactly 96 entries with C/D/E/G/H counts 36/54/1/3/2, got %d/%d/%d/%d/%d/%d", len(seen), counts["public_output"], counts["nested_wire"], counts["legacy_read_only"], counts["scanner_false_positive"], counts["opaque_container"])
+	}
+	for _, entry := range set.ScopeDecisions.Entries {
+		if entry.Classification == "public_output" || entry.Classification == "nested_wire" || entry.Classification == "opaque_container" {
+			if _, ok := contracts[entry.FutureContract]; !ok {
+				return fmt.Errorf("scope decision %s references missing target contract %q", entry.Package+"/"+entry.Type, entry.FutureContract)
+			}
+		}
+	}
+	return nil
+}
+
+func validateLegacyFormats(set CatalogSet, contracts map[string]CatalogContract) error {
+	if len(set.LegacyFormats.Formats) != 1 {
+		return fmt.Errorf("legacy format registry must contain exactly one format")
+	}
+	format := set.LegacyFormats.Formats[0]
+	if format.ID == "" || format.Package != "synora/pkg/contract" || format.Type != "Snapshot" || len(format.AcceptedVersions) == 0 || !format.ReadOnly || format.NewWritesAllowed || format.Decoder == "" || format.CanonicalTargetContract == "" || format.MaximumRecordSize == "" || format.UnknownFields == "" || format.UnknownKind == "" || format.SensitiveFieldPolicy == "" || format.AutomaticRewrite {
+		return fmt.Errorf("legacy format %q is incomplete or permits new writes", format.ID)
+	}
+	if _, ok := contracts[format.CanonicalTargetContract]; !ok {
+		return fmt.Errorf("legacy format %q references unknown canonical target %q", format.ID, format.CanonicalTargetContract)
+	}
 	return nil
 }
 
 func validateFieldMappings(set CatalogSet, contracts map[string]CatalogContract) error {
 	seen := map[string]bool{}
 	for _, mapping := range set.FieldMappings.Mappings {
-		if mapping.Contract == "" || seen[mapping.Contract] || mapping.Package == "" || mapping.Type == "" || len(mapping.Fields) == 0 {
+		if mapping.Contract == "" || seen[mapping.Contract] || mapping.Package == "" || mapping.Type == "" {
 			return fmt.Errorf("field mapping %s.%s is incomplete or duplicated", mapping.Package, mapping.Type)
 		}
 		contract, ok := contracts[mapping.Contract]
@@ -773,6 +885,9 @@ func validateFieldMappings(set CatalogSet, contracts map[string]CatalogContract)
 		}
 		if contract.Implementation.Package != mapping.Package || contract.Implementation.Type != mapping.Type {
 			return fmt.Errorf("field mapping %s does not match contract implementation", mapping.Contract)
+		}
+		if len(mapping.Fields) == 0 && contract.Implementation.Kind != "go_alias" {
+			return fmt.Errorf("field mapping %s has no fields", mapping.Contract)
 		}
 		fields := map[string]bool{}
 		for _, field := range mapping.Fields {

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"synora/internal/cge/contractcatalog"
+	"synora/internal/cge/contractcatalog/discovery"
 	"synora/internal/cge/contractcatalog/gosurface"
 )
 
@@ -68,6 +69,37 @@ func TestCoverageRejectsReachableExemption(t *testing.T) {
 	}
 }
 
+func TestReachableExemptionSetRejectsNestedTypeAndField(t *testing.T) {
+	reachability := discovery.Reachability{
+		Types: map[string]bool{
+			"synora/test/root/Root":           true,
+			"synora/test/nested/Nested":       true,
+			"synora/test/nested/SensitiveRef": true,
+		},
+		Fields: map[string]bool{
+			"synora/test/nested/Nested/SensitiveReference": true,
+		},
+	}
+	exemptions := []contractcatalog.MappingExemption{
+		{Package: "synora/test/nested", Type: "Nested", Field: "SensitiveReference"},
+		{Package: "synora/test/nested", Type: "SensitiveRef"},
+		{Package: "synora/test/root", Type: "Unreachable", Field: "Value"},
+	}
+	types, fields, paths := reachableExemptionSet(exemptions, reachability)
+	if !types["synora/test/nested/SensitiveRef"] || types["synora/test/nested/Nested"] {
+		t.Fatal("field exemption was incorrectly classified as a type exemption")
+	}
+	if !fields["synora/test/nested/Nested/SensitiveReference"] || len(paths) != 2 {
+		t.Fatalf("nested reachable exemption was not recorded: types=%v fields=%v paths=%v", types, fields, paths)
+	}
+}
+
+func TestOutputContractIdentityIncludesPackage(t *testing.T) {
+	if outputContractKey("synora/one", "Snapshot") == outputContractKey("synora/two", "Snapshot") {
+		t.Fatal("output identity collapsed distinct packages")
+	}
+}
+
 func TestBaselineCannotBeOverwrittenAndCompatibilityIsReadOnly(t *testing.T) {
 	root := t.TempDir()
 	set, err := contractcatalog.Validate(contractgenRoot(t))
@@ -118,6 +150,17 @@ func TestGenerateRenderingDoesNotTouchBaseline(t *testing.T) {
 	if sha256.Sum256(before) != sha256.Sum256(after) {
 		t.Fatal("rendering changed immutable baseline")
 	}
+}
+
+func TestBaselineV3CannotBeOverwritten(t *testing.T) {
+	root := t.TempDir()
+	set, err := contractcatalog.Validate(contractgenRoot(t))
+	if err != nil { t.Fatal(err) }
+	if err := writeBaselineAt(root, set, baselineV3Path); err != nil { t.Fatal(err) }
+	if err := writeBaselineAt(root, set, baselineV3Path); err == nil {
+		t.Fatal("baseline v3 overwrite was accepted")
+	}
+	if err := checkCompatibilityAt(root, set, "v3"); err != nil { t.Fatal(err) }
 }
 
 func TestCompatibilityClassificationIsDeterministic(t *testing.T) {

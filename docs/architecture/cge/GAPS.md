@@ -75,3 +75,12 @@ interprétés comme un autre temps.
 Chaque correction devra mettre à jour le catalogue, les tests d’architecture,
 la documentation de migration et les preuves de non-régression. Un gap ne doit
 pas être masqué par une valeur `stable` ou par une validation permissive.
+
+## Clôture 67.4
+
+Après génération et validation de la passe 67.4, les gaps contractuels
+atteignables sont fermés : les faux positifs G sont résolus par la résolution
+package-qualified, les données C/D sont mappées explicitement, E est gouverné
+en lecture seule et H est fermé par variantes JSON bornées. La couverture
+attendue est `reachable_exemptions=0`, `unmapped_reachable_types=0`,
+`unmapped_reachable_fields=0`, `critical_gaps=0` et `high_contract_gaps=0`.

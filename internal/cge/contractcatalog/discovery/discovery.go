@@ -35,6 +35,7 @@ type WriteSite struct {
 	Function  string `json:"function"`
 	Operation string `json:"operation"`
 	Guarded   bool   `json:"guarded"`
+	position  token.Pos
 }
 
 type Reachability struct {
@@ -262,7 +263,9 @@ func ScanWriteSites(root string) ([]WriteSite, error) {
 					return true
 				}
 				if selectorName(call.Fun) == "ValidateStoreWrite" {
-					info.directGuard = call.Pos()
+					if info.directGuard == token.NoPos || call.Pos() < info.directGuard {
+						info.directGuard = call.Pos()
+					}
 					return true
 				}
 				called := ""
@@ -278,7 +281,7 @@ func ScanWriteSites(root string) ([]WriteSite, error) {
 				operation := selectorName(call.Fun)
 				switch operation {
 				case "Write", "WriteString", "WriteFile", "Rename", "Sync", "Truncate", "Remove":
-					info.writes = append(info.writes, WriteSite{Package: pkg, Function: function.Name.Name, Operation: operation, Guarded: info.directGuard != token.NoPos && info.directGuard < call.Pos()})
+					info.writes = append(info.writes, WriteSite{Package: pkg, Function: function.Name.Name, Operation: operation, Guarded: info.directGuard != token.NoPos && info.directGuard < call.Pos(), position: call.Pos()})
 				}
 				return true
 			})
@@ -294,41 +297,61 @@ func ScanWriteSites(root string) ([]WriteSite, error) {
 			}
 		}
 	}
-	var guardedByCall func(string, map[string]bool) bool
-	guardedByCall = func(key string, seen map[string]bool) bool {
+	// guardedOnEveryPath proves the universal property required by the
+	// contract: every path from a runtime caller to the function boundary has
+	// already executed ValidateStoreWrite. A guarded sibling or another caller
+	// is deliberately not enough. The recursion is conservative on cycles.
+	var guardedOnEveryPath func(string, token.Pos, map[string]bool) bool
+	guardedOnEveryPath = func(key string, boundary token.Pos, seen map[string]bool) bool {
 		if seen[key] {
 			return false
 		}
-		seen[key] = true
 		info := functions[key]
 		if info == nil {
 			return false
 		}
+		if info.directGuard != token.NoPos && info.directGuard < boundary {
+			return true
+		}
+		// A helper that validates before the call also establishes the guard for
+		// all writes after that call in the current function.
 		for _, call := range calls[key] {
+			if call.callPos >= boundary {
+				continue
+			}
 			if callee := functions[call.callee]; callee != nil && callee.directGuard != token.NoPos {
 				return true
 			}
 		}
+		if len(info.callers) == 0 {
+			return false
+		}
+		seen[key] = true
+		defer delete(seen, key)
 		for _, parent := range info.callers {
-			if caller := functions[parent.callee]; caller != nil && caller.directGuard != token.NoPos && caller.directGuard < parent.callPos {
-				return true
-			}
-			if guardedByCall(parent.callee, seen) {
-				return true
+			if !guardedOnEveryPath(parent.callee, parent.callPos, seen) {
+				return false
 			}
 		}
-		return false
+		return true
 	}
 	var result []WriteSite
 	for key, info := range functions {
 		for _, site := range info.writes {
 			if !site.Guarded {
-				site.Guarded = guardedByCall(key, map[string]bool{})
+				site.Guarded = guardedOnEveryPath(key, siteGuardBoundary(site), map[string]bool{})
 			}
 			result = append(result, site)
 		}
 	}
 	return uniqueWriteSites(result), nil
+}
+
+// siteGuardBoundary returns the first source position at which a site can be
+// reached. WriteSite intentionally keeps a compact public shape, so the
+// function's AST order is reconstructed from the recorded call sequence.
+func siteGuardBoundary(site WriteSite) token.Pos {
+	return site.position
 }
 
 func ScanOutputs(root string) ([]Surface, error) {
@@ -490,7 +513,7 @@ func RecursiveReachability(inventory gosurface.Inventory, roots []string) Reacha
 		result.Types[key] = true
 		for _, field := range item.Fields {
 			result.Fields[key+"/"+field.FieldPath] = true
-			for _, child := range referencedTypeNames(field.GoType, item.Package, byKey) {
+			for _, child := range referencedTypeNames(field.GoType, item.Package, item.Imports, byKey) {
 				if !result.Types[child] {
 					queue = append(queue, child)
 				}
@@ -500,7 +523,7 @@ func RecursiveReachability(inventory gosurface.Inventory, roots []string) Reacha
 	return result
 }
 
-func referencedTypeNames(value, currentPackage string, known map[string]gosurface.InventoryType) []string {
+func referencedTypeNames(value, currentPackage string, imports map[string]string, known map[string]gosurface.InventoryType) []string {
 	value = strings.TrimSpace(value)
 	for {
 		switch {
@@ -527,10 +550,21 @@ containersDone:
 		return nil
 	}
 	if strings.Contains(value, ".") {
+		qualifier := value[:strings.LastIndex(value, ".")]
 		name := value[strings.LastIndex(value, ".")+1:]
+		if importPath := imports[qualifier]; importPath != "" {
+			if _, ok := known[importPath+"/"+name]; ok {
+				return []string{importPath + "/" + name}
+			}
+			return nil
+		}
+		// Inventory fixtures may not carry import metadata. A package basename
+		// is still an exact package discriminator; never fan out by type name
+		// alone for a qualified reference.
 		var result []string
 		for key := range known {
-			if strings.HasSuffix(key, "/"+name) {
+			packagePath := strings.TrimSuffix(key, "/"+name)
+			if filepath.Base(packagePath) == qualifier && strings.HasSuffix(key, "/"+name) {
 				result = append(result, key)
 			}
 		}

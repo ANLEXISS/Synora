@@ -45,6 +45,7 @@ type TypeInfo struct {
 	Name    string
 	Kind    string
 	Alias   string
+	Imports map[string]string
 	Fields  []FieldInfo
 }
 
@@ -151,7 +152,7 @@ func ScanAll(root, path string) ([]TypeInfo, error) {
 			return nil, err
 		}
 		for _, info := range types {
-			if info.Kind != "struct" && info.Kind != "alias" {
+			if info.Kind != "struct" && info.Kind != "alias" && info.Kind != "scalar_or_alias" {
 				continue
 			}
 			if info.Kind == "struct" && len(info.Fields) == 0 {
@@ -250,6 +251,7 @@ func parsePackage(directory, importPath string) (map[string]TypeInfo, error) {
 	result := map[string]TypeInfo{}
 	for _, pkg := range files {
 		for _, file := range pkg.Files {
+			imports := packageImports(file)
 			for _, declaration := range file.Decls {
 				gen, ok := declaration.(*ast.GenDecl)
 				if !ok || gen.Tok.String() != "type" {
@@ -260,7 +262,7 @@ func parsePackage(directory, importPath string) (map[string]TypeInfo, error) {
 					if !ok || !ast.IsExported(typeSpec.Name.Name) {
 						continue
 					}
-					info := TypeInfo{Package: importPath, Name: typeSpec.Name.Name, Kind: typeKind(typeSpec.Type)}
+					info := TypeInfo{Package: importPath, Name: typeSpec.Name.Name, Kind: typeKind(typeSpec.Type), Imports: imports}
 					if typeSpec.Assign.IsValid() {
 						info.Kind = "alias"
 						info.Alias = exprString(typeSpec.Type)
@@ -274,6 +276,25 @@ func parsePackage(directory, importPath string) (map[string]TypeInfo, error) {
 		}
 	}
 	return result, nil
+}
+
+func packageImports(file *ast.File) map[string]string {
+	imports := map[string]string{}
+	for _, spec := range file.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil || path == "" {
+			continue
+		}
+		alias := filepath.Base(path)
+		if spec.Name != nil {
+			if spec.Name.Name == "_" || spec.Name.Name == "." {
+				continue
+			}
+			alias = spec.Name.Name
+		}
+		imports[alias] = path
+	}
+	return imports
 }
 
 func typeKind(expr ast.Expr) string {

@@ -12,11 +12,12 @@ type Inventory struct {
 }
 
 type InventoryType struct {
-	Package        string           `yaml:"package"`
-	Name           string           `yaml:"name"`
-	Kind           string           `yaml:"kind"`
-	Implementation string           `yaml:"implementation"`
-	Fields         []InventoryField `yaml:"fields"`
+	Package        string            `yaml:"package"`
+	Name           string            `yaml:"name"`
+	Kind           string            `yaml:"kind"`
+	Implementation string            `yaml:"implementation"`
+	Imports        map[string]string `yaml:"imports,omitempty"`
+	Fields         []InventoryField  `yaml:"fields"`
 }
 
 type InventoryField struct {
@@ -48,7 +49,7 @@ func BuildInventory(root, configPath string) (Inventory, error) {
 	}
 	result := Inventory{SchemaVersion: 1, Namespace: "synora.cge", Types: make([]InventoryType, 0, len(infos))}
 	for _, info := range infos {
-		item := InventoryType{Package: info.Package, Name: info.Name, Kind: info.Kind, Implementation: info.Package + "/" + info.Name, Fields: make([]InventoryField, 0, len(info.Fields))}
+		item := InventoryType{Package: info.Package, Name: info.Name, Kind: info.Kind, Implementation: info.Package + "/" + info.Name, Imports: info.Imports, Fields: make([]InventoryField, 0, len(info.Fields))}
 		for _, field := range info.Fields {
 			if field.WireName == "-" {
 				continue

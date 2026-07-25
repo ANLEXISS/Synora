@@ -160,6 +160,16 @@ Toute nouvelle entrée, sortie, structure sérialisée, persistance, métrique,
 RPC ou donnée cognitive doit mettre à jour le catalogue, la surface Go, le
 registre généré et les tests avant d'être acceptée.
 
+## Portée contractuelle 67.4
+
+L’audit 67.3.2 est conservé dans `configs/cge/contracts/scope-decisions.yaml`.
+Il gouverne 96 types et 952 champs : 36 sorties publiques (C), 54
+sous-structures wire (D), un décodeur legacy en lecture seule (E), trois
+corrections de découverte (G) et deux enveloppes opaques fermées (H). Une
+exemption atteignable n’est plus admise. Les types sont suivis récursivement
+à travers pointeurs, slices, maps typées et embeds, puis reliés à l’encodeur
+réel (journal, WAL, checkpoint, ledger, field trial ou transport).
+
 Le jeu v1 gelé contient les contrats, champs wire, implémentations Go,
 frontières, stores, identifiants, temps, transports, writers et erreurs. Une
 suppression, un renommage, un changement de type wire, un durcissement de
