@@ -141,6 +141,7 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 		authority:           authority,
 		decisionSelector:    NewContractChainSelector(nil, nil, nil, chainRegistry),
 		decisionSynthesizer: DefaultDecisionSynthesizer{},
+		targetResolver:      DefaultCognitiveDecisionTargetResolver{},
 		contextConfig:       config.Context,
 		routineConfig:       config.Routines,
 		deviationConfig:     config.Deviation,
@@ -184,7 +185,7 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 				}()
 				observation := chains.ObservationRef{
 					ID: input.Observation.EventID, EventType: input.Observation.EventType,
-					Timestamp: input.Observation.ObservedAt, ChainID: input.Observation.ChainID,
+					Timestamp: input.Observation.ObservedAt, ChainID: input.HistoricalChainID,
 				}
 				engine.synthesizeDecision(ctx, observation, input.HistoricalDecision)
 			})
@@ -325,6 +326,7 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event, historic
 		e.safeLog("event.scalar_validation")
 		return result, adaptationError("event.scalar_validation")
 	}
+	// This argument is historical diagnostic data; the selector never reads it.
 	adapted.Input.Observation.ChainID = chainID
 	if e.contextProvider != nil {
 		e.metrics.cognitive("context_resolution_attempted")

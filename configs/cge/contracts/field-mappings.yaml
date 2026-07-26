@@ -22725,6 +22725,108 @@ mappings:
           retention: process_lifetime
           identifier_semantic: not_an_identifier
           timestamp_semantic: not_a_timestamp
+    - contract: synora.cge.active-execution-lease.v1
+      package: synora/internal/cge
+      type: ActiveExecutionLease
+      fields:
+        - go_field: DecisionID
+          field_path: DecisionID
+          wire_name: decision_id
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: [synora.store.cge-decision]
+          retention: configured_decision_retention
+          identifier_semantic: decision_id
+          timestamp_semantic: not_a_timestamp
+        - go_field: ActionRequestID
+          field_path: ActionRequestID
+          wire_name: action_request_id
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: [synora.store.cge-decision]
+          retention: configured_decision_retention
+          identifier_semantic: action_request_id
+          timestamp_semantic: not_a_timestamp
+        - go_field: Target
+          field_path: Target
+          wire_name: target
+          go_type: DecisionTarget
+          wire_type: DecisionTarget
+          required: true
+          nullable: false
+          omitempty: false
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: [synora.store.cge-decision]
+          retention: configured_decision_retention
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - go_field: ExecutionType
+          field_path: ExecutionType
+          wire_name: execution_type
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: [synora.store.cge-decision]
+          retention: configured_decision_retention
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - go_field: CreatedAt
+          field_path: CreatedAt
+          wire_name: created_at
+          go_type: time.Time
+          wire_type: time.Time
+          required: true
+          nullable: false
+          omitempty: false
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: [synora.store.cge-decision]
+          retention: configured_decision_retention
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: created_at
+        - go_field: ValidUntil
+          field_path: ValidUntil
+          wire_name: valid_until
+          go_type: time.Time
+          wire_type: time.Time
+          required: true
+          nullable: false
+          omitempty: false
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: [synora.store.cge-decision]
+          retention: configured_decision_retention
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: valid_until
+        - go_field: Status
+          field_path: Status
+          wire_name: status
+          go_type: ExecutionLeaseStatus
+          wire_type: ExecutionLeaseStatus
+          required: true
+          nullable: false
+          omitempty: false
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: [synora.store.cge-decision]
+          retention: configured_decision_retention
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
     - contract: synora.cge.decision-record.v1
       package: synora/internal/cge
       type: DecisionRecord
@@ -22804,6 +22906,20 @@ mappings:
           wire_name: execution_request
           go_type: '*ExecutionRequest'
           wire_type: '*ExecutionRequest'
+          required: false
+          nullable: true
+          omitempty: true
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - go_field: ExecutionLease
+          field_path: ExecutionLease
+          wire_name: execution_lease
+          go_type: '*ActiveExecutionLease'
+          wire_type: '*ActiveExecutionLease'
           required: false
           nullable: true
           omitempty: true

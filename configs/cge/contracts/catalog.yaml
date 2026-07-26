@@ -1599,6 +1599,23 @@ contracts:
     retention_policy: configured_decision_retention
     implementation: {kind: go_struct, package: synora/internal/cge, type: ActionResult, wire_format: json, validator: ActionResult.Validate}
 
+  - id: synora.cge.active-execution-lease.v1
+    category: recommendation
+    owner: cge_authority
+    producers: [cge_decision_authority]
+    consumers: [safety_kernel, diagnostics]
+    transport: internal
+    persistence: [synora.store.cge-decision]
+    authority: advisory
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Closed durable lease correlating an authoritative execution request with conflict ownership.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_lease_status_and_correlation
+    retention_policy: configured_decision_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: ActiveExecutionLease, wire_format: json, validator: ActiveExecutionLease.Validate}
+
   - id: synora.cge.decision-record.v1
     category: recommendation
     owner: cge_authority

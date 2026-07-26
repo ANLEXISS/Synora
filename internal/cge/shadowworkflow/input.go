@@ -13,6 +13,7 @@ type ShadowWorkflowInput struct {
 	ObservedAt              time.Time
 	ReceivedAt              time.Time
 	Observation             episodes.ObservationRef
+	HistoricalChainID       string
 	SourceShadowRevision    uint64
 	SourceShadowFingerprint string
 	HistoricalDecision      *decisioncomparison.HistoricalDecisionRef
@@ -25,7 +26,7 @@ func (i ShadowWorkflowInput) Validate() error {
 	if err := i.Observation.Validate(); err != nil {
 		return ErrInputRejected
 	}
-	if len([]rune(i.SourceShadowFingerprint)) > 256 || strings.ContainsAny(i.SourceShadowFingerprint, "\r\n") {
+	if len([]rune(i.SourceShadowFingerprint)) > 256 || strings.ContainsAny(i.SourceShadowFingerprint, "\r\n") || len([]rune(i.HistoricalChainID)) > 256 || strings.ContainsAny(i.HistoricalChainID, "\r\n") {
 		return ErrInputRejected
 	}
 	if i.HistoricalDecision != nil {

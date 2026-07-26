@@ -45,7 +45,13 @@ type CognitiveDecisionInput struct {
 	ObservedEventType string
 	SituationID       string
 	CognitiveState    string
+	// ChainID is retained as a compatibility alias for a CGE-produced chain
+	// in callers that predate autonomous matching. It is never populated from
+	// the historical engine.
 	ChainID           string
+	HistoricalChainID string
+	CognitiveChainID  string
+	Situation         CognitiveSituationSnapshot
 	CoreRevision      uint64
 	TargetRevision    uint64
 	Target            DecisionTarget
@@ -180,6 +186,8 @@ type ContractChainSelector struct {
 	behaviors []contracts.LearnedBehavior
 	sequences []contracts.LearnedSequence
 	registry  *ChainRegistry
+	catalog   CognitiveChainCatalogProvider
+	matcher   CognitiveChainMatcher
 }
 
 func (s *ContractChainSelector) SetContracts(critical []contracts.CriticalSeed, behaviors []contracts.LearnedBehavior, sequences []contracts.LearnedSequence) {
@@ -192,7 +200,18 @@ func (s *ContractChainSelector) SetContracts(critical []contracts.CriticalSeed, 
 }
 
 func NewContractChainSelector(critical []contracts.CriticalSeed, behaviors []contracts.LearnedBehavior, sequences []contracts.LearnedSequence, registry *ChainRegistry) *ContractChainSelector {
-	return &ContractChainSelector{critical: append([]contracts.CriticalSeed(nil), critical...), behaviors: append([]contracts.LearnedBehavior(nil), behaviors...), sequences: append([]contracts.LearnedSequence(nil), sequences...), registry: registry}
+	return &ContractChainSelector{critical: append([]contracts.CriticalSeed(nil), critical...), behaviors: append([]contracts.LearnedBehavior(nil), behaviors...), sequences: append([]contracts.LearnedSequence(nil), sequences...), registry: registry, matcher: CriticalChainMatcher{}}
+}
+
+func (s *ContractChainSelector) SetCatalogProvider(provider CognitiveChainCatalogProvider) {
+	if s != nil {
+		s.catalog = provider
+	}
+}
+func (s *ContractChainSelector) SetMatcher(matcher CognitiveChainMatcher) {
+	if s != nil && matcher != nil {
+		s.matcher = matcher
+	}
 }
 
 func (s *ContractChainSelector) SelectDecisionChain(ctx context.Context, input CognitiveDecisionInput) (CognitiveChainCandidate, error) {
@@ -209,36 +228,76 @@ func (s *ContractChainSelector) SelectDecisionChain(ctx context.Context, input C
 	if s == nil {
 		return CognitiveChainCandidate{}, ErrNoDecisionChain
 	}
-	// An active learned version always wins, but only the persisted registry
-	// status may make it active.
-	if s.registry != nil {
-		if version, ok := s.registry.SelectVersion(input.ChainID); ok && version.Reference.Class == ChainClassLearned && version.Status == ChainStatusActive {
-			if candidate, ok := s.learnedCandidate(version, input); ok {
-				return candidate, nil
+	critical, behaviors, sequences := s.critical, s.behaviors, s.sequences
+	if s.catalog != nil {
+		snapshot, err := s.catalog.Snapshot(ctx)
+		if err != nil {
+			return CognitiveChainCandidate{}, err
+		}
+		critical, behaviors, sequences = snapshot.CriticalSeeds, snapshot.LearnedBehaviors, snapshot.LearnedSequences
+	}
+	// HistoricalChainID is intentionally not read here. The only acceptable
+	// direct ID is the deprecated CGE alias, and autonomous runtime calls leave
+	// both aliases empty so matching is always based on the situation history.
+	if input.Situation.Validate() == nil && s.matcher != nil {
+		matches, err := s.matcher.Match(ctx, input.Situation, critical)
+		if err != nil {
+			return CognitiveChainCandidate{}, err
+		}
+		for _, match := range matches {
+			matchedInput := input
+			matchedInput.EvidenceRefs = append([]string(nil), input.EvidenceRefs...)
+			seenEvidence := make(map[string]struct{}, len(matchedInput.EvidenceRefs))
+			for _, value := range matchedInput.EvidenceRefs {
+				seenEvidence[value] = struct{}{}
+			}
+			for _, observationID := range match.MatchedObservationIDs {
+				if len(matchedInput.EvidenceRefs) >= maxDecisionEvidenceRefs {
+					break
+				}
+				if _, seen := seenEvidence[observationID]; seen {
+					continue
+				}
+				seenEvidence[observationID] = struct{}{}
+				matchedInput.EvidenceRefs = append(matchedInput.EvidenceRefs, observationID)
+			}
+			if s.registry != nil {
+				if version, ok := s.registry.SelectVersion(match.ChainID); ok && version.Reference.Class == ChainClassLearned && version.Status == ChainStatusActive {
+					if candidate, ok := learnedCandidateFrom(version, behaviors, sequences, matchedInput, match); ok {
+						return candidate, nil
+					}
+				}
+			}
+			for _, seed := range critical {
+				if seed.ID == match.ChainID && seed.Enabled && seed.DeletedAt == nil {
+					return criticalCandidate(seed, matchedInput), nil
+				}
+			}
+		}
+		return CognitiveChainCandidate{}, ErrNoDecisionChain
+	}
+	// Compatibility for direct unit callers: ChainID means a CGE-owned chain
+	// lookup, never a historical reference. This path does not inspect any
+	// historical field and is not used by the runtime.
+	chainID := input.CognitiveChainID
+	if chainID == "" {
+		chainID = input.ChainID
+	}
+	if chainID != "" {
+		if s.registry != nil {
+			if version, ok := s.registry.SelectVersion(chainID); ok && version.Reference.Class == ChainClassLearned && version.Status == ChainStatusActive {
+				if candidate, ok := learnedCandidateFrom(version, behaviors, sequences, input, CognitiveChainMatch{ChainID: chainID, Scope: version.Scope}); ok {
+					return candidate, nil
+				}
+			}
+		}
+		for _, seed := range critical {
+			if seed.ID == chainID && seed.Enabled && seed.DeletedAt == nil {
+				return criticalCandidate(seed, input), nil
 			}
 		}
 	}
-	var selected *contracts.CriticalSeed
-	for index := range s.critical {
-		seed := s.critical[index]
-		if !seed.Enabled || seed.DeletedAt != nil {
-			continue
-		}
-		if input.ChainID != "" && seed.ID != input.ChainID {
-			continue
-		}
-		if input.ChainID == "" && !seedMatchesEvent(seed, input.ObservedEventType) {
-			continue
-		}
-		if selected == nil || len(seed.Sequence) < len(selected.Sequence) || (len(seed.Sequence) == len(selected.Sequence) && seed.ID < selected.ID) {
-			copy := seed
-			selected = &copy
-		}
-	}
-	if selected == nil {
-		return CognitiveChainCandidate{}, ErrNoDecisionChain
-	}
-	return criticalCandidate(*selected, input), nil
+	return CognitiveChainCandidate{}, ErrNoDecisionChain
 }
 
 func seedMatchesEvent(seed contracts.CriticalSeed, eventType string) bool {
@@ -248,6 +307,31 @@ func seedMatchesEvent(seed contracts.CriticalSeed, eventType string) bool {
 		}
 	}
 	return false
+}
+
+func learnedCandidateFrom(version ChainVersion, behaviors []contracts.LearnedBehavior, sequences []contracts.LearnedSequence, input CognitiveDecisionInput, match CognitiveChainMatch) (CognitiveChainCandidate, bool) {
+	if version.Status != ChainStatusActive || version.Reference.Class != ChainClassLearned || version.Reference.Version == 0 || version.Evidence.InvariantViolations != 0 || (input.Target.Scope != "" && !scopeCompatible(version.Scope, input.Target.Scope)) {
+		return CognitiveChainCandidate{}, false
+	}
+	for _, behavior := range behaviors {
+		if behavior.ID != version.Reference.ChainID || !behavior.Enabled || behavior.Forgotten || (behavior.Status != contracts.LearnedBehaviorApproved && behavior.Status != "active") || !validCognitiveExpectedState(behavior.ExpectedState) {
+			continue
+		}
+		actions, err := flattenActions(behavior.ProposedActions)
+		if err != nil {
+			return CognitiveChainCandidate{}, false
+		}
+		candidate := CognitiveChainCandidate{Reference: version.Reference, Source: ChainSourceLearnedBehavior, Status: ChainStatusActive, SituationID: input.SituationID, ExpectedState: behavior.ExpectedState, DangerScore: behavior.DangerScore, Confidence: behavior.Confidence, ProposedActions: actions, ForbiddenActions: append([]string(nil), behavior.ForbiddenActions...), EvidenceRefs: append([]string(nil), input.EvidenceRefs...), Scope: version.Scope}
+		return candidate, candidate.Validate() == nil
+	}
+	for _, sequence := range sequences {
+		if sequence.ID != version.Reference.ChainID || !validCognitiveExpectedState(sequence.ExpectedState) {
+			continue
+		}
+		candidate := CognitiveChainCandidate{Reference: version.Reference, Source: ChainSourceLearnedSequence, Status: ChainStatusActive, SituationID: input.SituationID, ExpectedState: sequence.ExpectedState, DangerScore: sequence.DangerScore, Confidence: sequence.Confidence, EvidenceRefs: append([]string(nil), input.EvidenceRefs...), Scope: version.Scope}
+		return candidate, candidate.Validate() == nil
+	}
+	return CognitiveChainCandidate{}, false
 }
 
 func revisionHash(value any) string {

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -207,7 +209,35 @@ func main() {
 	}
 	if configuredShadow != nil {
 		configuredShadow.SetContextProvider(newCoreReadOnlyContextProvider(app))
-		configuredShadow.SetContractChains(engineInstance.CriticalSeeds(), engineInstance.LearnedBehaviors(), nil)
+		var catalogMu sync.Mutex
+		var catalogFingerprint string
+		var catalogRevision uint64
+		configuredShadow.SetCatalogProvider(cge.FunctionalCognitiveChainCatalogProvider(func(ctx context.Context) (cge.CognitiveChainCatalogSnapshot, error) {
+			if err := ctx.Err(); err != nil {
+				return cge.CognitiveChainCatalogSnapshot{}, err
+			}
+			critical, behaviors, sequences := engineInstance.CriticalSeeds(), engineInstance.LearnedBehaviors(), engineInstance.LearnedSequences()
+			payload, err := json.Marshal(struct {
+				Critical  any
+				Behaviors any
+				Sequences any
+			}{critical, behaviors, sequences})
+			if err != nil {
+				return cge.CognitiveChainCatalogSnapshot{}, err
+			}
+			digest := fmt.Sprintf("%x", sha256.Sum256(payload))
+			catalogMu.Lock()
+			if digest != catalogFingerprint {
+				catalogRevision++
+				catalogFingerprint = digest
+			}
+			if catalogRevision == 0 {
+				catalogRevision = 1
+			}
+			revision := catalogRevision
+			catalogMu.Unlock()
+			return cge.CognitiveChainCatalogSnapshot{Revision: revision, CriticalSeeds: critical, LearnedBehaviors: behaviors, LearnedSequences: sequences, CapturedAt: time.Now().UTC()}, nil
+		}))
 		configuredShadow.SetOperationalSnapshotProvider(&coreOperationalSnapshotProvider{app: app})
 		configuredShadow.SetDecisionPublicationSink(&coreDecisionPublicationSink{bus: app.bus})
 	}

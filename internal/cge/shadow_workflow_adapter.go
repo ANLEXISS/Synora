@@ -64,7 +64,7 @@ func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, histori
 			subject.CandidateEntityIDs = []string{observation.EntityID}
 		}
 	}
-	value := episodes.ObservationRef{EventID: observation.ID, ObservedAt: observed, ReceivedAt: observed, EventType: observation.EventType, NodeID: observation.NodeID, Subject: subject, ActivationID: observation.ActivationID, ClipID: observation.ClipID, TrackID: observation.TrackID, SequenceKey: observation.SequenceKey, ChainID: observation.ChainID}
+	value := episodes.ObservationRef{EventID: observation.ID, ObservedAt: observed, ReceivedAt: observed, EventType: observation.EventType, NodeID: observation.NodeID, Subject: subject, ActivationID: observation.ActivationID, ClipID: observation.ClipID, TrackID: observation.TrackID, SequenceKey: observation.SequenceKey}
 	if observation.Context != nil {
 		value.ZoneID = observation.Context.ZoneID
 		value.HouseMode = string(observation.Context.HouseMode)
@@ -73,7 +73,7 @@ func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, histori
 		value.ContextSnapshotFingerprint = observation.Context.SnapshotFingerprint
 		value.ContextFreshness = observation.Context.FreshnessCode
 	}
-	input := shadowworkflow.ShadowWorkflowInput{EventID: observation.ID, ObservedAt: observed, ReceivedAt: observed, Observation: value, SourceShadowRevision: status.JournalSequence, SourceShadowFingerprint: status.JournalHeadHash}
+	input := shadowworkflow.ShadowWorkflowInput{EventID: observation.ID, ObservedAt: observed, ReceivedAt: observed, Observation: value, HistoricalChainID: observation.ChainID, SourceShadowRevision: status.JournalSequence, SourceShadowFingerprint: status.JournalHeadHash}
 	if historical != nil {
 		copy := historical.Clone()
 		// The historical decision remains authoritative in Core. The Shadow

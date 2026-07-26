@@ -9,6 +9,7 @@ import (
 	"synora/internal/cge/cognitivesituation"
 	"synora/internal/cge/decisioncomparison"
 	"synora/internal/cge/durableworkflow"
+	"synora/internal/cge/episodes"
 )
 
 type CognitiveSituationSnapshot struct {
@@ -84,6 +85,35 @@ func (r *Runtime) SituationForObservation(eventID string) (cognitivesituation.Co
 		return cognitivesituation.CognitiveSituation{}, false
 	}
 	return r.projection.snapshot.Situations.Situations[index].Clone(), true
+}
+
+// ObservationsForObservation returns the detached episode history containing
+// eventID. It is the only history exposed to the CGE chain matcher.
+func (r *Runtime) ObservationsForObservation(eventID string) ([]episodes.ObservationRef, bool) {
+	if r == nil || eventID == "" || r.coordinator == nil {
+		return nil, false
+	}
+	state := r.coordinator.Snapshot()
+	for _, episode := range state.Episodes {
+		if episode.Episode == nil {
+			continue
+		}
+		found := false
+		for _, observation := range episode.Episode.Observations {
+			if observation.EventID == eventID {
+				found = true
+				break
+			}
+		}
+		if found {
+			result := make([]episodes.ObservationRef, len(episode.Episode.Observations))
+			for i, observation := range episode.Episode.Observations {
+				result[i] = observation.Clone()
+			}
+			return result, true
+		}
+	}
+	return nil, false
 }
 
 func (s CognitiveSituationSnapshot) Clone() CognitiveSituationSnapshot {
