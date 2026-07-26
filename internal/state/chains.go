@@ -12,6 +12,7 @@ func (s *Store) SetEventChain(value *contract.EventChain) {
 	}
 	s.mu.Lock()
 	s.EventChains[value.ID] = cloneEventChain(value)
+	s.revision.Add(1)
 	s.mu.Unlock()
 }
 
@@ -46,6 +47,7 @@ func (s *Store) DeleteEventChain(id string) {
 	}
 	s.mu.Lock()
 	delete(s.EventChains, id)
+	s.revision.Add(1)
 	s.mu.Unlock()
 }
 
@@ -55,6 +57,7 @@ func (s *Store) SetCriticalChainMemory(value *contract.CriticalChainMemory) {
 	}
 	s.mu.Lock()
 	s.CriticalChains[value.ID] = cloneCriticalChainMemory(value)
+	s.revision.Add(1)
 	s.mu.Unlock()
 }
 
@@ -89,6 +92,7 @@ func (s *Store) DeleteCriticalChainMemory(id string) {
 	}
 	s.mu.Lock()
 	delete(s.CriticalChains, id)
+	s.revision.Add(1)
 	s.mu.Unlock()
 }
 

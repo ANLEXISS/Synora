@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"synora/internal/cge"
+	"synora/internal/topology"
 	"synora/pkg/contract"
 )
 
@@ -27,28 +28,39 @@ func (p *coreOperationalSnapshotProvider) SnapshotForDecision(ctx context.Contex
 		}
 	}
 	now := time.Now().UTC()
-	revision := p.app.coreRevision.Load()
-	if revision == 0 {
-		revision = 1
-	}
-	system := p.app.state.SystemState()
 	if err := target.Validate(); err != nil {
 		return cge.OperationalSnapshot{}, err
 	}
-	exists := false
+	// Keep Core-owned topology/resident lookups behind the Core lock while the
+	// StateStore portion is captured atomically by DecisionSnapshot.
+	p.app.mu.RLock()
+	revision, system, exists := p.app.state.DecisionSnapshot(string(target.Kind), target.ID)
 	switch target.Kind {
-	case cge.DecisionTargetSystem:
-		exists = target.ID == "system"
 	case cge.DecisionTargetNode:
-		_, exists = p.app.state.NodeState(target.ID)
+		if p.app.topology != nil {
+			if node, ok := p.app.topology.Nodes[target.ID]; ok && node != nil {
+				exists = true
+			}
+		}
 	case cge.DecisionTargetDevice:
-		_, exists = p.app.state.DeviceState(target.ID)
+		if p.app.device != nil {
+			if _, ok := p.app.device.Get(target.ID); ok {
+				exists = true
+			}
+		}
 	case cge.DecisionTargetResident:
-		p.app.mu.RLock()
-		_, exists = p.app.residents[target.ID]
-		p.app.mu.RUnlock()
+		_, configured := p.app.residents[target.ID]
+		exists = exists || configured
 	case cge.DecisionTargetZone:
-		exists = false
+		if p.app.topology != nil {
+			if node, ok := p.app.topology.Nodes[target.ID]; ok && node != nil && node.Type == topology.NodeZone {
+				exists = true
+			}
+		}
+	}
+	p.app.mu.RUnlock()
+	if revision == 0 {
+		return cge.OperationalSnapshot{}, fmt.Errorf("core operational revision unavailable")
 	}
 	usedKeys, conflictingIDs, err := p.decisionContext(ctx, target, now)
 	if err != nil {
@@ -57,7 +69,7 @@ func (p *coreOperationalSnapshotProvider) SnapshotForDecision(ctx context.Contex
 	return cge.OperationalSnapshot{
 		CapturedAt: now, FreshUntil: now.Add(5 * time.Second), Revision: revision,
 		AuthorityMode:       p.app.cognitiveAuthorityMode(),
-		Targets:             []cge.OperationalTarget{{Target: target, Exists: exists, Authorized: exists && !system.Degraded, PhysicalLimit: 100, CurrentRevision: revision}},
+		Targets:             []cge.OperationalTarget{{Target: target, Exists: exists, Authorized: false, PhysicalLimit: 0, CurrentRevision: revision, Authorization: cge.OperationalAuthorization{Known: false, Authorized: false}, PhysicalLimits: cge.OperationalPhysicalLimits{Known: false}}},
 		UsedIdempotencyKeys: usedKeys, ConflictingDecisionIDs: conflictingIDs,
 		CurrentSystemState: system.LastState,
 		SecurityMode:       string(system.Security.Mode),
@@ -75,19 +87,24 @@ func (p *coreOperationalSnapshotProvider) decisionContext(ctx context.Context, t
 	}
 	keys := make([]string, 0, len(records))
 	conflicts := make([]string, 0, len(records))
+	latest := make(map[string]cge.DecisionRecord, len(records))
+	for _, record := range records {
+		latest[record.Envelope.DecisionID] = record
+	}
 	seenKeys := make(map[string]struct{}, len(records))
 	seenConflicts := make(map[string]struct{}, len(records))
-	for _, record := range records {
+	for _, record := range latest {
 		if record.Envelope.IdempotencyKey != "" {
 			if _, seen := seenKeys[record.Envelope.IdempotencyKey]; !seen && len(keys) < 64 {
 				seenKeys[record.Envelope.IdempotencyKey] = struct{}{}
 				keys = append(keys, record.Envelope.IdempotencyKey)
 			}
 		}
-		if record.Status != cge.DecisionPublishedShadow && record.Status != cge.DecisionPublishedAdvisory && record.Status != cge.DecisionPublishedAuthoritative {
+		if record.Status != cge.DecisionPublishedAuthoritative || record.ExecutionRequest == nil || record.ExecutionLease == nil {
 			continue
 		}
-		if !record.Envelope.ValidUntil.After(now) || record.Envelope.Target.Kind != target.Kind || record.Envelope.Target.ID != target.ID {
+		lease := record.ExecutionLease
+		if lease.ValidUntil.Before(now) || (lease.Status != cge.ExecutionLeasePlanned && lease.Status != cge.ExecutionLeaseDispatched && lease.Status != cge.ExecutionLeaseRunning) || !targetsOverlap(lease.Target, target) || !intentIncompatible(record.Envelope, target) {
 			continue
 		}
 		if _, seen := seenConflicts[record.Envelope.DecisionID]; !seen && len(conflicts) < 32 {
@@ -98,6 +115,17 @@ func (p *coreOperationalSnapshotProvider) decisionContext(ctx context.Context, t
 	sort.Strings(keys)
 	sort.Strings(conflicts)
 	return keys, conflicts, nil
+}
+
+func targetsOverlap(left, right cge.DecisionTarget) bool {
+	return left.Kind == cge.DecisionTargetSystem || right.Kind == cge.DecisionTargetSystem || (left.Kind == right.Kind && left.ID == right.ID)
+}
+
+func intentIncompatible(record cge.DecisionEnvelope, target cge.DecisionTarget) bool {
+	if record.Target.Kind != target.Kind || record.Target.ID != target.ID {
+		return true
+	}
+	return record.DecisionType != cge.DecisionTypeObserve
 }
 
 func (a *coreApp) cognitiveAuthorityMode() cge.AuthorityMode {

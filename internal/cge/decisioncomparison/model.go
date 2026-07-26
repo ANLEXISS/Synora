@@ -6,11 +6,13 @@ import (
 )
 
 type HistoricalDecisionRef struct {
-	ID             string
-	SourceEventRef string
-
+	ID                string
+	SourceEventRef    string
 	PreviousStateCode string
 	CurrentStateCode  string
+	HistoricalDecisionType string
+	HistoricalTargetKind   string
+	HistoricalTargetID     string
 
 	StateChanged bool
 	Escalated    bool

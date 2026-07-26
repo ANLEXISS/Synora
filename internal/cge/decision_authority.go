@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -480,11 +481,27 @@ type SafetyVerdict struct {
 }
 
 type OperationalTarget struct {
-	Target          DecisionTarget `json:"target" yaml:"target"`
-	Exists          bool           `json:"exists" yaml:"exists"`
-	Authorized      bool           `json:"authorized" yaml:"authorized"`
-	PhysicalLimit   int            `json:"physical_limit,omitempty" yaml:"physical_limit,omitempty"`
-	CurrentRevision uint64         `json:"current_revision,omitempty" yaml:"current_revision,omitempty"`
+	Target          DecisionTarget            `json:"target" yaml:"target"`
+	Exists          bool                      `json:"exists" yaml:"exists"`
+	Authorized      bool                      `json:"authorized" yaml:"authorized"`
+	PhysicalLimit   int                       `json:"physical_limit,omitempty" yaml:"physical_limit,omitempty"`
+	CurrentRevision uint64                    `json:"current_revision,omitempty" yaml:"current_revision,omitempty"`
+	Authorization   OperationalAuthorization  `json:"authorization" yaml:"authorization"`
+	PhysicalLimits  OperationalPhysicalLimits `json:"physical_limits" yaml:"physical_limits"`
+}
+
+type OperationalAuthorization struct {
+	Known      bool   `json:"known" yaml:"known"`
+	Authorized bool   `json:"authorized" yaml:"authorized"`
+	PolicyID   string `json:"policy_id,omitempty" yaml:"policy_id,omitempty"`
+	Revision   uint64 `json:"revision,omitempty" yaml:"revision,omitempty"`
+}
+
+type OperationalPhysicalLimits struct {
+	Known    bool   `json:"known" yaml:"known"`
+	MaxValue int    `json:"max_value,omitempty" yaml:"max_value,omitempty"`
+	Unit     string `json:"unit,omitempty" yaml:"unit,omitempty"`
+	Source   string `json:"source,omitempty" yaml:"source,omitempty"`
 }
 
 type OperationalSnapshot struct {
@@ -566,10 +583,14 @@ func (k DefaultSafetyKernel) ValidateDecision(ctx context.Context, decision Deci
 	if target == nil || !target.Exists {
 		return violate(SafetyInvalidTarget, "target_missing", "decision target does not exist")
 	}
-	if decision.Constraints.RequiresAuthorization && !target.Authorized {
+	if decision.Constraints.RequiresAuthorization && (!target.Authorization.Known || !target.Authorization.Authorized) {
 		return violate(SafetyInsufficientAuthorization, "authorization_missing", "decision target is not authorized")
 	}
-	if decision.Constraints.RequiresPhysicalLimit && target.PhysicalLimit > 0 && decision.Priority > target.PhysicalLimit {
+	if decision.Constraints.RequiresPhysicalLimit && !target.PhysicalLimits.Known {
+		return violate(SafetyInvariantViolation, "physical_limits_unknown", "physical limits are not known for the decision target")
+	}
+	physicalLimit := target.PhysicalLimits.MaxValue
+	if decision.Constraints.RequiresPhysicalLimit && decision.Priority > physicalLimit {
 		return violate(SafetyInvariantViolation, "physical_limit_exceeded", "decision priority exceeds target physical limit")
 	}
 	if decision.Constraints.RequiredStateRevision != 0 && target.CurrentRevision != decision.Constraints.RequiredStateRevision {
@@ -602,6 +623,47 @@ type DecisionRecord struct {
 	Verdict          SafetyVerdict             `json:"verdict" yaml:"verdict"`
 	PersistedAt      time.Time                 `json:"persisted_at" yaml:"persisted_at"`
 	ExecutionRequest *ExecutionRequest         `json:"execution_request,omitempty" yaml:"execution_request,omitempty"`
+	ExecutionLease   *ActiveExecutionLease     `json:"execution_lease,omitempty" yaml:"execution_lease,omitempty"`
+}
+
+type ExecutionLeaseStatus string
+
+const (
+	ExecutionLeasePlanned    ExecutionLeaseStatus = "planned"
+	ExecutionLeaseDispatched ExecutionLeaseStatus = "dispatched"
+	ExecutionLeaseRunning    ExecutionLeaseStatus = "running"
+	ExecutionLeaseCompleted  ExecutionLeaseStatus = "completed"
+	ExecutionLeaseFailed     ExecutionLeaseStatus = "failed"
+	ExecutionLeaseExpired    ExecutionLeaseStatus = "expired"
+	ExecutionLeaseCancelled  ExecutionLeaseStatus = "cancelled"
+)
+
+type ActiveExecutionLease struct {
+	DecisionID      string               `json:"decision_id" yaml:"decision_id"`
+	ActionRequestID string               `json:"action_request_id" yaml:"action_request_id"`
+	Target          DecisionTarget       `json:"target" yaml:"target"`
+	ExecutionType   string               `json:"execution_type" yaml:"execution_type"`
+	CreatedAt       time.Time            `json:"created_at" yaml:"created_at"`
+	ValidUntil      time.Time            `json:"valid_until" yaml:"valid_until"`
+	Status          ExecutionLeaseStatus `json:"status" yaml:"status"`
+}
+
+func (l ActiveExecutionLease) Validate() error {
+	if l.DecisionID == "" || l.ActionRequestID == "" || l.CreatedAt.IsZero() || !l.ValidUntil.After(l.CreatedAt) {
+		return ErrInvalidDecisionEnvelope
+	}
+	if err := l.Target.Validate(); err != nil {
+		return err
+	}
+	if err := validateAuthorityText(l.ExecutionType, "execution type", 128, true); err != nil {
+		return err
+	}
+	switch l.Status {
+	case ExecutionLeasePlanned, ExecutionLeaseDispatched, ExecutionLeaseRunning, ExecutionLeaseCompleted, ExecutionLeaseFailed, ExecutionLeaseExpired, ExecutionLeaseCancelled:
+	default:
+		return ErrInvalidDecisionEnvelope
+	}
+	return nil
 }
 
 type DecisionPublication struct {
@@ -749,6 +811,18 @@ func ValidateStoreWrite(value any) error {
 			if err := typed.ExecutionRequest.Validate(); err != nil {
 				return err
 			}
+			if typed.ExecutionLease != nil {
+				if err := typed.ExecutionLease.Validate(); err != nil {
+					return err
+				}
+				if typed.ExecutionLease.DecisionID != typed.ExecutionRequest.DecisionID || typed.ExecutionLease.ActionRequestID != typed.ExecutionRequest.ActionRequestID || !typed.ExecutionLease.Target.equal(typed.ExecutionRequest.Target) {
+					return fmt.Errorf("%w: execution lease does not belong to request", ErrDecisionStore)
+				}
+			} else if typed.Status == DecisionPublishedAuthoritative {
+				return fmt.Errorf("%w: authoritative record has no execution lease", ErrDecisionStore)
+			}
+		} else if typed.ExecutionLease != nil {
+			return fmt.Errorf("%w: non-authoritative record contains an execution lease", ErrDecisionStore)
 		}
 		return nil
 	case ActionResult:
@@ -950,7 +1024,20 @@ func validatePersistedDecisionRecord(record DecisionRecord) error {
 		return fmt.Errorf("%w: non-authoritative record contains an execution request", ErrDecisionStore)
 	}
 	if record.ExecutionRequest != nil {
-		return record.ExecutionRequest.Validate()
+		if err := record.ExecutionRequest.Validate(); err != nil {
+			return err
+		}
+		if record.ExecutionLease == nil {
+			return fmt.Errorf("%w: authoritative record has no execution lease", ErrDecisionStore)
+		}
+		if err := record.ExecutionLease.Validate(); err != nil {
+			return err
+		}
+		if record.ExecutionLease.DecisionID != record.ExecutionRequest.DecisionID || record.ExecutionLease.ActionRequestID != record.ExecutionRequest.ActionRequestID || !record.ExecutionLease.Target.equal(record.ExecutionRequest.Target) {
+			return fmt.Errorf("%w: execution lease does not belong to request", ErrDecisionStore)
+		}
+	} else if record.ExecutionLease != nil {
+		return fmt.Errorf("%w: non-authoritative record contains an execution lease", ErrDecisionStore)
 	}
 	return nil
 }
@@ -998,6 +1085,23 @@ func (a *DecisionAuthority) PublishDecision(ctx context.Context, decision Decisi
 	if err := decision.Validate(); err != nil {
 		return DecisionPublication{DecisionID: decision.DecisionID, Mode: a.mode, Status: DecisionPublicationDenied, Verdict: SafetyVerdict{DecisionID: decision.DecisionID, Status: SafetyInvariantViolation, EvaluatedAt: a.now()}}, err
 	}
+	records, err := a.store.Decisions(ctx)
+	if err != nil {
+		return DecisionPublication{DecisionID: decision.DecisionID, Mode: a.mode, Status: DecisionPublicationDenied, Verdict: SafetyVerdict{DecisionID: decision.DecisionID, Status: SafetyInvariantViolation, EvaluatedAt: a.now()}}, err
+	}
+	for i := len(records) - 1; i >= 0; i-- {
+		if records[i].Envelope.DecisionID == decision.DecisionID {
+			if records[i].Envelope.IdempotencyKey != decision.IdempotencyKey {
+				return DecisionPublication{DecisionID: decision.DecisionID, Mode: a.mode, Status: DecisionPublicationDenied, Verdict: SafetyVerdict{DecisionID: decision.DecisionID, Status: SafetyInvariantViolation, EvaluatedAt: a.now()}}, ErrActionResultConflict
+			}
+			return publicationFromRecord(records[i]), nil
+		}
+	}
+	// The Core snapshot provider cannot know the new decision's intention from
+	// its target-only boundary. Recompute conflicts here against the exact
+	// candidate being published so compatible authoritative executions do not
+	// block one another and shadow/advisory records never become leases.
+	snapshot.ConflictingDecisionIDs = activeDecisionConflicts(records, decision, a.now())
 	verdict := a.kernel.ValidateDecision(ctx, decision, snapshot)
 	publication := DecisionPublication{DecisionID: decision.DecisionID, Mode: a.mode, Status: DecisionPublicationDenied, Verdict: verdict}
 	if verdict.Status == SafetyAllowed {
@@ -1032,10 +1136,62 @@ func (a *DecisionAuthority) PublishDecision(ctx context.Context, decision Decisi
 		}
 	}
 	record := DecisionRecord{Envelope: decision, Mode: a.mode, Status: publication.Status, Verdict: publication.Verdict, PersistedAt: a.now(), ExecutionRequest: cloneExecutionRequest(publication.ExecutionRequest)}
+	if publication.ExecutionRequest != nil {
+		request := publication.ExecutionRequest
+		record.ExecutionLease = &ActiveExecutionLease{DecisionID: request.DecisionID, ActionRequestID: request.ActionRequestID, Target: request.Target, ExecutionType: request.ExecutionType, CreatedAt: request.CreatedAt, ValidUntil: request.ValidUntil, Status: ExecutionLeasePlanned}
+	}
 	if err := a.store.PersistDecision(ctx, record); err != nil {
 		return publication, err
 	}
 	return publication, nil
+}
+
+func activeDecisionConflicts(records []DecisionRecord, decision DecisionEnvelope, now time.Time) []string {
+	latest := make(map[string]DecisionRecord, len(records))
+	for _, record := range records {
+		latest[record.Envelope.DecisionID] = record
+	}
+	conflicts := make([]string, 0)
+	for _, record := range latest {
+		if record.Envelope.DecisionID == decision.DecisionID || record.Status != DecisionPublishedAuthoritative || record.ExecutionRequest == nil || record.ExecutionLease == nil {
+			continue
+		}
+		lease := record.ExecutionLease
+		if !now.Before(record.Envelope.ValidUntil) || !now.Before(lease.ValidUntil) || (lease.Status != ExecutionLeasePlanned && lease.Status != ExecutionLeaseDispatched && lease.Status != ExecutionLeaseRunning) {
+			continue
+		}
+		if !decisionTargetsOverlap(lease.Target, decision.Target) || compatibleDecisionIntent(record.Envelope, decision) {
+			continue
+		}
+		conflicts = append(conflicts, record.Envelope.DecisionID)
+	}
+	sort.Strings(conflicts)
+	if len(conflicts) > 32 {
+		conflicts = conflicts[:32]
+	}
+	return conflicts
+}
+
+func decisionTargetsOverlap(left, right DecisionTarget) bool {
+	return left.Kind == DecisionTargetSystem || right.Kind == DecisionTargetSystem || left.equal(right)
+}
+
+func compatibleDecisionIntent(left, right DecisionEnvelope) bool {
+	return left.DecisionType == right.DecisionType && left.DesiredState == right.DesiredState && equalStringSet(left.Constraints.ProposedActions, right.Constraints.ProposedActions)
+}
+
+func equalStringSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	leftCopy, rightCopy := append([]string(nil), left...), append([]string(nil), right...)
+	sort.Strings(leftCopy)
+	sort.Strings(rightCopy)
+	return reflect.DeepEqual(leftCopy, rightCopy)
+}
+
+func publicationFromRecord(record DecisionRecord) DecisionPublication {
+	return DecisionPublication{DecisionID: record.Envelope.DecisionID, Mode: record.Mode, Status: record.Status, Verdict: record.Verdict, ExecutionRequest: cloneExecutionRequest(record.ExecutionRequest)}
 }
 
 func (a *DecisionAuthority) Decisions(ctx context.Context) ([]DecisionRecord, error) {
@@ -1095,7 +1251,24 @@ func (a *DecisionAuthority) RecordActionResult(ctx context.Context, result Actio
 			return ErrActionResultConflict
 		}
 	}
-	return a.store.PersistActionResult(ctx, result)
+	if err := a.store.PersistActionResult(ctx, result); err != nil {
+		return err
+	}
+	if matched.ExecutionLease != nil {
+		updated := cloneDecisionRecord(*matched)
+		if result.Status == ActionResultSucceeded {
+			updated.ExecutionLease.Status = ExecutionLeaseCompleted
+		} else {
+			updated.ExecutionLease.Status = ExecutionLeaseFailed
+		}
+		// Lease transitions are append-only records. The prior immutable
+		// publication remains available for audit, while the latest record
+		// closes its conflict lease after feedback.
+		if err := a.store.PersistDecision(ctx, updated); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *DecisionAuthority) ActionResults(ctx context.Context) ([]ActionResult, error) {
@@ -1121,6 +1294,10 @@ func cloneDecisionRecord(record DecisionRecord) DecisionRecord {
 		result.Envelope.LearnedChainRef = &value
 	}
 	result.ExecutionRequest = cloneExecutionRequest(record.ExecutionRequest)
+	if record.ExecutionLease != nil {
+		lease := *record.ExecutionLease
+		result.ExecutionLease = &lease
+	}
 	return result
 }
 

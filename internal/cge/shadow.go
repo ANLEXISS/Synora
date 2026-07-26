@@ -59,40 +59,42 @@ type ShadowEngine struct {
 	lastObservedAt   time.Time
 	lastEventType    string
 
-	coordinator          *durable.Coordinator
-	dataDir              string
-	policy               association.Policy
-	evidencePolicy       evidence.Policy
-	admissionPolicy      ShadowEventAdmissionPolicy
-	admissionMu          sync.RWMutex
-	admission            ShadowAdmissionStatus
-	contextStatusMu      sync.RWMutex
-	contextStatus        CoreContextProviderStatus
-	actor                string
-	clock                Clock
-	logger               Logger
-	metrics              *shadowMetrics
-	orchestrator         *ShadowOrchestrator
-	contextProvider      cgecontext.Provider
-	contextConfig        ShadowContextConfig
-	routineConfig        ShadowRoutineConfig
-	deviationConfig      ShadowDeviationConfig
-	deviationStore       *RecentDeviationStore
-	trialRecorder        *fieldtrial.Recorder
-	fieldTrialConfig     fieldtrial.Config
-	lastDeviation        ShadowDeviationResult
-	lastAssessment       *DeviationAssessmentSummary
-	lastOrchestration    ShadowOrchestrationResult
-	topologyProvider     RoutineTopologyProvider
-	workflow             *shadowworkflow.Runtime
-	authority            *DecisionAuthority
-	decisionSelector     ChainSelector
-	decisionSynthesizer  DecisionSynthesizer
-	snapshotProvider     OperationalSnapshotProvider
-	decisionSink         DecisionPublicationSink
-	authorityComparisons []AuthorityDecisionComparison
-	closeOnce            sync.Once
-	closeErr             error
+	coordinator                *durable.Coordinator
+	dataDir                    string
+	policy                     association.Policy
+	evidencePolicy             evidence.Policy
+	admissionPolicy            ShadowEventAdmissionPolicy
+	admissionMu                sync.RWMutex
+	admission                  ShadowAdmissionStatus
+	contextStatusMu            sync.RWMutex
+	contextStatus              CoreContextProviderStatus
+	actor                      string
+	clock                      Clock
+	logger                     Logger
+	metrics                    *shadowMetrics
+	orchestrator               *ShadowOrchestrator
+	contextProvider            cgecontext.Provider
+	contextConfig              ShadowContextConfig
+	routineConfig              ShadowRoutineConfig
+	deviationConfig            ShadowDeviationConfig
+	deviationStore             *RecentDeviationStore
+	trialRecorder              *fieldtrial.Recorder
+	fieldTrialConfig           fieldtrial.Config
+	lastDeviation              ShadowDeviationResult
+	lastAssessment             *DeviationAssessmentSummary
+	lastOrchestration          ShadowOrchestrationResult
+	topologyProvider           RoutineTopologyProvider
+	workflow                   *shadowworkflow.Runtime
+	authority                  *DecisionAuthority
+	decisionSelector           ChainSelector
+	decisionSynthesizer        DecisionSynthesizer
+	targetResolver             CognitiveDecisionTargetResolver
+	snapshotProvider           OperationalSnapshotProvider
+	decisionSink               DecisionPublicationSink
+	authorityComparisons       []AuthorityDecisionComparison
+	authorityComparisonMetrics AuthorityComparisonMetrics
+	closeOnce                  sync.Once
+	closeErr                   error
 }
 
 // LastOrchestrationResult returns a detached, identifier-bearing diagnostic
@@ -407,6 +409,7 @@ func NewShadowEngine() *ShadowEngine {
 	return &ShadowEngine{
 		authority:           authority,
 		decisionSynthesizer: DefaultDecisionSynthesizer{},
+		targetResolver:      DefaultCognitiveDecisionTargetResolver{},
 		admissionPolicy:     DefaultShadowEventAdmissionPolicy(),
 		admission: ShadowAdmissionStatus{
 			HistoricalAuthorityUnchanged: true,
@@ -460,6 +463,12 @@ func (e *ShadowEngine) SetDecisionSynthesizer(synthesizer DecisionSynthesizer) {
 	}
 }
 
+func (e *ShadowEngine) SetDecisionTargetResolver(resolver CognitiveDecisionTargetResolver) {
+	if e != nil && resolver != nil {
+		e.targetResolver = resolver
+	}
+}
+
 func (e *ShadowEngine) SetOperationalSnapshotProvider(provider OperationalSnapshotProvider) {
 	if e != nil {
 		e.snapshotProvider = provider
@@ -480,7 +489,25 @@ func (e *ShadowEngine) AuthorityComparisons() []AuthorityDecisionComparison {
 	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return append([]AuthorityDecisionComparison(nil), e.authorityComparisons...)
+	result := make([]AuthorityDecisionComparison, len(e.authorityComparisons))
+	for i, value := range e.authorityComparisons {
+		result[i] = value
+		result[i].HistoricalActionIDs = append([]string(nil), value.HistoricalActionIDs...)
+		result[i].CognitiveIntentIDs = append([]string(nil), value.CognitiveIntentIDs...)
+		result[i].DivergenceCodes = append([]string(nil), value.DivergenceCodes...)
+	}
+	return result
+}
+
+// AuthorityComparisonMetricsSnapshot exposes bounded convergence counters as
+// a defensive diagnostic snapshot.
+func (e *ShadowEngine) AuthorityComparisonMetricsSnapshot() AuthorityComparisonMetrics {
+	if e == nil {
+		return AuthorityComparisonMetrics{}
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.authorityComparisonMetrics
 }
 
 func (e *ShadowEngine) Observe(ctx context.Context, event Event) (ObservationResult, error) {

@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"synora/pkg/contract"
 )
 
 type Store struct {
-	mu sync.RWMutex
+	mu       sync.RWMutex
+	revision atomic.Uint64
 
 	DeviceStates      map[string]*DeviceState
 	CameraStates      map[string]*CameraState
@@ -92,6 +94,7 @@ func NewStore(options ...Option) *Store {
 			Security:             contract.DefaultSecurityModeState(now),
 		},
 	}
+	store.revision.Store(1)
 	for _, option := range options {
 		if option != nil {
 			option(store)
@@ -108,6 +111,7 @@ func (s *Store) SetDeviceState(value *DeviceState) {
 	defer s.mu.Unlock()
 	cloned := *value
 	s.DeviceStates[value.ID] = &cloned
+	s.revision.Add(1)
 }
 
 func (s *Store) DeviceState(id string) (*DeviceState, bool) {
@@ -129,6 +133,7 @@ func (s *Store) SetCameraState(value *CameraState) {
 	defer s.mu.Unlock()
 	cloned := *value
 	s.CameraStates[value.ID] = &cloned
+	s.revision.Add(1)
 }
 
 func (s *Store) CameraState(id string) (*CameraState, bool) {
@@ -150,6 +155,7 @@ func (s *Store) SetNodeState(value *NodeState) {
 	defer s.mu.Unlock()
 	cloned := *value
 	s.NodeStates[value.NodeID] = &cloned
+	s.revision.Add(1)
 }
 
 func (s *Store) NodeState(id string) (*NodeState, bool) {
@@ -171,6 +177,7 @@ func (s *Store) SetTrack(value *Track) {
 	defer s.mu.Unlock()
 	cloned := *value
 	s.Tracks[value.ID] = &cloned
+	s.revision.Add(1)
 }
 
 func (s *Store) Track(id string) (*Track, bool) {
@@ -188,6 +195,7 @@ func (s *Store) DeleteTrack(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.Tracks, id)
+	s.revision.Add(1)
 }
 
 func (s *Store) SetCluster(value *Cluster) {
@@ -199,6 +207,7 @@ func (s *Store) SetCluster(value *Cluster) {
 	cloned := *value
 	cloned.EventIDs = append([]string(nil), value.EventIDs...)
 	s.Clusters[value.ID] = &cloned
+	s.revision.Add(1)
 }
 
 func (s *Store) Cluster(id string) (*Cluster, bool) {
@@ -217,6 +226,7 @@ func (s *Store) DeleteCluster(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.Clusters, id)
+	s.revision.Add(1)
 }
 
 func (s *Store) SetIdentity(value *IdentityState) {
@@ -226,6 +236,7 @@ func (s *Store) SetIdentity(value *IdentityState) {
 	s.mu.Lock()
 	cloned := *value
 	s.Identities[value.ID] = &cloned
+	s.revision.Add(1)
 	s.mu.Unlock()
 	s.SaveNow()
 }
@@ -244,6 +255,7 @@ func (s *Store) Identity(id string) (*IdentityState, bool) {
 func (s *Store) DeleteIdentity(id string) {
 	s.mu.Lock()
 	delete(s.Identities, id)
+	s.revision.Add(1)
 	s.mu.Unlock()
 	s.SaveNow()
 }
@@ -260,6 +272,7 @@ func (s *Store) SetPresence(value *PresenceState) {
 		cloned.LastSeen = current.LastSeen
 	}
 	s.Presence[value.ID] = &cloned
+	s.revision.Add(1)
 	s.mu.Unlock()
 	s.SaveNow()
 }
@@ -278,6 +291,7 @@ func (s *Store) PresenceState(id string) (*PresenceState, bool) {
 func (s *Store) DeletePresence(id string) {
 	s.mu.Lock()
 	delete(s.Presence, id)
+	s.revision.Add(1)
 	s.mu.Unlock()
 	s.SaveNow()
 }
@@ -289,6 +303,7 @@ func (s *Store) SetClip(value *ClipState) {
 	s.mu.Lock()
 	cloned := *value
 	s.Clips[value.ID] = &cloned
+	s.revision.Add(1)
 	s.mu.Unlock()
 	s.SaveNow()
 }
@@ -307,6 +322,7 @@ func (s *Store) Clip(id string) (*ClipState, bool) {
 func (s *Store) DeleteClip(id string) {
 	s.mu.Lock()
 	delete(s.Clips, id)
+	s.revision.Add(1)
 	s.mu.Unlock()
 	s.SaveNow()
 }
@@ -317,6 +333,7 @@ func (s *Store) SetValidation(value *contract.ValidationRequest) {
 	}
 	s.mu.Lock()
 	s.Validations[value.ID] = cloneValidation(value)
+	s.revision.Add(1)
 	s.mu.Unlock()
 	s.SaveNow()
 }
@@ -452,6 +469,7 @@ func (s *Store) SetActionResult(value *contract.ActionResult) {
 	cloned := cloneActionResult(value)
 	cloned.ID = id
 	s.ActionResults[id] = cloned
+	s.revision.Add(1)
 	s.trimActionResultsLocked(maxActionResults)
 	s.mu.Unlock()
 	s.SaveNow()
@@ -463,6 +481,7 @@ func (s *Store) AddDangerAssessment(value *contract.DangerAssessment) {
 	}
 	s.mu.Lock()
 	s.Danger = append(s.Danger, cloneDangerAssessment(value))
+	s.revision.Add(1)
 	s.trimDangerLocked(maxDanger)
 	s.mu.Unlock()
 	s.SaveNow()
@@ -497,6 +516,7 @@ func (s *Store) ActionResultsList() []contract.ActionResult {
 func (s *Store) SetRecentEvents(events []*contract.Event) {
 	s.mu.Lock()
 	s.RecentEvents = cloneEvents(trimEvents(events, maxRecentEvents))
+	s.revision.Add(1)
 	s.mu.Unlock()
 	s.SaveNow()
 }
@@ -513,6 +533,7 @@ func (s *Store) AddValidationEvent(event *contract.Event) {
 	}
 	s.mu.Lock()
 	s.ValidationEvents = cloneEvents(trimEvents(append(s.ValidationEvents, event), maxRecentEvents))
+	s.revision.Add(1)
 	s.mu.Unlock()
 	s.SaveNow()
 }
@@ -527,6 +548,7 @@ func (s *Store) ClearValidationEvents() int {
 	s.mu.Lock()
 	count := len(s.ValidationEvents)
 	s.ValidationEvents = []*contract.Event{}
+	s.revision.Add(1)
 	s.mu.Unlock()
 	s.SaveNow()
 	return count
@@ -539,6 +561,7 @@ func (s *Store) SetEventWindow(nodeID string, value *contract.EventWindow) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.EventWindows[nodeID] = cloneWindow(value)
+	s.revision.Add(1)
 }
 
 func (s *Store) EventWindow(nodeID string) (*contract.EventWindow, bool) {
@@ -555,6 +578,7 @@ func (s *Store) DeleteEventWindow(nodeID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.EventWindows, nodeID)
+	s.revision.Add(1)
 }
 
 func (s *Store) SystemState() SystemState {
@@ -597,6 +621,36 @@ func (s *Store) ContextSnapshot() ContextSourceSnapshot {
 	sort.Slice(out.Cameras, func(i, j int) bool { return out.Cameras[i].ID < out.Cameras[j].ID })
 	sort.Slice(out.Presence, func(i, j int) bool { return out.Presence[i].ID < out.Presence[j].ID })
 	return out
+}
+
+// DecisionSnapshot returns the system facts, target existence, and effective
+// revision under one read lock. It is the atomic read boundary used when a
+// decision is bound to StateStore state.
+func (s *Store) DecisionSnapshot(kind, id string) (uint64, SystemState, bool) {
+	if s == nil {
+		return 0, SystemState{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	revision := s.revision.Load()
+	if revision == 0 {
+		revision = 1
+	}
+	exists := false
+	switch kind {
+	case "system":
+		exists = id == "system"
+	case "node":
+		_, exists = s.NodeStates[id]
+	case "device":
+		_, exists = s.DeviceStates[id]
+		if !exists {
+			_, exists = s.CameraStates[id]
+		}
+	case "resident":
+		_, exists = s.Presence[id]
+	}
+	return revision, s.systemStateLocked(), exists
 }
 
 func (s *Store) systemStateLocked() SystemState {
@@ -668,6 +722,20 @@ func (s *Store) SetSystemState(value SystemState) {
 	}
 	cloned.Security = contract.NormalizeSecurityModeState(cloned.Security, time.Now().UTC())
 	s.System = &cloned
+	s.revision.Add(1)
+}
+
+// Revision is the monotonic effective StateStore revision used to bind a
+// decision and its target snapshot to the same operational state.
+func (s *Store) Revision() uint64 {
+	if s == nil {
+		return 0
+	}
+	value := s.revision.Load()
+	if value == 0 {
+		return 1
+	}
+	return value
 }
 
 func (s *Store) Size() int {
