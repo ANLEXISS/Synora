@@ -1,6 +1,17 @@
 schema_version: 1
 namespace: synora.cge
 writers:
+  - id: cge.writer.chain-governance
+    owner: cge_chain_governance
+    package: synora/internal/cge
+    type: FileChainGovernanceStore
+    function: Append
+    store: synora.store.cge-chain-governance
+    contract: synora.cge.chain-governance-record.v1
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
+
   - id: cge.writer.decision-record
     owner: cge_authority
     package: synora/internal/cge

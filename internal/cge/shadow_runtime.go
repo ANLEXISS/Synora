@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"synora/internal/cge/chains"
@@ -112,9 +113,22 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 	if storeErr != nil {
 		return nil, fmt.Errorf("%w: decision store", ErrShadowStartup)
 	}
-	authority, authorityErr := NewDecisionAuthority(config.AuthorityMode, nil, nil, decisionStore)
+	kernel, kernelErr := NewSafetyKernel(config.AuthorityMode, func() time.Time { return clock.Now().UTC() })
+	if kernelErr != nil {
+		return nil, fmt.Errorf("%w: safety kernel", ErrShadowStartup)
+	}
+	authority, authorityErr := NewDecisionAuthority(config.AuthorityMode, kernel, nil, decisionStore)
 	if authorityErr != nil {
 		return nil, fmt.Errorf("%w: authority mode", ErrShadowStartup)
+	}
+	authority.now = func() time.Time { return clock.Now().UTC() }
+	governanceStore, governanceErr := NewFileChainGovernanceStore(filepath.Join(config.DataDir, "chain-governance.ndjson"))
+	if governanceErr != nil {
+		return nil, fmt.Errorf("%w: chain governance store", ErrShadowStartup)
+	}
+	chainRegistry, governanceErr := NewChainRegistryWithStore(governanceStore)
+	if governanceErr != nil {
+		return nil, fmt.Errorf("%w: chain governance recovery", ErrShadowStartup)
 	}
 	engine := &ShadowEngine{
 		coordinator: coordinator, policy: config.AssociationPolicy, evidencePolicy: config.EvidencePolicy, admissionPolicy: admissionPolicy,
@@ -123,13 +137,15 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 			NoActionProduced:             true,
 		},
 		actor: config.Actor, clock: clock, logger: logger, metrics: metrics,
-		dataDir:          config.DataDir,
-		authority:        authority,
-		contextConfig:    config.Context,
-		routineConfig:    config.Routines,
-		deviationConfig:  config.Deviation,
-		fieldTrialConfig: config.FieldTrial,
-		topologyProvider: unavailableRoutineTopologyProvider{},
+		dataDir:             config.DataDir,
+		authority:           authority,
+		decisionSelector:    NewContractChainSelector(nil, nil, nil, chainRegistry),
+		decisionSynthesizer: DefaultDecisionSynthesizer{},
+		contextConfig:       config.Context,
+		routineConfig:       config.Routines,
+		deviationConfig:     config.Deviation,
+		fieldTrialConfig:    config.FieldTrial,
+		topologyProvider:    unavailableRoutineTopologyProvider{},
 	}
 	engine.deviationStore, err = NewRecentDeviationStore(config.Deviation.RecentAssessmentLimit)
 	if err != nil {
@@ -159,6 +175,20 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 	if config.Workflow.Enabled {
 		workflowRuntime, workflowErr := shadowworkflow.NewRuntime(ctx, config.Workflow, clock, logger, nil, nil)
 		engine.workflow = workflowRuntime
+		if workflowRuntime != nil {
+			workflowRuntime.SetCommitObserver(func(input shadowworkflow.ShadowWorkflowInput) {
+				defer func() {
+					if recover() != nil {
+						engine.safeLog("decision_commit_observer_panic")
+					}
+				}()
+				observation := chains.ObservationRef{
+					ID: input.Observation.EventID, EventType: input.Observation.EventType,
+					Timestamp: input.Observation.ObservedAt, ChainID: input.Observation.ChainID,
+				}
+				engine.synthesizeDecision(ctx, observation, input.HistoricalDecision)
+			})
+		}
 		if workflowErr != nil {
 			engine.safeLog("workflow_recovery_failed")
 		}
@@ -237,7 +267,7 @@ func openShadowCoordinator(ctx context.Context, config ShadowConfig, clock Clock
 
 // Observe performs the explicit post-history shadow flow. It recovers its own
 // panic so callers never inherit shadow failures.
-func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event, historical *decisioncomparison.HistoricalDecisionRef) (result ObservationResult, err error) {
+func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event, historical *decisioncomparison.HistoricalDecisionRef, chainID string) (result ObservationResult, err error) {
 	var trialObservation chains.ObservationRef
 	if e.trialRecorder != nil {
 		started := time.Now()
@@ -290,6 +320,12 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event, historic
 		return result, nil
 	}
 	e.metrics.eligible()
+	if len([]rune(chainID)) > 256 || strings.ContainsAny(chainID, "\r\n") {
+		e.metrics.malformed(now, "event.scalar_validation")
+		e.safeLog("event.scalar_validation")
+		return result, adaptationError("event.scalar_validation")
+	}
+	adapted.Input.Observation.ChainID = chainID
 	if e.contextProvider != nil {
 		e.metrics.cognitive("context_resolution_attempted")
 		frame, contextErr := e.resolveContext(ctx, adapted.Input.Observation)
@@ -348,6 +384,9 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event, historic
 				}
 			}
 		}
+		if e.workflow == nil {
+			e.synthesizeDecision(ctx, adapted.Input.Observation, historical)
+		}
 		return result, nil
 	}
 	plannedAt := e.shadowNow()
@@ -389,6 +428,9 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event, historic
 		if routineErr != nil {
 			e.safeLog(ErrorCode(routineErr))
 		}
+	}
+	if e.workflow == nil {
+		e.synthesizeDecision(ctx, adapted.Input.Observation, historical)
 	}
 	return result, nil
 }

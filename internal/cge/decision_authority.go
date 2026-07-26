@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,8 @@ var (
 	ErrDecisionExpired             = errors.New("cge_decision_expired")
 	ErrDecisionStore               = errors.New("cge_decision_store_error")
 	ErrUnknownDecision             = errors.New("unknown_cge_decision")
+	ErrActionResultUnauthorized    = errors.New("action_result_not_authorized")
+	ErrActionResultConflict        = errors.New("action_result_conflict")
 	ErrExecutionPlannerUnavailable = errors.New("execution_planner_unavailable")
 	ErrInvalidPromotion            = errors.New("invalid_learned_chain_promotion")
 )
@@ -168,6 +171,8 @@ type DecisionConstraints struct {
 	MaxPriority           int      `json:"max_priority,omitempty" yaml:"max_priority,omitempty"`
 	RequiredStateRevision uint64   `json:"required_state_revision,omitempty" yaml:"required_state_revision,omitempty"`
 	RequiredInvariantRefs []string `json:"required_invariant_refs,omitempty" yaml:"required_invariant_refs,omitempty"`
+	ProposedActions       []string `json:"proposed_actions,omitempty" yaml:"proposed_actions,omitempty"`
+	ForbiddenActions      []string `json:"forbidden_actions,omitempty" yaml:"forbidden_actions,omitempty"`
 }
 
 func (c DecisionConstraints) Validate() error {
@@ -176,6 +181,24 @@ func (c DecisionConstraints) Validate() error {
 	}
 	if len(c.RequiredInvariantRefs) > maxDecisionInvariantRefs {
 		return fmt.Errorf("%w: too many invariant references", ErrInvalidDecisionEnvelope)
+	}
+	if len(c.ProposedActions) > 16 || len(c.ForbiddenActions) > 16 {
+		return fmt.Errorf("%w: action intent is out of bounds", ErrInvalidDecisionEnvelope)
+	}
+	if err := validateActionIntent(c.ProposedActions); err != nil {
+		return err
+	}
+	if err := validateActionIntent(c.ForbiddenActions); err != nil {
+		return err
+	}
+	proposed := make(map[string]struct{}, len(c.ProposedActions))
+	for _, action := range c.ProposedActions {
+		proposed[action] = struct{}{}
+	}
+	for _, action := range c.ForbiddenActions {
+		if _, ok := proposed[action]; ok {
+			return fmt.Errorf("%w: action is both proposed and forbidden", ErrInvalidDecisionEnvelope)
+		}
 	}
 	seen := make(map[string]struct{}, len(c.RequiredInvariantRefs))
 	for _, ref := range c.RequiredInvariantRefs {
@@ -190,12 +213,27 @@ func (c DecisionConstraints) Validate() error {
 	return nil
 }
 
+func validateActionIntent(values []string) error {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if err := validateAuthorityText(value, "action intent", 128, true); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidDecisionEnvelope, err)
+		}
+		if _, ok := seen[value]; ok {
+			return fmt.Errorf("%w: duplicate action intent", ErrInvalidDecisionEnvelope)
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
+}
+
 type DecisionEnvelope struct {
 	SchemaVersion string `json:"schema_version" yaml:"schema_version"`
 
 	DecisionID   string       `json:"decision_id" yaml:"decision_id"`
 	SituationID  string       `json:"situation_id" yaml:"situation_id"`
 	DecisionType DecisionType `json:"decision_type" yaml:"decision_type"`
+	DesiredState string       `json:"desired_state,omitempty" yaml:"desired_state,omitempty"`
 
 	Target DecisionTarget `json:"target" yaml:"target"`
 
@@ -253,6 +291,12 @@ func (d DecisionEnvelope) validateAt(now time.Time, checkExpiry bool) error {
 	if err := d.DecisionType.Validate(); err != nil {
 		return err
 	}
+	if err := validateAuthorityText(d.DesiredState, "desired state", 64, d.DecisionType == DecisionTypeChangeMode); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidDecisionEnvelope, err)
+	}
+	if d.DecisionType == DecisionTypeChangeMode && !validCognitiveExpectedState(d.DesiredState) {
+		return fmt.Errorf("%w: desired state is not allowlisted", ErrInvalidDecisionEnvelope)
+	}
 	if err := d.Target.Validate(); err != nil {
 		return err
 	}
@@ -275,15 +319,15 @@ func (d DecisionEnvelope) validateAt(now time.Time, checkExpiry bool) error {
 		}
 		seenEvidence[ref] = struct{}{}
 	}
-	if d.CriticalChainRef == nil && d.LearnedChainRef == nil {
-		return fmt.Errorf("%w: chain reference is required", ErrInvalidDecisionEnvelope)
+	if (d.CriticalChainRef == nil) == (d.LearnedChainRef == nil) {
+		return fmt.Errorf("%w: exactly one chain reference is required", ErrInvalidDecisionEnvelope)
 	}
 	if d.CriticalChainRef != nil {
 		if err := d.CriticalChainRef.Validate(); err != nil {
 			return err
 		}
-		if d.CriticalChainRef.Class != ChainClassInvariant && d.CriticalChainRef.Class != ChainClassCritical {
-			return fmt.Errorf("%w: critical reference has learned class", ErrInvalidDecisionEnvelope)
+		if d.CriticalChainRef.Class != ChainClassCritical {
+			return fmt.Errorf("%w: invariant references belong in constraints, not as business chains", ErrInvalidDecisionEnvelope)
 		}
 	}
 	if d.LearnedChainRef != nil {
@@ -451,6 +495,8 @@ type OperationalSnapshot struct {
 	Targets                []OperationalTarget `json:"targets,omitempty" yaml:"targets,omitempty"`
 	UsedIdempotencyKeys    []string            `json:"used_idempotency_keys,omitempty" yaml:"used_idempotency_keys,omitempty"`
 	ConflictingDecisionIDs []string            `json:"conflicting_decision_ids,omitempty" yaml:"conflicting_decision_ids,omitempty"`
+	CurrentSystemState     string              `json:"current_system_state,omitempty" yaml:"current_system_state,omitempty"`
+	SecurityMode           string              `json:"security_mode,omitempty" yaml:"security_mode,omitempty"`
 }
 
 type SafetyKernel interface {
@@ -550,11 +596,12 @@ const (
 )
 
 type DecisionRecord struct {
-	Envelope    DecisionEnvelope          `json:"envelope" yaml:"envelope"`
-	Mode        AuthorityMode             `json:"mode" yaml:"mode"`
-	Status      DecisionPublicationStatus `json:"status" yaml:"status"`
-	Verdict     SafetyVerdict             `json:"verdict" yaml:"verdict"`
-	PersistedAt time.Time                 `json:"persisted_at" yaml:"persisted_at"`
+	Envelope         DecisionEnvelope          `json:"envelope" yaml:"envelope"`
+	Mode             AuthorityMode             `json:"mode" yaml:"mode"`
+	Status           DecisionPublicationStatus `json:"status" yaml:"status"`
+	Verdict          SafetyVerdict             `json:"verdict" yaml:"verdict"`
+	PersistedAt      time.Time                 `json:"persisted_at" yaml:"persisted_at"`
+	ExecutionRequest *ExecutionRequest         `json:"execution_request,omitempty" yaml:"execution_request,omitempty"`
 }
 
 type DecisionPublication struct {
@@ -597,6 +644,9 @@ type MemoryDecisionStore struct {
 func (s *MemoryDecisionStore) PersistDecision(ctx context.Context, record DecisionRecord) error {
 	if s == nil {
 		return ErrDecisionStore
+	}
+	if err := validatePersistedDecisionRecord(record); err != nil {
+		return err
 	}
 	if ctx != nil {
 		select {
@@ -680,12 +730,25 @@ func (s *FileDecisionStore) actionResultsPath() string {
 // inventory. It accepts only the two closed records owned by this store.
 func ValidateStoreWrite(value any) error {
 	switch typed := value.(type) {
+	case ChainGovernanceRecord:
+		return typed.Validate()
 	case DecisionRecord:
 		if err := typed.Envelope.Validate(); err != nil {
 			return err
 		}
 		if typed.Verdict.Status == "" || typed.PersistedAt.IsZero() {
 			return fmt.Errorf("%w: incomplete decision record", ErrDecisionStore)
+		}
+		if typed.Status == DecisionPublishedAuthoritative && typed.ExecutionRequest == nil {
+			return fmt.Errorf("%w: authoritative record has no execution request", ErrDecisionStore)
+		}
+		if typed.Status != DecisionPublishedAuthoritative && typed.ExecutionRequest != nil {
+			return fmt.Errorf("%w: non-authoritative record contains an execution request", ErrDecisionStore)
+		}
+		if typed.ExecutionRequest != nil {
+			if err := typed.ExecutionRequest.Validate(); err != nil {
+				return err
+			}
 		}
 		return nil
 	case ActionResult:
@@ -760,6 +823,9 @@ func (s *FileDecisionStore) Decisions(ctx context.Context) ([]DecisionRecord, er
 		return nil, fmt.Errorf("%w: %v", ErrDecisionStore, err)
 	}
 	defer file.Close()
+	if info, statErr := file.Stat(); statErr != nil || info.Mode().Perm() != 0o600 {
+		return nil, fmt.Errorf("%w: decision store permissions", ErrDecisionStore)
+	}
 	var result []DecisionRecord
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 4096), 2*1024*1024)
@@ -767,6 +833,9 @@ func (s *FileDecisionStore) Decisions(ctx context.Context) ([]DecisionRecord, er
 		var record DecisionRecord
 		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrDecisionStore, err)
+		}
+		if err := validatePersistedDecisionRecord(record); err != nil {
+			return nil, fmt.Errorf("%w: invalid persisted decision: %v", ErrDecisionStore, err)
 		}
 		result = append(result, record)
 	}
@@ -837,6 +906,9 @@ func (s *FileDecisionStore) ActionResults(ctx context.Context) ([]ActionResult, 
 		return nil, fmt.Errorf("%w: %v", ErrDecisionStore, err)
 	}
 	defer file.Close()
+	if info, statErr := file.Stat(); statErr != nil || info.Mode().Perm() != 0o600 {
+		return nil, fmt.Errorf("%w: action result store permissions", ErrDecisionStore)
+	}
 	var result []ActionResult
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 4096), 2*1024*1024)
@@ -845,12 +917,46 @@ func (s *FileDecisionStore) ActionResults(ctx context.Context) ([]ActionResult, 
 		if err := json.Unmarshal(scanner.Bytes(), &actionResult); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrDecisionStore, err)
 		}
+		if err := validatePersistedActionResult(actionResult); err != nil {
+			return nil, fmt.Errorf("%w: invalid persisted action result: %v", ErrDecisionStore, err)
+		}
 		result = append(result, actionResult)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDecisionStore, err)
 	}
 	return result, nil
+}
+
+func validatePersistedDecisionRecord(record DecisionRecord) error {
+	if err := record.Envelope.Validate(); err != nil {
+		return err
+	}
+	if record.Verdict.Status == "" || record.PersistedAt.IsZero() {
+		return fmt.Errorf("%w: incomplete decision record", ErrDecisionStore)
+	}
+	if err := record.Mode.Validate(); err != nil {
+		return err
+	}
+	switch record.Status {
+	case DecisionPublishedShadow, DecisionPublishedAdvisory, DecisionPublishedAuthoritative, DecisionPublicationDenied:
+	default:
+		return fmt.Errorf("%w: invalid decision publication status", ErrDecisionStore)
+	}
+	if record.Status == DecisionPublishedAuthoritative && record.ExecutionRequest == nil {
+		return fmt.Errorf("%w: authoritative record has no execution request", ErrDecisionStore)
+	}
+	if record.Status != DecisionPublishedAuthoritative && record.ExecutionRequest != nil {
+		return fmt.Errorf("%w: non-authoritative record contains an execution request", ErrDecisionStore)
+	}
+	if record.ExecutionRequest != nil {
+		return record.ExecutionRequest.Validate()
+	}
+	return nil
+}
+
+func validatePersistedActionResult(result ActionResult) error {
+	return result.Validate()
 }
 
 type DecisionAuthority struct {
@@ -912,6 +1018,12 @@ func (a *DecisionAuthority) PublishDecision(ctx context.Context, decision Decisi
 				} else if err := request.Validate(); err != nil {
 					publication.Verdict.Status = SafetyDenied
 					publication.Verdict.Violations = []InvariantViolation{{Code: "execution_request_invalid", Detail: err.Error()}}
+				} else if request.DecisionID != decision.DecisionID {
+					publication.Verdict.Status = SafetyDenied
+					publication.Verdict.Violations = []InvariantViolation{{Code: "execution_request_decision_mismatch", Detail: "execution request must reference the published decision"}}
+				} else if request.IdempotencyKey != decision.IdempotencyKey {
+					publication.Verdict.Status = SafetyDenied
+					publication.Verdict.Violations = []InvariantViolation{{Code: "execution_request_idempotency_mismatch", Detail: "execution request must reuse the published decision idempotency key"}}
 				} else {
 					publication.Status = DecisionPublishedAuthoritative
 					publication.ExecutionRequest = &request
@@ -919,7 +1031,7 @@ func (a *DecisionAuthority) PublishDecision(ctx context.Context, decision Decisi
 			}
 		}
 	}
-	record := DecisionRecord{Envelope: decision, Mode: a.mode, Status: publication.Status, Verdict: publication.Verdict, PersistedAt: a.now()}
+	record := DecisionRecord{Envelope: decision, Mode: a.mode, Status: publication.Status, Verdict: publication.Verdict, PersistedAt: a.now(), ExecutionRequest: cloneExecutionRequest(publication.ExecutionRequest)}
 	if err := a.store.PersistDecision(ctx, record); err != nil {
 		return publication, err
 	}
@@ -947,15 +1059,41 @@ func (a *DecisionAuthority) RecordActionResult(ctx context.Context, result Actio
 	if err != nil {
 		return err
 	}
-	found := false
-	for _, record := range records {
+	var matched *DecisionRecord
+	for index := len(records) - 1; index >= 0; index-- {
+		record := records[index]
 		if record.Envelope.DecisionID == result.DecisionID {
-			found = true
+			copy := cloneDecisionRecord(record)
+			matched = &copy
 			break
 		}
 	}
-	if !found {
+	if matched == nil {
 		return fmt.Errorf("%w: %s", ErrUnknownDecision, result.DecisionID)
+	}
+	if matched.Mode != AuthorityModeAuthoritative || matched.Status != DecisionPublishedAuthoritative || matched.ExecutionRequest == nil {
+		return fmt.Errorf("%w: decision is not an executable authoritative record", ErrActionResultUnauthorized)
+	}
+	if matched.ExecutionRequest.ActionRequestID != result.ActionRequestID {
+		return fmt.Errorf("%w: action request does not belong to decision", ErrActionResultUnauthorized)
+	}
+	if matched.ExecutionRequest.DecisionID != matched.Envelope.DecisionID || matched.ExecutionRequest.IdempotencyKey != matched.Envelope.IdempotencyKey {
+		return fmt.Errorf("%w: persisted execution request does not belong to decision", ErrActionResultUnauthorized)
+	}
+	if result.Timestamp.Before(matched.ExecutionRequest.CreatedAt) || result.Timestamp.After(matched.ExecutionRequest.ValidUntil) || result.Timestamp.After(matched.Envelope.ValidUntil) {
+		return fmt.Errorf("%w: action result outside request validity", ErrActionResultUnauthorized)
+	}
+	previous, err := a.store.ActionResults(ctx)
+	if err != nil {
+		return err
+	}
+	for _, existing := range previous {
+		if existing.DecisionID == result.DecisionID && existing.ActionRequestID == result.ActionRequestID {
+			if reflect.DeepEqual(existing, result) {
+				return nil
+			}
+			return ErrActionResultConflict
+		}
 	}
 	return a.store.PersistActionResult(ctx, result)
 }
@@ -971,6 +1109,8 @@ func cloneDecisionRecord(record DecisionRecord) DecisionRecord {
 	result := record
 	result.Envelope.EvidenceRefs = append([]string(nil), record.Envelope.EvidenceRefs...)
 	result.Envelope.Constraints.RequiredInvariantRefs = append([]string(nil), record.Envelope.Constraints.RequiredInvariantRefs...)
+	result.Envelope.Constraints.ProposedActions = append([]string(nil), record.Envelope.Constraints.ProposedActions...)
+	result.Envelope.Constraints.ForbiddenActions = append([]string(nil), record.Envelope.Constraints.ForbiddenActions...)
 	result.Verdict.Violations = append([]InvariantViolation(nil), record.Verdict.Violations...)
 	if record.Envelope.CriticalChainRef != nil {
 		value := *record.Envelope.CriticalChainRef
@@ -980,7 +1120,16 @@ func cloneDecisionRecord(record DecisionRecord) DecisionRecord {
 		value := *record.Envelope.LearnedChainRef
 		result.Envelope.LearnedChainRef = &value
 	}
+	result.ExecutionRequest = cloneExecutionRequest(record.ExecutionRequest)
 	return result
+}
+
+func cloneExecutionRequest(request *ExecutionRequest) *ExecutionRequest {
+	if request == nil {
+		return nil
+	}
+	copy := *request
+	return &copy
 }
 
 func validateAuthorityText(value, field string, max int, required bool) error {

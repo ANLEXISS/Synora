@@ -50,6 +50,21 @@ Core event -> CGE observation -> DecisionEnvelope -> Safety Kernel
 
 No physical action is produced by the governed decision boundary in this pass.
 
+The functional synthesis path is now:
+
+```text
+bus event -> Core StateStore -> CGE observation -> CognitiveSituation
+  -> active Learned Chain, otherwise Critical Seed
+  -> DecisionEnvelope -> Safety Kernel -> shadow/advisory publication
+```
+
+The historical engine continues to decide and execute beside this path. A
+`ChainGovernanceStore` records immutable learned promotion/rollback versions;
+bootstrap Critical Seeds remain sourced from `configs/cge_critical_chains.yaml`.
+`ActionResult` feedback is accepted only for a persisted authoritative decision
+with a matching execution request, so descriptive shadow/advisory records can
+never be treated as execution evidence.
+
 ## Pass 16: durable shadow association
 
 The optional durable shadow is composed by `NewShadowEngineWithConfig` and is

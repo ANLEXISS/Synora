@@ -99,11 +99,12 @@ type authorityTestPlanner struct{ calls int }
 
 func (p *authorityTestPlanner) PlanExecution(context.Context, DecisionEnvelope, OperationalSnapshot) (ExecutionRequest, error) {
 	p.calls++
-	return ExecutionRequest{SchemaVersion: DecisionExecutionSchema, DecisionID: "decision-1", ActionRequestID: "request-1", ExecutionType: "notify", Target: DecisionTarget{Kind: DecisionTargetDevice, ID: "device-1"}, IdempotencyKey: "idem-1", CreatedAt: time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC), ValidUntil: time.Date(2026, 7, 26, 11, 0, 0, 0, time.UTC)}, nil
+	createdAt := time.Now().UTC()
+	return ExecutionRequest{SchemaVersion: DecisionExecutionSchema, DecisionID: "decision-1", ActionRequestID: "request-1", ExecutionType: "notify", Target: DecisionTarget{Kind: DecisionTargetDevice, ID: "device-1"}, IdempotencyKey: "idem-1", CreatedAt: createdAt, ValidUntil: createdAt.Add(time.Hour)}, nil
 }
 
 func TestAuthorityPublicationModesAreFailClosed(t *testing.T) {
-	now := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	planner := &authorityTestPlanner{}
 	store := &MemoryDecisionStore{}
 	authority, err := NewDecisionAuthority(AuthorityModeAdvisory, nil, planner, store)
@@ -128,7 +129,7 @@ func TestAuthorityPublicationModesAreFailClosed(t *testing.T) {
 }
 
 func TestActionResultFeedbackIsCorrelatedAndPersisted(t *testing.T) {
-	now := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	store := &MemoryDecisionStore{}
 	authority, err := NewDecisionAuthority(AuthorityModeAdvisory, nil, nil, store)
 	if err != nil {
@@ -139,16 +140,36 @@ func TestActionResultFeedbackIsCorrelatedAndPersisted(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := ActionResult{SchemaVersion: DecisionActionResultSchema, DecisionID: decision.DecisionID, ActionRequestID: "request-1", Status: ActionResultRejected, Error: "planner gate", Duration: time.Second, BeforeStateFingerprint: "sha256:before", AfterStateFingerprint: "sha256:after", Timestamp: now.Add(time.Minute)}
-	if err := authority.RecordActionResult(context.Background(), result); err != nil {
+	if err := authority.RecordActionResult(context.Background(), result); !errors.Is(err, ErrActionResultUnauthorized) {
+		t.Fatalf("advisory action result accepted: %v", err)
+	}
+
+	authoritativeStore := &MemoryDecisionStore{}
+	authoritative, err := NewDecisionAuthority(AuthorityModeAuthoritative, nil, &authorityTestPlanner{}, authoritativeStore)
+	if err != nil {
 		t.Fatal(err)
 	}
-	results, err := authority.ActionResults(context.Background())
+	if publication, err := authoritative.PublishDecision(context.Background(), decision, authorityTestSnapshot(now, AuthorityModeAuthoritative)); err != nil || publication.Status != DecisionPublishedAuthoritative {
+		t.Fatalf("authoritative publication=%+v err=%v", publication, err)
+	}
+	if err := authoritative.RecordActionResult(context.Background(), result); err != nil {
+		t.Fatal(err)
+	}
+	results, err := authoritative.ActionResults(context.Background())
 	if err != nil || len(results) != 1 || results[0].DecisionID != decision.DecisionID {
 		t.Fatalf("results=%+v err=%v", results, err)
 	}
+	if err := authoritative.RecordActionResult(context.Background(), result); err != nil {
+		t.Fatalf("idempotent feedback: %v", err)
+	}
+	wrongRequest := result
+	wrongRequest.ActionRequestID = "other-request"
+	if err := authoritative.RecordActionResult(context.Background(), wrongRequest); !errors.Is(err, ErrActionResultUnauthorized) {
+		t.Fatalf("wrong request accepted: %v", err)
+	}
 	unknown := result
 	unknown.DecisionID = "missing"
-	if err := authority.RecordActionResult(context.Background(), unknown); !errors.Is(err, ErrUnknownDecision) {
+	if err := authoritative.RecordActionResult(context.Background(), unknown); !errors.Is(err, ErrUnknownDecision) {
 		t.Fatalf("unknown decision feedback accepted: %v", err)
 	}
 }

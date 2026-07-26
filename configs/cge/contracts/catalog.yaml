@@ -471,7 +471,6 @@ contracts:
         persistence: []
         retention: memory_only
         validation: bounded_no_newline
-
   - id: synora.cge.observation.v1
     category: normalized_observation
     owner: cge
@@ -556,6 +555,19 @@ contracts:
         persistence: [synora.store.cge-journal, synora.store.workflow-wal]
         retention: configured_store_policy
         validation: cgeid_v1_by_kind_or_empty
+      - name: chain_id
+        type: chain_id
+        wire_name: chain_id
+        required: false
+        nullable: false
+        description: Governed chain reference associated by the Core recognizer.
+        source: historical_core.governed_chain_match
+        trust: derived
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: bounded_scalar
       - name: observed_at
         type: time
         required: true
@@ -1365,6 +1377,57 @@ contracts:
       type: DecisionEnvelope
       wire_format: json
       validator: DecisionEnvelope.ValidateAt
+
+  - id: synora.cge.chain-governance-record.v1
+    category: audit_record
+    owner: cge_chain_governance
+    producers: [cge_chain_governance]
+    consumers: [cge_chain_governance]
+    transport: internal
+    persistence: [synora.store.cge-chain-governance]
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Append-only learned-chain promotion and rollback lifecycle record; critical bootstrap chains are not replaced.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: additive_only_with_validation
+    retention_policy: configured_governance_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: ChainGovernanceRecord, wire_format: json, validator: ChainGovernanceRecord.Validate}
+
+  - id: synora.cge.chain-version.v1
+    category: configuration
+    owner: cge_chain_governance
+    producers: [cge_chain_governance]
+    consumers: [cge_chain_governance]
+    transport: internal
+    persistence: [synora.store.cge-chain-governance]
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Immutable version nested in a learned-chain governance record.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: additive_only_with_validation
+    retention_policy: configured_governance_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: ChainVersion, wire_format: json, validator: ChainVersion.Validate}
+
+  - id: synora.cge.promotion-evidence.v1
+    category: assessment
+    owner: cge_chain_governance
+    producers: [cge_chain_governance]
+    consumers: [cge_chain_governance]
+    transport: internal
+    persistence: [synora.store.cge-chain-governance]
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Bounded evidence used by the governed Learned Chain promotion gate.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: additive_only_with_validation
+    retention_policy: configured_governance_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: PromotionEvidence, wire_format: json, validator: none}
 
   - id: synora.cge.chain-reference.v1
     category: configuration

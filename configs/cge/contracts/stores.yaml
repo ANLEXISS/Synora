@@ -1,6 +1,27 @@
 schema_version: 1
 namespace: synora.cge
 stores:
+  - id: synora.store.cge-chain-governance
+    owner: cge_chain_governance
+    format: ndjson
+    schema_version: synora.cge.chain-governance-record.v1
+    write_mode: append_only
+    atomicity: record_append
+    fsync: sync_each_record
+    ordering: governance_order
+    idempotence: chain_version_and_revision
+    recovery: append_replay_fail_closed
+    retention: explicit_policy_required
+    compaction: no_implicit_delete
+    permissions: runtime_user_directory_policy
+    sensitivity: operational
+    migration: version_field_required; no_automatic_migration
+    authority: advisory
+    contract_refs: [synora.cge.chain-governance-record.v1]
+    durable: true
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
   - id: synora.store.cge-decision
     owner: cge_authority
     format: ndjson

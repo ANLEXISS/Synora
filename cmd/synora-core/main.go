@@ -19,6 +19,7 @@ import (
 	"synora/internal/cge/decisioncomparison"
 	"synora/internal/device"
 	"synora/internal/engine"
+	cgecontracts "synora/internal/engine/contracts"
 	eventpkg "synora/internal/event"
 	"synora/internal/idgen"
 	"synora/internal/ingest"
@@ -51,6 +52,7 @@ type coreApp struct {
 	mu sync.RWMutex
 
 	snapshotPending atomic.Bool
+	coreRevision    atomic.Uint64
 
 	bus        coreBus
 	engine     *engine.Engine
@@ -205,6 +207,9 @@ func main() {
 	}
 	if configuredShadow != nil {
 		configuredShadow.SetContextProvider(newCoreReadOnlyContextProvider(app))
+		configuredShadow.SetContractChains(engineInstance.CriticalSeeds(), engineInstance.LearnedBehaviors(), nil)
+		configuredShadow.SetOperationalSnapshotProvider(&coreOperationalSnapshotProvider{app: app})
+		configuredShadow.SetDecisionPublicationSink(&coreDecisionPublicationSink{bus: app.bus})
 	}
 	defer app.closeCognitive()
 	app.snapshotBuilder = &snapshotpkg.Builder{
@@ -415,12 +420,14 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	if event == nil {
 		return
 	}
+	a.coreRevision.Add(1)
 	// Capture the boundary DTO before the historical engine can normalize or
 	// enrich the source event. The deferred call keeps this observer after the
 	// existing processing path and cannot affect its result.
 	cgeEvent := cge.EventFromContract(event)
 	var historicalDecision *decisioncomparison.HistoricalDecisionRef
-	defer func() { a.observeCGE(cgeEvent, historicalDecision) }()
+	historicalChainID := ""
+	defer func() { a.observeCGE(cgeEvent, historicalDecision, historicalChainID) }()
 
 	stateapply.TouchDeviceState(a.state, a.device, event)
 	a.recordRuntimeEvent(event)
@@ -431,6 +438,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	if event.Type == contract.EventActionResult {
 		a.engine.ObserveActionResult(event)
 		a.storeActionResult(event)
+		a.forwardCGEActionResult(event)
 		a.metrics.record(event.Source, 0)
 		a.triggerSnapshot()
 		return
@@ -475,6 +483,20 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	}
 	if event.SequenceKey == "" && result != nil && result.Decision != nil {
 		event.SequenceKey = result.Decision.SequenceKey
+	}
+	// Preserve the exact historical Critical Seed match for the deferred CGE
+	// path. Only its bounded identifier crosses the boundary.
+	if result != nil && result.DangerAssessment != nil {
+		historicalChainID = result.DangerAssessment.MatchedSeedID
+	}
+	if historicalChainID == "" && result != nil && result.Decision != nil {
+		for _, behavior := range a.engine.LearnedBehaviors() {
+			if behavior.ID == "" || behavior.TriggerSequenceSignature == "" || behavior.TriggerSequenceSignature != result.Decision.SequenceKey || behavior.Status != cgecontracts.LearnedBehaviorApproved || !behavior.Enabled || behavior.Forgotten {
+				continue
+			}
+			historicalChainID = behavior.ID
+			break
+		}
 	}
 
 	if result != nil &&
@@ -602,7 +624,28 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	a.triggerSnapshot()
 }
 
-func (a *coreApp) observeCGE(event cge.Event, historical *decisioncomparison.HistoricalDecisionRef) {
+func (a *coreApp) forwardCGEActionResult(event *contract.Event) {
+	if a == nil || a.cognitive == nil || event == nil || len(event.Payload) == 0 {
+		return
+	}
+	receiver, ok := a.cognitive.(cge.ActionFeedbackReceiver)
+	if !ok {
+		return
+	}
+	var result cge.ActionResult
+	body, err := json.Marshal(event.Payload)
+	if err != nil || json.Unmarshal(body, &result) != nil || result.SchemaVersion == "" {
+		return
+	}
+	if result.Timestamp.IsZero() {
+		result.Timestamp = event.Timestamp
+	}
+	if err := receiver.RecordActionResult(context.Background(), result); err != nil {
+		log.Printf("core: cge action result rejected code=%s", cge.ErrorCode(err))
+	}
+}
+
+func (a *coreApp) observeCGE(event cge.Event, historical *decisioncomparison.HistoricalDecisionRef, chainID string) {
 	if a == nil || a.cognitive == nil {
 		return
 	}
@@ -612,12 +655,24 @@ func (a *coreApp) observeCGE(event cge.Event, historical *decisioncomparison.His
 		}
 	}()
 	if historical != nil {
+		if observer, ok := a.cognitive.(cge.ChainAwareHistoricalDecisionObserver); ok {
+			if _, err := observer.ObserveHistoricalDecisionWithChain(context.Background(), event, historical.Clone(), chainID); err != nil {
+				log.Printf("core: cge historical comparison observation error ignored code=%s", cge.ErrorCode(err))
+			}
+			return
+		}
 		if observer, ok := a.cognitive.(cge.HistoricalDecisionObserver); ok {
 			if _, err := observer.ObserveHistoricalDecision(context.Background(), event, historical.Clone()); err != nil {
 				log.Printf("core: cge historical comparison observation error ignored code=%s", cge.ErrorCode(err))
 			}
 			return
 		}
+	}
+	if observer, ok := a.cognitive.(cge.ChainAwareObserver); ok {
+		if _, err := observer.ObserveWithChain(context.Background(), event, chainID); err != nil {
+			log.Printf("core: cge observation error ignored code=%s", cge.ErrorCode(err))
+		}
+		return
 	}
 	if _, err := a.cognitive.Observe(context.Background(), event); err != nil {
 		log.Printf("core: cge observation error ignored code=%s", cge.ErrorCode(err))

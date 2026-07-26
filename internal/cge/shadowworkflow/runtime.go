@@ -44,6 +44,18 @@ type Runtime struct {
 	calibrationAnalyticsMu      sync.Mutex
 	calibrationAnalyticsReport  calibrationanalytics.CalibrationAnalyticsReport
 	calibrationAnalyticsStatus  CalibrationAnalyticsStatus
+	decisionObserver            func(ShadowWorkflowInput)
+}
+
+// SetCommitObserver installs an optional post-commit hook. It runs after the
+// workflow WAL and cognitive projection have committed successfully.
+func (r *Runtime) SetCommitObserver(observer func(ShadowWorkflowInput)) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.decisionObserver = observer
+	r.mu.Unlock()
 }
 
 type memoryStore struct {

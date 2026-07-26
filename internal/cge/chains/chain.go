@@ -132,6 +132,7 @@ type ObservationRef struct {
 	ClipIndex    int               `json:"clip_index,omitempty"`
 	TrackID      string            `json:"track_id,omitempty"`
 	SequenceKey  string            `json:"sequence_key,omitempty"`
+	ChainID      string            `json:"chain_id,omitempty"`
 	Context      *cgecontext.Frame `json:"context,omitempty"`
 }
 

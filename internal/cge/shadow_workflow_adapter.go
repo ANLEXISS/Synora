@@ -64,7 +64,7 @@ func (e *ShadowEngine) submitWorkflow(observation chains.ObservationRef, histori
 			subject.CandidateEntityIDs = []string{observation.EntityID}
 		}
 	}
-	value := episodes.ObservationRef{EventID: observation.ID, ObservedAt: observed, ReceivedAt: observed, EventType: observation.EventType, NodeID: observation.NodeID, Subject: subject, ActivationID: observation.ActivationID, ClipID: observation.ClipID, TrackID: observation.TrackID, SequenceKey: observation.SequenceKey}
+	value := episodes.ObservationRef{EventID: observation.ID, ObservedAt: observed, ReceivedAt: observed, EventType: observation.EventType, NodeID: observation.NodeID, Subject: subject, ActivationID: observation.ActivationID, ClipID: observation.ClipID, TrackID: observation.TrackID, SequenceKey: observation.SequenceKey, ChainID: observation.ChainID}
 	if observation.Context != nil {
 		value.ZoneID = observation.Context.ZoneID
 		value.HouseMode = string(observation.Context.HouseMode)

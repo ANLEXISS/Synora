@@ -14,6 +14,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -202,6 +203,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -296,6 +298,189 @@ types:
           identifier_semantic: not_an_identifier
           timestamp_semantic: not_a_timestamp
     - package: synora/internal/cge
+      name: AuthorityDecisionComparison
+      kind: struct
+      implementation: synora/internal/cge/AuthorityDecisionComparison
+      imports:
+        chains: synora/internal/cge/chains
+        context: context
+        contracts: synora/internal/engine/contracts
+        decisioncomparison: synora/internal/cge/decisioncomparison
+        strings: strings
+        time: time
+      fields:
+        - name: EventID
+          go_field: EventID
+          field_path: EventID
+          wire_name: event_id
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: registry_domain_required
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: event_id
+          timestamp_semantic: not_a_timestamp
+        - name: HistoricalState
+          go_field: HistoricalState
+          field_path: HistoricalState
+          wire_name: historical_state
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: CognitiveState
+          go_field: CognitiveState
+          field_path: CognitiveState
+          wire_name: cognitive_state
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: HistoricalActionIDs
+          go_field: HistoricalActionIDs
+          field_path: HistoricalActionIDs
+          wire_name: historical_action_ids
+          go_type: '[]string'
+          wire_type: '[]string'
+          required: false
+          nullable: true
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: CognitiveIntentIDs
+          go_field: CognitiveIntentIDs
+          field_path: CognitiveIntentIDs
+          wire_name: cognitive_intent_ids
+          go_type: '[]string'
+          wire_type: '[]string'
+          required: false
+          nullable: true
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: SameState
+          go_field: SameState
+          field_path: SameState
+          wire_name: same_state
+          go_type: bool
+          wire_type: bool
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: SameRiskBand
+          go_field: SameRiskBand
+          field_path: SameRiskBand
+          wire_name: same_risk_band
+          go_type: bool
+          wire_type: bool
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: DivergenceCodes
+          go_field: DivergenceCodes
+          field_path: DivergenceCodes
+          wire_name: divergence_codes
+          go_type: '[]string'
+          wire_type: '[]string'
+          required: false
+          nullable: true
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: ComparedAt
+          go_field: ComparedAt
+          field_path: ComparedAt
+          wire_name: compared_at
+          go_type: time.Time
+          wire_type: time.Time
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+    - package: synora/internal/cge
       name: AuthorityMode
       kind: scalar_or_alias
       implementation: synora/internal/cge/AuthorityMode
@@ -308,6 +493,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -325,16 +511,135 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
       fields: []
     - package: synora/internal/cge
+      name: ChainGovernanceRecord
+      kind: struct
+      implementation: synora/internal/cge/ChainGovernanceRecord
+      imports:
+        bufio: bufio
+        context: context
+        filepath: path/filepath
+        fmt: fmt
+        json: encoding/json
+        math: math
+        os: os
+        sort: sort
+        strings: strings
+        sync: sync
+        time: time
+      fields:
+        - name: Operation
+          go_field: Operation
+          field_path: Operation
+          wire_name: operation
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: Chain
+          go_field: Chain
+          field_path: Chain
+          wire_name: chain
+          go_type: ChainVersion
+          wire_type: ChainVersion
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: PreviousActive
+          go_field: PreviousActive
+          field_path: PreviousActive
+          wire_name: previous_active
+          go_type: '*ChainReference'
+          wire_type: '*ChainReference'
+          required: false
+          nullable: true
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: RecordedAt
+          go_field: RecordedAt
+          field_path: RecordedAt
+          wire_name: recorded_at
+          go_type: time.Time
+          wire_type: time.Time
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: Reason
+          go_field: Reason
+          field_path: Reason
+          wire_name: reason
+          go_type: string
+          wire_type: string
+          required: false
+          nullable: false
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+    - package: synora/internal/cge
       name: ChainPromotionPolicy
       kind: struct
       implementation: synora/internal/cge/ChainPromotionPolicy
       imports:
+        bufio: bufio
+        context: context
+        filepath: path/filepath
         fmt: fmt
+        json: encoding/json
+        math: math
+        os: os
         sort: sort
         strings: strings
         sync: sync
@@ -429,6 +734,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -510,11 +816,34 @@ types:
           identifier_semantic: not_an_identifier
           timestamp_semantic: not_a_timestamp
     - package: synora/internal/cge
+      name: ChainSource
+      kind: scalar_or_alias
+      implementation: synora/internal/cge/ChainSource
+      imports:
+        context: context
+        contracts: synora/internal/engine/contracts
+        errors: errors
+        fmt: fmt
+        hex: encoding/hex
+        json: encoding/json
+        math: math
+        sha256: crypto/sha256
+        sort: sort
+        strings: strings
+        time: time
+      fields: []
+    - package: synora/internal/cge
       name: ChainStatus
       kind: scalar_or_alias
       implementation: synora/internal/cge/ChainStatus
       imports:
+        bufio: bufio
+        context: context
+        filepath: path/filepath
         fmt: fmt
+        json: encoding/json
+        math: math
+        os: os
         sort: sort
         strings: strings
         sync: sync
@@ -525,7 +854,13 @@ types:
       kind: struct
       implementation: synora/internal/cge/ChainVersion
       imports:
+        bufio: bufio
+        context: context
+        filepath: path/filepath
         fmt: fmt
+        json: encoding/json
+        math: math
+        os: os
         sort: sort
         strings: strings
         sync: sync
@@ -613,6 +948,232 @@ types:
           wire_name: evidence
           go_type: PromotionEvidence
           wire_type: PromotionEvidence
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+    - package: synora/internal/cge
+      name: CognitiveChainCandidate
+      kind: struct
+      implementation: synora/internal/cge/CognitiveChainCandidate
+      imports:
+        context: context
+        contracts: synora/internal/engine/contracts
+        errors: errors
+        fmt: fmt
+        hex: encoding/hex
+        json: encoding/json
+        math: math
+        sha256: crypto/sha256
+        sort: sort
+        strings: strings
+        time: time
+      fields:
+        - name: Reference
+          go_field: Reference
+          field_path: Reference
+          wire_name: Reference
+          go_type: ChainReference
+          wire_type: ChainReference
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: Source
+          go_field: Source
+          field_path: Source
+          wire_name: Source
+          go_type: ChainSource
+          wire_type: ChainSource
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: Status
+          go_field: Status
+          field_path: Status
+          wire_name: Status
+          go_type: ChainStatus
+          wire_type: ChainStatus
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: SituationID
+          go_field: SituationID
+          field_path: SituationID
+          wire_name: SituationID
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: registry_domain_required
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: situation_id
+          timestamp_semantic: not_a_timestamp
+        - name: ExpectedState
+          go_field: ExpectedState
+          field_path: ExpectedState
+          wire_name: ExpectedState
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: DangerScore
+          go_field: DangerScore
+          field_path: DangerScore
+          wire_name: DangerScore
+          go_type: float64
+          wire_type: float64
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: Confidence
+          go_field: Confidence
+          field_path: Confidence
+          wire_name: Confidence
+          go_type: float64
+          wire_type: float64
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: ProposedActions
+          go_field: ProposedActions
+          field_path: ProposedActions
+          wire_name: ProposedActions
+          go_type: '[]string'
+          wire_type: '[]string'
+          required: false
+          nullable: true
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: ForbiddenActions
+          go_field: ForbiddenActions
+          field_path: ForbiddenActions
+          wire_name: ForbiddenActions
+          go_type: '[]string'
+          wire_type: '[]string'
+          required: false
+          nullable: true
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: EvidenceRefs
+          go_field: EvidenceRefs
+          field_path: EvidenceRefs
+          wire_name: EvidenceRefs
+          go_type: '[]string'
+          wire_type: '[]string'
+          required: false
+          nullable: true
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: Scope
+          go_field: Scope
+          field_path: Scope
+          wire_name: Scope
+          go_type: string
+          wire_type: string
           required: true
           nullable: false
           omitempty: false
@@ -794,6 +1355,270 @@ types:
           wire_name: combined_fingerprint
           go_type: string
           wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+    - package: synora/internal/cge
+      name: CognitiveDecisionInput
+      kind: struct
+      implementation: synora/internal/cge/CognitiveDecisionInput
+      imports:
+        context: context
+        contracts: synora/internal/engine/contracts
+        errors: errors
+        fmt: fmt
+        hex: encoding/hex
+        json: encoding/json
+        math: math
+        sha256: crypto/sha256
+        sort: sort
+        strings: strings
+        time: time
+      fields:
+        - name: EventID
+          go_field: EventID
+          field_path: EventID
+          wire_name: EventID
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: registry_domain_required
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: event_id
+          timestamp_semantic: not_a_timestamp
+        - name: ObservedEventType
+          go_field: ObservedEventType
+          field_path: ObservedEventType
+          wire_name: ObservedEventType
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: SituationID
+          go_field: SituationID
+          field_path: SituationID
+          wire_name: SituationID
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: registry_domain_required
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: situation_id
+          timestamp_semantic: not_a_timestamp
+        - name: CognitiveState
+          go_field: CognitiveState
+          field_path: CognitiveState
+          wire_name: CognitiveState
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: ChainID
+          go_field: ChainID
+          field_path: ChainID
+          wire_name: ChainID
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: registry_domain_required
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: chain_id
+          timestamp_semantic: not_a_timestamp
+        - name: CoreRevision
+          go_field: CoreRevision
+          field_path: CoreRevision
+          wire_name: CoreRevision
+          go_type: uint64
+          wire_type: uint64
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: TargetRevision
+          go_field: TargetRevision
+          field_path: TargetRevision
+          wire_name: TargetRevision
+          go_type: uint64
+          wire_type: uint64
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: Target
+          go_field: Target
+          field_path: Target
+          wire_name: Target
+          go_type: DecisionTarget
+          wire_type: DecisionTarget
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: DangerScore
+          go_field: DangerScore
+          field_path: DangerScore
+          wire_name: DangerScore
+          go_type: float64
+          wire_type: float64
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: Confidence
+          go_field: Confidence
+          field_path: Confidence
+          wire_name: Confidence
+          go_type: float64
+          wire_type: float64
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: EvidenceRefs
+          go_field: EvidenceRefs
+          field_path: EvidenceRefs
+          wire_name: EvidenceRefs
+          go_type: '[]string'
+          wire_type: '[]string'
+          required: false
+          nullable: true
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: CreatedAt
+          go_field: CreatedAt
+          field_path: CreatedAt
+          wire_name: CreatedAt
+          go_type: time.Time
+          wire_type: time.Time
+          required: true
+          nullable: false
+          omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: created_at
+        - name: ValidUntil
+          go_field: ValidUntil
+          field_path: ValidUntil
+          wire_name: ValidUntil
+          go_type: time.Time
+          wire_type: time.Time
           required: true
           nullable: false
           omitempty: false
@@ -1355,6 +2180,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -1410,6 +2236,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -1509,6 +2336,44 @@ types:
           validation: generated_shape
           identifier_semantic: not_an_identifier
           timestamp_semantic: not_a_timestamp
+        - name: ProposedActions
+          go_field: ProposedActions
+          field_path: ProposedActions
+          wire_name: proposed_actions
+          go_type: '[]string'
+          wire_type: '[]string'
+          required: false
+          nullable: true
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: ForbiddenActions
+          go_field: ForbiddenActions
+          field_path: ForbiddenActions
+          wire_name: forbidden_actions
+          go_type: '[]string'
+          wire_type: '[]string'
+          required: false
+          nullable: true
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
     - package: synora/internal/cge
       name: DecisionEnvelope
       kind: struct
@@ -1522,6 +2387,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -1592,6 +2458,25 @@ types:
           required: true
           nullable: false
           omitempty: false
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: DesiredState
+          go_field: DesiredState
+          field_path: DesiredState
+          wire_name: desired_state
+          go_type: string
+          wire_type: string
+          required: false
+          nullable: false
+          omitempty: true
           runtime_only: false
           source: go_surface
           trust: derived
@@ -1805,6 +2690,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -1917,6 +2803,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -1934,6 +2821,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -2033,6 +2921,25 @@ types:
           validation: generated_shape
           identifier_semantic: not_an_identifier
           timestamp_semantic: persisted_at
+        - name: ExecutionRequest
+          go_field: ExecutionRequest
+          field_path: ExecutionRequest
+          wire_name: execution_request
+          go_type: '*ExecutionRequest'
+          wire_type: '*ExecutionRequest'
+          required: false
+          nullable: true
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
     - package: synora/internal/cge
       name: DecisionTarget
       kind: struct
@@ -2046,6 +2953,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -2139,6 +3047,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -2156,6 +3065,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -2173,6 +3083,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -2801,6 +3712,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -3661,6 +4573,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -6377,6 +7290,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -6514,6 +7428,44 @@ types:
           validation: generated_shape
           identifier_semantic: not_an_identifier
           timestamp_semantic: not_a_timestamp
+        - name: CurrentSystemState
+          go_field: CurrentSystemState
+          field_path: CurrentSystemState
+          wire_name: current_system_state
+          go_type: string
+          wire_type: string
+          required: false
+          nullable: false
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: SecurityMode
+          go_field: SecurityMode
+          field_path: SecurityMode
+          wire_name: security_mode
+          go_type: string
+          wire_type: string
+          required: false
+          nullable: false
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
     - package: synora/internal/cge
       name: OperationalTarget
       kind: struct
@@ -6527,6 +7479,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -6631,7 +7584,13 @@ types:
       kind: struct
       implementation: synora/internal/cge/PromotionEvidence
       imports:
+        bufio: bufio
+        context: context
+        filepath: path/filepath
         fmt: fmt
+        json: encoding/json
+        math: math
+        os: os
         sort: sort
         strings: strings
         sync: sync
@@ -6640,7 +7599,7 @@ types:
         - name: CandidateOccurrences
           go_field: CandidateOccurrences
           field_path: CandidateOccurrences
-          wire_name: CandidateOccurrences
+          wire_name: candidate_occurrences
           go_type: int
           wire_type: int
           required: true
@@ -6659,7 +7618,7 @@ types:
         - name: ObservationWindow
           go_field: ObservationWindow
           field_path: ObservationWindow
-          wire_name: ObservationWindow
+          wire_name: observation_window
           go_type: time.Duration
           wire_type: time.Duration
           required: true
@@ -6678,7 +7637,7 @@ types:
         - name: CandidatePerformance
           go_field: CandidatePerformance
           field_path: CandidatePerformance
-          wire_name: CandidatePerformance
+          wire_name: candidate_performance
           go_type: float64
           wire_type: float64
           required: true
@@ -6697,7 +7656,7 @@ types:
         - name: ActivePerformance
           go_field: ActivePerformance
           field_path: ActivePerformance
-          wire_name: ActivePerformance
+          wire_name: active_performance
           go_type: float64
           wire_type: float64
           required: true
@@ -6716,7 +7675,7 @@ types:
         - name: Contradictions
           go_field: Contradictions
           field_path: Contradictions
-          wire_name: Contradictions
+          wire_name: contradictions
           go_type: int
           wire_type: int
           required: true
@@ -6735,7 +7694,7 @@ types:
         - name: InvariantViolations
           go_field: InvariantViolations
           field_path: InvariantViolations
-          wire_name: InvariantViolations
+          wire_name: invariant_violations
           go_type: int
           wire_type: int
           required: true
@@ -6754,7 +7713,7 @@ types:
         - name: StableAfterRestart
           go_field: StableAfterRestart
           field_path: StableAfterRestart
-          wire_name: StableAfterRestart
+          wire_name: stable_after_restart
           go_type: bool
           wire_type: bool
           required: true
@@ -6773,7 +7732,7 @@ types:
         - name: RollbackAvailable
           go_field: RollbackAvailable
           field_path: RollbackAvailable
-          wire_name: RollbackAvailable
+          wire_name: rollback_available
           go_type: bool
           wire_type: bool
           required: true
@@ -6792,7 +7751,7 @@ types:
         - name: CandidateScope
           go_field: CandidateScope
           field_path: CandidateScope
-          wire_name: CandidateScope
+          wire_name: candidate_scope
           go_type: string
           wire_type: string
           required: true
@@ -6811,7 +7770,7 @@ types:
         - name: ActiveScope
           go_field: ActiveScope
           field_path: ActiveScope
-          wire_name: ActiveScope
+          wire_name: active_scope
           go_type: string
           wire_type: string
           required: true
@@ -6840,6 +7799,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -7028,6 +7988,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -7121,6 +8082,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -7138,6 +8100,7 @@ types:
         json: encoding/json
         math: math
         os: os
+        reflect: reflect
         strings: strings
         sync: sync
         time: time
@@ -18848,6 +19811,25 @@ types:
           retention: process_lifetime
           validation: generated_shape
           identifier_semantic: sequence_key
+          timestamp_semantic: not_a_timestamp
+        - name: ChainID
+          go_field: ChainID
+          field_path: ChainID
+          wire_name: chain_id
+          go_type: string
+          wire_type: string
+          required: false
+          nullable: false
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: registry_domain_required
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: chain_id
           timestamp_semantic: not_a_timestamp
         - name: Context
           go_field: Context

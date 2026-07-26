@@ -13,7 +13,7 @@ Trois chemins sont distincts :
 | --- | --- | --- |
 | Historique | état, décision, automation | décisionnelle |
 | Shadow CGE historique | contexte, chaînes, routines, déviation | diagnostique, sans autorité |
-| Shadow Cognitive Workflow | épisodes, facts, hypothèses, advisory, mapping, éligibilité | expérimental, sans décision ni action |
+| Shadow Cognitive Workflow | épisodes, facts, hypothèses, advisory, mapping, décision gouvernée descriptive | expérimental, sans exécution ni action |
 
 ## Le parcours d’une observation Synora
 

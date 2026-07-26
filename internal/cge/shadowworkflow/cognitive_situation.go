@@ -51,6 +51,41 @@ func (r *Runtime) CognitiveProjection() CognitiveProjectionSnapshot {
 	return r.projection.snapshot.Clone()
 }
 
+// SituationForObservation resolves the committed cognitive situation that
+// contains an observation. It prevents a concurrent or late event from being
+// synthesized against an unrelated episode's newest global projection.
+func (r *Runtime) SituationForObservation(eventID string) (cognitivesituation.CognitiveSituation, bool) {
+	if r == nil || eventID == "" || r.coordinator == nil {
+		return cognitivesituation.CognitiveSituation{}, false
+	}
+	state := r.coordinator.Snapshot()
+	episodeID := ""
+	for _, episode := range state.Episodes {
+		if episode.Episode == nil {
+			continue
+		}
+		for _, observation := range episode.Episode.Observations {
+			if observation.EventID == eventID {
+				episodeID = episode.EpisodeID
+				break
+			}
+		}
+		if episodeID != "" {
+			break
+		}
+	}
+	if episodeID == "" {
+		return cognitivesituation.CognitiveSituation{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	index, ok := r.projection.snapshot.Situations.EpisodeIndex[episodeID]
+	if !ok || index < 0 || index >= len(r.projection.snapshot.Situations.Situations) {
+		return cognitivesituation.CognitiveSituation{}, false
+	}
+	return r.projection.snapshot.Situations.Situations[index].Clone(), true
+}
+
 func (s CognitiveSituationSnapshot) Clone() CognitiveSituationSnapshot {
 	out := s
 	out.Situations = make([]cognitivesituation.CognitiveSituation, len(s.Situations))

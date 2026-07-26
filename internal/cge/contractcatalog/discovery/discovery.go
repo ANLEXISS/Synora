@@ -388,6 +388,11 @@ func ScanOutputs(root string) ([]Surface, error) {
 			if receiver != "ShadowEngine" && receiver != "CognitiveEngine" {
 				continue
 			}
+			// Feedback receivers return the transport error only; they are
+			// inbound validation boundaries, not public CGE output surfaces.
+			if function.Name.Name == "RecordActionResult" {
+				continue
+			}
 			if pkg == "synora/internal/cge" && function.Name.Name == "ContextProviderStatus" {
 				continue
 			}
@@ -606,17 +611,26 @@ func messageType(args []ast.Expr) (string, string) {
 	}
 	for _, arg := range args {
 		if composite, ok := arg.(*ast.CompositeLit); ok {
+			method := ""
 			for _, element := range composite.Elts {
 				keyValue, ok := element.(*ast.KeyValueExpr)
 				if !ok {
 					continue
 				}
 				key := selectorName(keyValue.Key)
-				if key == "Type" || key == "Kind" {
+				if key == "Target" {
 					if value, ok := stringLiteral(keyValue.Value); ok {
-						return value, path
+						path = value
 					}
 				}
+				if key == "Type" || key == "Kind" {
+					if value, ok := stringLiteral(keyValue.Value); ok {
+						method = value
+					}
+				}
+			}
+			if method != "" {
+				return method, path
 			}
 		}
 	}

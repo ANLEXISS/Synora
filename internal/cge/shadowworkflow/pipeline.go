@@ -334,6 +334,12 @@ func (r *Runtime) commit(ctx context.Context, input ShadowWorkflowInput, state d
 	if comparisonErr == nil && input.HistoricalDecision != nil {
 		_ = r.appendCalibrationComparison(ctx, string(episode.ID))
 	}
+	r.mu.RLock()
+	decisionObserver := r.decisionObserver
+	r.mu.RUnlock()
+	if decisionObserver != nil {
+		decisionObserver(input)
+	}
 	r.qualificationStageEnd(qualificationStageDurableCommit, commitStarted, nil)
 	r.counters.commits.Add(1)
 	r.mu.Lock()

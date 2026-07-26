@@ -2,6 +2,12 @@ package cge
 
 import "context"
 
+// DecisionPublicationSink transports only a descriptive envelope. It is not
+// an execution or action-dispatch interface.
+type DecisionPublicationSink interface {
+	PublishDecision(context.Context, DecisionEnvelope) error
+}
+
 // AuthorityMode returns the configured governed-decision publication mode.
 func (e *ShadowEngine) AuthorityMode() AuthorityMode {
 	if e == nil || e.authority == nil {
@@ -26,4 +32,14 @@ func (e *ShadowEngine) Decisions(ctx context.Context) ([]DecisionRecord, error) 
 		return nil, ErrDecisionStore
 	}
 	return e.authority.Decisions(ctx)
+}
+
+// RecordActionResult forwards only the closed CGE feedback contract to the
+// authority boundary. Legacy action-result payloads are not reinterpreted as
+// CGE execution evidence.
+func (e *ShadowEngine) RecordActionResult(ctx context.Context, result ActionResult) error {
+	if e == nil || e.authority == nil {
+		return ErrDecisionStore
+	}
+	return e.authority.RecordActionResult(ctx, result)
 }
