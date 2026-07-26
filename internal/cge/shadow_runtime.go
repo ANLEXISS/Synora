@@ -108,6 +108,14 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 		return nil, err
 	}
 	metrics := &shadowMetrics{}
+	decisionStore, storeErr := NewFileDecisionStore(filepath.Join(config.DataDir, "decisions.ndjson"))
+	if storeErr != nil {
+		return nil, fmt.Errorf("%w: decision store", ErrShadowStartup)
+	}
+	authority, authorityErr := NewDecisionAuthority(config.AuthorityMode, nil, nil, decisionStore)
+	if authorityErr != nil {
+		return nil, fmt.Errorf("%w: authority mode", ErrShadowStartup)
+	}
 	engine := &ShadowEngine{
 		coordinator: coordinator, policy: config.AssociationPolicy, evidencePolicy: config.EvidencePolicy, admissionPolicy: admissionPolicy,
 		admission: ShadowAdmissionStatus{
@@ -116,6 +124,7 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 		},
 		actor: config.Actor, clock: clock, logger: logger, metrics: metrics,
 		dataDir:          config.DataDir,
+		authority:        authority,
 		contextConfig:    config.Context,
 		routineConfig:    config.Routines,
 		deviationConfig:  config.Deviation,

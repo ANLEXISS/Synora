@@ -1,6 +1,27 @@
 schema_version: 1
 namespace: synora.cge
 stores:
+  - id: synora.store.cge-decision
+    owner: cge_authority
+    format: ndjson
+    schema_version: synora.cge.decision-record.v1
+    write_mode: append_only
+    atomicity: record_append
+    fsync: sync_each_record
+    ordering: decision_order
+    idempotence: decision_id_and_idempotency_key
+    recovery: append_replay
+    retention: explicit_policy_required
+    compaction: no_implicit_delete
+    permissions: runtime_user_directory_policy
+    sensitivity: sensitive_personal
+    migration: version_field_required; no_automatic_migration
+    authority: advisory
+    contract_refs: [synora.cge.decision-record.v1, synora.cge.action-result.v1]
+    durable: true
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
   - id: synora.store.core-state
     owner: historical_core
     format: in_memory_state_and_configured_state_file

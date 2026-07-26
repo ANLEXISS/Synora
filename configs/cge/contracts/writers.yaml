@@ -1,6 +1,26 @@
 schema_version: 1
 namespace: synora.cge
 writers:
+  - id: cge.writer.decision-record
+    owner: cge_authority
+    package: synora/internal/cge
+    type: FileDecisionStore
+    function: PersistDecision
+    store: synora.store.cge-decision
+    contract: synora.cge.decision-record.v1
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
+  - id: cge.writer.action-result
+    owner: cge_authority
+    package: synora/internal/cge
+    type: FileDecisionStore
+    function: PersistActionResult
+    store: synora.store.cge-decision
+    contract: synora.cge.action-result.v1
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
   - id: cge.writer.journal.build-record
     owner: cge_chains_journal
     package: synora/internal/cge/chains/journal

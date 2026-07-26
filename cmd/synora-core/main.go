@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"strconv"
@@ -167,6 +168,9 @@ func main() {
 	var configuredShadow *cge.ShadowEngine
 	shadowConfig, shadowConfigErr := cge.LoadShadowConfig(os.Getenv)
 	if shadowConfigErr != nil {
+		if errors.Is(shadowConfigErr, cge.ErrInvalidAuthorityMode) {
+			log.Fatalf("invalid CGE authority mode: %v", shadowConfigErr)
+		}
 		log.Printf("cge shadow unavailable code=%s", cge.ErrorCode(shadowConfigErr))
 	} else if shadowConfig.Enabled {
 		var err error

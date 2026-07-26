@@ -29,6 +29,27 @@ Invariants:
 - no product behavior is changed when the engine is absent or configured as
   `NoopEngine`.
 
+## Governed decision authority
+
+The Core remains the owner of operational state, orchestration, and execution.
+The CGE owns cognitive decisions, while the Safety Kernel owns non-overridable
+invariants. `SYNORA_CGE_AUTHORITY_MODE` defaults to `shadow`; `advisory`
+publishes descriptive recommendations and `authoritative` is fail-closed until
+an explicit execution planner is supplied.
+
+Critical Chains are adaptive bootstrap knowledge. Learned Chains are candidates
+until a governed promotion creates a new active version; invariant chains are
+never replaceable. The first-pass flow is:
+
+```text
+Core event -> CGE observation -> DecisionEnvelope -> Safety Kernel
+  -> shadow/advisory descriptive persistence
+  -> (future) Core Execution Planner -> ActionRequest -> synora-actions
+  -> ActionResult feedback -> CGE evaluation
+```
+
+No physical action is produced by the governed decision boundary in this pass.
+
 ## Pass 16: durable shadow association
 
 The optional durable shadow is composed by `NewShadowEngineWithConfig` and is

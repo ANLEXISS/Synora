@@ -55,6 +55,9 @@ var (
 // ShadowConfig controls the optional durable shadow integration.
 type ShadowConfig struct {
 	Enabled bool
+	// AuthorityMode is the publication boundary for the governed decision
+	// authority. Shadow remains the fail-closed default.
+	AuthorityMode AuthorityMode
 
 	DataDir     string
 	JournalPath string
@@ -114,7 +117,7 @@ type ShadowDeviationConfig struct {
 func DefaultShadowConfig() ShadowConfig {
 	dataDir := DefaultShadowDataDir
 	return ShadowConfig{
-		DataDir: dataDir, JournalPath: filepath.Join(dataDir, DefaultShadowJournalName),
+		DataDir: dataDir, JournalPath: filepath.Join(dataDir, DefaultShadowJournalName), AuthorityMode: AuthorityModeShadow,
 		Actor: DefaultShadowActor, AssociationPolicy: association.DefaultPolicy(), EvidencePolicy: evidence.DefaultPolicy(),
 		Cognitive:  CognitiveShadowConfig{MaxEvidenceReevaluationsPerObservation: 8},
 		Context:    ShadowContextConfig{Timezone: "UTC", AllowPartial: true},
@@ -135,6 +138,12 @@ func LoadShadowConfig(getenv func(string) string) (ShadowConfig, error) {
 	var err error
 	if config.Enabled, err = parseOptionalBool(getenv(ShadowEnabledEnv), false); err != nil {
 		return ShadowConfig{}, fmt.Errorf("%w: enabled", ErrInvalidShadowConfig)
+	}
+	if value := getenv(AuthorityModeEnv); value != "" {
+		config.AuthorityMode, err = ParseAuthorityMode(value)
+		if err != nil {
+			return ShadowConfig{}, fmt.Errorf("%w: authority mode: %w", ErrInvalidShadowConfig, err)
+		}
 	}
 	if value := getenv(ShadowDataDirEnv); value != "" {
 		config.DataDir = value
@@ -266,6 +275,9 @@ func parseOptionalBool(value string, fallback bool) (bool, error) {
 // Validate checks activation-specific filesystem, provenance, policy, and
 // allowlist requirements. Disabled configuration performs no filesystem work.
 func (c ShadowConfig) Validate() error {
+	if err := c.AuthorityMode.Validate(); err != nil {
+		return fmt.Errorf("%w: authority mode: %v", ErrInvalidShadowConfig, err)
+	}
 	if !c.Enabled {
 		// Cognitive settings have no effect while the whole ShadowEngine is
 		// disabled; retain the historical zero-value compatibility boundary.

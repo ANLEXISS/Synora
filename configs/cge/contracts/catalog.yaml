@@ -1330,6 +1330,7 @@ contracts:
         persistence: []
         retention: process_lifetime
         validation: no_action_authority
+
       - name: markers
         type: authority_markers
         required: true
@@ -1343,6 +1344,231 @@ contracts:
         retention: process_lifetime
         validation: historical_authority_retained
 
+  - id: synora.cge.decision-envelope.v1
+    category: recommendation
+    owner: cge_authority
+    producers: [cge_decision_authority]
+    consumers: [safety_kernel, core_execution_planner, cge_persistence]
+    transport: internal
+    persistence: [synora.store.cge-decision]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: experimental
+    justification: Versioned closed decision contract; authoritative physical execution is not enabled in this pass.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: additive_only_with_validation
+    retention_policy: configured_decision_retention
+    implementation:
+      kind: go_struct
+      package: synora/internal/cge
+      type: DecisionEnvelope
+      wire_format: json
+      validator: DecisionEnvelope.ValidateAt
+
+  - id: synora.cge.chain-reference.v1
+    category: configuration
+    owner: cge_chain_governance
+    producers: [cge_chain_governance]
+    consumers: [cge_authority, safety_kernel]
+    transport: internal
+    persistence: [synora.store.cge-decision]
+    authority: advisory
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Versioned chain provenance reference without chain payload.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_chain_identity_and_revision
+    retention_policy: configured_decision_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: ChainReference, wire_format: json, validator: ChainReference.Validate}
+
+  - id: synora.cge.decision-target.v1
+    category: entity_reference
+    owner: cge_authority
+    producers: [cge_authority]
+    consumers: [safety_kernel, core_execution_planner]
+    transport: internal
+    persistence: [synora.store.cge-decision]
+    authority: advisory
+    trust: validated
+    sensitivity: sensitive_personal
+    status: experimental
+    justification: Closed bounded target reference; raw subject data is excluded.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_target_kind_and_scope
+    retention_policy: configured_decision_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: DecisionTarget, wire_format: json, validator: DecisionTarget.Validate}
+
+  - id: synora.cge.decision-constraints.v1
+    category: configuration
+    owner: safety_kernel
+    producers: [cge_authority]
+    consumers: [safety_kernel]
+    transport: internal
+    persistence: [synora.store.cge-decision]
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Bounded invariant and operational constraint set.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: additive_only_with_validation
+    retention_policy: configured_decision_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: DecisionConstraints, wire_format: json, validator: DecisionConstraints.Validate}
+
+  - id: synora.cge.invariant-violation.v1
+    category: diagnostic
+    owner: safety_kernel
+    producers: [safety_kernel]
+    consumers: [cge_authority, diagnostics]
+    transport: internal
+    persistence: [synora.store.cge-decision]
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Closed bounded reason for a fail-closed safety verdict.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_violation_codes
+    retention_policy: configured_decision_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: InvariantViolation, wire_format: json, validator: none}
+
+  - id: synora.cge.recommendation-markers.v1
+    category: recommendation
+    owner: cge_authority
+    producers: [cge_authority]
+    consumers: [advisory_ui, diagnostics]
+    transport: internal
+    persistence: [synora.store.cge-decision]
+    authority: advisory
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Explicit markers preventing recommendations from becoming commands.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_non_authority_markers
+    retention_policy: configured_decision_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: RecommendationMarkers, wire_format: json, validator: none}
+
+  - id: synora.cge.recommendation.v1
+    category: recommendation
+    owner: cge_authority
+    producers: [cge_decision_authority]
+    consumers: [advisory_ui, diagnostics]
+    transport: internal
+    persistence: [synora.store.cge-decision]
+    authority: advisory
+    trust: derived
+    sensitivity: sensitive_personal
+    status: experimental
+    justification: Descriptive proposal that is explicitly not a decision or execution request.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_non_authority_markers
+    retention_policy: configured_decision_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: Recommendation, wire_format: json, validator: Recommendation.Validate}
+
+  - id: synora.cge.authority-mode.v1
+    category: configuration
+    owner: cge_authority
+    producers: [synora_core]
+    consumers: [cge_authority, safety_kernel]
+    transport: internal
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: stable
+    justification: Closed authority mode enum with shadow as the default.
+    migration_policy: enum_compatibility
+    compatibility_policy: reject_unknown_values
+    retention_policy: process_lifetime
+    implementation: {kind: go_alias, package: synora/internal/cge, type: AuthorityMode, wire_format: string, validator: AuthorityMode.Validate}
+
+  - id: synora.cge.safety-verdict.v1
+    category: diagnostic
+    owner: safety_kernel
+    producers: [safety_kernel]
+    consumers: [cge_decision_authority, diagnostics]
+    transport: internal
+    persistence: [synora.store.cge-decision]
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Closed fail-closed invariant verdict; it contains no business reasoning.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_status_and_violation_codes
+    retention_policy: configured_decision_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: SafetyVerdict, wire_format: json, validator: none}
+
+  - id: synora.cge.execution-request.v1
+    category: recommendation
+    owner: core_execution_planner
+    producers: [core_execution_planner]
+    consumers: [safety_kernel, synora_actions]
+    transport: internal
+    persistence: [synora.store.cge-decision]
+    authority: advisory
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Reserved planner output; no physical action is produced while the planner is unavailable.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: explicit_execution_gate_required
+    retention_policy: configured_decision_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: ExecutionRequest, wire_format: json, validator: ExecutionRequest.Validate}
+
+  - id: synora.cge.action-result.v1
+    category: feedback
+    owner: synora_actions
+    producers: [synora_actions]
+    consumers: [cge_authority, learning_governance]
+    transport: internal
+    persistence: [synora.store.cge-decision]
+    authority: descriptive
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Execution feedback is factual input only and cannot promote a chain by itself.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_decision_and_action_correlation
+    retention_policy: configured_decision_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: ActionResult, wire_format: json, validator: ActionResult.Validate}
+
+  - id: synora.cge.decision-record.v1
+    category: recommendation
+    owner: cge_authority
+    producers: [cge_decision_authority]
+    consumers: [cge_recovery, diagnostics]
+    transport: internal
+    persistence: [synora.store.cge-decision]
+    authority: advisory
+    trust: validated
+    sensitivity: sensitive_personal
+    status: experimental
+    justification: Descriptive durable publication record retained for recovery and audit.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_envelope_verdict_and_mode
+    retention_policy: configured_decision_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: DecisionRecord, wire_format: json, validator: none}
+
+  - id: synora.cge.decision-publication.v1
+    category: recommendation
+    owner: cge_authority
+    producers: [cge_decision_authority]
+    consumers: [core_adapter, advisory_ui, diagnostics]
+    transport: internal
+    persistence: []
+    authority: advisory
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Publication result distinguishes shadow, advisory, authoritative-gated, and denied outcomes.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_publication_status
+    retention_policy: process_lifetime
+    implementation: {kind: go_struct, package: synora/internal/cge, type: DecisionPublication, wire_format: json, validator: none}
   - id: synora.cge.calibration-record.v1
     category: feedback
     owner: cge_calibration
@@ -4414,6 +4640,42 @@ admission_events:
     workflow: false
 
 output_profiles:
+  - name: AuthorityMode
+    contract: synora.cge.authority-mode.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: true
+    ui: true
+    automation: false
+    authority: diagnostic
+  - name: DecisionRecord
+    contract: synora.cge.decision-record.v1
+    visibility: internal
+    read_only: true
+    persisted: true
+    bounded: true
+    paginable: true
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: advisory
+  - name: DecisionPublication
+    contract: synora.cge.decision-publication.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: advisory
   - name: ObservationResult
     contract: synora.cge.observation-result.v1
     visibility: internal

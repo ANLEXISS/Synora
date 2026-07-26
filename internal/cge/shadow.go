@@ -84,6 +84,7 @@ type ShadowEngine struct {
 	lastOrchestration ShadowOrchestrationResult
 	topologyProvider  RoutineTopologyProvider
 	workflow          *shadowworkflow.Runtime
+	authority         *DecisionAuthority
 	closeOnce         sync.Once
 	closeErr          error
 }
@@ -395,7 +396,9 @@ func (e *ShadowEngine) CreateCheckpoint(ctx context.Context, createdAt time.Time
 
 // NewShadowEngine returns a concurrency-safe, non-decision-making observer.
 func NewShadowEngine() *ShadowEngine {
+	authority, _ := NewDecisionAuthority(AuthorityModeShadow, nil, nil, &MemoryDecisionStore{})
 	return &ShadowEngine{
+		authority:       authority,
 		admissionPolicy: DefaultShadowEventAdmissionPolicy(),
 		admission: ShadowAdmissionStatus{
 			HistoricalAuthorityUnchanged: true,
