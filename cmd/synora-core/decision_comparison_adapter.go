@@ -29,9 +29,18 @@ func buildHistoricalDecisionRef(event *contract.Event, result *engine.Result, pr
 	if score == 0 {
 		score = decision.Score
 	}
+	targetKind, targetID := "system", "system"
+	if decision.NodeID != "" {
+		targetKind, targetID = "node", decision.NodeID
+	} else if decision.ClipID != "" {
+		targetKind, targetID = "device", decision.ClipID
+	}
 	ref := &decisioncomparison.HistoricalDecisionRef{
 		ID: decisionID, SourceEventRef: event.ID,
 		PreviousStateCode: previous.LastState, CurrentStateCode: currentState,
+		HistoricalDecisionType:                   decision.Type,
+		HistoricalTargetKind:                     targetKind,
+		HistoricalTargetID:                       targetID,
 		StateChanged:                             stateChanged || previous.LastState != "" && previous.LastState != currentState,
 		DecisionScorePermille:                    clampDecisionPermille(score),
 		DecidedAtUnixNano:                        decision.Timestamp.UnixNano(),

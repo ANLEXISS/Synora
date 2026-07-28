@@ -168,7 +168,7 @@ func validateStringSet(values []string, max int) error {
 
 func validCognitiveExpectedState(value string) bool {
 	switch value {
-	case "idle", "activity", "suspicious", "intrusion", "break_in":
+	case "idle", "activity", "suspicious", "intrusion", "break_in", "emergency":
 		return true
 	default:
 		return false
@@ -300,21 +300,15 @@ func (s *ContractChainSelector) SelectDecisionChain(ctx context.Context, input C
 	return CognitiveChainCandidate{}, ErrNoDecisionChain
 }
 
-func seedMatchesEvent(seed contracts.CriticalSeed, eventType string) bool {
-	for _, step := range seed.Sequence {
-		if step.EventType == eventType {
-			return true
-		}
-	}
-	return false
-}
-
 func learnedCandidateFrom(version ChainVersion, behaviors []contracts.LearnedBehavior, sequences []contracts.LearnedSequence, input CognitiveDecisionInput, match CognitiveChainMatch) (CognitiveChainCandidate, bool) {
 	if version.Status != ChainStatusActive || version.Reference.Class != ChainClassLearned || version.Reference.Version == 0 || version.Evidence.InvariantViolations != 0 || (input.Target.Scope != "" && !scopeCompatible(version.Scope, input.Target.Scope)) {
 		return CognitiveChainCandidate{}, false
 	}
+	if match.Scope != "" && !strings.HasPrefix(match.Scope, "critical/") && !scopeCompatible(version.Scope, match.Scope) {
+		return CognitiveChainCandidate{}, false
+	}
 	for _, behavior := range behaviors {
-		if behavior.ID != version.Reference.ChainID || !behavior.Enabled || behavior.Forgotten || (behavior.Status != contracts.LearnedBehaviorApproved && behavior.Status != "active") || !validCognitiveExpectedState(behavior.ExpectedState) {
+		if behavior.ID != version.Reference.ChainID || !behavior.Enabled || behavior.Forgotten || behavior.Status != contracts.LearnedBehaviorApproved || !validCognitiveExpectedState(behavior.ExpectedState) {
 			continue
 		}
 		actions, err := flattenActions(behavior.ProposedActions)
@@ -420,11 +414,15 @@ func (DefaultDecisionSynthesizer) SynthesizeDecision(ctx context.Context, input 
 	if err != nil {
 		return DecisionEnvelope{}, err
 	}
+	identityInput := input
+	// HistoricalChainID is diagnostic comparison data. It must not affect the
+	// cognitive decision identity or idempotency key.
+	identityInput.HistoricalChainID = ""
 	seed := struct {
 		Input CognitiveDecisionInput
 		Chain CognitiveChainCandidate
 		Type  DecisionType
-	}{input, chain, decisionType}
+	}{identityInput, chain, decisionType}
 	decisionID := "cge-decision-" + revisionHash(seed)
 	constraints := DecisionConstraints{
 		RequiresAuthorization: decisionType == DecisionTypeChangeMode,
@@ -460,7 +458,7 @@ func decisionTypeForState(state string) (DecisionType, error) {
 	switch state {
 	case "idle", "activity":
 		return DecisionTypeObserve, nil
-	case "suspicious":
+	case "suspicious", "emergency":
 		return DecisionTypeNotify, nil
 	case "intrusion", "break_in":
 		return DecisionTypeChangeMode, nil

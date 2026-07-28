@@ -185,7 +185,7 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 				}()
 				observation := chains.ObservationRef{
 					ID: input.Observation.EventID, EventType: input.Observation.EventType,
-					Timestamp: input.Observation.ObservedAt, ChainID: input.HistoricalChainID,
+					Timestamp: input.Observation.ObservedAt, HistoricalChainID: input.HistoricalChainID,
 				}
 				engine.synthesizeDecision(ctx, observation, input.HistoricalDecision)
 			})
@@ -326,8 +326,9 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event, historic
 		e.safeLog("event.scalar_validation")
 		return result, adaptationError("event.scalar_validation")
 	}
-	// This argument is historical diagnostic data; the selector never reads it.
-	adapted.Input.Observation.ChainID = chainID
+	// This argument is historical diagnostic data; never place it in ChainID.
+	// ChainID is reserved for a CGE-owned chain and is not a selector input.
+	adapted.Input.Observation.HistoricalChainID = chainID
 	if e.contextProvider != nil {
 		e.metrics.cognitive("context_resolution_attempted")
 		frame, contextErr := e.resolveContext(ctx, adapted.Input.Observation)

@@ -2817,6 +2817,20 @@ mappings:
           retention: process_lifetime
           identifier_semantic: chain_id
           timestamp_semantic: not_a_timestamp
+        - go_field: HistoricalChainID
+          field_path: HistoricalChainID
+          wire_name: historical_chain_id
+          go_type: string
+          wire_type: string
+          required: false
+          nullable: false
+          omitempty: true
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          identifier_semantic: chain_id
+          timestamp_semantic: not_a_timestamp
         - go_field: Context
           field_path: Context
           wire_name: context
@@ -6368,6 +6382,48 @@ mappings:
         - go_field: CurrentStateCode
           field_path: CurrentStateCode
           wire_name: CurrentStateCode
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - go_field: HistoricalDecisionType
+          field_path: HistoricalDecisionType
+          wire_name: HistoricalDecisionType
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - go_field: HistoricalTargetKind
+          field_path: HistoricalTargetKind
+          wire_name: HistoricalTargetKind
+          go_type: string
+          wire_type: string
+          required: true
+          nullable: false
+          omitempty: false
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - go_field: HistoricalTargetID
+          field_path: HistoricalTargetID
+          wire_name: HistoricalTargetID
           go_type: string
           wire_type: string
           required: true

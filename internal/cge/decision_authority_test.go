@@ -22,7 +22,7 @@ func authorityTestDecision(now time.Time) DecisionEnvelope {
 func authorityTestSnapshot(now time.Time, mode AuthorityMode) OperationalSnapshot {
 	return OperationalSnapshot{
 		CapturedAt: now, FreshUntil: now.Add(10 * time.Minute), Revision: 7, AuthorityMode: mode,
-		Targets: []OperationalTarget{{Target: DecisionTarget{Kind: DecisionTargetDevice, ID: "device-1", Scope: "home"}, Exists: true, Authorized: true, PhysicalLimit: 100, CurrentRevision: 7}},
+		Targets: []OperationalTarget{{Target: DecisionTarget{Kind: DecisionTargetDevice, ID: "device-1", Scope: "home"}, Exists: true, Authorized: true, Authorization: OperationalAuthorization{Known: true, Authorized: true}, PhysicalLimit: 100, CurrentRevision: 7}},
 	}
 }
 
@@ -49,7 +49,7 @@ func TestAuthorityModeRejectsUnknownValue(t *testing.T) {
 }
 
 func TestDecisionEnvelopeValidation(t *testing.T) {
-	now := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	decision := authorityTestDecision(now)
 	if err := decision.Validate(); err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func TestDecisionEnvelopeValidation(t *testing.T) {
 }
 
 func TestSafetyKernelRejectsUnsafeOperationalStates(t *testing.T) {
-	now := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	kernel, err := NewSafetyKernel(AuthorityModeShadow, func() time.Time { return now })
 	if err != nil {
 		t.Fatal(err)
@@ -85,6 +85,7 @@ func TestSafetyKernelRejectsUnsafeOperationalStates(t *testing.T) {
 	}
 	unauthorized := authorityTestSnapshot(now, AuthorityModeShadow)
 	unauthorized.Targets[0].Authorized = false
+	unauthorized.Targets[0].Authorization.Authorized = false
 	if verdict = kernel.ValidateDecision(context.Background(), decision, unauthorized); verdict.Status != SafetyInsufficientAuthorization {
 		t.Fatalf("authorization verdict=%+v", verdict)
 	}
@@ -101,6 +102,92 @@ func (p *authorityTestPlanner) PlanExecution(context.Context, DecisionEnvelope, 
 	p.calls++
 	createdAt := time.Now().UTC()
 	return ExecutionRequest{SchemaVersion: DecisionExecutionSchema, DecisionID: "decision-1", ActionRequestID: "request-1", ExecutionType: "notify", Target: DecisionTarget{Kind: DecisionTargetDevice, ID: "device-1"}, IdempotencyKey: "idem-1", CreatedAt: createdAt, ValidUntil: createdAt.Add(time.Hour)}, nil
+}
+
+type decisionTargetPlanner struct{}
+
+func (decisionTargetPlanner) PlanExecution(_ context.Context, decision DecisionEnvelope, _ OperationalSnapshot) (ExecutionRequest, error) {
+	return ExecutionRequest{SchemaVersion: DecisionExecutionSchema, DecisionID: decision.DecisionID, ActionRequestID: "request-" + decision.DecisionID, ExecutionType: string(decision.DecisionType), Target: decision.Target, IdempotencyKey: decision.IdempotencyKey, CreatedAt: decision.CreatedAt, ValidUntil: decision.ValidUntil}, nil
+}
+
+func conflictDecision(now time.Time, id string, kind DecisionType, desired string, actions ...string) DecisionEnvelope {
+	decision := authorityTestDecision(now)
+	decision.DecisionID = id
+	decision.IdempotencyKey = "idem-" + id
+	decision.DecisionType = kind
+	decision.DesiredState = desired
+	decision.Constraints.ProposedActions = actions
+	return decision
+}
+
+func TestExecutionLeaseConflictUsesIntentAndLifecycle(t *testing.T) {
+	now := time.Now().UTC()
+	store := &MemoryDecisionStore{}
+	authority, err := NewDecisionAuthority(AuthorityModeAuthoritative, nil, decisionTargetPlanner{}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := authorityTestSnapshot(now, AuthorityModeAuthoritative)
+	first := conflictDecision(now, "first", DecisionTypeNotify, "suspicious", "notify")
+	if publication, err := authority.PublishDecision(context.Background(), first, snapshot); err != nil || publication.Status != DecisionPublishedAuthoritative {
+		t.Fatalf("first publication=%+v err=%v", publication, err)
+	}
+	compatible := conflictDecision(now, "compatible", DecisionTypeNotify, "suspicious", "notify")
+	if publication, err := authority.PublishDecision(context.Background(), compatible, snapshot); err != nil || publication.Status != DecisionPublishedAuthoritative {
+		t.Fatalf("compatible publication=%+v err=%v", publication, err)
+	}
+	incompatible := conflictDecision(now, "incompatible", DecisionTypeChangeMode, "intrusion", "change_mode")
+	incompatible.Constraints.RequiresPhysicalLimit = true
+	incompatible.Constraints.RequiresAuthorization = true
+	snapshot.Targets[0].PhysicalLimits = OperationalPhysicalLimits{Known: true, MaxValue: 100, Unit: "priority", Source: "test-policy"}
+	publication, err := authority.PublishDecision(context.Background(), incompatible, snapshot)
+	if err != nil || publication.Status != DecisionPublicationDenied || publication.Verdict.Status != SafetyInvariantViolation {
+		t.Fatalf("incompatible publication=%+v err=%v", publication, err)
+	}
+	if len(publication.Verdict.Violations) != 1 || publication.Verdict.Violations[0].Code != "decision_conflict" {
+		t.Fatalf("unexpected conflict verdict=%+v", publication.Verdict)
+	}
+}
+
+func TestNonAuthoritativePublicationsDoNotCreateConflicts(t *testing.T) {
+	now := time.Now().UTC()
+	for _, mode := range []AuthorityMode{AuthorityModeShadow, AuthorityModeAdvisory} {
+		authority, err := NewDecisionAuthority(mode, nil, nil, &MemoryDecisionStore{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot := authorityTestSnapshot(now, mode)
+		for _, id := range []string{"one", "two"} {
+			decision := conflictDecision(now, id, DecisionTypeNotify, "suspicious", "notify")
+			publication, publishErr := authority.PublishDecision(context.Background(), decision, snapshot)
+			if publishErr != nil || publication.Status == DecisionPublicationDenied {
+				t.Fatalf("mode=%s id=%s publication=%+v err=%v", mode, id, publication, publishErr)
+			}
+		}
+	}
+}
+
+func TestIdenticalDecisionPublicationIsIdempotent(t *testing.T) {
+	now := time.Now().UTC()
+	store := &MemoryDecisionStore{}
+	authority, err := NewDecisionAuthority(AuthorityModeShadow, nil, nil, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision := conflictDecision(now, "idempotent", DecisionTypeNotify, "suspicious", "notify")
+	snapshot := authorityTestSnapshot(now, AuthorityModeShadow)
+	first, err := authority.PublishDecision(context.Background(), decision, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := authority.PublishDecision(context.Background(), decision, snapshot)
+	if err != nil || second.Status != first.Status || second.DecisionID != first.DecisionID {
+		t.Fatalf("idempotent publication first=%+v second=%+v err=%v", first, second, err)
+	}
+	records, err := authority.Decisions(context.Background())
+	if err != nil || len(records) != 1 {
+		t.Fatalf("idempotent publication duplicated records=%+v err=%v", records, err)
+	}
 }
 
 func TestAuthorityPublicationModesAreFailClosed(t *testing.T) {

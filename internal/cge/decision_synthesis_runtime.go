@@ -113,7 +113,7 @@ func (e *ShadowEngine) synthesizeDecision(ctx context.Context, observation chain
 	if now.IsZero() {
 		now = e.shadowNow()
 	}
-	input := CognitiveDecisionInput{EventID: observation.ID, ObservedEventType: observation.EventType, HistoricalChainID: observation.ChainID, SituationID: situationID, CognitiveState: cognitiveState, CoreRevision: workflowRevision, Target: DecisionTarget{Kind: DecisionTargetSystem, ID: "system"}, Confidence: 0.5, DangerScore: 0.5, EvidenceRefs: evidence, CreatedAt: now, ValidUntil: now.Add(5 * time.Minute)}
+	input := CognitiveDecisionInput{EventID: observation.ID, ObservedEventType: observation.EventType, HistoricalChainID: observation.HistoricalChainID, SituationID: situationID, CognitiveState: cognitiveState, CoreRevision: workflowRevision, Target: DecisionTarget{Kind: DecisionTargetSystem, ID: "system"}, Confidence: 0.5, DangerScore: 0.5, EvidenceRefs: evidence, CreatedAt: now, ValidUntil: now.Add(5 * time.Minute)}
 	if e.workflow != nil {
 		if refs, ok := e.workflow.ObservationsForObservation(observation.ID); ok {
 			input.Situation.Observations = make([]CognitiveObservationSnapshot, 0, len(refs))
@@ -128,6 +128,9 @@ func (e *ShadowEngine) synthesizeDecision(ctx context.Context, observation chain
 		e.mu.Lock()
 		if err == ErrNoDecisionChain {
 			e.authorityComparisonMetrics.NoCognitiveMatch++
+			if historical != nil {
+				e.authorityComparisonMetrics.HistoricalOnlyMatch++
+			}
 		}
 		e.mu.Unlock()
 		if err != ErrNoDecisionChain {
@@ -143,6 +146,9 @@ func (e *ShadowEngine) synthesizeDecision(ctx context.Context, observation chain
 			e.mu.Lock()
 			if targetErr == ErrAmbiguousTarget {
 				e.authorityComparisonMetrics.AmbiguousMatch++
+				if historical != nil {
+					e.authorityComparisonMetrics.HistoricalOnlyMatch++
+				}
 			}
 			e.mu.Unlock()
 			e.safeLog("decision_target_resolution_failed")
@@ -207,11 +213,24 @@ func (e *ShadowEngine) synthesizeDecision(ctx context.Context, observation chain
 			}
 			e.mu.Unlock()
 		}
+	} else {
+		e.mu.Lock()
+		e.authorityComparisonMetrics.CognitiveOnlyMatch++
+		if publication.Verdict.Status == SafetyAllowed {
+			e.authorityComparisonMetrics.CGEAllowed++
+		} else {
+			e.authorityComparisonMetrics.CGEDenied++
+		}
+		e.mu.Unlock()
 	}
 }
 
 func compareAuthorityDecision(eventID string, historical *decisioncomparison.HistoricalDecisionRef, historicalChainID string, decision DecisionEnvelope, chain CognitiveChainCandidate, publication DecisionPublication, at time.Time) AuthorityDecisionComparison {
-	comparison := AuthorityDecisionComparison{EventID: eventID, HistoricalState: historical.CurrentStateCode, CognitiveState: chain.ExpectedState, HistoricalActionIDs: []string{historical.ID}, CognitiveIntentIDs: append([]string(nil), chain.ProposedActions...), ComparedAt: at, HistoricalChainID: historicalChainID, CognitiveChainID: chain.Reference.ChainID, SameChain: historicalChainID != "" && historicalChainID == chain.Reference.ChainID, CognitiveDecisionType: string(decision.DecisionType), CognitiveTarget: decision.Target, HistoricalTarget: DecisionTarget{Kind: DecisionTargetSystem, ID: "system"}}
+	historicalTarget := DecisionTarget{Kind: DecisionTargetSystem, ID: "system"}
+	if historical.HistoricalTargetKind != "" && historical.HistoricalTargetID != "" {
+		historicalTarget = DecisionTarget{Kind: DecisionTargetKind(historical.HistoricalTargetKind), ID: historical.HistoricalTargetID}
+	}
+	comparison := AuthorityDecisionComparison{EventID: eventID, HistoricalState: historical.CurrentStateCode, CognitiveState: chain.ExpectedState, HistoricalActionIDs: []string{historical.ID}, CognitiveIntentIDs: append([]string(nil), chain.ProposedActions...), ComparedAt: at, HistoricalChainID: historicalChainID, CognitiveChainID: chain.Reference.ChainID, SameChain: historicalChainID != "" && historicalChainID == chain.Reference.ChainID, HistoricalDecisionType: historical.HistoricalDecisionType, CognitiveDecisionType: string(decision.DecisionType), HistoricalTarget: historicalTarget, CognitiveTarget: decision.Target}
 	comparison.CognitivePublicationStatus = publication.Status
 	comparison.SafetyStatus = publication.Verdict.Status
 	comparison.SameState = comparison.HistoricalState != "" && comparison.HistoricalState == comparison.CognitiveState

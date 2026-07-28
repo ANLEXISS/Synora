@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"synora/internal/cge"
+	"synora/internal/topology"
 	"synora/pkg/contract"
 )
 
@@ -27,30 +28,39 @@ func (p *coreOperationalSnapshotProvider) SnapshotForDecision(ctx context.Contex
 		}
 	}
 	now := time.Now().UTC()
-	revision := p.app.state.Revision()
-	if revision == 0 {
-		revision = 1
-	}
-	system := p.app.state.SystemState()
 	if err := target.Validate(); err != nil {
 		return cge.OperationalSnapshot{}, err
 	}
-	exists := false
+	// Keep Core-owned topology/resident lookups behind the Core lock while the
+	// StateStore portion is captured atomically by DecisionSnapshot.
+	p.app.mu.RLock()
+	revision, system, exists := p.app.state.DecisionSnapshot(string(target.Kind), target.ID)
 	switch target.Kind {
-	case cge.DecisionTargetSystem:
-		exists = target.ID == "system"
 	case cge.DecisionTargetNode:
-		_, exists = p.app.state.NodeState(target.ID)
+		if p.app.topology != nil {
+			if node, ok := p.app.topology.Nodes[target.ID]; ok && node != nil {
+				exists = true
+			}
+		}
 	case cge.DecisionTargetDevice:
-		_, exists = p.app.state.DeviceState(target.ID)
+		if p.app.device != nil {
+			if _, ok := p.app.device.Get(target.ID); ok {
+				exists = true
+			}
+		}
 	case cge.DecisionTargetResident:
-		p.app.mu.RLock()
-		_, exists = p.app.residents[target.ID]
-		p.app.mu.RUnlock()
+		_, configured := p.app.residents[target.ID]
+		exists = exists || configured
 	case cge.DecisionTargetZone:
-		p.app.mu.RLock()
-		_, exists = p.app.topology.Nodes[target.ID]
-		p.app.mu.RUnlock()
+		if p.app.topology != nil {
+			if node, ok := p.app.topology.Nodes[target.ID]; ok && node != nil && node.Type == topology.NodeZone {
+				exists = true
+			}
+		}
+	}
+	p.app.mu.RUnlock()
+	if revision == 0 {
+		return cge.OperationalSnapshot{}, fmt.Errorf("core operational revision unavailable")
 	}
 	usedKeys, conflictingIDs, err := p.decisionContext(ctx, target, now)
 	if err != nil {

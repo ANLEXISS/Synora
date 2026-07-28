@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -582,17 +583,14 @@ func (k DefaultSafetyKernel) ValidateDecision(ctx context.Context, decision Deci
 	if target == nil || !target.Exists {
 		return violate(SafetyInvalidTarget, "target_missing", "decision target does not exist")
 	}
-	if decision.Constraints.RequiresAuthorization && (!target.Authorization.Known && !target.Authorized) {
+	if decision.Constraints.RequiresAuthorization && (!target.Authorization.Known || !target.Authorization.Authorized) {
 		return violate(SafetyInsufficientAuthorization, "authorization_missing", "decision target is not authorized")
 	}
-	if decision.Constraints.RequiresPhysicalLimit && !target.PhysicalLimits.Known && target.PhysicalLimit <= 0 {
+	if decision.Constraints.RequiresPhysicalLimit && !target.PhysicalLimits.Known {
 		return violate(SafetyInvariantViolation, "physical_limits_unknown", "physical limits are not known for the decision target")
 	}
 	physicalLimit := target.PhysicalLimits.MaxValue
-	if physicalLimit == 0 {
-		physicalLimit = target.PhysicalLimit
-	}
-	if decision.Constraints.RequiresPhysicalLimit && physicalLimit > 0 && decision.Priority > physicalLimit {
+	if decision.Constraints.RequiresPhysicalLimit && decision.Priority > physicalLimit {
 		return violate(SafetyInvariantViolation, "physical_limit_exceeded", "decision priority exceeds target physical limit")
 	}
 	if decision.Constraints.RequiredStateRevision != 0 && target.CurrentRevision != decision.Constraints.RequiredStateRevision {
@@ -1099,6 +1097,11 @@ func (a *DecisionAuthority) PublishDecision(ctx context.Context, decision Decisi
 			return publicationFromRecord(records[i]), nil
 		}
 	}
+	// The Core snapshot provider cannot know the new decision's intention from
+	// its target-only boundary. Recompute conflicts here against the exact
+	// candidate being published so compatible authoritative executions do not
+	// block one another and shadow/advisory records never become leases.
+	snapshot.ConflictingDecisionIDs = activeDecisionConflicts(records, decision, a.now())
 	verdict := a.kernel.ValidateDecision(ctx, decision, snapshot)
 	publication := DecisionPublication{DecisionID: decision.DecisionID, Mode: a.mode, Status: DecisionPublicationDenied, Verdict: verdict}
 	if verdict.Status == SafetyAllowed {
@@ -1143,6 +1146,49 @@ func (a *DecisionAuthority) PublishDecision(ctx context.Context, decision Decisi
 	return publication, nil
 }
 
+func activeDecisionConflicts(records []DecisionRecord, decision DecisionEnvelope, now time.Time) []string {
+	latest := make(map[string]DecisionRecord, len(records))
+	for _, record := range records {
+		latest[record.Envelope.DecisionID] = record
+	}
+	conflicts := make([]string, 0)
+	for _, record := range latest {
+		if record.Envelope.DecisionID == decision.DecisionID || record.Status != DecisionPublishedAuthoritative || record.ExecutionRequest == nil || record.ExecutionLease == nil {
+			continue
+		}
+		lease := record.ExecutionLease
+		if !now.Before(record.Envelope.ValidUntil) || !now.Before(lease.ValidUntil) || (lease.Status != ExecutionLeasePlanned && lease.Status != ExecutionLeaseDispatched && lease.Status != ExecutionLeaseRunning) {
+			continue
+		}
+		if !decisionTargetsOverlap(lease.Target, decision.Target) || compatibleDecisionIntent(record.Envelope, decision) {
+			continue
+		}
+		conflicts = append(conflicts, record.Envelope.DecisionID)
+	}
+	sort.Strings(conflicts)
+	if len(conflicts) > 32 {
+		conflicts = conflicts[:32]
+	}
+	return conflicts
+}
+
+func decisionTargetsOverlap(left, right DecisionTarget) bool {
+	return left.Kind == DecisionTargetSystem || right.Kind == DecisionTargetSystem || left.equal(right)
+}
+
+func compatibleDecisionIntent(left, right DecisionEnvelope) bool {
+	return left.DecisionType == right.DecisionType && left.DesiredState == right.DesiredState && equalStringSet(left.Constraints.ProposedActions, right.Constraints.ProposedActions)
+}
+
+func equalStringSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	leftCopy, rightCopy := append([]string(nil), left...), append([]string(nil), right...)
+	sort.Strings(leftCopy)
+	sort.Strings(rightCopy)
+	return reflect.DeepEqual(leftCopy, rightCopy)
+}
 func publicationFromRecord(record DecisionRecord) DecisionPublication {
 	return DecisionPublication{DecisionID: record.Envelope.DecisionID, Mode: record.Mode, Status: record.Status, Verdict: record.Verdict, ExecutionRequest: cloneExecutionRequest(record.ExecutionRequest)}
 }

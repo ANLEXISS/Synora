@@ -236,7 +236,7 @@ func main() {
 			}
 			revision := catalogRevision
 			catalogMu.Unlock()
-			return cge.CognitiveChainCatalogSnapshot{Revision: revision, CriticalSeeds: critical, LearnedBehaviors: behaviors, LearnedSequences: sequences, CapturedAt: time.Now().UTC()}, nil
+			return (cge.CognitiveChainCatalogSnapshot{Revision: revision, CriticalSeeds: critical, LearnedBehaviors: behaviors, LearnedSequences: sequences, CapturedAt: time.Now().UTC()}).Clone(), nil
 		}))
 		configuredShadow.SetOperationalSnapshotProvider(&coreOperationalSnapshotProvider{app: app})
 		configuredShadow.SetDecisionPublicationSink(&coreDecisionPublicationSink{bus: app.bus})

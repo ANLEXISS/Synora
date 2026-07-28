@@ -2,6 +2,7 @@ package cge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -38,7 +39,7 @@ type CognitiveSituationSnapshot struct {
 }
 
 func (s CognitiveSituationSnapshot) Validate() error {
-	if strings.TrimSpace(s.SituationID) == "" || len(s.Observations) == 0 || len(s.Observations) > 256 {
+	if strings.TrimSpace(s.SituationID) == "" || len(s.Observations) == 0 || len(s.Observations) > 256 || s.CapturedAt.IsZero() || strings.TrimSpace(s.CurrentObservationID) == "" {
 		return ErrInvalidChainCandidate
 	}
 	if len(s.SituationID) > 256 || len(s.EpisodeID) > 256 || len(s.CurrentObservationID) > 256 {
@@ -51,6 +52,16 @@ func (s CognitiveSituationSnapshot) Validate() error {
 		if i > 0 && observation.Timestamp.Before(s.Observations[i-1].Timestamp) {
 			return fmt.Errorf("%w: cognitive observations are not ordered", ErrInvalidChainCandidate)
 		}
+	}
+	currentFound := false
+	for _, observation := range s.Observations {
+		if observation.ID == s.CurrentObservationID {
+			currentFound = true
+			break
+		}
+	}
+	if !currentFound {
+		return ErrInvalidChainCandidate
 	}
 	return nil
 }
@@ -95,6 +106,13 @@ func (m CriticalChainMatcher) Match(ctx context.Context, situation CognitiveSitu
 	}
 	observations := append([]CognitiveObservationSnapshot(nil), situation.Observations...)
 	result := make([]CognitiveChainMatch, 0)
+	type rankedMatch struct {
+		match       CognitiveChainMatch
+		specificity int
+		scopeDepth  int
+		dangerScore float64
+	}
+	ranked := make([]rankedMatch, 0)
 	for _, seed := range seeds {
 		if ctx != nil {
 			select {
@@ -107,6 +125,7 @@ func (m CriticalChainMatcher) Match(ctx context.Context, situation CognitiveSitu
 			continue
 		}
 		matched := make([]string, 0, len(seed.Sequence))
+		matchedObservations := make([]CognitiveObservationSnapshot, 0, len(seed.Sequence))
 		stepIndex := 0
 		for _, observation := range observations {
 			if stepIndex >= len(seed.Sequence) {
@@ -121,6 +140,7 @@ func (m CriticalChainMatcher) Match(ctx context.Context, situation CognitiveSitu
 				continue
 			}
 			matched = append(matched, observation.ID)
+			matchedObservations = append(matchedObservations, observation)
 			stepIndex++
 		}
 		if stepIndex != len(seed.Sequence) {
@@ -136,22 +156,149 @@ func (m CriticalChainMatcher) Match(ctx context.Context, situation CognitiveSitu
 		if last.Before(first) || last.Sub(first) > window {
 			continue
 		}
+		if matched[len(matched)-1] != situation.CurrentObservationID {
+			continue
+		}
+		if !continuousObservations(matchedObservations) || !criticalContextMatches(seed, matchedObservations) {
+			continue
+		}
 		confidence := 1.0
 		if len(seed.Sequence) > 1 {
 			confidence = 0.5 + 0.5*float64(len(seed.Sequence))/float64(len(seed.Sequence)+1)
 		}
-		result = append(result, CognitiveChainMatch{ChainID: seed.ID, MatchedObservationIDs: matched, MatchedSteps: len(matched), TotalSteps: len(seed.Sequence), MatchConfidence: confidence, Scope: "critical/" + seed.ID, MatchCodes: []string{"sequence_complete", "ordered", "within_window"}})
+		scope := criticalSeedScope(seed)
+		codes := []string{"sequence_complete", "ordered", "within_window", "continuity_satisfied"}
+		if specificity := criticalSeedSpecificity(seed); specificity > 0 {
+			codes = append(codes, "specificity_"+fmt.Sprint(specificity))
+		}
+		ranked = append(ranked, rankedMatch{
+			match:       CognitiveChainMatch{ChainID: seed.ID, MatchedObservationIDs: matched, MatchedSteps: len(matched), TotalSteps: len(seed.Sequence), MatchConfidence: confidence, Scope: scope, MatchCodes: codes},
+			specificity: criticalSeedSpecificity(seed), scopeDepth: scopeDepth(scope), dangerScore: seed.DangerScore,
+		})
 	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].MatchedSteps != result[j].MatchedSteps {
-			return result[i].MatchedSteps > result[j].MatchedSteps
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if ranked[i].match.MatchedSteps != ranked[j].match.MatchedSteps {
+			return ranked[i].match.MatchedSteps > ranked[j].match.MatchedSteps
 		}
-		if result[i].Scope != result[j].Scope {
-			return len(result[i].Scope) > len(result[j].Scope)
+		if ranked[i].specificity != ranked[j].specificity {
+			return ranked[i].specificity > ranked[j].specificity
 		}
-		return result[i].ChainID < result[j].ChainID
+		if ranked[i].scopeDepth != ranked[j].scopeDepth {
+			return ranked[i].scopeDepth > ranked[j].scopeDepth
+		}
+		if ranked[i].dangerScore != ranked[j].dangerScore {
+			return ranked[i].dangerScore > ranked[j].dangerScore
+		}
+		return ranked[i].match.ChainID < ranked[j].match.ChainID
 	})
+	for _, value := range ranked {
+		result = append(result, value.match)
+	}
 	return result, nil
+}
+
+func continuousObservations(observations []CognitiveObservationSnapshot) bool {
+	if len(observations) < 2 {
+		return true
+	}
+	sequenceKey, entityID := "", ""
+	for _, observation := range observations {
+		if observation.SequenceKey != "" {
+			if sequenceKey == "" {
+				sequenceKey = observation.SequenceKey
+			} else if sequenceKey != observation.SequenceKey {
+				return false
+			}
+		}
+		if observation.EntityID != "" {
+			if entityID == "" {
+				entityID = observation.EntityID
+			} else if entityID != observation.EntityID {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func criticalContextMatches(seed contracts.CriticalSeed, observations []CognitiveObservationSnapshot) bool {
+	if len(seed.Context) == 0 {
+		return true
+	}
+	for key, raw := range seed.Context {
+		value, ok := raw.(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			continue
+		}
+		switch key {
+		case "node_id", "node":
+			for _, observation := range observations {
+				if observation.NodeID != value {
+					return false
+				}
+			}
+		case "zone_id", "zone":
+			for _, observation := range observations {
+				if observation.ZoneID != value {
+					return false
+				}
+			}
+		case "entity_id", "entity":
+			for _, observation := range observations {
+				if observation.EntityID != value {
+					return false
+				}
+			}
+		case "device_id", "device":
+			for _, observation := range observations {
+				if observation.DeviceID != value {
+					return false
+				}
+			}
+		case "sequence_key":
+			for _, observation := range observations {
+				if observation.SequenceKey != value {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+func criticalSeedScope(seed contracts.CriticalSeed) string {
+	if value, ok := seed.Context["scope"].(string); ok && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	return "critical/" + seed.ID
+}
+
+func criticalSeedSpecificity(seed contracts.CriticalSeed) int {
+	specificity := 0
+	for _, step := range seed.Sequence {
+		if step.EventType != "" {
+			specificity++
+		}
+		if step.ZoneRole != "" {
+			specificity++
+		}
+	}
+	for key := range seed.Context {
+		if key != "scope" {
+			specificity++
+		}
+	}
+	return specificity
+}
+
+func scopeDepth(scope string) int {
+	depth := 0
+	for _, part := range strings.Split(strings.Trim(scope, "/"), "/") {
+		if strings.TrimSpace(part) != "" {
+			depth++
+		}
+	}
+	return depth
 }
 
 func inferredZoneRole(observation CognitiveObservationSnapshot) string {
@@ -179,7 +326,38 @@ type CognitiveChainCatalogSnapshot struct {
 }
 
 func (s CognitiveChainCatalogSnapshot) Clone() CognitiveChainCatalogSnapshot {
-	return CognitiveChainCatalogSnapshot{Revision: s.Revision, CriticalSeeds: append([]contracts.CriticalSeed(nil), s.CriticalSeeds...), LearnedBehaviors: append([]contracts.LearnedBehavior(nil), s.LearnedBehaviors...), LearnedSequences: append([]contracts.LearnedSequence(nil), s.LearnedSequences...), CapturedAt: s.CapturedAt}
+	clone := CognitiveChainCatalogSnapshot{Revision: s.Revision, CapturedAt: s.CapturedAt}
+	clone.CriticalSeeds = cloneCriticalSeeds(s.CriticalSeeds)
+	clone.LearnedBehaviors = cloneLearnedBehaviors(s.LearnedBehaviors)
+	clone.LearnedSequences = cloneLearnedSequences(s.LearnedSequences)
+	return clone
+}
+
+func cloneCriticalSeeds(values []contracts.CriticalSeed) []contracts.CriticalSeed {
+	return cloneContractSlice(values)
+}
+
+func cloneLearnedBehaviors(values []contracts.LearnedBehavior) []contracts.LearnedBehavior {
+	return cloneContractSlice(values)
+}
+
+func cloneLearnedSequences(values []contracts.LearnedSequence) []contracts.LearnedSequence {
+	return cloneContractSlice(values)
+}
+
+func cloneContractSlice[T any](values []T) []T {
+	if values == nil {
+		return nil
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return append([]T(nil), values...)
+	}
+	var clone []T
+	if err := json.Unmarshal(data, &clone); err != nil {
+		return append([]T(nil), values...)
+	}
+	return clone
 }
 
 func (s CognitiveChainCatalogSnapshot) Validate() error {
@@ -201,7 +379,14 @@ func (p FunctionalCognitiveChainCatalogProvider) Snapshot(ctx context.Context) (
 	if p == nil {
 		return CognitiveChainCatalogSnapshot{}, ErrNoDecisionChain
 	}
-	return p(ctx)
+	snapshot, err := p(ctx)
+	if err != nil {
+		return CognitiveChainCatalogSnapshot{}, err
+	}
+	if err := snapshot.Validate(); err != nil {
+		return CognitiveChainCatalogSnapshot{}, err
+	}
+	return snapshot.Clone(), nil
 }
 
 type StaticCognitiveChainCatalogProvider struct {

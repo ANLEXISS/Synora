@@ -489,7 +489,14 @@ func (e *ShadowEngine) AuthorityComparisons() []AuthorityDecisionComparison {
 	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return append([]AuthorityDecisionComparison(nil), e.authorityComparisons...)
+	result := make([]AuthorityDecisionComparison, len(e.authorityComparisons))
+	for i, value := range e.authorityComparisons {
+		result[i] = value
+		result[i].HistoricalActionIDs = append([]string(nil), value.HistoricalActionIDs...)
+		result[i].CognitiveIntentIDs = append([]string(nil), value.CognitiveIntentIDs...)
+		result[i].DivergenceCodes = append([]string(nil), value.DivergenceCodes...)
+	}
+	return result
 }
 
 // AuthorityComparisonMetricsSnapshot exposes bounded convergence counters as

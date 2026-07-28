@@ -10,6 +10,9 @@ type HistoricalDecisionRef struct {
 	SourceEventRef    string
 	PreviousStateCode string
 	CurrentStateCode  string
+	HistoricalDecisionType string
+	HistoricalTargetKind   string
+	HistoricalTargetID     string
 
 	StateChanged bool
 	Escalated    bool

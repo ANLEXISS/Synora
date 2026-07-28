@@ -568,6 +568,19 @@ contracts:
         persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.workflow-checkpoint]
         retention: configured_store_policy
         validation: bounded_scalar
+      - name: historical_chain_id
+        type: chain_id
+        wire_name: historical_chain_id
+        required: false
+        nullable: false
+        description: Diagnostic legacy-engine chain reference; never a cognitive selector input.
+        source: historical_core.governed_chain_match
+        trust: derived
+        sensitivity: operational
+        protection: none
+        persistence: [synora.store.cge-journal, synora.store.workflow-wal, synora.store.workflow-checkpoint]
+        retention: configured_store_policy
+        validation: bounded_scalar
       - name: observed_at
         type: time
         required: true

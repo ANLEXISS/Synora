@@ -623,6 +623,36 @@ func (s *Store) ContextSnapshot() ContextSourceSnapshot {
 	return out
 }
 
+// DecisionSnapshot returns the system facts, target existence, and effective
+// revision under one read lock. It is the atomic read boundary used when a
+// decision is bound to StateStore state.
+func (s *Store) DecisionSnapshot(kind, id string) (uint64, SystemState, bool) {
+	if s == nil {
+		return 0, SystemState{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	revision := s.revision.Load()
+	if revision == 0 {
+		revision = 1
+	}
+	exists := false
+	switch kind {
+	case "system":
+		exists = id == "system"
+	case "node":
+		_, exists = s.NodeStates[id]
+	case "device":
+		_, exists = s.DeviceStates[id]
+		if !exists {
+			_, exists = s.CameraStates[id]
+		}
+	case "resident":
+		_, exists = s.Presence[id]
+	}
+	return revision, s.systemStateLocked(), exists
+}
+
 func (s *Store) systemStateLocked() SystemState {
 	if s.System == nil {
 		return SystemState{LastState: "idle", DangerLevel: "unknown", DangerSource: "unknown", Security: contract.DefaultSecurityModeState(time.Now().UTC())}
