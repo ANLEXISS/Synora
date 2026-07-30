@@ -49,9 +49,6 @@ func (DefaultCognitiveDecisionTargetResolver) ResolveTarget(ctx context.Context,
 			return DecisionTarget{Kind: DecisionTargetSystem, ID: "system"}, nil
 		}
 		if strings.Contains(action, "record_clip") || strings.Contains(action, "camera") {
-			if observation.ClipID != "" {
-				return DecisionTarget{Kind: DecisionTargetDevice, ID: observation.ClipID}, nil
-			}
 			if observation.DeviceID != "" {
 				return DecisionTarget{Kind: DecisionTargetDevice, ID: observation.DeviceID}, nil
 			}

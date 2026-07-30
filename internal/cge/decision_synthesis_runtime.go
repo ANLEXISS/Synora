@@ -118,7 +118,19 @@ func (e *ShadowEngine) synthesizeDecision(ctx context.Context, observation chain
 		if refs, ok := e.workflow.ObservationsForObservation(observation.ID); ok {
 			input.Situation.Observations = make([]CognitiveObservationSnapshot, 0, len(refs))
 			for _, ref := range refs {
-				input.Situation.Observations = append(input.Situation.Observations, CognitiveObservationSnapshot{ID: ref.EventID, EventType: ref.EventType, Timestamp: ref.ObservedAt, NodeID: ref.NodeID, ZoneID: ref.ZoneID, EntityID: ref.Subject.EntityID, SequenceKey: ref.SequenceKey, ClipID: ref.ClipID})
+				deviceID := ""
+				zoneID := ref.ZoneID
+				if ref.EventID == observation.ID {
+					// The episode reference is intentionally redacted and does not
+					// retain the source device. The current observation is still
+					// available at this boundary, so bind its protected device
+					// identity without reintroducing raw Core data.
+					deviceID = observation.DeviceID
+					if zoneID == "" && observation.Context != nil {
+						zoneID = observation.Context.ZoneID
+					}
+				}
+				input.Situation.Observations = append(input.Situation.Observations, CognitiveObservationSnapshot{ID: ref.EventID, EventType: ref.EventType, Timestamp: ref.ObservedAt, NodeID: ref.NodeID, ZoneID: zoneID, EntityID: ref.Subject.EntityID, DeviceID: deviceID, SequenceKey: ref.SequenceKey, ClipID: ref.ClipID})
 			}
 		}
 	}

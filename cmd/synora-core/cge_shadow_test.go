@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"synora/internal/actionpolicy"
 	"synora/internal/cge"
+	"synora/internal/cge/durableids"
 	"synora/pkg/contract"
 )
 
@@ -190,6 +192,27 @@ func TestCoreCGEDryRunDoesNotEmitActionRequestOrResult(t *testing.T) {
 	}
 	if got := core.bus.messagesOfType(contract.EventActionResult); len(got) != 0 {
 		t.Fatalf("CGE dry-run emitted action results: %#v", got)
+	}
+}
+
+func TestCoreOperationalSnapshotBindsProtectedDeviceAndPolicyRevision(t *testing.T) {
+	app, _ := newTestCoreApp(t)
+	app.policy = actionpolicy.NewStore("")
+	provider := &coreOperationalSnapshotProvider{app: app}
+	target := cge.DecisionTarget{Kind: cge.DecisionTargetDevice, ID: durableids.ProtectRaw(durableids.KindDevice, "cam_01")}
+
+	snapshot, err := provider.SnapshotForDecision(context.Background(), target)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if snapshot.Revision == 0 || snapshot.PolicyRevision == 0 {
+		t.Fatalf("snapshot revisions are not operationally bound: %#v", snapshot)
+	}
+	if len(snapshot.Targets) != 1 || !snapshot.Targets[0].Exists {
+		t.Fatalf("protected device was not resolved: %#v", snapshot.Targets)
+	}
+	if snapshot.Targets[0].Authorization.Known || snapshot.Targets[0].PhysicalLimits.Known {
+		t.Fatalf("unknown execution facts were fabricated: %#v", snapshot.Targets[0])
 	}
 }
 

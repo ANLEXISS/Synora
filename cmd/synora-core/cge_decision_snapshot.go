@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"synora/internal/cge"
+	"synora/internal/cge/durableids"
 	"synora/internal/topology"
 	"synora/pkg/contract"
 )
@@ -43,14 +44,16 @@ func (p *coreOperationalSnapshotProvider) SnapshotForDecision(ctx context.Contex
 			}
 		}
 	case cge.DecisionTargetDevice:
-		if p.app.device != nil {
-			if _, ok := p.app.device.Get(target.ID); ok {
-				exists = true
-			}
+		if p.protectedDevice(target.ID) {
+			exists = true
 		}
 	case cge.DecisionTargetResident:
-		_, configured := p.app.residents[target.ID]
-		exists = exists || configured
+		for id := range p.app.residents {
+			if durableids.ProtectRaw(durableids.KindEntity, id) == target.ID {
+				exists = true
+				break
+			}
+		}
 	case cge.DecisionTargetZone:
 		if p.app.topology != nil {
 			if node, ok := p.app.topology.Nodes[target.ID]; ok && node != nil && node.Type == topology.NodeZone {
@@ -66,14 +69,32 @@ func (p *coreOperationalSnapshotProvider) SnapshotForDecision(ctx context.Contex
 	if err != nil {
 		return cge.OperationalSnapshot{}, err
 	}
+	policyRevision := uint64(0)
+	if p.app.policy != nil {
+		policyRevision = p.app.policy.Revision()
+	}
 	return cge.OperationalSnapshot{
-		CapturedAt: now, FreshUntil: now.Add(5 * time.Second), Revision: revision,
+		CapturedAt: now, FreshUntil: now.Add(5 * time.Second), Revision: revision, PolicyRevision: policyRevision,
 		AuthorityMode:       p.app.cognitiveAuthorityMode(),
 		Targets:             []cge.OperationalTarget{{Target: target, Exists: exists, Authorized: false, PhysicalLimit: 0, CurrentRevision: revision, Authorization: cge.OperationalAuthorization{Known: false, Authorized: false}, PhysicalLimits: cge.OperationalPhysicalLimits{Known: false}}},
 		UsedIdempotencyKeys: usedKeys, ConflictingDecisionIDs: conflictingIDs,
 		CurrentSystemState: system.LastState,
 		SecurityMode:       string(system.Security.Mode),
 	}, nil
+}
+
+// protectedDevice resolves the CGE-safe device reference against the detached
+// Core registry without exposing the raw identifier across the boundary.
+func (p *coreOperationalSnapshotProvider) protectedDevice(targetID string) bool {
+	if p == nil || p.app == nil || p.app.device == nil || targetID == "" {
+		return false
+	}
+	for id := range p.app.device.List() {
+		if durableids.ProtectRaw(durableids.KindDevice, id) == targetID {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *coreOperationalSnapshotProvider) decisionContext(ctx context.Context, target cge.DecisionTarget, now time.Time) ([]string, []string, error) {

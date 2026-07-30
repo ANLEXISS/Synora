@@ -25,6 +25,25 @@ func TestStoreLoadsSafeDefaultsWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestRevisionIsStableAndChangesWithEffectivePolicy(t *testing.T) {
+	store := NewStore("")
+	first := store.Revision()
+	if first == 0 {
+		t.Fatal("default policy revision must be known")
+	}
+	if got := store.Revision(); got != first {
+		t.Fatalf("revision changed without policy change: %d != %d", got, first)
+	}
+	level := store.Get().Levels[contract.DangerHigh]
+	level.Enabled = !level.Enabled
+	policy := store.Get()
+	policy.Levels[contract.DangerHigh] = level
+	store.policy = policy
+	if got := store.Revision(); got == first || got == 0 {
+		t.Fatalf("revision did not change with policy: %d", got)
+	}
+}
+
 func TestPatchRejectsUnknownCommandAndWritesBackup(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "action_policy.yaml")
 	store := NewStore(path)

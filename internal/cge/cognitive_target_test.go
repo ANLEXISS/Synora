@@ -17,7 +17,7 @@ func TestCognitiveTargetResolverResolvesTypedTargets(t *testing.T) {
 		kind   DecisionTargetKind
 		id     string
 	}{
-		{action: "record_clip", kind: DecisionTargetDevice, id: "clip"},
+		{action: "record_clip", kind: DecisionTargetDevice, id: "camera"},
 		{action: "turn_on_relevant_lights", kind: DecisionTargetZone, id: "upstairs"},
 		{action: "lock.device", kind: DecisionTargetDevice, id: "camera"},
 		{action: "notify_resident", kind: DecisionTargetSystem, id: "system"},
@@ -30,7 +30,6 @@ func TestCognitiveTargetResolverResolvesTypedTargets(t *testing.T) {
 		}
 	}
 	ambiguous := situation.clone()
-	ambiguous.Observations[0].ClipID = ""
 	ambiguous.Observations[0].DeviceID = ""
 	ambiguousChain := base
 	ambiguousChain.ProposedActions = []string{"record_clip"}
