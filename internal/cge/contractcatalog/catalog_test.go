@@ -30,7 +30,7 @@ func TestCatalogIsValid(t *testing.T) {
 	if len(set.Catalog.Contracts) == 0 || len(set.Catalog.Catalog.Categories) != 17 || len(set.Boundaries.Boundaries) != 18 || len(set.Stores.Stores) == 0 {
 		t.Fatalf("catalog unexpectedly incomplete: contracts=%d boundaries=%d stores=%d", len(set.Catalog.Contracts), len(set.Boundaries.Boundaries), len(set.Stores.Stores))
 	}
-	if len(set.Identifiers.Identifiers) != 34 || len(set.Timestamps.Timestamps) != 16 || len(set.Transports.Transports) != 34 || len(set.Writers.Writers) != 27 {
+	if len(set.Identifiers.Identifiers) != 35 || len(set.Timestamps.Timestamps) != 17 || len(set.Transports.Transports) != 34 || len(set.Writers.Writers) != 27 {
 		t.Fatalf("executable registries unexpectedly incomplete: identifiers=%d timestamps=%d transports=%d writers=%d", len(set.Identifiers.Identifiers), len(set.Timestamps.Timestamps), len(set.Transports.Transports), len(set.Writers.Writers))
 	}
 }

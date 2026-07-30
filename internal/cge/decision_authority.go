@@ -1411,6 +1411,7 @@ func cloneExecutionPlanPtr(plan *ExecutionPlan) *ExecutionPlan {
 	}
 	copy := *plan
 	copy.Actions = append([]PlannedAction(nil), plan.Actions...)
+	copy.CapabilityGrants = append([]ExecutionCapabilityGrant(nil), plan.CapabilityGrants...)
 	copy.FailureCodes = append([]string(nil), plan.FailureCodes...)
 	return &copy
 }
@@ -1427,6 +1428,8 @@ func planFailureCode(err error) string {
 		return ErrAuthorizationUnknown.Error()
 	case errors.Is(err, ErrPhysicalLimitUnknown):
 		return ErrPhysicalLimitUnknown.Error()
+	case errors.Is(err, ErrOperationalCapabilityUnavailable):
+		return ErrOperationalCapabilityUnavailable.Error()
 	case errors.Is(err, ErrInvalidExecutionParameters):
 		return ErrInvalidExecutionParameters.Error()
 	default:

@@ -130,20 +130,23 @@ func (a PlannedAction) Validate() error {
 }
 
 type ExecutionPlan struct {
-	SchemaVersion    string              `json:"schema_version" yaml:"schema_version"`
-	PlanID           string              `json:"plan_id" yaml:"plan_id"`
-	DecisionID       string              `json:"decision_id" yaml:"decision_id"`
-	SituationID      string              `json:"situation_id" yaml:"situation_id"`
-	StateRevision    uint64              `json:"state_revision" yaml:"state_revision"`
-	PolicyRevision   uint64              `json:"policy_revision" yaml:"policy_revision"`
-	Actions          []PlannedAction     `json:"actions" yaml:"actions"`
-	Status           ExecutionPlanStatus `json:"status" yaml:"status"`
-	DryRun           bool                `json:"dry_run" yaml:"dry_run"`
-	DispatchEligible bool                `json:"dispatch_eligible" yaml:"dispatch_eligible"`
-	CreatedAt        time.Time           `json:"created_at" yaml:"created_at"`
-	ValidUntil       time.Time           `json:"valid_until" yaml:"valid_until"`
-	IdempotencyKey   string              `json:"idempotency_key" yaml:"idempotency_key"`
-	FailureCodes     []string            `json:"failure_codes,omitempty" yaml:"failure_codes,omitempty"`
+	SchemaVersion        string                     `json:"schema_version" yaml:"schema_version"`
+	PlanID               string                     `json:"plan_id" yaml:"plan_id"`
+	DecisionID           string                     `json:"decision_id" yaml:"decision_id"`
+	SituationID          string                     `json:"situation_id" yaml:"situation_id"`
+	StateRevision        uint64                     `json:"state_revision" yaml:"state_revision"`
+	PolicyRevision       uint64                     `json:"policy_revision" yaml:"policy_revision"`
+	Actions              []PlannedAction            `json:"actions" yaml:"actions"`
+	CapabilityGrants     []ExecutionCapabilityGrant `json:"capability_grants" yaml:"capability_grants"`
+	Atomic               bool                       `json:"atomic" yaml:"atomic"`
+	ActionSetFingerprint string                     `json:"action_set_fingerprint" yaml:"action_set_fingerprint"`
+	Status               ExecutionPlanStatus        `json:"status" yaml:"status"`
+	DryRun               bool                       `json:"dry_run" yaml:"dry_run"`
+	DispatchEligible     bool                       `json:"dispatch_eligible" yaml:"dispatch_eligible"`
+	CreatedAt            time.Time                  `json:"created_at" yaml:"created_at"`
+	ValidUntil           time.Time                  `json:"valid_until" yaml:"valid_until"`
+	IdempotencyKey       string                     `json:"idempotency_key" yaml:"idempotency_key"`
+	FailureCodes         []string                   `json:"failure_codes,omitempty" yaml:"failure_codes,omitempty"`
 }
 
 func (p ExecutionPlan) Validate() error {
@@ -155,7 +158,7 @@ func (p ExecutionPlan) Validate() error {
 			return err
 		}
 	}
-	if p.StateRevision == 0 || p.CreatedAt.IsZero() || !p.ValidUntil.After(p.CreatedAt) {
+	if p.StateRevision == 0 || p.PolicyRevision == 0 || p.CreatedAt.IsZero() || !p.ValidUntil.After(p.CreatedAt) {
 		return fmt.Errorf("invalid execution plan revision or validity")
 	}
 	if err := p.Status.Validate(); err != nil {
@@ -164,10 +167,19 @@ func (p ExecutionPlan) Validate() error {
 	if len(p.Actions) > maxExecutionActions {
 		return fmt.Errorf("too many planned actions")
 	}
-	if !p.DryRun || p.DispatchEligible {
+	if !p.DryRun || p.DispatchEligible || !p.Atomic {
 		return fmt.Errorf("execution plan is not fail-closed dry-run")
 	}
+	if err := validateAuthorityText(p.ActionSetFingerprint, "action set fingerprint", 256, true); err != nil {
+		return err
+	}
+	if p.ActionSetFingerprint != digest("action-set", actionDigest(p.Actions)) {
+		return fmt.Errorf("execution plan action set fingerprint mismatch")
+	}
 	seen := make(map[string]struct{}, len(p.Actions))
+	actionByID := make(map[string]PlannedAction, len(p.Actions))
+	grantSeen := make(map[string]struct{}, len(p.CapabilityGrants))
+	grantByAction := make(map[string]ExecutionCapabilityGrant, len(p.CapabilityGrants))
 	for _, action := range p.Actions {
 		if err := action.Validate(); err != nil {
 			return err
@@ -181,6 +193,45 @@ func (p ExecutionPlan) Validate() error {
 			return fmt.Errorf("duplicate planned action")
 		}
 		seen[action.PlannedActionID] = struct{}{}
+		actionByID[action.PlannedActionID] = action
+	}
+	if len(p.CapabilityGrants) != len(p.Actions) {
+		return fmt.Errorf("execution plan is not atomically granted")
+	}
+	for _, grant := range p.CapabilityGrants {
+		if err := grant.Validate(); err != nil {
+			return err
+		}
+		if grant.Status != ExecutionCapabilityGrantIssued {
+			return fmt.Errorf("execution plan contains a non-issued capability grant")
+		}
+		if grant.PlanID != p.PlanID || grant.DecisionID != p.DecisionID || grant.StateRevision != p.StateRevision || grant.PolicyRevision != p.PolicyRevision {
+			return fmt.Errorf("execution capability grant is not bound to plan")
+		}
+		action, ok := actionByID[grant.PlannedActionID]
+		if !ok || grant.GrantID != digest("grant", p.PlanID, action.PlannedActionID, action.RequestFingerprint) || grant.RequestFingerprint != action.RequestFingerprint || grant.Capability != normalizeIntent(action.IntentID) {
+			return fmt.Errorf("execution capability grant is not bound to action")
+		}
+		if _, ok := grantSeen[grant.GrantID]; ok {
+			return fmt.Errorf("duplicate execution capability grant")
+		}
+		grantSeen[grant.GrantID] = struct{}{}
+		if _, ok := grantByAction[grant.PlannedActionID]; ok {
+			return fmt.Errorf("duplicate execution capability grant action binding")
+		}
+		grantByAction[grant.PlannedActionID] = grant
+	}
+	for _, action := range p.Actions {
+		grant, ok := grantByAction[action.PlannedActionID]
+		if !ok || grant.ActionType != action.ActionType || !grant.Target.equal(action.Target) || grant.Fingerprint == "" {
+			return fmt.Errorf("execution plan action has no atomic capability grant")
+		}
+	}
+	if p.Status == ExecutionPlanPlanned && len(p.FailureCodes) != 0 {
+		return fmt.Errorf("planned execution plan contains failure codes")
+	}
+	if p.Status != ExecutionPlanPlanned && (len(p.Actions) != 0 || len(p.CapabilityGrants) != 0 || len(p.FailureCodes) == 0) {
+		return fmt.Errorf("refused execution plan is not atomic")
 	}
 	for _, code := range p.FailureCodes {
 		if err := validateAuthorityText(code, "execution plan failure code", 128, true); err != nil {
@@ -278,8 +329,13 @@ func (p DefaultGovernedExecutionPlanner) BuildPlan(ctx context.Context, decision
 	if p.Now != nil {
 		now = p.Now().UTC()
 	}
-	base := ExecutionPlan{SchemaVersion: ExecutionPlanSchemaVersion, DecisionID: decision.DecisionID, SituationID: decision.SituationID, StateRevision: snapshot.Revision, PolicyRevision: snapshot.PolicyRevision, Status: ExecutionPlanInvalid, DryRun: true, DispatchEligible: false, CreatedAt: decision.CreatedAt, ValidUntil: decision.ValidUntil}
+	base := ExecutionPlan{SchemaVersion: ExecutionPlanSchemaVersion, DecisionID: decision.DecisionID, SituationID: decision.SituationID, StateRevision: snapshot.Revision, PolicyRevision: snapshot.PolicyRevision, Status: ExecutionPlanInvalid, DryRun: true, DispatchEligible: false, Atomic: true, CreatedAt: decision.CreatedAt, ValidUntil: decision.ValidUntil}
 	fail := func(status ExecutionPlanStatus, code error) (ExecutionPlan, error) {
+		// A failed plan is a complete refusal record. No action resolved before
+		// the failure may escape as a partially executable plan.
+		base.Actions = nil
+		base.CapabilityGrants = nil
+		base.ActionSetFingerprint = digest("action-set", actionDigest(nil))
 		base.Status = status
 		base.FailureCodes = []string{code.Error()}
 		base.PlanID = digest("plan", decision.DecisionID, decision.SituationID, fmt.Sprint(snapshot.Revision), fmt.Sprint(snapshot.PolicyRevision), code.Error())
@@ -325,9 +381,51 @@ func (p DefaultGovernedExecutionPlanner) BuildPlan(ctx context.Context, decision
 		return base.Actions[i].Target.ID < base.Actions[j].Target.ID
 	})
 	base.Status = ExecutionPlanPlanned
+	base.ActionSetFingerprint = digest("action-set", actionDigest(base.Actions))
 	base.PlanID = digest("plan", decision.DecisionID, decision.SituationID, fmt.Sprint(snapshot.Revision), fmt.Sprint(snapshot.PolicyRevision), actionDigest(base.Actions))
 	base.IdempotencyKey = digest("plan-idempotency", decision.IdempotencyKey, fmt.Sprint(snapshot.Revision), fmt.Sprint(snapshot.PolicyRevision), actionDigest(base.Actions))
+	grants, err := buildExecutionCapabilityGrants(base, snapshot)
+	if err != nil {
+		return fail(ExecutionPlanInvalid, err)
+	}
+	base.CapabilityGrants = grants
 	return base, nil
+}
+
+func buildExecutionCapabilityGrants(plan ExecutionPlan, snapshot OperationalSnapshot) ([]ExecutionCapabilityGrant, error) {
+	grants := make([]ExecutionCapabilityGrant, 0, len(plan.Actions))
+	for _, action := range plan.Actions {
+		operational, ok := operationalTarget(snapshot, action.Target)
+		if !ok || !operational.Exists {
+			return nil, fmt.Errorf("%w: action target is not resolved", ErrAmbiguousExecutionTarget)
+		}
+		grant := ExecutionCapabilityGrant{
+			SchemaVersion:         ExecutionCapabilityGrantSchemaVersion,
+			GrantID:               digest("grant", plan.PlanID, action.PlannedActionID, action.RequestFingerprint),
+			PlanID:                plan.PlanID,
+			DecisionID:            plan.DecisionID,
+			PlannedActionID:       action.PlannedActionID,
+			RequestFingerprint:    action.RequestFingerprint,
+			Capability:            normalizeIntent(action.IntentID),
+			ActionType:            action.ActionType,
+			Target:                action.Target,
+			StateRevision:         plan.StateRevision,
+			PolicyRevision:        plan.PolicyRevision,
+			AuthorizationRevision: operational.Authorization.Revision,
+			AuthorizationPolicyID: operational.Authorization.PolicyID,
+			IssuedAt:              plan.CreatedAt,
+			ValidUntil:            plan.ValidUntil,
+			Status:                ExecutionCapabilityGrantIssued,
+			DryRun:                true,
+			DispatchEligible:      false,
+		}
+		grant.Fingerprint = ExecutionCapabilityGrantFingerprint(grant)
+		if err := grant.Validate(); err != nil {
+			return nil, err
+		}
+		grants = append(grants, grant)
+	}
+	return grants, nil
 }
 
 func planStatusForError(err error) ExecutionPlanStatus {
@@ -588,7 +686,25 @@ func digest(prefix string, values ...string) string {
 
 func actionDigest(actions []PlannedAction) string {
 	copyActions := append([]PlannedAction(nil), actions...)
-	sort.Slice(copyActions, func(i, j int) bool { return copyActions[i].IntentID < copyActions[j].IntentID })
+	sort.Slice(copyActions, func(i, j int) bool {
+		left, right := copyActions[i], copyActions[j]
+		if left.IntentID != right.IntentID {
+			return left.IntentID < right.IntentID
+		}
+		if left.ActionType != right.ActionType {
+			return left.ActionType < right.ActionType
+		}
+		if left.Target.Kind != right.Target.Kind {
+			return left.Target.Kind < right.Target.Kind
+		}
+		if left.Target.ID != right.Target.ID {
+			return left.Target.ID < right.Target.ID
+		}
+		if left.Priority != right.Priority {
+			return left.Priority < right.Priority
+		}
+		return left.RequestFingerprint < right.RequestFingerprint
+	})
 	payload, _ := json.Marshal(copyActions)
 	return string(payload)
 }
@@ -618,6 +734,9 @@ func (k DefaultExecutionPlanSafetyKernel) ValidatePlan(ctx context.Context, deci
 	if err := plan.Validate(); err != nil {
 		return violate("plan_invalid", err.Error())
 	}
+	if plan.Status != ExecutionPlanPlanned {
+		return violate("plan_not_planned", "execution plan is a refusal and cannot be safety-approved")
+	}
 	if plan.DecisionID != decision.DecisionID || plan.SituationID != decision.SituationID {
 		return violate("decision_mismatch", "plan does not belong to decision")
 	}
@@ -639,6 +758,10 @@ func (k DefaultExecutionPlanSafetyKernel) ValidatePlan(ctx context.Context, deci
 	if len(snapshot.ConflictingDecisionIDs) > 0 {
 		return violate("authoritative_conflict", "authoritative execution conflict exists")
 	}
+	grants := make(map[string]ExecutionCapabilityGrant, len(plan.CapabilityGrants))
+	for _, grant := range plan.CapabilityGrants {
+		grants[grant.PlannedActionID] = grant
+	}
 	seen := make(map[string]struct{}, len(plan.Actions))
 	for _, action := range plan.Actions {
 		if _, ok := seen[action.RequestFingerprint]; ok {
@@ -652,6 +775,19 @@ func (k DefaultExecutionPlanSafetyKernel) ValidatePlan(ctx context.Context, deci
 			return violate("target_unresolved", action.IntentID)
 		}
 		operational, _ := operationalTarget(snapshot, action.Target)
+		grant, ok := grants[action.PlannedActionID]
+		if !ok || grant.Status != ExecutionCapabilityGrantIssued || grant.Capability != normalizeIntent(action.IntentID) || grant.ActionType != action.ActionType || grant.RequestFingerprint != action.RequestFingerprint || !grant.Target.equal(action.Target) {
+			return violate("capability_grant_invalid", action.IntentID)
+		}
+		if now.After(grant.ValidUntil) || now.Before(grant.IssuedAt) || grant.StateRevision != snapshot.Revision || grant.PolicyRevision != snapshot.PolicyRevision {
+			return violate("capability_grant_stale", action.IntentID)
+		}
+		if grant.AuthorizationRevision != 0 && grant.AuthorizationRevision != operational.Authorization.Revision {
+			return violate("capability_grant_authorization_revision_mismatch", action.IntentID)
+		}
+		if grant.AuthorizationPolicyID != "" && grant.AuthorizationPolicyID != operational.Authorization.PolicyID {
+			return violate("capability_grant_policy_mismatch", action.IntentID)
+		}
 		if intentRequiresOperationalCapability(action.IntentID) && !hasOperationalCapability(operational, action.IntentID) {
 			return violate("capability_unavailable", action.IntentID)
 		}

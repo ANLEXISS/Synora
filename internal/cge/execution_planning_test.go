@@ -61,6 +61,28 @@ func TestGovernedExecutionPlanIsDeterministicAndResolvesKnownCamera(t *testing.T
 	if first.Actions[0].ActionType != "record.clip" || first.Actions[0].Target.ID != "camera-1" {
 		t.Fatalf("unexpected action: %#v", first.Actions[0])
 	}
+	if !first.Atomic || len(first.CapabilityGrants) != len(first.Actions) || first.CapabilityGrants[0].PlannedActionID != first.Actions[0].PlannedActionID || first.CapabilityGrants[0].RequestFingerprint != first.Actions[0].RequestFingerprint {
+		t.Fatalf("plan is not atomically granted: %#v", first)
+	}
+	if err := first.Validate(); err != nil {
+		t.Fatalf("valid atomic plan rejected: %v", err)
+	}
+}
+
+func TestGovernedExecutionPlanRejectsPartialResolution(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	target := DecisionTarget{Kind: DecisionTargetDevice, ID: "camera-1"}
+	decision := planningDecision(now, target, "record_clip", "unknown_intent")
+	plan, err := (DefaultGovernedExecutionPlanner{Now: func() time.Time { return now }}).BuildPlan(context.Background(), decision, planningSnapshot(now, target))
+	if !errors.Is(err, ErrUnsupportedIntent) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(plan.Actions) != 0 || len(plan.CapabilityGrants) != 0 || plan.Status != ExecutionPlanUnsupported {
+		t.Fatalf("partial plan escaped refusal: %#v", plan)
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("atomic refusal is not persistable: %v", err)
+	}
 }
 
 func TestGovernedExecutionPlanResolvesMultipleOperationalCapabilities(t *testing.T) {
@@ -156,6 +178,13 @@ func TestExecutionPlanSafetyKernelRejectsStaleAndUnknownAuthorization(t *testing
 	unknown.Targets[0].Authorization.Known = false
 	if verdict := kernel.ValidatePlan(context.Background(), decision, plan, unknown); verdict.Allowed {
 		t.Fatal("unknown authorization accepted")
+	}
+	grantStale := plan
+	grantStale.CapabilityGrants = append([]ExecutionCapabilityGrant(nil), plan.CapabilityGrants...)
+	grantStale.CapabilityGrants[0].PolicyRevision++
+	grantStale.CapabilityGrants[0].Fingerprint = ExecutionCapabilityGrantFingerprint(grantStale.CapabilityGrants[0])
+	if verdict := kernel.ValidatePlan(context.Background(), decision, grantStale, snapshot); verdict.Allowed {
+		t.Fatal("stale capability grant accepted")
 	}
 }
 
