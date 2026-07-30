@@ -6,10 +6,10 @@ import (
 )
 
 type HistoricalDecisionRef struct {
-	ID                string
-	SourceEventRef    string
-	PreviousStateCode string
-	CurrentStateCode  string
+	ID                     string
+	SourceEventRef         string
+	PreviousStateCode      string
+	CurrentStateCode       string
 	HistoricalDecisionType string
 	HistoricalTargetKind   string
 	HistoricalTargetID     string
@@ -32,6 +32,19 @@ type HistoricalDecisionRef struct {
 	Fingerprint string
 
 	HistoricalDecisionHasProductionAuthority bool
+	HistoricalActions                        []HistoricalActionRef
+}
+
+// HistoricalActionRef is the bounded pre-dispatch view of a Core action.
+// Payloads and recipient/device metadata are intentionally excluded.
+type HistoricalActionRef struct {
+	ID                 string
+	ActionType         string
+	Target             string
+	Priority           int
+	RequestFingerprint string
+	CreatedAtUnixNano  int64
+	PolicyResult       string
 }
 
 type ComparisonDimensionKind string
@@ -203,6 +216,7 @@ type HistoricalDecisionComparisonSnapshot struct {
 
 func (r HistoricalDecisionRef) Clone() HistoricalDecisionRef {
 	r.ReasonCodes = append([]string(nil), r.ReasonCodes...)
+	r.HistoricalActions = append([]HistoricalActionRef(nil), r.HistoricalActions...)
 	return r
 }
 

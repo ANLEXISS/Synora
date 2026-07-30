@@ -1035,6 +1035,28 @@ contracts:
       - {name: source_event_ref, go_field: SourceEventRef, wire_name: SourceEventRef, type: observation_reference, required: true, nullable: false, description: Protected source event reference, source: historical_core, trust: validated, sensitivity: sensitive_personal, protection: cgeid_v1_observation, persistence: [], retention: transport_lifetime, validation: protected_reference}
       - {name: authority_marker, type: authority_marker, required: true, nullable: false, description: Historical authority remains with Core, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: transport_lifetime, validation: historical_authority_retained}
 
+  - id: synora.cge.historical-action-ref.v1
+    category: historical_comparison
+    owner: historical_core
+    producers: [historical_core]
+    consumers: [cge_comparison]
+    transport: internal
+    persistence: []
+    authority: authorized_decision
+    trust: validated
+    sensitivity: operational
+    status: internal
+    justification: Bounded pre-dispatch historical action observation; raw action payloads never cross the Core boundary.
+    implementation: {kind: go_struct, package: synora/internal/cge/decisioncomparison, type: HistoricalActionRef, wire_format: json}
+    fields:
+      - {name: id, type: action_request_identifier, required: true, nullable: false, description: Historical action identity, source: historical_core, trust: validated, sensitivity: operational, protection: derived_fingerprint_only, persistence: [], retention: transport_lifetime, validation: protected_reference}
+      - {name: action_type, type: action_type, required: true, nullable: false, description: Historical action type, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: transport_lifetime, validation: allowlisted}
+      - {name: target, type: target_reference, required: true, nullable: false, description: Historical action target, source: historical_core, trust: validated, sensitivity: operational, protection: derived_fingerprint_only, persistence: [], retention: transport_lifetime, validation: protected_reference}
+      - {name: priority, type: priority, required: true, nullable: false, description: Historical action priority, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: transport_lifetime, validation: bounded_integer}
+      - {name: request_fingerprint, type: derived_fingerprint, required: true, nullable: false, description: Canonical historical request fingerprint, source: historical_core, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [], retention: transport_lifetime, validation: fingerprint}
+      - {name: created_at_unix_nano, type: timestamp, required: true, nullable: false, description: Historical request timestamp, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: transport_lifetime, validation: timestamp}
+      - {name: policy_result, type: policy_result, required: true, nullable: false, description: Historical policy outcome, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: transport_lifetime, validation: allowlisted}
+
   - id: synora.cge.historical-comparison.v1
     category: historical_comparison
     owner: cge_comparison
@@ -1561,6 +1583,23 @@ contracts:
     retention_policy: process_lifetime
     implementation: {kind: go_alias, package: synora/internal/cge, type: AuthorityMode, wire_format: string, validator: AuthorityMode.Validate}
 
+  - id: synora.cge.execution-mode.v1
+    category: configuration
+    owner: cge_execution_planner
+    producers: [synora_core]
+    consumers: [cge_execution_planner, cge_authority]
+    transport: internal
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Closed execution mode enum; disabled is the default and live is fail-closed unavailable in this pass.
+    migration_policy: enum_compatibility
+    compatibility_policy: reject_unknown_values
+    retention_policy: process_lifetime
+    implementation: {kind: go_alias, package: synora/internal/cge, type: CGEExecutionMode, wire_format: string, validator: CGEExecutionMode.Validate}
+
   - id: synora.cge.safety-verdict.v1
     category: diagnostic
     owner: safety_kernel
@@ -1594,6 +1633,96 @@ contracts:
     compatibility_policy: explicit_execution_gate_required
     retention_policy: configured_decision_retention
     implementation: {kind: go_struct, package: synora/internal/cge, type: ExecutionRequest, wire_format: json, validator: ExecutionRequest.Validate}
+
+  - id: synora.cge.execution-plan.v1
+    category: recommendation
+    owner: cge_execution_planner
+    producers: [cge_execution_planner]
+    consumers: [cge_execution_plan_safety_kernel, cge_authority, diagnostics]
+    transport: internal
+    persistence: [synora.store.cge-execution-plans]
+    authority: advisory
+    trust: derived
+    sensitivity: operational
+    status: experimental
+    justification: Closed dry-run execution plan containing only validated historical action identities and fingerprints; it is never a dispatch request.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_plan_identity_and_dry_run_gate
+    retention_policy: configured_execution_plan_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: ExecutionPlan, wire_format: json, validator: ExecutionPlan.Validate}
+    fields:
+      - {name: schema_version, type: schema_version, required: true, nullable: false, description: Execution plan schema version, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: exact_version}
+      - {name: plan_id, type: derived_identifier, required: true, nullable: false, description: Deterministic plan identifier, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: non_empty_bounded}
+      - {name: decision_id, type: decision_identifier, required: true, nullable: false, description: Decision identity, source: cge_decision_authority, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: protected_reference}
+      - {name: situation_id, type: situation_identifier, required: true, nullable: false, description: Situation identity, source: cge_decision_authority, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: protected_reference}
+      - {name: state_revision, type: revision, required: true, nullable: false, description: Operational StateStore revision, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: positive_revision}
+      - {name: policy_revision, type: revision, required: true, nullable: false, description: Action policy revision, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: bounded_revision}
+      - {name: actions, type: planned_action_list, required: true, nullable: false, description: Bounded planned actions, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: bounded_allowlist}
+      - {name: status, type: execution_plan_status, required: true, nullable: false, description: Closed plan status, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: allowlist}
+      - {name: dry_run, type: boolean, required: true, nullable: false, description: Explicit dry-run marker, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: must_be_true}
+      - {name: dispatch_eligible, type: boolean, required: true, nullable: false, description: Dispatch gate, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: must_be_false}
+      - {name: created_at, type: timestamp, required: true, nullable: false, description: Plan creation timestamp, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: timestamp}
+      - {name: valid_until, type: timestamp, required: true, nullable: false, description: Plan expiration timestamp, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: timestamp}
+      - {name: idempotency_key, type: derived_identifier, required: true, nullable: false, description: Deterministic plan idempotency key, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: non_empty_bounded}
+      - {name: failure_codes, type: bounded_code_list, required: false, nullable: true, description: Closed diagnostic refusal codes, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: bounded_allowlist}
+
+  - id: synora.cge.planned-action.v1
+    category: recommendation
+    owner: cge_execution_planner
+    producers: [cge_execution_planner]
+    consumers: [cge_execution_plan_safety_kernel, diagnostics]
+    transport: internal
+    persistence: [synora.store.cge-execution-plans]
+    authority: advisory
+    trust: derived
+    sensitivity: operational
+    status: experimental
+    justification: Closed action item inside an execution plan; it is not an action request and cannot be dispatched.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_planned_action_identity_and_dry_run_gate
+    retention_policy: configured_execution_plan_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: PlannedAction, wire_format: json, validator: PlannedAction.Validate}
+    fields:
+      - {name: planned_action_id, type: derived_identifier, required: true, nullable: false, description: Deterministic planned action identity, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: non_empty_bounded}
+      - {name: intent_id, type: action_intent, required: true, nullable: false, description: Normalized cognitive intent identity, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: allowlisted}
+      - {name: action_type, type: action_type, required: true, nullable: false, description: Historical action type, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: allowlisted}
+      - {name: target, type: decision_target, required: true, nullable: false, description: Resolved typed target, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: target}
+      - {name: priority, type: priority, required: true, nullable: false, description: Authorized action priority, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: bounded_integer}
+      - {name: request_fingerprint, type: derived_fingerprint, required: true, nullable: false, description: Canonical historical request fingerprint, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: fingerprint}
+      - {name: requirement, type: planned_action_requirement, required: true, nullable: false, description: Required or optional action marker, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: allowlisted}
+
+  - id: synora.cge.execution-plan-comparison.v1
+    category: historical_comparison
+    owner: cge_comparison
+    producers: [cge_comparison]
+    consumers: [diagnostics, calibration_ledger]
+    transport: internal
+    persistence: [synora.store.cge-execution-plans]
+    authority: advisory
+    trust: derived
+    sensitivity: operational
+    status: experimental
+    justification: Order-independent diagnostic comparison between bounded historical action observations and a CGE dry-run plan; it never changes learning or authority.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_divergence_codes_and_fingerprints
+    retention_policy: configured_execution_plan_retention
+    implementation: {kind: go_struct, package: synora/internal/cge, type: ExecutionPlanComparison, wire_format: json, validator: ExecutionPlanComparison.Validate}
+    fields:
+      - {name: schema_version, type: schema_version, required: true, nullable: false, description: Comparison schema version, source: cge_comparison, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: exact_version}
+      - {name: event_id, type: observation_identifier, required: true, nullable: false, description: Source event identifier, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: protected_reference}
+      - {name: decision_id, type: decision_identifier, required: true, nullable: false, description: Decision identifier, source: cge_decision_authority, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: protected_reference}
+      - {name: plan_id, type: derived_identifier, required: true, nullable: false, description: Compared plan identifier, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: non_empty_bounded}
+      - {name: historical_action_ids, type: bounded_identifier_list, required: true, nullable: false, description: Historical action identifiers, source: historical_core, trust: validated, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: bounded_list}
+      - {name: cognitive_action_ids, type: bounded_identifier_list, required: true, nullable: false, description: Cognitive planned action identifiers, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: bounded_list}
+      - {name: exact_match, type: boolean, required: true, nullable: false, description: Exact semantic match marker, source: cge_comparison, trust: derived, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: boolean}
+      - {name: same_action_types, type: boolean, required: true, nullable: false, description: Action type equality marker, source: cge_comparison, trust: derived, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: boolean}
+      - {name: same_targets, type: boolean, required: true, nullable: false, description: Target equality marker, source: cge_comparison, trust: derived, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: boolean}
+      - {name: same_priorities, type: boolean, required: true, nullable: false, description: Priority equality marker, source: cge_comparison, trust: derived, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: boolean}
+      - {name: same_parameters, type: boolean, required: true, nullable: false, description: Parameter equality marker, source: cge_comparison, trust: derived, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: boolean}
+      - {name: missing_cognitive_actions, type: bounded_fingerprint_list, required: false, nullable: true, description: Cognitive actions not found historically, source: cge_comparison, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: bounded_list}
+      - {name: extra_cognitive_actions, type: bounded_fingerprint_list, required: false, nullable: true, description: Historical actions absent from cognitive plan, source: cge_comparison, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: bounded_list}
+      - {name: divergence_codes, type: bounded_code_list, required: false, nullable: true, description: Closed comparison divergence codes, source: cge_comparison, trust: derived, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: bounded_allowlist}
+      - {name: compared_at, type: timestamp, required: true, nullable: false, description: Comparison timestamp, source: cge_comparison, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: timestamp}
 
   - id: synora.cge.action-result.v1
     category: feedback
@@ -4764,6 +4893,42 @@ output_profiles:
     persisted: false
     bounded: true
     paginable: false
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: advisory
+  - name: ExecutionMode
+    contract: synora.cge.execution-mode.v1
+    visibility: internal
+    read_only: true
+    persisted: false
+    bounded: true
+    paginable: false
+    redacted: true
+    stable: false
+    ui: false
+    automation: false
+    authority: diagnostic
+  - name: ExecutionPlans
+    contract: synora.cge.execution-plan.v1
+    visibility: internal
+    read_only: true
+    persisted: true
+    bounded: true
+    paginable: true
+    redacted: true
+    stable: false
+    ui: true
+    automation: false
+    authority: advisory
+  - name: ExecutionPlanComparisons
+    contract: synora.cge.execution-plan-comparison.v1
+    visibility: internal
+    read_only: true
+    persisted: true
+    bounded: true
+    paginable: true
     redacted: true
     stable: false
     ui: true

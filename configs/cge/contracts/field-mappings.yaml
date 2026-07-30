@@ -6603,6 +6603,20 @@ mappings:
           retention: process_lifetime
           identifier_semantic: not_an_identifier
           timestamp_semantic: not_a_timestamp
+        - go_field: HistoricalActions
+          field_path: HistoricalActions
+          wire_name: HistoricalActions
+          go_type: '[]HistoricalActionRef'
+          wire_type: '[]HistoricalActionRef'
+          required: false
+          nullable: true
+          omitempty: false
+          sensitivity: security_sensitive
+          protection: derived_fingerprint_only
+          persistence: []
+          retention: transport_lifetime
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
     - contract: synora.cge.workflow-commit.v1
       package: synora/internal/cge/durableworkflow
       type: Record
@@ -22985,6 +22999,20 @@ mappings:
           retention: process_lifetime
           identifier_semantic: not_an_identifier
           timestamp_semantic: not_a_timestamp
+        - go_field: ExecutionPlan
+          field_path: ExecutionPlan
+          wire_name: execution_plan
+          go_type: '*ExecutionPlan'
+          wire_type: '*ExecutionPlan'
+          required: false
+          nullable: true
+          omitempty: true
+          sensitivity: operational
+          protection: derived_fingerprint_only
+          persistence: [synora.store.cge-decision]
+          retention: configured_decision_retention
+          identifier_semantic: plan_id
+          timestamp_semantic: not_a_timestamp
     - contract: synora.cge.decision-publication.v1
       package: synora/internal/cge
       type: DecisionPublication
@@ -23058,6 +23086,20 @@ mappings:
           persistence: []
           retention: process_lifetime
           identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - go_field: ExecutionPlan
+          field_path: ExecutionPlan
+          wire_name: execution_plan
+          go_type: '*ExecutionPlan'
+          wire_type: '*ExecutionPlan'
+          required: false
+          nullable: true
+          omitempty: true
+          sensitivity: operational
+          protection: derived_fingerprint_only
+          persistence: []
+          retention: process_lifetime
+          identifier_semantic: plan_id
           timestamp_semantic: not_a_timestamp
     - contract: synora.cge.recommendation-markers.v1
       package: synora/internal/cge
@@ -23665,4 +23707,64 @@ mappings:
           retention: configured_governance_retention
           identifier_semantic: not_an_identifier
           timestamp_semantic: not_a_timestamp
+    - contract: synora.cge.execution-plan.v1
+      package: synora/internal/cge
+      type: ExecutionPlan
+      fields:
+        - {go_field: SchemaVersion, field_path: SchemaVersion, wire_name: schema_version, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: PlanID, field_path: PlanID, wire_name: plan_id, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: plan_id, timestamp_semantic: not_a_timestamp}
+        - {go_field: DecisionID, field_path: DecisionID, wire_name: decision_id, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: decision_id, timestamp_semantic: not_a_timestamp}
+        - {go_field: SituationID, field_path: SituationID, wire_name: situation_id, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: registry_domain_required, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: situation_id, timestamp_semantic: not_a_timestamp}
+        - {go_field: StateRevision, field_path: StateRevision, wire_name: state_revision, go_type: uint64, wire_type: uint64, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: PolicyRevision, field_path: PolicyRevision, wire_name: policy_revision, go_type: uint64, wire_type: uint64, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: Actions, field_path: Actions, wire_name: actions, go_type: '[]PlannedAction', wire_type: '[]PlannedAction', required: false, nullable: true, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: Status, field_path: Status, wire_name: status, go_type: ExecutionPlanStatus, wire_type: ExecutionPlanStatus, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: DryRun, field_path: DryRun, wire_name: dry_run, go_type: bool, wire_type: bool, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: DispatchEligible, field_path: DispatchEligible, wire_name: dispatch_eligible, go_type: bool, wire_type: bool, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: CreatedAt, field_path: CreatedAt, wire_name: created_at, go_type: time.Time, wire_type: time.Time, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: created_at}
+        - {go_field: ValidUntil, field_path: ValidUntil, wire_name: valid_until, go_type: time.Time, wire_type: time.Time, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: valid_until}
+        - {go_field: IdempotencyKey, field_path: IdempotencyKey, wire_name: idempotency_key, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: idempotency_key, timestamp_semantic: not_a_timestamp}
+        - {go_field: FailureCodes, field_path: FailureCodes, wire_name: failure_codes, go_type: '[]string', wire_type: '[]string', required: false, nullable: true, omitempty: true, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+    - contract: synora.cge.execution-plan-comparison.v1
+      package: synora/internal/cge
+      type: ExecutionPlanComparison
+      fields:
+        - {go_field: SchemaVersion, field_path: SchemaVersion, wire_name: schema_version, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: EventID, field_path: EventID, wire_name: event_id, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: event_id, timestamp_semantic: not_a_timestamp}
+        - {go_field: DecisionID, field_path: DecisionID, wire_name: decision_id, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: decision_id, timestamp_semantic: not_a_timestamp}
+        - {go_field: PlanID, field_path: PlanID, wire_name: plan_id, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: plan_id, timestamp_semantic: not_a_timestamp}
+        - {go_field: HistoricalActionIDs, field_path: HistoricalActionIDs, wire_name: historical_action_ids, go_type: '[]string', wire_type: '[]string', required: false, nullable: true, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: CognitiveActionIDs, field_path: CognitiveActionIDs, wire_name: cognitive_action_ids, go_type: '[]string', wire_type: '[]string', required: false, nullable: true, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: ExactMatch, field_path: ExactMatch, wire_name: exact_match, go_type: bool, wire_type: bool, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: SameActionTypes, field_path: SameActionTypes, wire_name: same_action_types, go_type: bool, wire_type: bool, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: SameTargets, field_path: SameTargets, wire_name: same_targets, go_type: bool, wire_type: bool, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: SamePriorities, field_path: SamePriorities, wire_name: same_priorities, go_type: bool, wire_type: bool, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: SameParameters, field_path: SameParameters, wire_name: same_parameters, go_type: bool, wire_type: bool, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: MissingCognitiveActions, field_path: MissingCognitiveActions, wire_name: missing_cognitive_actions, go_type: '[]string', wire_type: '[]string', required: false, nullable: true, omitempty: true, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: ExtraCognitiveActions, field_path: ExtraCognitiveActions, wire_name: extra_cognitive_actions, go_type: '[]string', wire_type: '[]string', required: false, nullable: true, omitempty: true, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: DivergenceCodes, field_path: DivergenceCodes, wire_name: divergence_codes, go_type: '[]string', wire_type: '[]string', required: false, nullable: true, omitempty: true, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: ComparedAt, field_path: ComparedAt, wire_name: compared_at, go_type: time.Time, wire_type: time.Time, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: compared_at}
+    - contract: synora.cge.planned-action.v1
+      package: synora/internal/cge
+      type: PlannedAction
+      fields:
+        - {go_field: PlannedActionID, field_path: PlannedActionID, wire_name: planned_action_id, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: planned_action_id, timestamp_semantic: not_a_timestamp}
+        - {go_field: IntentID, field_path: IntentID, wire_name: intent_id, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: intent_id, timestamp_semantic: not_a_timestamp}
+        - {go_field: ActionType, field_path: ActionType, wire_name: action_type, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: Target, field_path: Target, wire_name: target, go_type: DecisionTarget, wire_type: DecisionTarget, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: Priority, field_path: Priority, wire_name: priority, go_type: int, wire_type: int, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: RequestFingerprint, field_path: RequestFingerprint, wire_name: request_fingerprint, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: fingerprint, timestamp_semantic: not_a_timestamp}
+        - {go_field: Requirement, field_path: Requirement, wire_name: requirement, go_type: PlannedActionRequirement, wire_type: PlannedActionRequirement, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+    - contract: synora.cge.historical-action-ref.v1
+      package: synora/internal/cge/decisioncomparison
+      type: HistoricalActionRef
+      fields:
+        - {go_field: ID, field_path: ID, wire_name: ID, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [], retention: transport_lifetime, identifier_semantic: action_request_id, timestamp_semantic: not_a_timestamp}
+        - {go_field: ActionType, field_path: ActionType, wire_name: ActionType, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [], retention: transport_lifetime, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: Target, field_path: Target, wire_name: Target, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [], retention: transport_lifetime, identifier_semantic: target_id, timestamp_semantic: not_a_timestamp}
+        - {go_field: Priority, field_path: Priority, wire_name: Priority, go_type: int, wire_type: int, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [], retention: transport_lifetime, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+        - {go_field: RequestFingerprint, field_path: RequestFingerprint, wire_name: RequestFingerprint, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: derived_fingerprint_only, persistence: [], retention: transport_lifetime, identifier_semantic: fingerprint, timestamp_semantic: not_a_timestamp}
+        - {go_field: CreatedAtUnixNano, field_path: CreatedAtUnixNano, wire_name: CreatedAtUnixNano, go_type: int64, wire_type: int64, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [], retention: transport_lifetime, identifier_semantic: not_an_identifier, timestamp_semantic: created_at}
+        - {go_field: PolicyResult, field_path: PolicyResult, wire_name: PolicyResult, go_type: string, wire_type: string, required: true, nullable: false, omitempty: false, sensitivity: operational, protection: none_or_topology_preserved, persistence: [], retention: transport_lifetime, identifier_semantic: not_an_identifier, timestamp_semantic: not_a_timestamp}
+
 exemptions: []

@@ -43,6 +43,27 @@ stores:
     clear_secret_allowed: false
     clear_biometric_allowed: false
 
+  - id: synora.store.cge-execution-plans
+    owner: cge_execution_planner
+    format: ndjson
+    schema_version: synora.cge.execution-plan.v1
+    write_mode: append_only
+    atomicity: record_append
+    fsync: sync_each_record
+    ordering: plan_order
+    idempotence: plan_id_and_fingerprint
+    recovery: append_replay_fail_closed
+    retention: explicit_policy_required
+    compaction: no_implicit_delete
+    permissions: runtime_user_directory_policy
+    sensitivity: operational
+    migration: version_field_required; no_automatic_migration
+    authority: advisory
+    contract_refs: [synora.cge.execution-plan.v1, synora.cge.execution-plan-comparison.v1]
+    durable: true
+    clear_secret_allowed: false
+    clear_biometric_allowed: false
+
   - id: synora.store.core-state
     owner: historical_core
     format: in_memory_state_and_configured_state_file

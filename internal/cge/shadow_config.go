@@ -41,6 +41,8 @@ const (
 	ShadowDeviationRecentLimitEnv               = "SYNORA_CGE_SHADOW_DEVIATION_RECENT_LIMIT"
 	ShadowDeviationMaxAssessmentsEnv            = "SYNORA_CGE_SHADOW_DEVIATION_MAX_ASSESSMENTS_PER_OBSERVATION"
 	ShadowWorkflowEnabledEnv                    = "SYNORA_CGE_SHADOW_WORKFLOW_ENABLED"
+	CGEExecutionModeEnv                         = "SYNORA_CGE_EXECUTION_MODE"
+	CGEExecutionDiagnosticsEnv                  = "SYNORA_CGE_EXECUTION_DIAGNOSTICS_ENABLED"
 	MaxShadowEvidenceReevaluations              = 64
 	MaxShadowDeviationRecentAssessments         = 4096
 	MaxShadowDeviationAssessmentsPerObservation = 4
@@ -70,14 +72,16 @@ type ShadowConfig struct {
 
 	Actor string
 
-	AssociationPolicy association.Policy
-	EvidencePolicy    evidence.Policy
-	Cognitive         CognitiveShadowConfig
-	Context           ShadowContextConfig
-	Routines          ShadowRoutineConfig
-	Deviation         ShadowDeviationConfig
-	FieldTrial        fieldtrial.Config
-	Workflow          shadowworkflow.Config
+	AssociationPolicy    association.Policy
+	EvidencePolicy       evidence.Policy
+	Cognitive            CognitiveShadowConfig
+	Context              ShadowContextConfig
+	Routines             ShadowRoutineConfig
+	Deviation            ShadowDeviationConfig
+	FieldTrial           fieldtrial.Config
+	Workflow             shadowworkflow.Config
+	ExecutionMode        CGEExecutionMode
+	ExecutionDiagnostics bool
 
 	EligibleEventTypes []string
 }
@@ -117,7 +121,7 @@ type ShadowDeviationConfig struct {
 func DefaultShadowConfig() ShadowConfig {
 	dataDir := DefaultShadowDataDir
 	return ShadowConfig{
-		DataDir: dataDir, JournalPath: filepath.Join(dataDir, DefaultShadowJournalName), AuthorityMode: AuthorityModeShadow,
+		DataDir: dataDir, JournalPath: filepath.Join(dataDir, DefaultShadowJournalName), AuthorityMode: AuthorityModeShadow, ExecutionMode: CGEExecutionDisabled,
 		Actor: DefaultShadowActor, AssociationPolicy: association.DefaultPolicy(), EvidencePolicy: evidence.DefaultPolicy(),
 		Cognitive:  CognitiveShadowConfig{MaxEvidenceReevaluationsPerObservation: 8},
 		Context:    ShadowContextConfig{Timezone: "UTC", AllowPartial: true},
@@ -144,6 +148,15 @@ func LoadShadowConfig(getenv func(string) string) (ShadowConfig, error) {
 		if err != nil {
 			return ShadowConfig{}, fmt.Errorf("%w: authority mode: %w", ErrInvalidShadowConfig, err)
 		}
+	}
+	if value := getenv(CGEExecutionModeEnv); value != "" {
+		config.ExecutionMode, err = ParseCGEExecutionMode(value)
+		if err != nil {
+			return ShadowConfig{}, fmt.Errorf("%w: execution mode: %v", ErrInvalidShadowConfig, err)
+		}
+	}
+	if config.ExecutionDiagnostics, err = parseOptionalBool(getenv(CGEExecutionDiagnosticsEnv), false); err != nil {
+		return ShadowConfig{}, fmt.Errorf("%w: execution diagnostics", ErrInvalidShadowConfig)
 	}
 	if value := getenv(ShadowDataDirEnv); value != "" {
 		config.DataDir = value
@@ -277,6 +290,9 @@ func parseOptionalBool(value string, fallback bool) (bool, error) {
 func (c ShadowConfig) Validate() error {
 	if err := c.AuthorityMode.Validate(); err != nil {
 		return fmt.Errorf("%w: authority mode: %v", ErrInvalidShadowConfig, err)
+	}
+	if err := c.ExecutionMode.Validate(); err != nil {
+		return fmt.Errorf("%w: execution mode: %v", ErrInvalidShadowConfig, err)
 	}
 	if !c.Enabled {
 		// Cognitive settings have no effect while the whole ShadowEngine is

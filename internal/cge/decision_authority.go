@@ -508,6 +508,7 @@ type OperationalSnapshot struct {
 	CapturedAt             time.Time           `json:"captured_at" yaml:"captured_at"`
 	FreshUntil             time.Time           `json:"fresh_until" yaml:"fresh_until"`
 	Revision               uint64              `json:"revision" yaml:"revision"`
+	PolicyRevision         uint64              `json:"policy_revision" yaml:"policy_revision"`
 	AuthorityMode          AuthorityMode       `json:"authority_mode" yaml:"authority_mode"`
 	Targets                []OperationalTarget `json:"targets,omitempty" yaml:"targets,omitempty"`
 	UsedIdempotencyKeys    []string            `json:"used_idempotency_keys,omitempty" yaml:"used_idempotency_keys,omitempty"`
@@ -610,10 +611,13 @@ func (k DefaultSafetyKernel) ValidateDecision(ctx context.Context, decision Deci
 type DecisionPublicationStatus string
 
 const (
-	DecisionPublishedShadow        DecisionPublicationStatus = "shadow"
-	DecisionPublishedAdvisory      DecisionPublicationStatus = "advisory"
-	DecisionPublishedAuthoritative DecisionPublicationStatus = "authoritative"
-	DecisionPublicationDenied      DecisionPublicationStatus = "denied"
+	DecisionPublishedShadow              DecisionPublicationStatus = "shadow"
+	DecisionPublishedShadowDryRun        DecisionPublicationStatus = "shadow_dry_run"
+	DecisionPublishedAdvisory            DecisionPublicationStatus = "advisory"
+	DecisionPublishedAdvisoryDryRun      DecisionPublicationStatus = "advisory_dry_run"
+	DecisionPublishedAuthoritative       DecisionPublicationStatus = "authoritative"
+	DecisionPublishedAuthoritativeDryRun DecisionPublicationStatus = "authoritative_dry_run"
+	DecisionPublicationDenied            DecisionPublicationStatus = "denied"
 )
 
 type DecisionRecord struct {
@@ -624,6 +628,7 @@ type DecisionRecord struct {
 	PersistedAt      time.Time                 `json:"persisted_at" yaml:"persisted_at"`
 	ExecutionRequest *ExecutionRequest         `json:"execution_request,omitempty" yaml:"execution_request,omitempty"`
 	ExecutionLease   *ActiveExecutionLease     `json:"execution_lease,omitempty" yaml:"execution_lease,omitempty"`
+	ExecutionPlan    *ExecutionPlan            `json:"execution_plan,omitempty" yaml:"execution_plan,omitempty"`
 }
 
 type ExecutionLeaseStatus string
@@ -672,6 +677,7 @@ type DecisionPublication struct {
 	Status           DecisionPublicationStatus `json:"status" yaml:"status"`
 	Verdict          SafetyVerdict             `json:"verdict" yaml:"verdict"`
 	ExecutionRequest *ExecutionRequest         `json:"execution_request,omitempty" yaml:"execution_request,omitempty"`
+	ExecutionPlan    *ExecutionPlan            `json:"execution_plan,omitempty" yaml:"execution_plan,omitempty"`
 }
 
 type ExecutionPlanner interface {
@@ -795,37 +801,12 @@ func ValidateStoreWrite(value any) error {
 	case ChainGovernanceRecord:
 		return typed.Validate()
 	case DecisionRecord:
-		if err := typed.Envelope.Validate(); err != nil {
-			return err
-		}
-		if typed.Verdict.Status == "" || typed.PersistedAt.IsZero() {
-			return fmt.Errorf("%w: incomplete decision record", ErrDecisionStore)
-		}
-		if typed.Status == DecisionPublishedAuthoritative && typed.ExecutionRequest == nil {
-			return fmt.Errorf("%w: authoritative record has no execution request", ErrDecisionStore)
-		}
-		if typed.Status != DecisionPublishedAuthoritative && typed.ExecutionRequest != nil {
-			return fmt.Errorf("%w: non-authoritative record contains an execution request", ErrDecisionStore)
-		}
-		if typed.ExecutionRequest != nil {
-			if err := typed.ExecutionRequest.Validate(); err != nil {
-				return err
-			}
-			if typed.ExecutionLease != nil {
-				if err := typed.ExecutionLease.Validate(); err != nil {
-					return err
-				}
-				if typed.ExecutionLease.DecisionID != typed.ExecutionRequest.DecisionID || typed.ExecutionLease.ActionRequestID != typed.ExecutionRequest.ActionRequestID || !typed.ExecutionLease.Target.equal(typed.ExecutionRequest.Target) {
-					return fmt.Errorf("%w: execution lease does not belong to request", ErrDecisionStore)
-				}
-			} else if typed.Status == DecisionPublishedAuthoritative {
-				return fmt.Errorf("%w: authoritative record has no execution lease", ErrDecisionStore)
-			}
-		} else if typed.ExecutionLease != nil {
-			return fmt.Errorf("%w: non-authoritative record contains an execution lease", ErrDecisionStore)
-		}
-		return nil
+		return validatePersistedDecisionRecord(typed)
 	case ActionResult:
+		return typed.Validate()
+	case ExecutionPlan:
+		return typed.Validate()
+	case ExecutionPlanComparison:
 		return typed.Validate()
 	default:
 		return fmt.Errorf("%w: unsupported durable record %T", ErrDecisionStore, value)
@@ -1013,7 +994,7 @@ func validatePersistedDecisionRecord(record DecisionRecord) error {
 		return err
 	}
 	switch record.Status {
-	case DecisionPublishedShadow, DecisionPublishedAdvisory, DecisionPublishedAuthoritative, DecisionPublicationDenied:
+	case DecisionPublishedShadow, DecisionPublishedShadowDryRun, DecisionPublishedAdvisory, DecisionPublishedAdvisoryDryRun, DecisionPublishedAuthoritative, DecisionPublishedAuthoritativeDryRun, DecisionPublicationDenied:
 	default:
 		return fmt.Errorf("%w: invalid decision publication status", ErrDecisionStore)
 	}
@@ -1022,6 +1003,20 @@ func validatePersistedDecisionRecord(record DecisionRecord) error {
 	}
 	if record.Status != DecisionPublishedAuthoritative && record.ExecutionRequest != nil {
 		return fmt.Errorf("%w: non-authoritative record contains an execution request", ErrDecisionStore)
+	}
+	if (record.Status == DecisionPublishedAdvisoryDryRun || record.Status == DecisionPublishedAuthoritativeDryRun) && record.ExecutionPlan == nil {
+		return fmt.Errorf("%w: dry-run record has no execution plan", ErrDecisionStore)
+	}
+	if (record.Status == DecisionPublishedAdvisoryDryRun || record.Status == DecisionPublishedAuthoritativeDryRun) && record.ExecutionLease != nil {
+		return fmt.Errorf("%w: dry-run record contains an execution lease", ErrDecisionStore)
+	}
+	if record.ExecutionPlan != nil {
+		if err := record.ExecutionPlan.Validate(); err != nil {
+			return err
+		}
+		if record.ExecutionPlan.DecisionID != record.Envelope.DecisionID {
+			return fmt.Errorf("%w: execution plan does not belong to decision", ErrDecisionStore)
+		}
 	}
 	if record.ExecutionRequest != nil {
 		if err := record.ExecutionRequest.Validate(); err != nil {
@@ -1047,11 +1042,43 @@ func validatePersistedActionResult(result ActionResult) error {
 }
 
 type DecisionAuthority struct {
-	mode    AuthorityMode
-	kernel  SafetyKernel
-	planner ExecutionPlanner
-	store   DecisionStore
-	now     func() time.Time
+	mode                 AuthorityMode
+	kernel               SafetyKernel
+	planner              ExecutionPlanner
+	store                DecisionStore
+	now                  func() time.Time
+	executionMode        CGEExecutionMode
+	governedPlanner      GovernedExecutionPlanner
+	planKernel           ExecutionPlanSafetyKernel
+	planStore            ExecutionPlanStore
+	executionDiagnostics bool
+}
+
+// ConfigureExecution installs the dry-run-only planning boundary. It does not
+// accept a dispatcher and therefore cannot grant CGE a physical side effect.
+func (a *DecisionAuthority) ConfigureExecution(mode CGEExecutionMode, planner GovernedExecutionPlanner, kernel ExecutionPlanSafetyKernel, store ExecutionPlanStore, diagnostics bool) error {
+	if a == nil {
+		return ErrInvalidAuthorityMode
+	}
+	if err := mode.Validate(); err != nil {
+		return err
+	}
+	if mode == CGEExecutionDryRun && (planner == nil || kernel == nil || store == nil) {
+		return ErrExecutionPlannerUnavailable
+	}
+	a.executionMode, a.governedPlanner, a.planKernel, a.planStore, a.executionDiagnostics = mode, planner, kernel, store, diagnostics
+	return nil
+}
+
+func NewGovernedDecisionAuthority(mode AuthorityMode, executionMode CGEExecutionMode, kernel SafetyKernel, planner GovernedExecutionPlanner, planKernel ExecutionPlanSafetyKernel, store DecisionStore, planStore ExecutionPlanStore, diagnostics bool) (*DecisionAuthority, error) {
+	authority, err := NewDecisionAuthority(mode, kernel, nil, store)
+	if err != nil {
+		return nil, err
+	}
+	if err := authority.ConfigureExecution(executionMode, planner, planKernel, planStore, diagnostics); err != nil {
+		return nil, err
+	}
+	return authority, nil
 }
 
 func NewDecisionAuthority(mode AuthorityMode, kernel SafetyKernel, planner ExecutionPlanner, store DecisionStore) (*DecisionAuthority, error) {
@@ -1105,37 +1132,82 @@ func (a *DecisionAuthority) PublishDecision(ctx context.Context, decision Decisi
 	verdict := a.kernel.ValidateDecision(ctx, decision, snapshot)
 	publication := DecisionPublication{DecisionID: decision.DecisionID, Mode: a.mode, Status: DecisionPublicationDenied, Verdict: verdict}
 	if verdict.Status == SafetyAllowed {
-		switch a.mode {
-		case AuthorityModeShadow:
-			publication.Status = DecisionPublishedShadow
-		case AuthorityModeAdvisory:
-			publication.Status = DecisionPublishedAdvisory
-		case AuthorityModeAuthoritative:
-			if a.planner == nil {
+		if a.executionMode != "" {
+			if a.executionMode == CGEExecutionDisabled && a.mode == AuthorityModeAuthoritative {
 				publication.Verdict.Status = SafetyDenied
-				publication.Verdict.Violations = []InvariantViolation{{Code: ErrExecutionPlannerUnavailable.Error(), Detail: "authoritative publication requires an explicit execution planner"}}
+				publication.Verdict.Violations = []InvariantViolation{{Code: ErrExecutionDisabled.Error(), Detail: "execution is disabled"}}
+			} else if a.executionMode == CGEExecutionLive {
+				publication.Verdict.Status = SafetyDenied
+				publication.Verdict.Violations = []InvariantViolation{{Code: ErrLiveExecutionUnavailable.Error(), Detail: "live execution is unavailable in this pass"}}
 			} else {
-				request, err := a.planner.PlanExecution(ctx, decision, snapshot)
-				if err != nil {
+				shouldPlan := a.executionMode == CGEExecutionDryRun && (a.mode == AuthorityModeAdvisory || a.mode == AuthorityModeAuthoritative || (a.mode == AuthorityModeShadow && a.executionDiagnostics))
+				if shouldPlan {
+					if a.governedPlanner == nil || a.planKernel == nil || a.planStore == nil {
+						publication.Verdict.Status = SafetyDenied
+						publication.Verdict.Violations = []InvariantViolation{{Code: ErrExecutionPlannerUnavailable.Error(), Detail: "dry-run planning boundary is not configured"}}
+					} else {
+						plan, planErr := a.governedPlanner.BuildPlan(ctx, decision, snapshot)
+						publication.ExecutionPlan = cloneExecutionPlanPtr(&plan)
+						var planPersistErr error
+						if validateErr := plan.Validate(); validateErr == nil {
+							// Denied/unsupported plans are diagnostic records too; they
+							// remain dry-run and never create a lease.
+							planPersistErr = a.planStore.PersistExecutionPlan(ctx, plan)
+						}
+						if planErr != nil {
+							publication.Verdict.Status = SafetyDenied
+							publication.Verdict.Violations = []InvariantViolation{{Code: planFailureCode(planErr), Detail: "execution plan was refused"}}
+						} else if planVerdict := a.planKernel.ValidatePlan(ctx, decision, plan, snapshot); !planVerdict.Allowed {
+							publication.Verdict.Status = SafetyDenied
+							publication.Verdict.Violations = append([]InvariantViolation(nil), planVerdict.Violations...)
+						} else if planPersistErr != nil {
+							publication.Verdict.Status = SafetyDenied
+							publication.Verdict.Violations = []InvariantViolation{{Code: "execution_plan_persist_failed", Detail: "execution plan persistence failed"}}
+						} else if a.mode == AuthorityModeAuthoritative {
+							publication.Status = DecisionPublishedAuthoritativeDryRun
+						} else if a.mode == AuthorityModeAdvisory {
+							publication.Status = DecisionPublishedAdvisoryDryRun
+						} else if a.mode == AuthorityModeShadow {
+							publication.Status = DecisionPublishedShadowDryRun
+						}
+					}
+				} else if a.mode == AuthorityModeShadow {
+					publication.Status = DecisionPublishedShadow
+				} else if a.mode == AuthorityModeAdvisory {
+					publication.Status = DecisionPublishedAdvisory
+				}
+			}
+		} else {
+			// Compatibility path for the pre-planner authority tests and callers.
+			switch a.mode {
+			case AuthorityModeShadow:
+				publication.Status = DecisionPublishedShadow
+			case AuthorityModeAdvisory:
+				publication.Status = DecisionPublishedAdvisory
+			case AuthorityModeAuthoritative:
+				if a.planner == nil {
 					publication.Verdict.Status = SafetyDenied
-					publication.Verdict.Violations = []InvariantViolation{{Code: "execution_planner_failed", Detail: err.Error()}}
-				} else if err := request.Validate(); err != nil {
-					publication.Verdict.Status = SafetyDenied
-					publication.Verdict.Violations = []InvariantViolation{{Code: "execution_request_invalid", Detail: err.Error()}}
-				} else if request.DecisionID != decision.DecisionID {
-					publication.Verdict.Status = SafetyDenied
-					publication.Verdict.Violations = []InvariantViolation{{Code: "execution_request_decision_mismatch", Detail: "execution request must reference the published decision"}}
-				} else if request.IdempotencyKey != decision.IdempotencyKey {
-					publication.Verdict.Status = SafetyDenied
-					publication.Verdict.Violations = []InvariantViolation{{Code: "execution_request_idempotency_mismatch", Detail: "execution request must reuse the published decision idempotency key"}}
+					publication.Verdict.Violations = []InvariantViolation{{Code: ErrExecutionPlannerUnavailable.Error(), Detail: "authoritative publication requires an explicit execution planner"}}
 				} else {
-					publication.Status = DecisionPublishedAuthoritative
-					publication.ExecutionRequest = &request
+					request, planErr := a.planner.PlanExecution(ctx, decision, snapshot)
+					if planErr != nil {
+						publication.Verdict.Status = SafetyDenied
+						publication.Verdict.Violations = []InvariantViolation{{Code: "execution_planner_failed", Detail: planErr.Error()}}
+					} else if err := request.Validate(); err != nil {
+						publication.Verdict.Status = SafetyDenied
+						publication.Verdict.Violations = []InvariantViolation{{Code: "execution_request_invalid", Detail: err.Error()}}
+					} else if request.DecisionID != decision.DecisionID || request.IdempotencyKey != decision.IdempotencyKey {
+						publication.Verdict.Status = SafetyDenied
+						publication.Verdict.Violations = []InvariantViolation{{Code: "execution_request_identity_mismatch", Detail: "execution request identity does not match the decision"}}
+					} else {
+						publication.Status = DecisionPublishedAuthoritative
+						publication.ExecutionRequest = &request
+					}
 				}
 			}
 		}
 	}
-	record := DecisionRecord{Envelope: decision, Mode: a.mode, Status: publication.Status, Verdict: publication.Verdict, PersistedAt: a.now(), ExecutionRequest: cloneExecutionRequest(publication.ExecutionRequest)}
+	record := DecisionRecord{Envelope: decision, Mode: a.mode, Status: publication.Status, Verdict: publication.Verdict, PersistedAt: a.now(), ExecutionRequest: cloneExecutionRequest(publication.ExecutionRequest), ExecutionPlan: cloneExecutionPlanPtr(publication.ExecutionPlan)}
 	if publication.ExecutionRequest != nil {
 		request := publication.ExecutionRequest
 		record.ExecutionLease = &ActiveExecutionLease{DecisionID: request.DecisionID, ActionRequestID: request.ActionRequestID, Target: request.Target, ExecutionType: request.ExecutionType, CreatedAt: request.CreatedAt, ValidUntil: request.ValidUntil, Status: ExecutionLeasePlanned}
@@ -1190,7 +1262,7 @@ func equalStringSet(left, right []string) bool {
 	return reflect.DeepEqual(leftCopy, rightCopy)
 }
 func publicationFromRecord(record DecisionRecord) DecisionPublication {
-	return DecisionPublication{DecisionID: record.Envelope.DecisionID, Mode: record.Mode, Status: record.Status, Verdict: record.Verdict, ExecutionRequest: cloneExecutionRequest(record.ExecutionRequest)}
+	return DecisionPublication{DecisionID: record.Envelope.DecisionID, Mode: record.Mode, Status: record.Status, Verdict: record.Verdict, ExecutionRequest: cloneExecutionRequest(record.ExecutionRequest), ExecutionPlan: cloneExecutionPlanPtr(record.ExecutionPlan)}
 }
 
 func (a *DecisionAuthority) Decisions(ctx context.Context) ([]DecisionRecord, error) {
@@ -1198,6 +1270,27 @@ func (a *DecisionAuthority) Decisions(ctx context.Context) ([]DecisionRecord, er
 		return nil, ErrDecisionStore
 	}
 	return a.store.Decisions(ctx)
+}
+
+func (a *DecisionAuthority) ExecutionPlans(ctx context.Context) ([]ExecutionPlan, error) {
+	if a == nil || a.planStore == nil {
+		return nil, ErrExecutionPlanStore
+	}
+	return a.planStore.ExecutionPlans(ctx)
+}
+
+func (a *DecisionAuthority) ExecutionPlanComparisons(ctx context.Context) ([]ExecutionPlanComparison, error) {
+	if a == nil || a.planStore == nil {
+		return nil, ErrExecutionPlanStore
+	}
+	return a.planStore.ExecutionPlanComparisons(ctx)
+}
+
+func (a *DecisionAuthority) persistExecutionPlanComparison(ctx context.Context, comparison ExecutionPlanComparison) error {
+	if a == nil || a.planStore == nil {
+		return ErrExecutionPlanStore
+	}
+	return a.planStore.PersistExecutionPlanComparison(ctx, comparison)
 }
 
 // RecordActionResult accepts only feedback tied to a persisted decision. It
@@ -1293,6 +1386,7 @@ func cloneDecisionRecord(record DecisionRecord) DecisionRecord {
 		result.Envelope.LearnedChainRef = &value
 	}
 	result.ExecutionRequest = cloneExecutionRequest(record.ExecutionRequest)
+	result.ExecutionPlan = cloneExecutionPlanPtr(record.ExecutionPlan)
 	if record.ExecutionLease != nil {
 		lease := *record.ExecutionLease
 		result.ExecutionLease = &lease
@@ -1306,6 +1400,35 @@ func cloneExecutionRequest(request *ExecutionRequest) *ExecutionRequest {
 	}
 	copy := *request
 	return &copy
+}
+
+func cloneExecutionPlanPtr(plan *ExecutionPlan) *ExecutionPlan {
+	if plan == nil {
+		return nil
+	}
+	copy := *plan
+	copy.Actions = append([]PlannedAction(nil), plan.Actions...)
+	copy.FailureCodes = append([]string(nil), plan.FailureCodes...)
+	return &copy
+}
+
+func planFailureCode(err error) string {
+	switch {
+	case errors.Is(err, ErrUnsupportedIntent):
+		return ErrUnsupportedIntent.Error()
+	case errors.Is(err, ErrAmbiguousExecutionTarget):
+		return ErrAmbiguousExecutionTarget.Error()
+	case errors.Is(err, ErrPolicyUnavailable):
+		return ErrPolicyUnavailable.Error()
+	case errors.Is(err, ErrAuthorizationUnknown):
+		return ErrAuthorizationUnknown.Error()
+	case errors.Is(err, ErrPhysicalLimitUnknown):
+		return ErrPhysicalLimitUnknown.Error()
+	case errors.Is(err, ErrInvalidExecutionParameters):
+		return ErrInvalidExecutionParameters.Error()
+	default:
+		return "execution_plan_invalid"
+	}
 }
 
 func validateAuthorityText(value, field string, max int, required bool) error {

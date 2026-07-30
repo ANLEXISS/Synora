@@ -576,6 +576,15 @@ func (a *coreApp) processEvent(event *contract.Event) {
 			decision = a.automationContextDecision(event)
 		}
 		requests := a.automation.EvaluateRequests(event, decision)
+		if historicalDecision != nil {
+			for _, request := range requests {
+				captured := cge.HistoricalActionRequestFromContract(request, decision.Priority, "historical_request_created")
+				historicalDecision.HistoricalActions = append(historicalDecision.HistoricalActions, decisioncomparison.HistoricalActionRef{
+					ID: captured.ID, ActionType: captured.ActionType, Target: captured.Target, Priority: captured.Priority,
+					RequestFingerprint: captured.RequestFingerprint, CreatedAtUnixNano: captured.CreatedAt.UnixNano(), PolicyResult: captured.PolicyResult,
+				})
+			}
+		}
 		if result != nil && result.Decision != nil && len(requests) == 0 && !hasPolicyPlan(result.Decision) && result.DangerAssessment != nil && result.DangerAssessment.Level >= 3 {
 			result.Decision.ActionDecision = "blocked"
 			result.Decision.BlockedActions = appendUniqueString(result.Decision.BlockedActions, "no_matching_automation")

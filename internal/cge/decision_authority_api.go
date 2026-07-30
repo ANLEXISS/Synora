@@ -16,6 +16,13 @@ func (e *ShadowEngine) AuthorityMode() AuthorityMode {
 	return e.authority.Mode()
 }
 
+func (e *ShadowEngine) ExecutionMode() CGEExecutionMode {
+	if e == nil || e.authority == nil {
+		return CGEExecutionDisabled
+	}
+	return e.authority.executionMode
+}
+
 // PublishDecision is the Core↔CGE decision boundary. It only persists a
 // descriptive record in shadow/advisory mode. Authoritative mode remains
 // fail-closed until an explicit execution planner is supplied.
@@ -32,6 +39,21 @@ func (e *ShadowEngine) Decisions(ctx context.Context) ([]DecisionRecord, error) 
 		return nil, ErrDecisionStore
 	}
 	return e.authority.Decisions(ctx)
+}
+
+// ExecutionPlans exposes only validated, detached dry-run diagnostics.
+func (e *ShadowEngine) ExecutionPlans(ctx context.Context) ([]ExecutionPlan, error) {
+	if e == nil || e.authority == nil {
+		return nil, ErrExecutionPlanStore
+	}
+	return e.authority.ExecutionPlans(ctx)
+}
+
+func (e *ShadowEngine) ExecutionPlanComparisons(ctx context.Context) ([]ExecutionPlanComparison, error) {
+	if e == nil || e.authority == nil {
+		return nil, ErrExecutionPlanStore
+	}
+	return e.authority.ExecutionPlanComparisons(ctx)
 }
 
 // RecordActionResult forwards only the closed CGE feedback contract to the

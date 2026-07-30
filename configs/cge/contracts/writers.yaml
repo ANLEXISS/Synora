@@ -32,6 +32,39 @@ writers:
     guard: ValidateStoreWrite
     format: ndjson
     before_write: before_json_marshal
+
+  - id: cge.writer.execution-plan
+    owner: cge_execution_planner
+    package: synora/internal/cge
+    type: FileExecutionPlanStore
+    function: PersistExecutionPlan
+    store: synora.store.cge-execution-plans
+    contract: synora.cge.execution-plan.v1
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
+
+  - id: cge.writer.execution-plan-comparison
+    owner: cge_comparison
+    package: synora/internal/cge
+    type: FileExecutionPlanStore
+    function: PersistExecutionPlanComparison
+    store: synora.store.cge-execution-plans
+    contract: synora.cge.execution-plan-comparison.v1
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
+
+  - id: cge.writer.execution-plan.append
+    owner: cge_execution_planner
+    package: synora/internal/cge
+    type: FileExecutionPlanStore
+    function: append
+    store: synora.store.cge-execution-plans
+    contract: synora.cge.execution-plan.v1
+    guard: ValidateStoreWrite
+    format: ndjson
+    before_write: before_json_marshal
   - id: cge.writer.journal.build-record
     owner: cge_chains_journal
     package: synora/internal/cge/chains/journal

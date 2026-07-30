@@ -122,6 +122,15 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 		return nil, fmt.Errorf("%w: authority mode", ErrShadowStartup)
 	}
 	authority.now = func() time.Time { return clock.Now().UTC() }
+	planStore, planStoreErr := NewFileExecutionPlanStore(config.DataDir)
+	if planStoreErr != nil {
+		return nil, fmt.Errorf("%w: execution plan store", ErrShadowStartup)
+	}
+	planPlanner := DefaultGovernedExecutionPlanner{Now: func() time.Time { return clock.Now().UTC() }}
+	planKernel := DefaultExecutionPlanSafetyKernel{Now: func() time.Time { return clock.Now().UTC() }}
+	if err := authority.ConfigureExecution(config.ExecutionMode, planPlanner, planKernel, planStore, config.ExecutionDiagnostics); err != nil {
+		return nil, fmt.Errorf("%w: execution planner: %v", ErrShadowStartup, err)
+	}
 	governanceStore, governanceErr := NewFileChainGovernanceStore(filepath.Join(config.DataDir, "chain-governance.ndjson"))
 	if governanceErr != nil {
 		return nil, fmt.Errorf("%w: chain governance store", ErrShadowStartup)

@@ -68,9 +68,11 @@ func CognitiveConfigurationFingerprintFor(config ShadowConfig) (CognitiveConfigu
 		return CognitiveConfigurationFingerprint{}, err
 	}
 	runtimeFingerprint, err := fingerprintValue(struct {
-		AuthorityMode AuthorityMode
-		Cognitive     CognitiveShadowConfig
-	}{config.AuthorityMode, config.Cognitive})
+		AuthorityMode        AuthorityMode
+		ExecutionMode        CGEExecutionMode
+		ExecutionDiagnostics bool
+		Cognitive            CognitiveShadowConfig
+	}{config.AuthorityMode, config.ExecutionMode, config.ExecutionDiagnostics, config.Cognitive})
 	if err != nil {
 		return CognitiveConfigurationFingerprint{}, err
 	}

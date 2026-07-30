@@ -161,6 +161,38 @@ func TestCoreRunsConfiguredShadowAfterHistoricalProcessing(t *testing.T) {
 	}
 }
 
+func TestCoreCGEDryRunDoesNotEmitActionRequestOrResult(t *testing.T) {
+	core := newTestCore(t)
+	root := t.TempDir()
+	config := cge.DefaultShadowConfig()
+	config.Enabled = true
+	config.DataDir = root
+	config.JournalPath = filepath.Join(root, "journal.ndjson")
+	config.InitializeIfMissing = true
+	config.JournalID = "core-cge-dry-run"
+	config.ExecutionMode = cge.CGEExecutionDryRun
+	clock := coreShadowClock{now: time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)}
+	shadow, err := cge.NewShadowEngineWithConfig(context.Background(), config, clock, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("create dry-run shadow: %v", err)
+	}
+	defer shadow.Close()
+
+	core.app.cognitive = shadow
+	core.app.processEvent(&contract.Event{
+		ID: "cge-dry-run-event", Type: contract.EventVisionUnknown, Source: "vision-worker",
+		DeviceID: "cam_02", NodeID: "salon", Timestamp: clock.now,
+		Payload: map[string]any{"confidence": 0.8},
+	})
+
+	if got := core.bus.messagesOfType(contract.EventActionRequest); len(got) != 0 {
+		t.Fatalf("CGE dry-run emitted action requests: %#v", got)
+	}
+	if got := core.bus.messagesOfType(contract.EventActionResult); len(got) != 0 {
+		t.Fatalf("CGE dry-run emitted action results: %#v", got)
+	}
+}
+
 func TestCoreContinuesWhenConfiguredShadowIsUnavailable(t *testing.T) {
 	core := newTestCore(t)
 	root := t.TempDir()

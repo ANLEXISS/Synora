@@ -183,9 +183,20 @@ func (e *ShadowEngine) synthesizeDecision(ctx context.Context, observation chain
 		e.safeLog("decision_publication_failed")
 		return
 	}
-	if publication.Status == DecisionPublishedAdvisory && e.decisionSink != nil {
+	if (publication.Status == DecisionPublishedAdvisory || publication.Status == DecisionPublishedAdvisoryDryRun) && e.decisionSink != nil {
 		if err := e.decisionSink.PublishDecision(ctx, decision); err != nil {
 			e.safeLog("decision_advisory_transport_failed")
+		}
+	}
+	if historical != nil && publication.ExecutionPlan != nil {
+		historicalActions := make([]HistoricalActionRequest, 0, len(historical.HistoricalActions))
+		for _, action := range historical.HistoricalActions {
+			historicalActions = append(historicalActions, HistoricalActionRequest{ID: action.ID, ActionType: action.ActionType, Target: action.Target, Priority: action.Priority, RequestFingerprint: action.RequestFingerprint, CreatedAt: time.Unix(0, action.CreatedAtUnixNano).UTC(), PolicyResult: action.PolicyResult})
+		}
+		if comparison, comparisonErr := CompareExecutionPlan(observation.ID, *publication.ExecutionPlan, historicalActions, now); comparisonErr == nil {
+			if persistErr := e.authority.persistExecutionPlanComparison(ctx, comparison); persistErr != nil {
+				e.safeLog("execution_plan_comparison_persist_failed")
+			}
 		}
 	}
 	if historical != nil {
