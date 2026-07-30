@@ -488,6 +488,9 @@ type OperationalTarget struct {
 	CurrentRevision uint64                    `json:"current_revision,omitempty" yaml:"current_revision,omitempty"`
 	Authorization   OperationalAuthorization  `json:"authorization" yaml:"authorization"`
 	PhysicalLimits  OperationalPhysicalLimits `json:"physical_limits" yaml:"physical_limits"`
+	Capabilities    []string                  `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+	NodeID          string                    `json:"node_id,omitempty" yaml:"node_id,omitempty"`
+	ZoneID          string                    `json:"zone_id,omitempty" yaml:"zone_id,omitempty"`
 }
 
 type OperationalAuthorization struct {

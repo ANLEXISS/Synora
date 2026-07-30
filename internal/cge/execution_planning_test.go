@@ -19,7 +19,7 @@ func planningDecision(now time.Time, target DecisionTarget, intents ...string) D
 }
 
 func planningSnapshot(now time.Time, target DecisionTarget) OperationalSnapshot {
-	return OperationalSnapshot{CapturedAt: now, FreshUntil: now.Add(10 * time.Minute), Revision: 7, PolicyRevision: 11, AuthorityMode: AuthorityModeAdvisory, Targets: []OperationalTarget{{Target: target, Exists: true, CurrentRevision: 7, Authorization: OperationalAuthorization{Known: true, Authorized: true, PolicyID: "alarm-policy-1", Revision: 11}, PhysicalLimits: OperationalPhysicalLimits{Known: true, MaxValue: 100}}}}
+	return OperationalSnapshot{CapturedAt: now, FreshUntil: now.Add(10 * time.Minute), Revision: 7, PolicyRevision: 11, AuthorityMode: AuthorityModeAdvisory, Targets: []OperationalTarget{{Target: target, Exists: true, CurrentRevision: 7, Capabilities: []string{"record_clip"}, Authorization: OperationalAuthorization{Known: true, Authorized: true, PolicyID: "alarm-policy-1", Revision: 11}, PhysicalLimits: OperationalPhysicalLimits{Known: true, MaxValue: 100}}}}
 }
 
 func TestCGEExecutionModeDefaultsAndRejectsUnknown(t *testing.T) {
@@ -63,6 +63,43 @@ func TestGovernedExecutionPlanIsDeterministicAndResolvesKnownCamera(t *testing.T
 	}
 }
 
+func TestGovernedExecutionPlanResolvesMultipleOperationalCapabilities(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	decision := planningDecision(now, DecisionTarget{Kind: DecisionTargetZone, ID: "zone-a"}, "turn_on_relevant_lights")
+	snapshot := planningSnapshot(now, decision.Target)
+	snapshot.Targets = []OperationalTarget{
+		{Target: DecisionTarget{Kind: DecisionTargetDevice, ID: "light-b"}, Exists: true, NodeID: "room-b", ZoneID: "zone-a", Capabilities: []string{"light"}, Authorization: OperationalAuthorization{Known: true, Authorized: true}, PhysicalLimits: OperationalPhysicalLimits{Known: true, MaxValue: 100}},
+		{Target: DecisionTarget{Kind: DecisionTargetDevice, ID: "light-a"}, Exists: true, NodeID: "room-a", ZoneID: "zone-a", Capabilities: []string{"light_on"}, Authorization: OperationalAuthorization{Known: true, Authorized: true}, PhysicalLimits: OperationalPhysicalLimits{Known: true, MaxValue: 100}},
+		{Target: decision.Target, Exists: true},
+	}
+	decision.Constraints.RequiresAuthorization = false
+	plan, err := (DefaultGovernedExecutionPlanner{Now: func() time.Time { return now }}).BuildPlan(context.Background(), decision, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Actions) != 2 || plan.Actions[0].Target.ID != "light-a" || plan.Actions[1].Target.ID != "light-b" {
+		t.Fatalf("multi-target plan=%#v", plan.Actions)
+	}
+	if plan.Actions[0].RequestFingerprint == plan.Actions[1].RequestFingerprint {
+		t.Fatal("multi-target actions share a fingerprint")
+	}
+	replay, err := (DefaultGovernedExecutionPlanner{Now: func() time.Time { return now }}).BuildPlan(context.Background(), decision, snapshot)
+	if err != nil || plan.PlanID != replay.PlanID || plan.IdempotencyKey != replay.IdempotencyKey {
+		t.Fatalf("multi-target plan is not deterministic: %#v %#v err=%v", plan, replay, err)
+	}
+}
+
+func TestGovernedExecutionPlanRejectsMissingOperationalCapability(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	target := DecisionTarget{Kind: DecisionTargetDevice, ID: "camera-1"}
+	snapshot := planningSnapshot(now, target)
+	snapshot.Targets[0].Capabilities = nil
+	_, err := (DefaultGovernedExecutionPlanner{Now: func() time.Time { return now }}).BuildPlan(context.Background(), planningDecision(now, target, "record_clip"), snapshot)
+	if !errors.Is(err, ErrOperationalCapabilityUnavailable) {
+		t.Fatalf("missing capability accepted: %v", err)
+	}
+}
+
 func TestGovernedExecutionPlanRefusalsAreClosed(t *testing.T) {
 	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
 	planner := DefaultGovernedExecutionPlanner{Now: func() time.Time { return now }}
@@ -73,8 +110,8 @@ func TestGovernedExecutionPlanRefusalsAreClosed(t *testing.T) {
 		mutate func(*OperationalSnapshot)
 		want   error
 	}{
-		{"camera ambiguous", DecisionTarget{Kind: DecisionTargetSystem, ID: "system"}, "record_clip", nil, ErrAmbiguousExecutionTarget},
-		{"light without zone", DecisionTarget{Kind: DecisionTargetSystem, ID: "system"}, "turn_on_relevant_lights", nil, ErrAmbiguousExecutionTarget},
+		{"camera capability unavailable", DecisionTarget{Kind: DecisionTargetSystem, ID: "system"}, "record_clip", nil, ErrOperationalCapabilityUnavailable},
+		{"light capability unavailable", DecisionTarget{Kind: DecisionTargetSystem, ID: "system"}, "turn_on_relevant_lights", nil, ErrOperationalCapabilityUnavailable},
 		{"alarm without policy", DecisionTarget{Kind: DecisionTargetSystem, ID: "system"}, "trigger_approved_alarm_policy", func(s *OperationalSnapshot) { s.Targets[0].Authorization.PolicyID = "" }, ErrPolicyUnavailable},
 		{"unknown intent", DecisionTarget{Kind: DecisionTargetSystem, ID: "system"}, "invented_action", nil, ErrUnsupportedIntent},
 	}

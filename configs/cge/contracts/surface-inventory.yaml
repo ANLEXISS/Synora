@@ -10077,6 +10077,63 @@ types:
           validation: generated_shape
           identifier_semantic: not_an_identifier
           timestamp_semantic: not_a_timestamp
+        - name: Capabilities
+          go_field: Capabilities
+          field_path: Capabilities
+          wire_name: capabilities
+          go_type: '[]string'
+          wire_type: '[]string'
+          required: false
+          nullable: true
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: not_an_identifier
+          timestamp_semantic: not_a_timestamp
+        - name: NodeID
+          go_field: NodeID
+          field_path: NodeID
+          wire_name: node_id
+          go_type: string
+          wire_type: string
+          required: false
+          nullable: false
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: node_id
+          timestamp_semantic: not_a_timestamp
+        - name: ZoneID
+          go_field: ZoneID
+          field_path: ZoneID
+          wire_name: zone_id
+          go_type: string
+          wire_type: string
+          required: false
+          nullable: false
+          omitempty: true
+          runtime_only: false
+          source: go_surface
+          trust: derived
+          sensitivity: operational
+          protection: none_or_topology_preserved
+          persistence: []
+          retention: process_lifetime
+          validation: generated_shape
+          identifier_semantic: zone_id
+          timestamp_semantic: not_a_timestamp
     - package: synora/internal/cge
       name: PlannedAction
       kind: struct

@@ -208,11 +208,18 @@ func TestCoreOperationalSnapshotBindsProtectedDeviceAndPolicyRevision(t *testing
 	if snapshot.Revision == 0 || snapshot.PolicyRevision == 0 {
 		t.Fatalf("snapshot revisions are not operationally bound: %#v", snapshot)
 	}
-	if len(snapshot.Targets) != 1 || !snapshot.Targets[0].Exists {
+	var deviceTarget *cge.OperationalTarget
+	for i := range snapshot.Targets {
+		if snapshot.Targets[i].Target == target {
+			deviceTarget = &snapshot.Targets[i]
+			break
+		}
+	}
+	if deviceTarget == nil || !deviceTarget.Exists {
 		t.Fatalf("protected device was not resolved: %#v", snapshot.Targets)
 	}
-	if snapshot.Targets[0].Authorization.Known || snapshot.Targets[0].PhysicalLimits.Known {
-		t.Fatalf("unknown execution facts were fabricated: %#v", snapshot.Targets[0])
+	if deviceTarget.Authorization.Known || deviceTarget.PhysicalLimits.Known {
+		t.Fatalf("unknown execution facts were fabricated: %#v", *deviceTarget)
 	}
 }
 

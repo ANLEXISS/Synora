@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"synora/internal/cge"
@@ -76,11 +77,132 @@ func (p *coreOperationalSnapshotProvider) SnapshotForDecision(ctx context.Contex
 	return cge.OperationalSnapshot{
 		CapturedAt: now, FreshUntil: now.Add(5 * time.Second), Revision: revision, PolicyRevision: policyRevision,
 		AuthorityMode:       p.app.cognitiveAuthorityMode(),
-		Targets:             []cge.OperationalTarget{{Target: target, Exists: exists, Authorized: false, PhysicalLimit: 0, CurrentRevision: revision, Authorization: cge.OperationalAuthorization{Known: false, Authorized: false}, PhysicalLimits: cge.OperationalPhysicalLimits{Known: false}}},
+		Targets:             p.operationalTargets(target, revision, exists),
 		UsedIdempotencyKeys: usedKeys, ConflictingDecisionIDs: conflictingIDs,
 		CurrentSystemState: system.LastState,
 		SecurityMode:       string(system.Security.Mode),
 	}, nil
+}
+
+func (p *coreOperationalSnapshotProvider) operationalTargets(requested cge.DecisionTarget, revision uint64, requestedExists bool) []cge.OperationalTarget {
+	if p == nil || p.app == nil {
+		return nil
+	}
+	topologyCount := 0
+	if p.app.topology != nil {
+		topologyCount = len(p.app.topology.Nodes)
+	}
+	deviceCount := 0
+	if p.app.device != nil {
+		deviceCount = len(p.app.device.List())
+	}
+	result := make([]cge.OperationalTarget, 0, 1+len(p.app.residents)+topologyCount+deviceCount)
+	seen := make(map[string]struct{})
+	appendTarget := func(value cge.OperationalTarget) {
+		key := string(value.Target.Kind) + "\x00" + value.Target.ID
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		result = append(result, value)
+	}
+	base := func(target cge.DecisionTarget, exists bool) cge.OperationalTarget {
+		return cge.OperationalTarget{Target: target, Exists: exists, CurrentRevision: revision, Authorization: cge.OperationalAuthorization{Known: false, Authorized: false}, PhysicalLimits: cge.OperationalPhysicalLimits{Known: false}}
+	}
+
+	appendTarget(base(cge.DecisionTarget{Kind: cge.DecisionTargetSystem, ID: "system"}, true))
+	if p.app.topology != nil {
+		ids := make([]string, 0, len(p.app.topology.Nodes))
+		for id := range p.app.topology.Nodes {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			node := p.app.topology.Nodes[id]
+			if node == nil {
+				continue
+			}
+			appendTarget(cge.OperationalTarget{Target: cge.DecisionTarget{Kind: cge.DecisionTargetNode, ID: id}, Exists: true, CurrentRevision: revision, NodeID: id, ZoneID: zoneAncestor(node), Authorization: cge.OperationalAuthorization{Known: false}, PhysicalLimits: cge.OperationalPhysicalLimits{Known: false}})
+			if node.Type == topology.NodeZone {
+				appendTarget(cge.OperationalTarget{Target: cge.DecisionTarget{Kind: cge.DecisionTargetZone, ID: id}, Exists: true, CurrentRevision: revision, NodeID: id, ZoneID: id, Authorization: cge.OperationalAuthorization{Known: false}, PhysicalLimits: cge.OperationalPhysicalLimits{Known: false}})
+			}
+		}
+	}
+	if p.app.device != nil {
+		devices := p.app.device.List()
+		ids := make([]string, 0, len(devices))
+		for id := range devices {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			device := devices[id]
+			if device == nil || device.DeletedAt != nil {
+				continue
+			}
+			appendTarget(cge.OperationalTarget{Target: cge.DecisionTarget{Kind: cge.DecisionTargetDevice, ID: durableids.ProtectRaw(durableids.KindDevice, id)}, Exists: device.Enabled, CurrentRevision: revision, Capabilities: canonicalOperationalCapabilities(device.Capabilities), NodeID: device.NodeID, ZoneID: p.zoneForNode(device.NodeID), Authorization: cge.OperationalAuthorization{Known: false}, PhysicalLimits: cge.OperationalPhysicalLimits{Known: false}})
+		}
+	}
+	if p.app.residents != nil {
+		ids := make([]string, 0, len(p.app.residents))
+		for id := range p.app.residents {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			appendTarget(base(cge.DecisionTarget{Kind: cge.DecisionTargetResident, ID: durableids.ProtectRaw(durableids.KindEntity, id)}, true))
+		}
+	}
+	appendTarget(base(requested, requestedExists))
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Target.Kind != result[j].Target.Kind {
+			return result[i].Target.Kind < result[j].Target.Kind
+		}
+		return result[i].Target.ID < result[j].Target.ID
+	})
+	return result
+}
+
+func canonicalOperationalCapabilities(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(value, "-", "_")))
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func (p *coreOperationalSnapshotProvider) zoneForNode(nodeID string) string {
+	if p == nil || p.app == nil || p.app.topology == nil {
+		return ""
+	}
+	node := p.app.topology.Nodes[nodeID]
+	for node != nil {
+		if node.Type == topology.NodeZone {
+			return node.ID
+		}
+		node = node.Parent
+	}
+	return ""
+}
+
+func zoneAncestor(node *topology.Node) string {
+	for node != nil {
+		if node.Type == topology.NodeZone {
+			return node.ID
+		}
+		node = node.Parent
+	}
+	return ""
 }
 
 // protectedDevice resolves the CGE-safe device reference against the detached

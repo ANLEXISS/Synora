@@ -37,16 +37,17 @@ const (
 )
 
 var (
-	ErrInvalidCGEExecutionMode    = errors.New("invalid_cge_execution_mode")
-	ErrExecutionDisabled          = errors.New("execution_disabled")
-	ErrLiveExecutionUnavailable   = errors.New("live_execution_unavailable")
-	ErrUnsupportedIntent          = errors.New("unsupported_intent")
-	ErrAmbiguousExecutionTarget   = errors.New("ambiguous_target")
-	ErrPolicyUnavailable          = errors.New("policy_unavailable")
-	ErrAuthorizationUnknown       = errors.New("authorization_unknown")
-	ErrPhysicalLimitUnknown       = errors.New("physical_limit_unknown")
-	ErrInvalidExecutionParameters = errors.New("invalid_parameters")
-	ErrExecutionPlanStore         = errors.New("execution_plan_store_error")
+	ErrInvalidCGEExecutionMode          = errors.New("invalid_cge_execution_mode")
+	ErrExecutionDisabled                = errors.New("execution_disabled")
+	ErrLiveExecutionUnavailable         = errors.New("live_execution_unavailable")
+	ErrUnsupportedIntent                = errors.New("unsupported_intent")
+	ErrAmbiguousExecutionTarget         = errors.New("ambiguous_target")
+	ErrPolicyUnavailable                = errors.New("policy_unavailable")
+	ErrAuthorizationUnknown             = errors.New("authorization_unknown")
+	ErrPhysicalLimitUnknown             = errors.New("physical_limit_unknown")
+	ErrInvalidExecutionParameters       = errors.New("invalid_parameters")
+	ErrOperationalCapabilityUnavailable = errors.New("capability_unavailable")
+	ErrExecutionPlanStore               = errors.New("execution_plan_store_error")
 )
 
 func (m CGEExecutionMode) Validate() error {
@@ -302,19 +303,27 @@ func (p DefaultGovernedExecutionPlanner) BuildPlan(ctx context.Context, decision
 		}
 	}
 	for _, intent := range decision.Constraints.ProposedActions {
-		if len(base.Actions) >= maxExecutionActions {
-			return fail(ExecutionPlanInvalid, fmt.Errorf("too many planned actions"))
-		}
 		if forbiddenIntent(decision.Constraints.ForbiddenActions, intent) {
 			return fail(ExecutionPlanDenied, fmt.Errorf("forbidden_action"))
 		}
-		action, err := normalizePlannedAction(decision, snapshot, intent)
+		actions, err := normalizePlannedActions(decision, snapshot, intent)
 		if err != nil {
 			return fail(planStatusForError(err), err)
 		}
-		base.Actions = append(base.Actions, action)
+		if len(base.Actions)+len(actions) > maxExecutionActions {
+			return fail(ExecutionPlanInvalid, fmt.Errorf("too many planned actions"))
+		}
+		base.Actions = append(base.Actions, actions...)
 	}
-	sort.Slice(base.Actions, func(i, j int) bool { return base.Actions[i].IntentID < base.Actions[j].IntentID })
+	sort.Slice(base.Actions, func(i, j int) bool {
+		if base.Actions[i].IntentID != base.Actions[j].IntentID {
+			return base.Actions[i].IntentID < base.Actions[j].IntentID
+		}
+		if base.Actions[i].Target.Kind != base.Actions[j].Target.Kind {
+			return base.Actions[i].Target.Kind < base.Actions[j].Target.Kind
+		}
+		return base.Actions[i].Target.ID < base.Actions[j].Target.ID
+	})
 	base.Status = ExecutionPlanPlanned
 	base.PlanID = digest("plan", decision.DecisionID, decision.SituationID, fmt.Sprint(snapshot.Revision), fmt.Sprint(snapshot.PolicyRevision), actionDigest(base.Actions))
 	base.IdempotencyKey = digest("plan-idempotency", decision.IdempotencyKey, fmt.Sprint(snapshot.Revision), fmt.Sprint(snapshot.PolicyRevision), actionDigest(base.Actions))
@@ -324,6 +333,8 @@ func (p DefaultGovernedExecutionPlanner) BuildPlan(ctx context.Context, decision
 func planStatusForError(err error) ExecutionPlanStatus {
 	switch {
 	case errors.Is(err, ErrUnsupportedIntent):
+		return ExecutionPlanUnsupported
+	case errors.Is(err, ErrOperationalCapabilityUnavailable):
 		return ExecutionPlanUnsupported
 	case errors.Is(err, ErrAmbiguousExecutionTarget):
 		return ExecutionPlanAmbiguous
@@ -353,25 +364,37 @@ func forbiddenIntent(forbidden []string, intent string) bool {
 
 type normalizedHistoricalAction struct{ Type, Target, Parameters string }
 
-func normalizePlannedAction(decision DecisionEnvelope, snapshot OperationalSnapshot, intent string) (PlannedAction, error) {
+func normalizePlannedActions(decision DecisionEnvelope, snapshot OperationalSnapshot, intent string) ([]PlannedAction, error) {
 	normalized := normalizeIntent(intent)
-	target := decision.Target
-	operational, ok := operationalTarget(snapshot, target)
-	if !ok || !operational.Exists {
-		return PlannedAction{}, fmt.Errorf("%w: target is not resolved", ErrAmbiguousExecutionTarget)
+	candidates, err := operationalTargetsForIntent(decision, snapshot, normalized)
+	if err != nil {
+		return nil, err
 	}
+	result := make([]PlannedAction, 0, len(candidates))
+	for _, candidate := range candidates {
+		action, err := normalizePlannedAction(decision, candidate, normalized)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, action)
+	}
+	return result, nil
+}
+
+func normalizePlannedAction(decision DecisionEnvelope, operational OperationalTarget, normalized string) (PlannedAction, error) {
+	target := operational.Target
 	requireAuth, requirePhysical := false, false
 	var historical normalizedHistoricalAction
 	switch normalized {
 	case "record_clip":
-		if target.Kind != DecisionTargetDevice {
-			return PlannedAction{}, fmt.Errorf("%w: camera target required", ErrAmbiguousExecutionTarget)
+		if target.Kind != DecisionTargetDevice || !hasOperationalCapability(operational, normalized) {
+			return PlannedAction{}, ErrOperationalCapabilityUnavailable
 		}
 		historical = normalizedHistoricalAction{Type: "record.clip", Target: target.ID}
 		requireAuth = true
 	case "increase_tracking_frequency":
-		if target.Kind != DecisionTargetDevice && target.Kind != DecisionTargetNode {
-			return PlannedAction{}, fmt.Errorf("%w: tracking target required", ErrAmbiguousExecutionTarget)
+		if !hasOperationalCapability(operational, normalized) {
+			return PlannedAction{}, ErrOperationalCapabilityUnavailable
 		}
 		historical = normalizedHistoricalAction{Type: "device.command", Target: target.ID, Parameters: "command=increase_tracking_frequency"}
 		requireAuth, requirePhysical = true, true
@@ -382,15 +405,12 @@ func normalizePlannedAction(decision DecisionEnvelope, snapshot OperationalSnaps
 		historical = normalizedHistoricalAction{Type: "notify", Target: target.ID, Parameters: "intent=" + normalized}
 		requireAuth = true
 	case "turn_on_relevant_lights", "turn_on_security_lights":
-		if target.Kind != DecisionTargetZone && target.Kind != DecisionTargetNode {
-			return PlannedAction{}, fmt.Errorf("%w: light zone required", ErrAmbiguousExecutionTarget)
+		if !hasOperationalCapability(operational, normalized) {
+			return PlannedAction{}, ErrOperationalCapabilityUnavailable
 		}
 		historical = normalizedHistoricalAction{Type: "light.on", Target: target.ID, Parameters: "command=on;intent=" + normalized}
 		requireAuth, requirePhysical = true, true
 	case "trigger_approved_alarm_policy":
-		if target.Kind != DecisionTargetSystem {
-			return PlannedAction{}, fmt.Errorf("%w: alarm system target required", ErrAmbiguousExecutionTarget)
-		}
 		if !operational.Authorization.Known || operational.Authorization.PolicyID == "" {
 			return PlannedAction{}, ErrPolicyUnavailable
 		}
@@ -426,6 +446,126 @@ func normalizePlannedAction(decision DecisionEnvelope, snapshot OperationalSnaps
 	}
 	fingerprint := digest("request", historical.Type, historical.Target, fmt.Sprint(decision.Priority), historical.Parameters)
 	return PlannedAction{PlannedActionID: digest("planned-action", decision.DecisionID, normalized, fingerprint), IntentID: normalized, ActionType: historical.Type, Target: target, Priority: decision.Priority, RequestFingerprint: fingerprint, Requirement: PlannedActionRequired}, nil
+}
+
+func operationalTargetsForIntent(decision DecisionEnvelope, snapshot OperationalSnapshot, intent string) ([]OperationalTarget, error) {
+	normalized := normalizeIntent(intent)
+	switch normalized {
+	case "record_clip", "increase_tracking_frequency", "notify_user", "notify_user_high_priority", "notify_user_critical", "turn_on_relevant_lights", "turn_on_security_lights", "trigger_approved_alarm_policy", "mark_security_degraded":
+	default:
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedIntent, normalized)
+	}
+	if normalized == "notify_user" || normalized == "notify_user_high_priority" || normalized == "notify_user_critical" || normalized == "mark_security_degraded" {
+		target, ok := operationalTarget(snapshot, decision.Target)
+		if !ok || !target.Exists {
+			return nil, fmt.Errorf("%w: target is not resolved", ErrAmbiguousExecutionTarget)
+		}
+		if normalized == "mark_security_degraded" && target.Target.Kind != DecisionTargetSystem {
+			return nil, fmt.Errorf("%w: system target required", ErrAmbiguousExecutionTarget)
+		}
+		if normalized != "mark_security_degraded" && target.Target.Kind != DecisionTargetSystem && target.Target.Kind != DecisionTargetResident {
+			return nil, fmt.Errorf("%w: notification recipient required", ErrAmbiguousExecutionTarget)
+		}
+		return []OperationalTarget{target}, nil
+	}
+	if normalized == "trigger_approved_alarm_policy" {
+		if decision.Target.Kind != DecisionTargetSystem {
+			return nil, fmt.Errorf("%w: alarm system target required", ErrAmbiguousExecutionTarget)
+		}
+		policyTarget, ok := operationalTarget(snapshot, decision.Target)
+		if !ok || !policyTarget.Exists {
+			return nil, fmt.Errorf("%w: target is not resolved", ErrAmbiguousExecutionTarget)
+		}
+		if !policyTarget.Authorization.Known || policyTarget.Authorization.PolicyID == "" {
+			return nil, ErrPolicyUnavailable
+		}
+		// The approved system policy is the authority for the alarm action; the
+		// physical siren targets are selected from the operational capability
+		// inventory when one is available.
+		candidates := capabilityCandidates(snapshot, decision.Target, normalized)
+		if len(candidates) == 0 {
+			return nil, ErrOperationalCapabilityUnavailable
+		}
+		return candidates, nil
+	}
+	if normalized == "record_clip" && decision.Target.Kind != DecisionTargetDevice && decision.Target.Kind != DecisionTargetNode && decision.Target.Kind != DecisionTargetZone && decision.Target.Kind != DecisionTargetSystem {
+		return nil, fmt.Errorf("%w: camera scope required", ErrAmbiguousExecutionTarget)
+	}
+	if (normalized == "turn_on_relevant_lights" || normalized == "turn_on_security_lights") && decision.Target.Kind != DecisionTargetNode && decision.Target.Kind != DecisionTargetZone && decision.Target.Kind != DecisionTargetSystem {
+		return nil, fmt.Errorf("%w: light zone required", ErrAmbiguousExecutionTarget)
+	}
+	if normalized == "increase_tracking_frequency" && decision.Target.Kind != DecisionTargetDevice && decision.Target.Kind != DecisionTargetNode && decision.Target.Kind != DecisionTargetZone && decision.Target.Kind != DecisionTargetSystem {
+		return nil, fmt.Errorf("%w: tracking scope required", ErrAmbiguousExecutionTarget)
+	}
+	if decision.Target.Kind != DecisionTargetSystem {
+		if target, ok := operationalTarget(snapshot, decision.Target); !ok || !target.Exists {
+			return nil, fmt.Errorf("%w: target is not resolved", ErrAmbiguousExecutionTarget)
+		}
+	}
+	candidates := capabilityCandidates(snapshot, decision.Target, normalized)
+	if len(candidates) == 0 {
+		return nil, ErrOperationalCapabilityUnavailable
+	}
+	return candidates, nil
+}
+
+func capabilityCandidates(snapshot OperationalSnapshot, requested DecisionTarget, intent string) []OperationalTarget {
+	result := make([]OperationalTarget, 0)
+	seen := make(map[string]struct{})
+	for _, candidate := range snapshot.Targets {
+		if !candidate.Exists || candidate.Target.Kind != DecisionTargetDevice || !candidateMatchesScope(candidate, requested) || !hasOperationalCapability(candidate, intent) {
+			continue
+		}
+		key := string(candidate.Target.Kind) + "\x00" + candidate.Target.ID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, candidate)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Target.ID < result[j].Target.ID })
+	return result
+}
+
+func candidateMatchesScope(candidate OperationalTarget, requested DecisionTarget) bool {
+	switch requested.Kind {
+	case DecisionTargetSystem:
+		return true
+	case DecisionTargetDevice:
+		return candidate.Target.equal(requested)
+	case DecisionTargetNode:
+		return candidate.NodeID == requested.ID
+	case DecisionTargetZone:
+		return candidate.ZoneID == requested.ID || candidate.NodeID == requested.ID
+	default:
+		return false
+	}
+}
+
+func hasOperationalCapability(target OperationalTarget, intent string) bool {
+	want := normalizeIntent(intent)
+	for _, value := range target.Capabilities {
+		capability := normalizeIntent(value)
+		switch want {
+		case "record_clip":
+			if capability == "record_clip" || capability == "recording" || capability == "video_recording" || capability == "record" {
+				return true
+			}
+		case "increase_tracking_frequency":
+			if capability == "tracking" || capability == "tracking_frequency" || capability == "motion_detection" {
+				return true
+			}
+		case "turn_on_relevant_lights", "turn_on_security_lights":
+			if capability == "light" || capability == "lighting" || capability == "light_on" {
+				return true
+			}
+		case "trigger_approved_alarm_policy":
+			if capability == "siren" || capability == "alarm" || capability == "alarm_siren" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func operationalTarget(snapshot OperationalSnapshot, target DecisionTarget) (OperationalTarget, bool) {
@@ -512,6 +652,9 @@ func (k DefaultExecutionPlanSafetyKernel) ValidatePlan(ctx context.Context, deci
 			return violate("target_unresolved", action.IntentID)
 		}
 		operational, _ := operationalTarget(snapshot, action.Target)
+		if intentRequiresOperationalCapability(action.IntentID) && !hasOperationalCapability(operational, action.IntentID) {
+			return violate("capability_unavailable", action.IntentID)
+		}
 		if intentRequiresAuthorization(action.IntentID) && (!operational.Authorization.Known || !operational.Authorization.Authorized) {
 			return violate("authorization_unknown", action.IntentID)
 		}
@@ -541,6 +684,15 @@ func intentRequiresAuthorization(intent string) bool {
 func intentRequiresPhysicalLimit(intent string) bool {
 	switch normalizeIntent(intent) {
 	case "increase_tracking_frequency", "turn_on_relevant_lights", "turn_on_security_lights", "trigger_approved_alarm_policy":
+		return true
+	default:
+		return false
+	}
+}
+
+func intentRequiresOperationalCapability(intent string) bool {
+	switch normalizeIntent(intent) {
+	case "record_clip", "increase_tracking_frequency", "turn_on_relevant_lights", "turn_on_security_lights", "trigger_approved_alarm_policy":
 		return true
 	default:
 		return false
