@@ -34,11 +34,13 @@ import (
 )
 
 const (
-	defaultCGECriticalChainsPath     = "/etc/synora/cge_critical_chains.yaml"
-	developmentCGECriticalChainsPath = "configs/cge_critical_chains.yaml"
-	defaultCGEProfilePath            = "/etc/synora/cge_profile.yaml"
-	defaultCGEFeedbackPath           = "/var/lib/synora/cge/feedback.json"
-	defaultActionPolicyPath          = "/etc/synora/action_policy.yaml"
+	defaultCGECriticalChainsPath      = "/etc/synora/cge_critical_chains.yaml"
+	developmentCGECriticalChainsPath  = "configs/cge_critical_chains.yaml"
+	defaultCGEProfilePath             = "/etc/synora/cge_profile.yaml"
+	defaultCGEExecutionGrantsPath     = "/etc/synora/cge_execution_grants.yaml"
+	developmentCGEExecutionGrantsPath = "configs/cge_execution_grants.yaml"
+	defaultCGEFeedbackPath            = "/var/lib/synora/cge/feedback.json"
+	defaultActionPolicyPath           = "/etc/synora/action_policy.yaml"
 )
 
 type coreMetrics struct {
@@ -56,11 +58,12 @@ type coreApp struct {
 	snapshotPending atomic.Bool
 	coreRevision    atomic.Uint64
 
-	bus        coreBus
-	engine     *engine.Engine
-	automation *automation.Engine
-	policy     *actionpolicy.Store
-	device     *device.Registry
+	bus             coreBus
+	engine          *engine.Engine
+	automation      *automation.Engine
+	policy          *actionpolicy.Store
+	device          *device.Registry
+	executionGrants cge.GrantSnapshot
 
 	topology  *topology.Topology
 	residents map[string]*topology.Resident
@@ -164,6 +167,16 @@ func main() {
 	if err := policyStore.Load(); err != nil {
 		log.Println("action policy load warning:", err)
 	}
+	executionGrants := cge.EmptyGrantSnapshot(time.Now().UTC())
+	executionGrantsPath := getenv("SYNORA_CGE_EXECUTION_GRANTS", defaultCGEExecutionGrantsPath)
+	if _, err := os.Stat(executionGrantsPath); os.IsNotExist(err) && executionGrantsPath == defaultCGEExecutionGrantsPath {
+		executionGrantsPath = developmentCGEExecutionGrantsPath
+	}
+	if loaded, err := cge.LoadConfiguredExecutionGrantSnapshot(executionGrantsPath, time.Now().UTC()); err != nil {
+		log.Println("cge execution grants load warning:", err)
+	} else {
+		executionGrants = loaded
+	}
 	rateController := eventpkg.NewRateController(2*time.Second, 750*time.Millisecond)
 	dangerRuntime := cge.NewDangerRuntime(profileStore.Get().DangerDecay)
 	dangerRuntime.SetDebug(getenvBool("SYNORA_CGE_DEBUG", false))
@@ -188,24 +201,25 @@ func main() {
 	}
 
 	app := &coreApp{
-		bus:          busClient,
-		engine:       engineInstance,
-		automation:   automationEngine,
-		policy:       policyStore,
-		device:       deviceRegistry,
-		topology:     topologyInstance,
-		residents:    residents,
-		state:        stateStore,
-		eventStore:   eventStore,
-		chains:       chainManager,
-		danger:       dangerRuntime,
-		profile:      profileStore,
-		cognitive:    cognitiveEngine,
-		rate:         rateController,
-		metrics:      &coreMetrics{sourceLastSeen: map[string]time.Time{}},
-		highPriority: make(chan *contract.Event, 128),
-		normalQueue:  make(chan *contract.Event, 512),
-		rpcQueue:     make(chan contract.Message, 256),
+		bus:             busClient,
+		engine:          engineInstance,
+		automation:      automationEngine,
+		policy:          policyStore,
+		device:          deviceRegistry,
+		topology:        topologyInstance,
+		residents:       residents,
+		executionGrants: executionGrants,
+		state:           stateStore,
+		eventStore:      eventStore,
+		chains:          chainManager,
+		danger:          dangerRuntime,
+		profile:         profileStore,
+		cognitive:       cognitiveEngine,
+		rate:            rateController,
+		metrics:         &coreMetrics{sourceLastSeen: map[string]time.Time{}},
+		highPriority:    make(chan *contract.Event, 128),
+		normalQueue:     make(chan *contract.Event, 512),
+		rpcQueue:        make(chan contract.Message, 256),
 	}
 	if configuredShadow != nil {
 		configuredShadow.SetContextProvider(newCoreReadOnlyContextProvider(app))

@@ -3,26 +3,191 @@ package cge
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"sort"
+	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
-
-const ExecutionCapabilityGrantSchemaVersion = "synora.cge.execution-capability-grant.v1"
-
-type ExecutionCapabilityGrantStatus string
 
 const (
-	ExecutionCapabilityGrantIssued  ExecutionCapabilityGrantStatus = "issued"
-	ExecutionCapabilityGrantRevoked ExecutionCapabilityGrantStatus = "revoked"
-	ExecutionCapabilityGrantExpired ExecutionCapabilityGrantStatus = "expired"
+	ConfiguredExecutionCapabilityGrantSchemaVersion = "synora.cge.configured-execution-capability-grant.v1"
+	GrantSnapshotSchemaVersion                      = "synora.cge.grant-snapshot.v1"
+	AppliedExecutionGrantSchemaVersion              = "synora.cge.applied-execution-grant.v1"
+	maxConfiguredExecutionGrants                    = 256
 )
 
-// ExecutionCapabilityGrant is a bounded planning authorization. It records
-// which operational capability was observed for one planned action; it is not
-// a token, an invocation credential, or a dispatcher permission.
-type ExecutionCapabilityGrant struct {
+// ConfiguredExecutionCapabilityGrant is Core-owned authorization
+// configuration. It is a standing, bounded permission and is intentionally
+// distinct from the evidence copied into an individual ExecutionPlan.
+type ConfiguredExecutionCapabilityGrant struct {
 	SchemaVersion string `json:"schema_version" yaml:"schema_version"`
 
-	GrantID            string `json:"grant_id" yaml:"grant_id"`
+	GrantID    string         `json:"grant_id" yaml:"grant_id"`
+	Capability string         `json:"capability" yaml:"capability"`
+	ActionType string         `json:"action_type,omitempty" yaml:"action_type,omitempty"`
+	Target     DecisionTarget `json:"target" yaml:"target"`
+
+	AuthorizationPolicyID string `json:"authorization_policy_id,omitempty" yaml:"authorization_policy_id,omitempty"`
+	MaxPriority           int    `json:"max_priority,omitempty" yaml:"max_priority,omitempty"`
+
+	ValidFrom  time.Time `json:"valid_from" yaml:"valid_from"`
+	ValidUntil time.Time `json:"valid_until" yaml:"valid_until"`
+	Revision   uint64    `json:"revision" yaml:"revision"`
+	Enabled    bool      `json:"enabled" yaml:"enabled"`
+
+	Fingerprint string `json:"fingerprint" yaml:"fingerprint"`
+}
+
+func (g ConfiguredExecutionCapabilityGrant) Validate() error {
+	if g.SchemaVersion != ConfiguredExecutionCapabilityGrantSchemaVersion {
+		return fmt.Errorf("invalid configured execution capability grant schema version %q", g.SchemaVersion)
+	}
+	for name, value := range map[string]string{
+		"configured grant id":    g.GrantID,
+		"configured capability":  g.Capability,
+		"configured fingerprint": g.Fingerprint,
+	} {
+		if err := validateAuthorityText(value, name, 256, true); err != nil {
+			return err
+		}
+	}
+	if err := g.Target.Validate(); err != nil {
+		return err
+	}
+	if !validExecutionCapability(g.Capability) {
+		return fmt.Errorf("configured execution capability is not allowlisted: %s", g.Capability)
+	}
+	if g.ActionType != "" && !validExecutionActionType(g.ActionType) {
+		return fmt.Errorf("configured execution action type is not allowlisted: %s", g.ActionType)
+	}
+	if err := validateAuthorityText(g.AuthorizationPolicyID, "configured authorization policy id", 256, false); err != nil {
+		return err
+	}
+	if g.MaxPriority < 0 || g.MaxPriority > 100 || g.ValidFrom.IsZero() || g.ValidUntil.IsZero() || !g.ValidUntil.After(g.ValidFrom) || g.Revision == 0 {
+		return fmt.Errorf("invalid configured execution capability grant binding")
+	}
+	if ConfiguredExecutionCapabilityGrantFingerprint(g) != g.Fingerprint {
+		return fmt.Errorf("configured execution capability grant fingerprint mismatch")
+	}
+	return nil
+}
+
+func ConfiguredExecutionCapabilityGrantFingerprint(grant ConfiguredExecutionCapabilityGrant) string {
+	copy := grant
+	copy.Fingerprint = ""
+	payload, _ := json.Marshal(copy)
+	return digest("configured-execution-capability-grant", string(payload))
+}
+
+func (g ConfiguredExecutionCapabilityGrant) Clone() ConfiguredExecutionCapabilityGrant {
+	return g
+}
+
+// GrantSnapshot is the immutable Core configuration view used by the
+// planner. It contains permissions, never plan-specific application data.
+type GrantSnapshot struct {
+	SchemaVersion string                               `json:"schema_version" yaml:"schema_version"`
+	Revision      uint64                               `json:"revision" yaml:"revision"`
+	CapturedAt    time.Time                            `json:"captured_at" yaml:"captured_at"`
+	FreshUntil    time.Time                            `json:"fresh_until" yaml:"fresh_until"`
+	Grants        []ConfiguredExecutionCapabilityGrant `json:"grants" yaml:"grants"`
+	Fingerprint   string                               `json:"fingerprint" yaml:"fingerprint"`
+}
+
+func (s GrantSnapshot) Validate() error {
+	if s.SchemaVersion != GrantSnapshotSchemaVersion || s.Revision == 0 || s.CapturedAt.IsZero() || !s.FreshUntil.After(s.CapturedAt) || s.Fingerprint == "" {
+		return fmt.Errorf("invalid grant snapshot")
+	}
+	if len(s.Grants) > maxConfiguredExecutionGrants || GrantSnapshotFingerprint(s) != s.Fingerprint {
+		return fmt.Errorf("invalid grant snapshot fingerprint or bound")
+	}
+	seen := make(map[string]struct{}, len(s.Grants))
+	for _, grant := range s.Grants {
+		if _, ok := seen[grant.GrantID]; ok {
+			return fmt.Errorf("duplicate configured execution grant")
+		}
+		seen[grant.GrantID] = struct{}{}
+		if err := grant.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func GrantSnapshotFingerprint(snapshot GrantSnapshot) string {
+	copy := snapshot
+	copy.Fingerprint = ""
+	copy.Grants = append([]ConfiguredExecutionCapabilityGrant(nil), snapshot.Grants...)
+	sort.Slice(copy.Grants, func(i, j int) bool { return copy.Grants[i].GrantID < copy.Grants[j].GrantID })
+	payload, _ := json.Marshal(copy)
+	return digest("grant-snapshot", string(payload))
+}
+
+func (s GrantSnapshot) Clone() GrantSnapshot {
+	out := s
+	out.Grants = append([]ConfiguredExecutionCapabilityGrant(nil), s.Grants...)
+	return out
+}
+
+func EmptyGrantSnapshot(at time.Time) GrantSnapshot {
+	at = at.UTC()
+	snapshot := GrantSnapshot{SchemaVersion: GrantSnapshotSchemaVersion, Revision: 1, CapturedAt: at, FreshUntil: at.Add(24 * time.Hour), Grants: []ConfiguredExecutionCapabilityGrant{}}
+	snapshot.Fingerprint = GrantSnapshotFingerprint(snapshot)
+	return snapshot
+}
+
+type configuredExecutionGrantFile struct {
+	SchemaVersion string                               `yaml:"schema_version"`
+	Revision      uint64                               `yaml:"revision"`
+	Grants        []ConfiguredExecutionCapabilityGrant `yaml:"grants"`
+}
+
+// LoadConfiguredExecutionGrantSnapshot is a Core configuration boundary. It
+// reads only the closed grant list; it never creates applied plan evidence.
+func LoadConfiguredExecutionGrantSnapshot(path string, capturedAt time.Time) (GrantSnapshot, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return GrantSnapshot{}, err
+	}
+	var file configuredExecutionGrantFile
+	if err := yaml.Unmarshal(data, &file); err != nil {
+		return GrantSnapshot{}, fmt.Errorf("configured execution grants: %w", err)
+	}
+	if file.SchemaVersion == "" {
+		file.SchemaVersion = ConfiguredExecutionCapabilityGrantSchemaVersion
+	}
+	if file.Revision == 0 {
+		file.Revision = 1
+	}
+	for i := range file.Grants {
+		if file.Grants[i].SchemaVersion == "" {
+			file.Grants[i].SchemaVersion = ConfiguredExecutionCapabilityGrantSchemaVersion
+		}
+		if file.Grants[i].Fingerprint == "" {
+			file.Grants[i].Fingerprint = ConfiguredExecutionCapabilityGrantFingerprint(file.Grants[i])
+		}
+	}
+	at := capturedAt.UTC()
+	snapshot := GrantSnapshot{SchemaVersion: GrantSnapshotSchemaVersion, Revision: file.Revision, CapturedAt: at, FreshUntil: at.Add(24 * time.Hour), Grants: file.Grants}
+	snapshot.Fingerprint = GrantSnapshotFingerprint(snapshot)
+	if file.SchemaVersion != ConfiguredExecutionCapabilityGrantSchemaVersion {
+		return GrantSnapshot{}, fmt.Errorf("invalid configured execution grant file schema version %q", file.SchemaVersion)
+	}
+	if err := snapshot.Validate(); err != nil {
+		return GrantSnapshot{}, err
+	}
+	return snapshot, nil
+}
+
+// AppliedExecutionGrant is plan-local evidence that a configured grant was
+// selected. It is not a new authorization and cannot be used for dispatch.
+type AppliedExecutionGrant struct {
+	SchemaVersion string `json:"schema_version" yaml:"schema_version"`
+
+	AppliedGrantID     string `json:"applied_grant_id" yaml:"applied_grant_id"`
+	ConfiguredGrantID  string `json:"configured_grant_id" yaml:"configured_grant_id"`
 	PlanID             string `json:"plan_id" yaml:"plan_id"`
 	DecisionID         string `json:"decision_id" yaml:"decision_id"`
 	PlannedActionID    string `json:"planned_action_id" yaml:"planned_action_id"`
@@ -34,34 +199,24 @@ type ExecutionCapabilityGrant struct {
 
 	StateRevision         uint64 `json:"state_revision" yaml:"state_revision"`
 	PolicyRevision        uint64 `json:"policy_revision" yaml:"policy_revision"`
-	AuthorizationRevision uint64 `json:"authorization_revision,omitempty" yaml:"authorization_revision,omitempty"`
-	AuthorizationPolicyID string `json:"authorization_policy_id,omitempty" yaml:"authorization_policy_id,omitempty"`
+	GrantSnapshotRevision uint64 `json:"grant_snapshot_revision" yaml:"grant_snapshot_revision"`
 
-	IssuedAt   time.Time                      `json:"issued_at" yaml:"issued_at"`
-	ValidUntil time.Time                      `json:"valid_until" yaml:"valid_until"`
-	Status     ExecutionCapabilityGrantStatus `json:"status" yaml:"status"`
+	AppliedAt  time.Time `json:"applied_at" yaml:"applied_at"`
+	ValidUntil time.Time `json:"valid_until" yaml:"valid_until"`
 
 	DryRun           bool   `json:"dry_run" yaml:"dry_run"`
 	DispatchEligible bool   `json:"dispatch_eligible" yaml:"dispatch_eligible"`
 	Fingerprint      string `json:"fingerprint" yaml:"fingerprint"`
 }
 
-func (s ExecutionCapabilityGrantStatus) Validate() error {
-	switch s {
-	case ExecutionCapabilityGrantIssued, ExecutionCapabilityGrantRevoked, ExecutionCapabilityGrantExpired:
-		return nil
-	default:
-		return fmt.Errorf("invalid execution capability grant status %q", s)
-	}
-}
-
-func (g ExecutionCapabilityGrant) Validate() error {
-	if g.SchemaVersion != ExecutionCapabilityGrantSchemaVersion {
-		return fmt.Errorf("invalid execution capability grant schema version %q", g.SchemaVersion)
+func (g AppliedExecutionGrant) Validate() error {
+	if g.SchemaVersion != AppliedExecutionGrantSchemaVersion {
+		return fmt.Errorf("invalid applied execution grant schema version %q", g.SchemaVersion)
 	}
 	for name, value := range map[string]string{
-		"grant id": g.GrantID, "plan id": g.PlanID, "decision id": g.DecisionID,
-		"planned action id": g.PlannedActionID, "request fingerprint": g.RequestFingerprint, "capability": g.Capability,
+		"applied grant id": g.AppliedGrantID, "configured grant id": g.ConfiguredGrantID,
+		"plan id": g.PlanID, "decision id": g.DecisionID, "planned action id": g.PlannedActionID,
+		"request fingerprint": g.RequestFingerprint, "capability": g.Capability,
 		"action type": g.ActionType, "fingerprint": g.Fingerprint,
 	} {
 		if err := validateAuthorityText(value, name, 256, true); err != nil {
@@ -71,37 +226,23 @@ func (g ExecutionCapabilityGrant) Validate() error {
 	if err := g.Target.Validate(); err != nil {
 		return err
 	}
-	if !validExecutionCapability(g.Capability) {
-		return fmt.Errorf("execution capability is not allowlisted: %s", g.Capability)
-	}
-	if !validExecutionActionType(g.ActionType) {
-		return fmt.Errorf("execution action type is not allowlisted: %s", g.ActionType)
-	}
-	if err := validateAuthorityText(g.AuthorizationPolicyID, "authorization policy id", 256, false); err != nil {
-		return err
-	}
-	if g.StateRevision == 0 || g.PolicyRevision == 0 || g.IssuedAt.IsZero() || !g.ValidUntil.After(g.IssuedAt) {
-		return fmt.Errorf("invalid execution capability grant binding")
-	}
-	if err := g.Status.Validate(); err != nil {
-		return err
+	if !validExecutionCapability(g.Capability) || !validExecutionActionType(g.ActionType) || g.StateRevision == 0 || g.PolicyRevision == 0 || g.GrantSnapshotRevision == 0 || g.AppliedAt.IsZero() || !g.ValidUntil.After(g.AppliedAt) {
+		return fmt.Errorf("invalid applied execution grant binding")
 	}
 	if !g.DryRun || g.DispatchEligible {
-		return fmt.Errorf("execution capability grant is not fail-closed dry-run")
+		return fmt.Errorf("applied execution grant is not fail-closed dry-run")
 	}
-	if ExecutionCapabilityGrantFingerprint(g) != g.Fingerprint {
-		return fmt.Errorf("execution capability grant fingerprint mismatch")
+	if AppliedExecutionGrantFingerprint(g) != g.Fingerprint {
+		return fmt.Errorf("applied execution grant fingerprint mismatch")
 	}
 	return nil
 }
 
-// ExecutionCapabilityGrantFingerprint hashes only the closed grant fields.
-// Dynamic payloads and credentials are intentionally not part of this model.
-func ExecutionCapabilityGrantFingerprint(grant ExecutionCapabilityGrant) string {
+func AppliedExecutionGrantFingerprint(grant AppliedExecutionGrant) string {
 	copy := grant
 	copy.Fingerprint = ""
 	payload, _ := json.Marshal(copy)
-	return digest("execution-capability-grant", string(payload))
+	return digest("applied-execution-grant", string(payload))
 }
 
 func validExecutionCapability(value string) bool {
@@ -120,4 +261,8 @@ func validExecutionActionType(value string) bool {
 	default:
 		return false
 	}
+}
+
+func normalizedConfiguredCapability(value string) string {
+	return normalizeIntent(strings.TrimSpace(value))
 }

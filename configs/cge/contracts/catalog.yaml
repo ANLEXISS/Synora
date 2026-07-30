@@ -1658,7 +1658,9 @@ contracts:
       - {name: state_revision, type: revision, required: true, nullable: false, description: Operational StateStore revision, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: positive_revision}
       - {name: policy_revision, type: revision, required: true, nullable: false, description: Action policy revision, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: bounded_revision}
       - {name: actions, type: planned_action_list, required: true, nullable: false, description: Bounded planned actions, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: bounded_allowlist}
-      - {name: capability_grants, type: bounded_execution_capability_grant_list, required: true, nullable: false, description: One governed dry-run capability grant for every planned action, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: atomic_action_binding}
+      - {name: applied_grants, type: bounded_applied_execution_grant_list, required: true, nullable: false, description: Applied evidence for every planned action, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: atomic_action_binding}
+      - {name: grant_snapshot_revision, type: revision, required: true, nullable: false, description: Configured grant snapshot revision bound to the plan, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: positive_revision}
+      - {name: grant_snapshot_fingerprint, type: derived_fingerprint, required: true, nullable: false, description: Configured grant snapshot fingerprint bound to the plan, source: historical_core, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: fingerprint}
       - {name: atomic, type: boolean, required: true, nullable: false, description: All-or-nothing plan marker, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: must_be_true}
       - {name: action_set_fingerprint, type: derived_fingerprint, required: true, nullable: false, description: Canonical fingerprint of the complete action set, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: fingerprint}
       - {name: status, type: execution_plan_status, required: true, nullable: false, description: Closed plan status, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: allowlist}
@@ -1694,7 +1696,61 @@ contracts:
       - {name: request_fingerprint, type: derived_fingerprint, required: true, nullable: false, description: Canonical historical request fingerprint, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: fingerprint}
       - {name: requirement, type: planned_action_requirement, required: true, nullable: false, description: Required or optional action marker, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: allowlisted}
 
-  - id: synora.cge.execution-capability-grant.v1
+  - id: synora.cge.configured-execution-capability-grant.v1
+    category: configuration
+    owner: historical_core
+    producers: [historical_core]
+    consumers: [cge_execution_planner]
+    transport: internal
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Core-owned configured execution capability permission; it is selected by the planner but is not itself applied evidence.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: reject_unknown_values_and_preserve_grant_identity
+    retention_policy: process_lifetime
+    implementation: {kind: go_struct, package: synora/internal/cge, type: ConfiguredExecutionCapabilityGrant, wire_format: json, validator: ConfiguredExecutionCapabilityGrant.Validate}
+    fields:
+      - {name: schema_version, type: schema_version, required: true, nullable: false, description: Configured grant schema version, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: process_lifetime, validation: exact_version}
+      - {name: grant_id, type: derived_identifier, required: true, nullable: false, description: Stable configured grant identity, source: historical_core, trust: validated, sensitivity: operational, protection: derived_fingerprint_only, persistence: [], retention: process_lifetime, validation: non_empty_bounded}
+      - {name: capability, type: action_intent, required: true, nullable: false, description: Allowlisted capability permission, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: process_lifetime, validation: allowlisted}
+      - {name: action_type, type: action_type, required: false, nullable: false, description: Optional historical action restriction, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: process_lifetime, validation: allowlisted}
+      - {name: target, type: decision_target, required: true, nullable: false, description: Configured permission scope, source: historical_core, trust: validated, sensitivity: operational, protection: topology_preserved, persistence: [], retention: process_lifetime, validation: target}
+      - {name: authorization_policy_id, type: policy_identifier, required: false, nullable: false, description: Optional configured policy restriction, source: historical_core, trust: validated, sensitivity: operational, protection: derived_fingerprint_only, persistence: [], retention: process_lifetime, validation: non_empty_bounded}
+      - {name: max_priority, type: priority, required: false, nullable: false, description: Optional configured priority ceiling, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: process_lifetime, validation: bounded_integer}
+      - {name: valid_from, type: timestamp, required: true, nullable: false, description: Grant activation time, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: process_lifetime, validation: timestamp}
+      - {name: valid_until, type: timestamp, required: true, nullable: false, description: Grant expiration time, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: process_lifetime, validation: timestamp}
+      - {name: revision, type: revision, required: true, nullable: false, description: Configured grant revision, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: process_lifetime, validation: positive_revision}
+      - {name: enabled, type: boolean, required: true, nullable: false, description: Configuration enablement gate, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: process_lifetime, validation: boolean}
+      - {name: fingerprint, type: derived_fingerprint, required: true, nullable: false, description: Canonical configured grant fingerprint, source: historical_core, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [], retention: process_lifetime, validation: fingerprint}
+
+  - id: synora.cge.grant-snapshot.v1
+    category: configuration
+    owner: historical_core
+    producers: [historical_core]
+    consumers: [cge_execution_planner, cge_execution_plan_safety_kernel]
+    transport: internal
+    persistence: []
+    authority: diagnostic
+    trust: validated
+    sensitivity: operational
+    status: experimental
+    justification: Immutable Core configuration snapshot used to bind planning and post-plan validation to one grant revision.
+    migration_policy: schema_version_and_explicit_migration
+    compatibility_policy: preserve_snapshot_revision_and_fingerprint
+    retention_policy: process_lifetime
+    implementation: {kind: go_struct, package: synora/internal/cge, type: GrantSnapshot, wire_format: json, validator: GrantSnapshot.Validate}
+    fields:
+      - {name: schema_version, type: schema_version, required: true, nullable: false, description: Grant snapshot schema version, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: process_lifetime, validation: exact_version}
+      - {name: revision, type: revision, required: true, nullable: false, description: Grant snapshot revision, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: process_lifetime, validation: positive_revision}
+      - {name: captured_at, type: timestamp, required: true, nullable: false, description: Snapshot capture time, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: process_lifetime, validation: timestamp}
+      - {name: fresh_until, type: timestamp, required: true, nullable: false, description: Snapshot freshness deadline, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [], retention: process_lifetime, validation: timestamp}
+      - {name: grants, type: configured_execution_capability_grant_list, required: false, nullable: true, description: Bounded configured grants, source: historical_core, trust: validated, sensitivity: operational, protection: topology_preserved, persistence: [], retention: process_lifetime, validation: bounded_list}
+      - {name: fingerprint, type: derived_fingerprint, required: true, nullable: false, description: Canonical grant snapshot fingerprint, source: historical_core, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [], retention: process_lifetime, validation: fingerprint}
+
+  - id: synora.cge.applied-execution-grant.v1
     category: recommendation
     owner: cge_execution_planner
     producers: [cge_execution_planner]
@@ -1702,34 +1758,33 @@ contracts:
     transport: internal
     persistence: [synora.store.cge-execution-plans]
     authority: advisory
-    trust: validated
+    trust: derived
     sensitivity: operational
     status: experimental
-    justification: Bounded non-dispatching capability evidence bound to one complete dry-run plan action and its operational revisions.
+    justification: Applied evidence that a configured grant was selected for one dry-run action; it never authorizes dispatch.
     migration_policy: schema_version_and_explicit_migration
-    compatibility_policy: preserve_grant_binding_and_dry_run_gate
+    compatibility_policy: preserve_applied_grant_binding_and_dry_run_gate
     retention_policy: configured_execution_plan_retention
-    implementation: {kind: go_struct, package: synora/internal/cge, type: ExecutionCapabilityGrant, wire_format: json, validator: ExecutionCapabilityGrant.Validate}
+    implementation: {kind: go_struct, package: synora/internal/cge, type: AppliedExecutionGrant, wire_format: json, validator: AppliedExecutionGrant.Validate}
     fields:
-      - {name: schema_version, type: schema_version, required: true, nullable: false, description: Grant schema version, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: exact_version}
-      - {name: grant_id, type: derived_identifier, required: true, nullable: false, description: Deterministic grant identity, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: non_empty_bounded}
+      - {name: schema_version, type: schema_version, required: true, nullable: false, description: Applied grant schema version, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: exact_version}
+      - {name: applied_grant_id, type: derived_identifier, required: true, nullable: false, description: Deterministic applied evidence identity, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: non_empty_bounded}
+      - {name: configured_grant_id, type: derived_identifier, required: true, nullable: false, description: Selected configured grant identity, source: historical_core, trust: validated, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: non_empty_bounded}
       - {name: plan_id, type: derived_identifier, required: true, nullable: false, description: Plan binding, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: non_empty_bounded}
       - {name: decision_id, type: decision_identifier, required: true, nullable: false, description: Decision binding, source: cge_decision_authority, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: protected_reference}
       - {name: planned_action_id, type: derived_identifier, required: true, nullable: false, description: Planned action binding, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: non_empty_bounded}
       - {name: request_fingerprint, type: derived_fingerprint, required: true, nullable: false, description: Exact planned request binding, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: fingerprint}
-      - {name: capability, type: action_intent, required: true, nullable: false, description: Allowlisted operational capability, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: allowlisted}
-      - {name: action_type, type: action_type, required: true, nullable: false, description: Historical action type binding, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: allowlisted}
-      - {name: target, type: decision_target, required: true, nullable: false, description: Typed target binding, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: target}
+      - {name: capability, type: action_intent, required: true, nullable: false, description: Applied capability evidence, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: allowlisted}
+      - {name: action_type, type: action_type, required: true, nullable: false, description: Historical action binding, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: allowlisted}
+      - {name: target, type: decision_target, required: true, nullable: false, description: Applied target binding, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: target}
       - {name: state_revision, type: revision, required: true, nullable: false, description: Operational state revision binding, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: positive_revision}
       - {name: policy_revision, type: revision, required: true, nullable: false, description: Policy revision binding, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: positive_revision}
-      - {name: authorization_revision, type: revision, required: false, nullable: true, description: Optional authorization source revision binding, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: bounded_revision}
-      - {name: authorization_policy_id, type: policy_identifier, required: false, nullable: true, description: Approved policy binding when supplied, source: historical_core, trust: validated, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: non_empty_bounded}
-      - {name: issued_at, type: timestamp, required: true, nullable: false, description: Grant issuance timestamp, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: timestamp}
-      - {name: valid_until, type: timestamp, required: true, nullable: false, description: Grant expiration timestamp, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: timestamp}
-      - {name: status, type: execution_capability_grant_status, required: true, nullable: false, description: Closed grant lifecycle status, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: allowlist}
+      - {name: grant_snapshot_revision, type: revision, required: true, nullable: false, description: Grant snapshot revision binding, source: historical_core, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: positive_revision}
+      - {name: applied_at, type: timestamp, required: true, nullable: false, description: Applied evidence timestamp, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: timestamp}
+      - {name: valid_until, type: timestamp, required: true, nullable: false, description: Applied evidence expiration, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: timestamp}
       - {name: dry_run, type: boolean, required: true, nullable: false, description: Explicit dry-run marker, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: must_be_true}
       - {name: dispatch_eligible, type: boolean, required: true, nullable: false, description: Dispatch gate, source: cge_execution_planner, trust: validated, sensitivity: operational, protection: none, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: must_be_false}
-      - {name: fingerprint, type: derived_fingerprint, required: true, nullable: false, description: Canonical grant fingerprint, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: fingerprint}
+      - {name: fingerprint, type: derived_fingerprint, required: true, nullable: false, description: Canonical applied evidence fingerprint, source: cge_execution_planner, trust: derived, sensitivity: operational, protection: derived_fingerprint_only, persistence: [synora.store.cge-execution-plans], retention: configured_store_policy, validation: fingerprint}
 
   - id: synora.cge.execution-plan-comparison.v1
     category: historical_comparison

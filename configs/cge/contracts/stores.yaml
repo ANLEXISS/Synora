@@ -59,7 +59,7 @@ stores:
     sensitivity: operational
     migration: version_field_required; no_automatic_migration
     authority: advisory
-    contract_refs: [synora.cge.execution-plan.v1, synora.cge.execution-capability-grant.v1, synora.cge.execution-plan-comparison.v1]
+    contract_refs: [synora.cge.execution-plan.v1, synora.cge.applied-execution-grant.v1, synora.cge.execution-plan-comparison.v1]
     durable: true
     clear_secret_allowed: false
     clear_biometric_allowed: false

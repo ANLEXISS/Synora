@@ -19,7 +19,11 @@ func planningDecision(now time.Time, target DecisionTarget, intents ...string) D
 }
 
 func planningSnapshot(now time.Time, target DecisionTarget) OperationalSnapshot {
-	return OperationalSnapshot{CapturedAt: now, FreshUntil: now.Add(10 * time.Minute), Revision: 7, PolicyRevision: 11, AuthorityMode: AuthorityModeAdvisory, Targets: []OperationalTarget{{Target: target, Exists: true, CurrentRevision: 7, Capabilities: []string{"record_clip"}, Authorization: OperationalAuthorization{Known: true, Authorized: true, PolicyID: "alarm-policy-1", Revision: 11}, PhysicalLimits: OperationalPhysicalLimits{Known: true, MaxValue: 100}}}}
+	grant := ConfiguredExecutionCapabilityGrant{SchemaVersion: ConfiguredExecutionCapabilityGrantSchemaVersion, GrantID: "configured-record-1", Capability: "record_clip", ActionType: "record.clip", Target: target, ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(time.Hour), Revision: 3, Enabled: true}
+	grant.Fingerprint = ConfiguredExecutionCapabilityGrantFingerprint(grant)
+	grantSnapshot := GrantSnapshot{SchemaVersion: GrantSnapshotSchemaVersion, Revision: 3, CapturedAt: now, FreshUntil: now.Add(time.Hour), Grants: []ConfiguredExecutionCapabilityGrant{grant}}
+	grantSnapshot.Fingerprint = GrantSnapshotFingerprint(grantSnapshot)
+	return OperationalSnapshot{CapturedAt: now, FreshUntil: now.Add(10 * time.Minute), Revision: 7, PolicyRevision: 11, GrantSnapshot: grantSnapshot, AuthorityMode: AuthorityModeAdvisory, Targets: []OperationalTarget{{Target: target, Exists: true, CurrentRevision: 7, Capabilities: []string{"record_clip"}, Authorization: OperationalAuthorization{Known: true, Authorized: true, PolicyID: "alarm-policy-1", Revision: 11}, PhysicalLimits: OperationalPhysicalLimits{Known: true, MaxValue: 100}}}}
 }
 
 func TestCGEExecutionModeDefaultsAndRejectsUnknown(t *testing.T) {
@@ -61,7 +65,7 @@ func TestGovernedExecutionPlanIsDeterministicAndResolvesKnownCamera(t *testing.T
 	if first.Actions[0].ActionType != "record.clip" || first.Actions[0].Target.ID != "camera-1" {
 		t.Fatalf("unexpected action: %#v", first.Actions[0])
 	}
-	if !first.Atomic || len(first.CapabilityGrants) != len(first.Actions) || first.CapabilityGrants[0].PlannedActionID != first.Actions[0].PlannedActionID || first.CapabilityGrants[0].RequestFingerprint != first.Actions[0].RequestFingerprint {
+	if !first.Atomic || len(first.AppliedGrants) != len(first.Actions) || first.AppliedGrants[0].ConfiguredGrantID != "configured-record-1" || first.AppliedGrants[0].PlannedActionID != first.Actions[0].PlannedActionID || first.AppliedGrants[0].RequestFingerprint != first.Actions[0].RequestFingerprint {
 		t.Fatalf("plan is not atomically granted: %#v", first)
 	}
 	if err := first.Validate(); err != nil {
@@ -77,7 +81,7 @@ func TestGovernedExecutionPlanRejectsPartialResolution(t *testing.T) {
 	if !errors.Is(err, ErrUnsupportedIntent) {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(plan.Actions) != 0 || len(plan.CapabilityGrants) != 0 || plan.Status != ExecutionPlanUnsupported {
+	if len(plan.Actions) != 0 || len(plan.AppliedGrants) != 0 || plan.Status != ExecutionPlanUnsupported {
 		t.Fatalf("partial plan escaped refusal: %#v", plan)
 	}
 	if err := plan.Validate(); err != nil {
@@ -94,6 +98,15 @@ func TestGovernedExecutionPlanResolvesMultipleOperationalCapabilities(t *testing
 		{Target: DecisionTarget{Kind: DecisionTargetDevice, ID: "light-a"}, Exists: true, NodeID: "room-a", ZoneID: "zone-a", Capabilities: []string{"light_on"}, Authorization: OperationalAuthorization{Known: true, Authorized: true}, PhysicalLimits: OperationalPhysicalLimits{Known: true, MaxValue: 100}},
 		{Target: decision.Target, Exists: true},
 	}
+	lightGrants := []ConfiguredExecutionCapabilityGrant{
+		{SchemaVersion: ConfiguredExecutionCapabilityGrantSchemaVersion, GrantID: "configured-light-a", Capability: "turn_on_relevant_lights", ActionType: "light.on", Target: decision.Target, ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(time.Hour), Revision: 3, Enabled: true},
+		{SchemaVersion: ConfiguredExecutionCapabilityGrantSchemaVersion, GrantID: "configured-light-b", Capability: "turn_on_relevant_lights", ActionType: "light.on", Target: decision.Target, ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(time.Hour), Revision: 3, Enabled: true},
+	}
+	for i := range lightGrants {
+		lightGrants[i].Fingerprint = ConfiguredExecutionCapabilityGrantFingerprint(lightGrants[i])
+	}
+	snapshot.GrantSnapshot.Grants = lightGrants
+	snapshot.GrantSnapshot.Fingerprint = GrantSnapshotFingerprint(snapshot.GrantSnapshot)
 	decision.Constraints.RequiresAuthorization = false
 	plan, err := (DefaultGovernedExecutionPlanner{Now: func() time.Time { return now }}).BuildPlan(context.Background(), decision, snapshot)
 	if err != nil {
@@ -119,6 +132,46 @@ func TestGovernedExecutionPlanRejectsMissingOperationalCapability(t *testing.T) 
 	_, err := (DefaultGovernedExecutionPlanner{Now: func() time.Time { return now }}).BuildPlan(context.Background(), planningDecision(now, target, "record_clip"), snapshot)
 	if !errors.Is(err, ErrOperationalCapabilityUnavailable) {
 		t.Fatalf("missing capability accepted: %v", err)
+	}
+}
+
+func TestGovernedExecutionPlanRequiresConfiguredGrant(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	target := DecisionTarget{Kind: DecisionTargetDevice, ID: "camera-1"}
+	snapshot := planningSnapshot(now, target)
+	snapshot.GrantSnapshot.Grants = nil
+	snapshot.GrantSnapshot.Fingerprint = GrantSnapshotFingerprint(snapshot.GrantSnapshot)
+	plan, err := (DefaultGovernedExecutionPlanner{Now: func() time.Time { return now }}).BuildPlan(context.Background(), planningDecision(now, target, "record_clip"), snapshot)
+	if !errors.Is(err, ErrExecutionGrantUnavailable) {
+		t.Fatalf("configured grant absence was not refused: %v", err)
+	}
+	if plan.Status != ExecutionPlanDenied || len(plan.Actions) != 0 || len(plan.AppliedGrants) != 0 {
+		t.Fatalf("grant refusal was not atomic: %#v", plan)
+	}
+}
+
+func TestConfiguredGrantSnapshotLoadsAndAppliedEvidenceIsNotAuthorization(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	path := filepath.Join(t.TempDir(), "grants.yaml")
+	content := "schema_version: " + ConfiguredExecutionCapabilityGrantSchemaVersion + "\nrevision: 4\ngrants:\n  - grant_id: configured-camera\n    capability: record_clip\n    action_type: record.clip\n    target:\n      kind: device\n      id: camera-1\n    valid_from: 2026-07-30T11:00:00Z\n    valid_until: 2026-07-30T13:00:00Z\n    revision: 4\n    enabled: true\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := LoadConfiguredExecutionGrantSnapshot(path, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Revision != 4 || len(snapshot.Grants) != 1 || !snapshot.Grants[0].Enabled {
+		t.Fatalf("unexpected configured snapshot: %#v", snapshot)
+	}
+	planning := planningSnapshot(now, DecisionTarget{Kind: DecisionTargetDevice, ID: "camera-1"})
+	planning.GrantSnapshot = snapshot
+	plan, err := (DefaultGovernedExecutionPlanner{Now: func() time.Time { return now }}).BuildPlan(context.Background(), planningDecision(now, planning.Targets[0].Target, "record_clip"), planning)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.AppliedGrants) != 1 || plan.AppliedGrants[0].ConfiguredGrantID != "configured-camera" || plan.AppliedGrants[0].GrantSnapshotRevision != 4 {
+		t.Fatalf("configured grant was not applied as evidence: %#v", plan.AppliedGrants)
 	}
 }
 
@@ -180,9 +233,9 @@ func TestExecutionPlanSafetyKernelRejectsStaleAndUnknownAuthorization(t *testing
 		t.Fatal("unknown authorization accepted")
 	}
 	grantStale := plan
-	grantStale.CapabilityGrants = append([]ExecutionCapabilityGrant(nil), plan.CapabilityGrants...)
-	grantStale.CapabilityGrants[0].PolicyRevision++
-	grantStale.CapabilityGrants[0].Fingerprint = ExecutionCapabilityGrantFingerprint(grantStale.CapabilityGrants[0])
+	grantStale.AppliedGrants = append([]AppliedExecutionGrant(nil), plan.AppliedGrants...)
+	grantStale.AppliedGrants[0].PolicyRevision++
+	grantStale.AppliedGrants[0].Fingerprint = AppliedExecutionGrantFingerprint(grantStale.AppliedGrants[0])
 	if verdict := kernel.ValidatePlan(context.Background(), decision, grantStale, snapshot); verdict.Allowed {
 		t.Fatal("stale capability grant accepted")
 	}

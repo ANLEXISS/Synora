@@ -512,6 +512,7 @@ type OperationalSnapshot struct {
 	FreshUntil             time.Time           `json:"fresh_until" yaml:"fresh_until"`
 	Revision               uint64              `json:"revision" yaml:"revision"`
 	PolicyRevision         uint64              `json:"policy_revision" yaml:"policy_revision"`
+	GrantSnapshot          GrantSnapshot       `json:"grant_snapshot" yaml:"grant_snapshot"`
 	AuthorityMode          AuthorityMode       `json:"authority_mode" yaml:"authority_mode"`
 	Targets                []OperationalTarget `json:"targets,omitempty" yaml:"targets,omitempty"`
 	UsedIdempotencyKeys    []string            `json:"used_idempotency_keys,omitempty" yaml:"used_idempotency_keys,omitempty"`
@@ -1411,7 +1412,7 @@ func cloneExecutionPlanPtr(plan *ExecutionPlan) *ExecutionPlan {
 	}
 	copy := *plan
 	copy.Actions = append([]PlannedAction(nil), plan.Actions...)
-	copy.CapabilityGrants = append([]ExecutionCapabilityGrant(nil), plan.CapabilityGrants...)
+	copy.AppliedGrants = append([]AppliedExecutionGrant(nil), plan.AppliedGrants...)
 	copy.FailureCodes = append([]string(nil), plan.FailureCodes...)
 	return &copy
 }
@@ -1430,6 +1431,8 @@ func planFailureCode(err error) string {
 		return ErrPhysicalLimitUnknown.Error()
 	case errors.Is(err, ErrOperationalCapabilityUnavailable):
 		return ErrOperationalCapabilityUnavailable.Error()
+	case errors.Is(err, ErrExecutionGrantUnavailable):
+		return ErrExecutionGrantUnavailable.Error()
 	case errors.Is(err, ErrInvalidExecutionParameters):
 		return ErrInvalidExecutionParameters.Error()
 	default:

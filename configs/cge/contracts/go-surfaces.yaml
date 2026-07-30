@@ -6,7 +6,7 @@ packages:
     types: [Message, Event, Decision, ActionRequest]
   - import: synora/internal/cge
     role: cge_engine_boundary_and_outputs
-    types: [Event, ObservationResult, Snapshot, Explanation, ShadowAdmissionStatus, FeedbackFile, AuthorityMode, DecisionEnvelope, Decision, Recommendation, RecommendationMarkers, ExecutionRequest, ExecutionPlan, PlannedAction, ExecutionCapabilityGrant, ExecutionPlanComparison, ActionResult, SafetyVerdict, InvariantViolation, ChainReference, DecisionTarget, DecisionConstraints, DecisionRecord, ActiveExecutionLease, DecisionPublication, ChainGovernanceRecord, ChainVersion, PromotionEvidence]
+    types: [Event, ObservationResult, Snapshot, Explanation, ShadowAdmissionStatus, FeedbackFile, AuthorityMode, DecisionEnvelope, Decision, Recommendation, RecommendationMarkers, ExecutionRequest, ExecutionPlan, PlannedAction, ConfiguredExecutionCapabilityGrant, GrantSnapshot, AppliedExecutionGrant, ExecutionPlanComparison, ActionResult, SafetyVerdict, InvariantViolation, ChainReference, DecisionTarget, DecisionConstraints, DecisionRecord, ActiveExecutionLease, DecisionPublication, ChainGovernanceRecord, ChainVersion, PromotionEvidence]
   - import: synora/internal/cge/chains
     role: durable_observation
     types: [ObservationRef]

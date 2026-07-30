@@ -74,14 +74,45 @@ func (p *coreOperationalSnapshotProvider) SnapshotForDecision(ctx context.Contex
 	if p.app.policy != nil {
 		policyRevision = p.app.policy.Revision()
 	}
+	grantSnapshot := p.app.executionGrants.Clone()
+	if grantSnapshot.SchemaVersion == "" {
+		grantSnapshot = cge.EmptyGrantSnapshot(now)
+	}
+	grantSnapshot = p.protectConfiguredGrantTargets(grantSnapshot)
 	return cge.OperationalSnapshot{
 		CapturedAt: now, FreshUntil: now.Add(5 * time.Second), Revision: revision, PolicyRevision: policyRevision,
+		GrantSnapshot:       grantSnapshot,
 		AuthorityMode:       p.app.cognitiveAuthorityMode(),
 		Targets:             p.operationalTargets(target, revision, exists),
 		UsedIdempotencyKeys: usedKeys, ConflictingDecisionIDs: conflictingIDs,
 		CurrentSystemState: system.LastState,
 		SecurityMode:       string(system.Security.Mode),
 	}, nil
+}
+
+func (p *coreOperationalSnapshotProvider) protectConfiguredGrantTargets(snapshot cge.GrantSnapshot) cge.GrantSnapshot {
+	if p == nil || p.app == nil || p.app.device == nil {
+		return snapshot
+	}
+	for index := range snapshot.Grants {
+		grant := &snapshot.Grants[index]
+		if grant.Target.Kind != cge.DecisionTargetDevice {
+			continue
+		}
+		protected := false
+		for rawID := range p.app.device.List() {
+			if durableids.ProtectRaw(durableids.KindDevice, rawID) == grant.Target.ID {
+				protected = true
+				break
+			}
+		}
+		if !protected {
+			grant.Target.ID = durableids.ProtectRaw(durableids.KindDevice, grant.Target.ID)
+			grant.Fingerprint = cge.ConfiguredExecutionCapabilityGrantFingerprint(*grant)
+		}
+	}
+	snapshot.Fingerprint = cge.GrantSnapshotFingerprint(snapshot)
+	return snapshot
 }
 
 func (p *coreOperationalSnapshotProvider) operationalTargets(requested cge.DecisionTarget, revision uint64, requestedExists bool) []cge.OperationalTarget {
