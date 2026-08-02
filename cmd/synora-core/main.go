@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -15,8 +18,10 @@ import (
 	"synora/internal/automation"
 	"synora/internal/bus"
 	"synora/internal/cge"
+	"synora/internal/cge/decisioncomparison"
 	"synora/internal/device"
 	"synora/internal/engine"
+	cgecontracts "synora/internal/engine/contracts"
 	eventpkg "synora/internal/event"
 	"synora/internal/idgen"
 	"synora/internal/ingest"
@@ -29,11 +34,13 @@ import (
 )
 
 const (
-	defaultCGECriticalChainsPath     = "/etc/synora/cge_critical_chains.yaml"
-	developmentCGECriticalChainsPath = "configs/cge_critical_chains.yaml"
-	defaultCGEProfilePath            = "/etc/synora/cge_profile.yaml"
-	defaultCGEFeedbackPath           = "/var/lib/synora/cge/feedback.json"
-	defaultActionPolicyPath          = "/etc/synora/action_policy.yaml"
+	defaultCGECriticalChainsPath      = "/etc/synora/cge_critical_chains.yaml"
+	developmentCGECriticalChainsPath  = "configs/cge_critical_chains.yaml"
+	defaultCGEProfilePath             = "/etc/synora/cge_profile.yaml"
+	defaultCGEExecutionGrantsPath     = "/etc/synora/cge_execution_grants.yaml"
+	developmentCGEExecutionGrantsPath = "configs/cge_execution_grants.yaml"
+	defaultCGEFeedbackPath            = "/var/lib/synora/cge/feedback.json"
+	defaultActionPolicyPath           = "/etc/synora/action_policy.yaml"
 )
 
 type coreMetrics struct {
@@ -49,12 +56,14 @@ type coreApp struct {
 	mu sync.RWMutex
 
 	snapshotPending atomic.Bool
+	coreRevision    atomic.Uint64
 
-	bus        coreBus
-	engine     *engine.Engine
-	automation *automation.Engine
-	policy     *actionpolicy.Store
-	device     *device.Registry
+	bus             coreBus
+	engine          *engine.Engine
+	automation      *automation.Engine
+	policy          *actionpolicy.Store
+	device          *device.Registry
+	executionGrants cge.GrantSnapshot
 
 	topology  *topology.Topology
 	residents map[string]*topology.Resident
@@ -71,6 +80,7 @@ type coreApp struct {
 	highPriority      chan *contract.Event
 	normalQueue       chan *contract.Event
 	rpcQueue          chan contract.Message
+	processStop       <-chan struct{}
 	ingest            *ingest.Queue
 	rpc               *corerpc.Server
 	snapshotBuilder   *snapshotpkg.Builder
@@ -157,16 +167,31 @@ func main() {
 	if err := policyStore.Load(); err != nil {
 		log.Println("action policy load warning:", err)
 	}
+	executionGrants := cge.EmptyGrantSnapshot(time.Now().UTC())
+	executionGrantsPath := getenv("SYNORA_CGE_EXECUTION_GRANTS", defaultCGEExecutionGrantsPath)
+	if _, err := os.Stat(executionGrantsPath); os.IsNotExist(err) && executionGrantsPath == defaultCGEExecutionGrantsPath {
+		executionGrantsPath = developmentCGEExecutionGrantsPath
+	}
+	if loaded, err := cge.LoadConfiguredExecutionGrantSnapshot(executionGrantsPath, time.Now().UTC()); err != nil {
+		log.Println("cge execution grants load warning:", err)
+	} else {
+		executionGrants = loaded
+	}
 	rateController := eventpkg.NewRateController(2*time.Second, 750*time.Millisecond)
 	dangerRuntime := cge.NewDangerRuntime(profileStore.Get().DangerDecay)
 	dangerRuntime.SetDebug(getenvBool("SYNORA_CGE_DEBUG", false))
 
 	var cognitiveEngine cge.CognitiveEngine = cge.NewNoopEngine()
+	var configuredShadow *cge.ShadowEngine
 	shadowConfig, shadowConfigErr := cge.LoadShadowConfig(os.Getenv)
 	if shadowConfigErr != nil {
+		if errors.Is(shadowConfigErr, cge.ErrInvalidAuthorityMode) {
+			log.Fatalf("invalid CGE authority mode: %v", shadowConfigErr)
+		}
 		log.Printf("cge shadow unavailable code=%s", cge.ErrorCode(shadowConfigErr))
 	} else if shadowConfig.Enabled {
-		configuredShadow, err := cge.NewShadowEngineWithConfig(context.Background(), shadowConfig, cge.SystemClock{}, log.Default())
+		var err error
+		configuredShadow, err = cge.NewShadowEngineWithConfig(context.Background(), shadowConfig, cge.SystemClock{}, log.Default())
 		if err != nil {
 			log.Printf("cge shadow unavailable code=%s", cge.ErrorCode(err))
 		} else {
@@ -176,24 +201,59 @@ func main() {
 	}
 
 	app := &coreApp{
-		bus:          busClient,
-		engine:       engineInstance,
-		automation:   automationEngine,
-		policy:       policyStore,
-		device:       deviceRegistry,
-		topology:     topologyInstance,
-		residents:    residents,
-		state:        stateStore,
-		eventStore:   eventStore,
-		chains:       chainManager,
-		danger:       dangerRuntime,
-		profile:      profileStore,
-		cognitive:    cognitiveEngine,
-		rate:         rateController,
-		metrics:      &coreMetrics{sourceLastSeen: map[string]time.Time{}},
-		highPriority: make(chan *contract.Event, 128),
-		normalQueue:  make(chan *contract.Event, 512),
-		rpcQueue:     make(chan contract.Message, 256),
+		bus:             busClient,
+		engine:          engineInstance,
+		automation:      automationEngine,
+		policy:          policyStore,
+		device:          deviceRegistry,
+		topology:        topologyInstance,
+		residents:       residents,
+		executionGrants: executionGrants,
+		state:           stateStore,
+		eventStore:      eventStore,
+		chains:          chainManager,
+		danger:          dangerRuntime,
+		profile:         profileStore,
+		cognitive:       cognitiveEngine,
+		rate:            rateController,
+		metrics:         &coreMetrics{sourceLastSeen: map[string]time.Time{}},
+		highPriority:    make(chan *contract.Event, 128),
+		normalQueue:     make(chan *contract.Event, 512),
+		rpcQueue:        make(chan contract.Message, 256),
+	}
+	if configuredShadow != nil {
+		configuredShadow.SetContextProvider(newCoreReadOnlyContextProvider(app))
+		var catalogMu sync.Mutex
+		var catalogFingerprint string
+		var catalogRevision uint64
+		configuredShadow.SetCatalogProvider(cge.FunctionalCognitiveChainCatalogProvider(func(ctx context.Context) (cge.CognitiveChainCatalogSnapshot, error) {
+			if err := ctx.Err(); err != nil {
+				return cge.CognitiveChainCatalogSnapshot{}, err
+			}
+			critical, behaviors, sequences := engineInstance.CriticalSeeds(), engineInstance.LearnedBehaviors(), engineInstance.LearnedSequences()
+			payload, err := json.Marshal(struct {
+				Critical  any
+				Behaviors any
+				Sequences any
+			}{critical, behaviors, sequences})
+			if err != nil {
+				return cge.CognitiveChainCatalogSnapshot{}, err
+			}
+			digest := fmt.Sprintf("%x", sha256.Sum256(payload))
+			catalogMu.Lock()
+			if digest != catalogFingerprint {
+				catalogRevision++
+				catalogFingerprint = digest
+			}
+			if catalogRevision == 0 {
+				catalogRevision = 1
+			}
+			revision := catalogRevision
+			catalogMu.Unlock()
+			return (cge.CognitiveChainCatalogSnapshot{Revision: revision, CriticalSeeds: critical, LearnedBehaviors: behaviors, LearnedSequences: sequences, CapturedAt: time.Now().UTC()}).Clone(), nil
+		}))
+		configuredShadow.SetOperationalSnapshotProvider(&coreOperationalSnapshotProvider{app: app})
+		configuredShadow.SetDecisionPublicationSink(&coreDecisionPublicationSink{bus: app.bus})
 	}
 	defer app.closeCognitive()
 	app.snapshotBuilder = &snapshotpkg.Builder{
@@ -382,10 +442,14 @@ func (a *coreApp) rpcLoop() {
 func (a *coreApp) processLoop() {
 	for {
 		select {
+		case <-a.processStop:
+			return
 		case event := <-a.highPriority:
 			a.processEvent(event)
 		default:
 			select {
+			case <-a.processStop:
+				return
 			case event := <-a.highPriority:
 				a.processEvent(event)
 			case event := <-a.normalQueue:
@@ -400,11 +464,14 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	if event == nil {
 		return
 	}
+	a.coreRevision.Add(1)
 	// Capture the boundary DTO before the historical engine can normalize or
 	// enrich the source event. The deferred call keeps this observer after the
 	// existing processing path and cannot affect its result.
 	cgeEvent := cge.EventFromContract(event)
-	defer a.observeCGE(cgeEvent)
+	var historicalDecision *decisioncomparison.HistoricalDecisionRef
+	historicalChainID := ""
+	defer func() { a.observeCGE(cgeEvent, historicalDecision, historicalChainID) }()
 
 	stateapply.TouchDeviceState(a.state, a.device, event)
 	a.recordRuntimeEvent(event)
@@ -415,6 +482,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	if event.Type == contract.EventActionResult {
 		a.engine.ObserveActionResult(event)
 		a.storeActionResult(event)
+		a.forwardCGEActionResult(event)
 		a.metrics.record(event.Source, 0)
 		a.triggerSnapshot()
 		return
@@ -460,6 +528,20 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	if event.SequenceKey == "" && result != nil && result.Decision != nil {
 		event.SequenceKey = result.Decision.SequenceKey
 	}
+	// Preserve the exact historical Critical Seed match for the deferred CGE
+	// path. Only its bounded identifier crosses the boundary.
+	if result != nil && result.DangerAssessment != nil {
+		historicalChainID = result.DangerAssessment.MatchedSeedID
+	}
+	if historicalChainID == "" && result != nil && result.Decision != nil {
+		for _, behavior := range a.engine.LearnedBehaviors() {
+			if behavior.ID == "" || behavior.TriggerSequenceSignature == "" || behavior.TriggerSequenceSignature != result.Decision.SequenceKey || behavior.Status != cgecontracts.LearnedBehaviorApproved || !behavior.Enabled || behavior.Forgotten {
+				continue
+			}
+			historicalChainID = behavior.ID
+			break
+		}
+	}
 
 	if result != nil &&
 		result.Decision != nil {
@@ -477,6 +559,11 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	stateChanged := stateapply.Apply(a.state, result, stateapply.Callbacks{
 		SyncPresence: a.syncResidentPresence,
 	})
+	if ref, refErr := buildHistoricalDecisionRef(event, result, previousSystemState, a.state.SystemState(), stateChanged); refErr != nil {
+		log.Printf("core: historical decision comparison reference rejected code=%s", cge.ErrorCode(refErr))
+	} else {
+		historicalDecision = ref
+	}
 	if isManualRiskEvent(event) {
 		stateChanged = a.applyManualRiskState(event, stateChanged, previousSystemState)
 	} else if result != nil && result.DangerAssessment != nil && !eventIsSimulated(event) {
@@ -503,6 +590,15 @@ func (a *coreApp) processEvent(event *contract.Event) {
 			decision = a.automationContextDecision(event)
 		}
 		requests := a.automation.EvaluateRequests(event, decision)
+		if historicalDecision != nil {
+			for _, request := range requests {
+				captured := cge.HistoricalActionRequestFromContract(request, decision.Priority, "historical_request_created")
+				historicalDecision.HistoricalActions = append(historicalDecision.HistoricalActions, decisioncomparison.HistoricalActionRef{
+					ID: captured.ID, ActionType: captured.ActionType, Target: captured.Target, Priority: captured.Priority,
+					RequestFingerprint: captured.RequestFingerprint, CreatedAtUnixNano: captured.CreatedAt.UnixNano(), PolicyResult: captured.PolicyResult,
+				})
+			}
+		}
 		if result != nil && result.Decision != nil && len(requests) == 0 && !hasPolicyPlan(result.Decision) && result.DangerAssessment != nil && result.DangerAssessment.Level >= 3 {
 			result.Decision.ActionDecision = "blocked"
 			result.Decision.BlockedActions = appendUniqueString(result.Decision.BlockedActions, "no_matching_automation")
@@ -581,7 +677,28 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	a.triggerSnapshot()
 }
 
-func (a *coreApp) observeCGE(event cge.Event) {
+func (a *coreApp) forwardCGEActionResult(event *contract.Event) {
+	if a == nil || a.cognitive == nil || event == nil || len(event.Payload) == 0 {
+		return
+	}
+	receiver, ok := a.cognitive.(cge.ActionFeedbackReceiver)
+	if !ok {
+		return
+	}
+	var result cge.ActionResult
+	body, err := json.Marshal(event.Payload)
+	if err != nil || json.Unmarshal(body, &result) != nil || result.SchemaVersion == "" {
+		return
+	}
+	if result.Timestamp.IsZero() {
+		result.Timestamp = event.Timestamp
+	}
+	if err := receiver.RecordActionResult(context.Background(), result); err != nil {
+		log.Printf("core: cge action result rejected code=%s", cge.ErrorCode(err))
+	}
+}
+
+func (a *coreApp) observeCGE(event cge.Event, historical *decisioncomparison.HistoricalDecisionRef, chainID string) {
 	if a == nil || a.cognitive == nil {
 		return
 	}
@@ -590,6 +707,26 @@ func (a *coreApp) observeCGE(event cge.Event) {
 			log.Println("core: cge observation panicked; ignored code=panic_recovered")
 		}
 	}()
+	if historical != nil {
+		if observer, ok := a.cognitive.(cge.ChainAwareHistoricalDecisionObserver); ok {
+			if _, err := observer.ObserveHistoricalDecisionWithChain(context.Background(), event, historical.Clone(), chainID); err != nil {
+				log.Printf("core: cge historical comparison observation error ignored code=%s", cge.ErrorCode(err))
+			}
+			return
+		}
+		if observer, ok := a.cognitive.(cge.HistoricalDecisionObserver); ok {
+			if _, err := observer.ObserveHistoricalDecision(context.Background(), event, historical.Clone()); err != nil {
+				log.Printf("core: cge historical comparison observation error ignored code=%s", cge.ErrorCode(err))
+			}
+			return
+		}
+	}
+	if observer, ok := a.cognitive.(cge.ChainAwareObserver); ok {
+		if _, err := observer.ObserveWithChain(context.Background(), event, chainID); err != nil {
+			log.Printf("core: cge observation error ignored code=%s", cge.ErrorCode(err))
+		}
+		return
+	}
 	if _, err := a.cognitive.Observe(context.Background(), event); err != nil {
 		log.Printf("core: cge observation error ignored code=%s", cge.ErrorCode(err))
 	}

@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"encoding/json"
 	"sort"
 	"sync"
 	"time"
@@ -46,13 +47,58 @@ func (b *Builder) SetTopology(value *topology.Topology) {
 func (b *Builder) LegacySnapshot() *contract.Snapshot {
 	return &contract.Snapshot{
 		Structure: contract.StructureSnapshot{
-			Topology: b.TopologyTreeViews(),
-			Devices:  b.DeviceViews(),
+			Topology: legacyTopologyNodes(b.TopologyTreeViews()),
+			Devices:  legacyDeviceViews(b.DeviceViews()),
 		},
 		Residents: contract.ResidentsSnapshot{
-			Residents: b.ResidentViews(),
+			Residents: legacyResidentViews(b.ResidentViews()),
 		},
 	}
+}
+
+func legacyTopologyNodes(values []map[string]any) []contract.LegacyTopologyNode {
+	result := make([]contract.LegacyTopologyNode, 0, len(values))
+	for _, value := range values {
+		data, err := json.Marshal(value)
+		if err != nil {
+			continue
+		}
+		item, err := contract.NewLegacyTopologyNodeJSON(data)
+		if err == nil {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func legacyDeviceViews(values []map[string]any) []contract.LegacyDeviceView {
+	result := make([]contract.LegacyDeviceView, 0, len(values))
+	for _, value := range values {
+		data, err := json.Marshal(value)
+		if err != nil {
+			continue
+		}
+		item, err := contract.NewLegacyDeviceViewJSON(data)
+		if err == nil {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func legacyResidentViews(values []map[string]any) []contract.LegacyResidentView {
+	result := make([]contract.LegacyResidentView, 0, len(values))
+	for _, value := range values {
+		data, err := json.Marshal(value)
+		if err != nil {
+			continue
+		}
+		item, err := contract.NewLegacyResidentViewJSON(data)
+		if err == nil {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func (b *Builder) CoreState() map[string]any {

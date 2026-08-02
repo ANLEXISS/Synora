@@ -65,6 +65,11 @@ func PlanIngest(snapshot Snapshot, observation ObservationRef, topology Topology
 	if snapshot.PolicyFingerprint != "" && snapshot.PolicyFingerprint != policy.Fingerprint() {
 		return IngestPlan{}, fmt.Errorf("%w: policy fingerprint", ErrInvalidSnapshot)
 	}
+	if validator, ok := topology.(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return IngestPlan{}, fmt.Errorf("%w: topology", ErrInvalidTopology)
+		}
+	}
 	plan := IngestPlan{Decision: DecisionCreateEpisode, ObservationEventID: observation.EventID, SourceRevision: snapshot.Revision, PolicyFingerprint: policy.Fingerprint()}
 	if _, exists := snapshot.EventIndex[observation.EventID]; exists {
 		plan.Decision = DecisionDuplicate
@@ -85,6 +90,24 @@ func PlanIngest(snapshot Snapshot, observation ObservationRef, topology Topology
 		candidates = candidates[:policy.MaxCandidates]
 	}
 	plan.Candidates = candidates
+	for _, candidate := range candidates {
+		episode, found := episodeByID(snapshot, candidate.EpisodeID)
+		if !found {
+			continue
+		}
+		late := false
+		for _, reason := range candidate.Reasons {
+			if reason.Code == "time.before_episode" && reason.Available {
+				late = true
+				break
+			}
+		}
+		if late && observation.ObservedAt.Before(episode.StartedAt) && episode.StartedAt.Sub(observation.ObservedAt) > policy.LateObservationGrace {
+			plan.Decision = DecisionRejected
+			plan.ReasonCodes = []string{"late_observation_outside_grace"}
+			return plan, nil
+		}
+	}
 	eligible := make([]CandidateAssessment, 0, len(candidates))
 	for _, candidate := range candidates {
 		if candidate.Eligible {
@@ -127,6 +150,15 @@ func PlanIngest(snapshot Snapshot, observation ObservationRef, topology Topology
 	}
 	plan.ReasonCodes = []string{"episode.create_below_attach_threshold"}
 	return plan, nil
+}
+
+func episodeByID(snapshot Snapshot, id EpisodeID) (EpisodeSnapshot, bool) {
+	for _, episode := range snapshot.Episodes {
+		if episode.ID == id {
+			return episode, true
+		}
+	}
+	return EpisodeSnapshot{}, false
 }
 
 func subjectFingerprint(subject SubjectRef) string {

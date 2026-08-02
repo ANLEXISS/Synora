@@ -275,9 +275,14 @@ func scoreCandidate(episode EpisodeSnapshot, observation ObservationRef, topolog
 		addFactor(&assessment.Reasons, "routine.shared", true, 20, false)
 	}
 
+	if observation.ContextQuality == "partial" {
+		addFactor(&assessment.Reasons, "context.partial", true, 0, false)
+	}
 	if observation.HouseMode != "" || observation.Occupancy != "" {
+		houseCompared, occupancyCompared := false, false
 		for _, existing := range episode.Observations {
 			if observation.HouseMode != "" && existing.HouseMode != "" {
+				houseCompared = true
 				if observation.HouseMode == existing.HouseMode {
 					addFactor(&assessment.Reasons, "context.house_mode_same", true, 10, false)
 				} else {
@@ -288,6 +293,7 @@ func scoreCandidate(episode EpisodeSnapshot, observation ObservationRef, topolog
 		}
 		for _, existing := range episode.Observations {
 			if observation.Occupancy != "" && existing.Occupancy != "" {
+				occupancyCompared = true
 				if observation.Occupancy == existing.Occupancy {
 					addFactor(&assessment.Reasons, "context.occupancy_same", true, 10, false)
 				} else {
@@ -295,6 +301,9 @@ func scoreCandidate(episode EpisodeSnapshot, observation ObservationRef, topolog
 				}
 				break
 			}
+		}
+		if !houseCompared && !occupancyCompared && observation.ContextQuality != "partial" {
+			addFactor(&assessment.Reasons, "context.missing", false, 0, false)
 		}
 	} else {
 		addFactor(&assessment.Reasons, "context.missing", false, 0, false)

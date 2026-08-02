@@ -57,21 +57,23 @@ type TemporalContext struct {
 }
 
 type Frame struct {
-	SchemaVersion    SchemaVersion   `json:"schema_version"`
-	ObservationID    string          `json:"observation_id"`
-	ObservedAt       time.Time       `json:"observed_at"`
-	TopologyRevision string          `json:"topology_revision,omitempty"`
-	NodeID           string          `json:"node_id,omitempty"`
-	ParentID         string          `json:"parent_id,omitempty"`
-	ZoneID           string          `json:"zone_id,omitempty"`
-	NodeKind         NodeKind        `json:"node_kind"`
-	EntryPoint       bool            `json:"entry_point,omitempty"`
-	Exterior         bool            `json:"exterior,omitempty"`
-	Occupancy        OccupancyState  `json:"occupancy"`
-	HouseMode        HouseMode       `json:"house_mode"`
-	Time             TemporalContext `json:"time"`
-	Quality          ContextQuality  `json:"quality"`
-	Fingerprint      string          `json:"fingerprint"`
+	SchemaVersion       SchemaVersion   `json:"schema_version"`
+	ObservationID       string          `json:"observation_id"`
+	ObservedAt          time.Time       `json:"observed_at"`
+	TopologyRevision    string          `json:"topology_revision,omitempty"`
+	NodeID              string          `json:"node_id,omitempty"`
+	ParentID            string          `json:"parent_id,omitempty"`
+	ZoneID              string          `json:"zone_id,omitempty"`
+	NodeKind            NodeKind        `json:"node_kind"`
+	EntryPoint          bool            `json:"entry_point,omitempty"`
+	Exterior            bool            `json:"exterior,omitempty"`
+	Occupancy           OccupancyState  `json:"occupancy"`
+	HouseMode           HouseMode       `json:"house_mode"`
+	Time                TemporalContext `json:"time"`
+	Quality             ContextQuality  `json:"quality"`
+	SnapshotFingerprint string          `json:"snapshot_fingerprint,omitempty"`
+	FreshnessCode       string          `json:"freshness_code,omitempty"`
+	Fingerprint         string          `json:"fingerprint"`
 }
 
 type ResolveInput struct {
@@ -184,6 +186,9 @@ func (f Frame) Validate() error {
 	if f.NodeID != "" && !validIdentifier(f.NodeID) {
 		return fmt.Errorf("%w: node id", ErrInvalidFrame)
 	}
+	if f.FreshnessCode != "" && !FreshnessCode(f.FreshnessCode).valid() {
+		return fmt.Errorf("%w: freshness", ErrInvalidFrame)
+	}
 	if f.TimezoneInvalid() {
 		return fmt.Errorf("%w: timezone", ErrInvalidFrame)
 	}
@@ -218,7 +223,9 @@ func frameFingerprint(f Frame) string {
 		HouseMode                HouseMode
 		Time                     TemporalContext
 		Quality                  ContextQuality
-	}{f.SchemaVersion, f.ObservationID, f.ObservedAt, f.TopologyRevision, f.NodeID, f.ParentID, f.ZoneID, f.NodeKind, f.EntryPoint, f.Exterior, f.Occupancy, f.HouseMode, f.Time, f.Quality}
+		SnapshotFingerprint      string
+		FreshnessCode            string
+	}{f.SchemaVersion, f.ObservationID, f.ObservedAt, f.TopologyRevision, f.NodeID, f.ParentID, f.ZoneID, f.NodeKind, f.EntryPoint, f.Exterior, f.Occupancy, f.HouseMode, f.Time, f.Quality, f.SnapshotFingerprint, f.FreshnessCode}
 	payload, _ := json.Marshal(value)
 	digest := sha256.Sum256(payload)
 	return "sha256:" + hex.EncodeToString(digest[:])

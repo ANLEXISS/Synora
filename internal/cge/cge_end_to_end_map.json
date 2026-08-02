@@ -1,0 +1,158 @@
+{
+  "schema_version": "cge-end-to-end-map-v1",
+  "head": "dd3ae620cf8dc93a87dccce8af40e63e2c8d869",
+  "entrypoints": [
+    {
+      "name": "core_bus_loop",
+      "package": "cmd/synora-core",
+      "file": "cmd/synora-core/main.go",
+      "function": "coreApp.runBusLoop",
+      "transport": "local Unix bus JSON lines",
+      "input_type": "pkg/contract.Message",
+      "output": "internal/ingest.Queue.Ingest or RPC queue"
+    },
+    {
+      "name": "ingress_parser",
+      "package": "internal/ingest",
+      "file": "internal/ingest/ingest.go",
+      "function": "Parser.Parse",
+      "input_type": "pkg/contract.Message",
+      "output_type": "pkg/contract.Event"
+    }
+  ],
+  "stages": [
+    {
+      "order": 1,
+      "name": "historical_ingress",
+      "path": "bus -> runBusLoop -> Queue.Ingest -> Parser.Parse",
+      "authority": "none",
+      "mode": "historical"
+    },
+    {
+      "order": 2,
+      "name": "historical_decision",
+      "path": "processEvent -> engine.Analyze/ObserveContext -> BuildResult",
+      "output_type": "pkg/contract.Decision",
+      "authority": "final historical decision",
+      "mode": "historical"
+    },
+    {
+      "order": 3,
+      "name": "historical_state_and_consumers",
+      "path": "stateapply.Apply -> StateStore -> automation -> action bus -> PublicSnapshot",
+      "authority": "state publication and action request routing",
+      "mode": "historical"
+    },
+    {
+      "order": 4,
+      "name": "shadow_cge_historical",
+      "path": "deferred observeCGE -> ShadowEngine.Observe -> orchestration/journal",
+      "authority": "diagnostic only",
+      "mode": "shadow_historical"
+    },
+    {
+      "order": 5,
+      "name": "shadow_workflow",
+      "path": "submitWorkflow -> TrySubmit -> bounded queue -> single worker",
+      "authority": "none",
+      "mode": "shadow_workflow_experimental"
+    },
+    {
+      "order": 6,
+      "name": "experimental_cognitive_layers",
+      "path": "episodes -> situationfacts -> situationhypotheses -> evidencediscrimination -> advisoryrequests",
+      "authority": "descriptive and consultative only",
+      "mode": "shadow_workflow_experimental"
+    },
+    {
+      "order": 7,
+      "name": "optional_mapping_authorization",
+      "path": "optional capabilitymapping -> optional authorizationboundary",
+      "authority": "descriptive eligibility only; no grant or invocation",
+      "mode": "shadow_workflow_experimental"
+    },
+    {
+      "order": 8,
+      "name": "durable_workflow",
+      "path": "WorkflowMutation -> PlanTransaction -> WAL/fsync -> publish -> checkpoint/replay",
+      "authority": "durability only",
+      "mode": "shadow_workflow_experimental"
+    }
+  ],
+  "decisions": [
+    {
+      "name": "historical_decision",
+      "type": "pkg/contract.Decision",
+      "constructed_by": "internal/engine/adapter.ToSynoraDecision and BuildResult",
+      "orchestrated_by": "cmd/synora-core/coreApp.processEvent",
+      "inputs": ["normalized event", "engine graph memory", "critical seeds", "danger context", "security profile", "state"],
+      "consumers": ["stateapply.Apply", "automation.EvaluateRequests", "engine.decision publication", "PublicSnapshot"],
+      "production_authority": true
+    },
+    {
+      "name": "shadow_results",
+      "type": "Shadow metrics, diagnostics and durable workflow assessments",
+      "constructed_by": "internal/cge/shadow and internal/cge/shadowworkflow",
+      "consumers": ["diagnostics", "qualification reporter", "workflow recovery"],
+      "production_authority": false
+    }
+  ],
+  "feature_flags": [
+    {"name": "SYNORA_CGE_SHADOW_ENABLED", "default": false, "effect": "enable historical Shadow CGE"},
+    {"name": "SYNORA_CGE_SHADOW_COGNITIVE_ENABLED", "default": false, "effect": "enable Shadow orchestration"},
+    {"name": "SYNORA_CGE_SHADOW_AUTO_EVIDENCE_ENABLED", "default": false, "effect": "enable configured evidence behavior"},
+    {"name": "SYNORA_CGE_SHADOW_CONTEXT_ENABLED", "default": false, "effect": "enable Shadow context provider"},
+    {"name": "SYNORA_CGE_SHADOW_ROUTINE_LEARNING_ENABLED", "default": false, "effect": "enable routine learning"},
+    {"name": "SYNORA_CGE_SHADOW_DEVIATION_ENABLED", "default": false, "effect": "enable deviation assessment"},
+    {"name": "SYNORA_CGE_SHADOW_WORKFLOW_ENABLED", "default": false, "effect": "enable experimental durable workflow"},
+    {"name": "SYNORA_CGE_SHADOW_QUALIFICATION_ENABLED", "default": false, "effect": "enable local qualification recorder"},
+    {"name": "SYNORA_CGE_CRITICAL_CHAINS", "default": "/etc/synora/cge_critical_chains.yaml", "effect": "select critical seed YAML"},
+    {"name": "SYNORA_CGE_PROFILE", "default": "startup default path", "effect": "select historical security profile"},
+    {"name": "SYNORA_CGE_FEEDBACK", "default": "startup default path", "effect": "select historical feedback"},
+    {"name": "SYNORA_CGE_DEBUG", "default": false, "effect": "enable historical danger debug"},
+    {"name": "SYNORA_CGE_FIELD_TRIAL_ENABLED", "default": false, "effect": "enable Field Trial Recorder"},
+    {"name": "SYNORA_CGE_FIELD_TRIAL_ROOT", "default": "/var/lib/synora/cge-field-trials", "effect": "Field Trial root"},
+    {"name": "SYNORA_CGE_FIELD_TRIAL_SESSION_ID", "default": "empty", "effect": "Field Trial session identifier"},
+    {"name": "SYNORA_CGE_FIELD_TRIAL_SEGMENT_MAX_BYTES", "default": 16777216, "effect": "Field Trial segment quota"},
+    {"name": "SYNORA_CGE_FIELD_TRIAL_RETENTION_DAYS", "default": 45, "effect": "Field Trial retention"},
+    {"name": "SYNORA_CGE_FIELD_TRIAL_MAX_TOTAL_BYTES", "default": 536870912, "effect": "Field Trial total quota"},
+    {"name": "SYNORA_CGE_FIELD_TRIAL_SYNC_EACH_EVENT", "default": false, "effect": "Field Trial sync policy"},
+    {"name": "SYNORA_CGE_FIELD_TRIAL_KEY_FILE", "default": "empty", "effect": "Field Trial pseudonymization key path"},
+    {"name": "SYNORA_CGE_FIELD_TRIAL_TOPOLOGY_FILE", "default": "empty", "effect": "Field Trial topology input"},
+    {"name": "SYNORA_CGE_FIELD_TRIAL_INCLUDE_CONTEXT", "default": true, "effect": "include Field Trial context categories"},
+    {"name": "SYNORA_CGE_FIELD_TRIAL_INCLUDE_LATENCIES", "default": true, "effect": "include Field Trial latency breakdown"}
+  ],
+  "persistence": [
+    {"domain": "historical_state", "format": "StateStore projections", "mode": "production"},
+    {"domain": "historical_shadow", "format": "Shadow journal and generations", "mode": "shadow_historical"},
+    {"domain": "critical_chains", "format": "YAML critical_chains with atomic backup writes", "mode": "production_configuration"},
+    {"domain": "durable_workflow", "format": "versioned NDJSON WAL plus atomic checkpoints", "mode": "experimental_separate"},
+    {"domain": "qualification", "format": "local samples.ndjson, summary.json, manifest.json", "mode": "local_qualification"}
+  ],
+  "authority_matrix": [
+    {"component": "core historical engine", "observe": true, "learn": true, "evaluate": true, "recommend": true, "decide": true, "authorize": false, "execute": false},
+    {"component": "historical Shadow CGE", "observe": true, "learn": true, "evaluate": true, "recommend": true, "decide": false, "authorize": false, "execute": false},
+    {"component": "Episode Working Memory", "observe": true, "learn": false, "evaluate": true, "recommend": false, "decide": false, "authorize": false, "execute": false},
+    {"component": "Situation Facts", "observe": false, "learn": false, "evaluate": true, "recommend": false, "decide": false, "authorize": false, "execute": false},
+    {"component": "Situation Hypotheses", "observe": false, "learn": false, "evaluate": true, "recommend": false, "decide": false, "authorize": false, "execute": false},
+    {"component": "Evidence Discrimination", "observe": false, "learn": false, "evaluate": true, "recommend": true, "decide": false, "authorize": false, "execute": false},
+    {"component": "Advisory Requests", "observe": false, "learn": false, "evaluate": true, "recommend": true, "decide": false, "authorize": false, "execute": false},
+    {"component": "Capability Mapping", "observe": false, "learn": false, "evaluate": true, "recommend": true, "decide": false, "authorize": false, "execute": false},
+    {"component": "Authorization Boundary", "observe": false, "learn": false, "evaluate": true, "recommend": false, "decide": false, "authorize": false, "execute": false},
+    {"component": "Durable Workflow", "observe": false, "learn": false, "evaluate": true, "recommend": false, "decide": false, "authorize": false, "execute": false},
+    {"component": "Automation Engine", "observe": true, "learn": false, "evaluate": true, "recommend": true, "decide": false, "authorize": false, "execute": false},
+    {"component": "Actions Service", "observe": true, "learn": false, "evaluate": true, "recommend": false, "decide": false, "authorize": false, "execute": true}
+  ],
+  "gaps": [
+    {"kind": "understanding", "item": "Installed critical YAML unavailable in audit environment"},
+    {"kind": "understanding", "item": "Production security/profile values depend on external files not represented by code alone"},
+    {"kind": "test", "item": "No real-bus, installed-service, or Rock 5 end-to-end test"},
+    {"kind": "test", "item": "No multi-day physical stability campaign in repository"},
+    {"kind": "integration", "item": "Capability and authorization providers are not production-wired"},
+    {"kind": "integration", "item": "Workflow queue entries are not durable before commit and may be lost on crash"},
+    {"kind": "performance", "item": "No hardware-calibrated CPU/RSS/latency baseline"},
+    {"kind": "persistence", "item": "Experimental durable WAL has no compaction or rotation"},
+    {"kind": "authority", "item": "No path transforms workflow eligibility into an execution grant or invocation"}
+  ],
+  "non_modification_statement": "Pass 50 is an audit artifact only; no production behavior, rule, score, persistence format, threshold, flag or decision was modified."
+}

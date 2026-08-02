@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"synora/internal/cge/contractcatalog"
 )
 
 type Stats struct {
@@ -474,6 +476,9 @@ func (r *Recorder) closeFilesLocked() error {
 
 func (r *Recorder) writeManifestLocked() error {
 	path := filepath.Join(r.sessionDir, "manifest.json")
+	if err := contractcatalog.ValidateStoreWrite("synora.store.field-trial-recorder", "synora.cge.field-trial-manifest.v1", r.manifest); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(r.manifest, "", "  ")
 	if err != nil {
 		return err

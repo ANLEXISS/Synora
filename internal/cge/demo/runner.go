@@ -13,6 +13,7 @@ import (
 	cge "synora/internal/cge"
 	cgecontext "synora/internal/cge/context"
 	"synora/internal/cge/deviation"
+	"synora/internal/cge/durableids"
 )
 
 type demoClock struct {
@@ -39,7 +40,7 @@ func (p *demoProvider) Resolve(ctx context.Context, id string, at time.Time, nod
 	p.mu.RLock()
 	current, top, zone, available := p.current, p.topology.Clone(), p.timezone, p.available
 	p.mu.RUnlock()
-	if current.ID != id {
+	if current.ID != id && !durableids.IsProtected(id) {
 		return cgecontext.Frame{}, errors.New("demo_context_event_mismatch")
 	}
 	if current.Missing {

@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"synora/internal/cge/contractcatalog"
 )
 
 type Envelope struct {
@@ -45,6 +47,9 @@ func recordHash(sequence uint64, previous, payloadHash string) string {
 }
 
 func encodeEnvelope(envelope Envelope) ([]byte, error) {
+	if err := contractcatalog.ValidateStoreWrite("synora.store.field-trial-recorder", "synora.cge.field-trial-envelope.v1", envelope); err != nil {
+		return nil, err
+	}
 	data, err := json.Marshal(envelope)
 	if err != nil {
 		return nil, err
@@ -53,6 +58,9 @@ func encodeEnvelope(envelope Envelope) ([]byte, error) {
 }
 
 func encodeAnnotationEnvelope(envelope AnnotationEnvelope) ([]byte, error) {
+	if err := contractcatalog.ValidateStoreWrite("synora.store.field-trial-recorder", "synora.cge.field-trial-annotation-envelope.v1", envelope); err != nil {
+		return nil, err
+	}
 	data, err := json.Marshal(envelope)
 	if err != nil {
 		return nil, err

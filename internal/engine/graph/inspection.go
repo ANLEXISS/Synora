@@ -30,6 +30,25 @@ type compactSequence struct {
 	ExampleCount      int       `json:"example_count"`
 }
 
+// LearnedSequences returns detached sequence contracts for read-only CGE
+// catalog snapshots.
+func (g *GraphMemory) LearnedSequences() []contracts.LearnedSequence {
+	if g == nil {
+		return nil
+	}
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	items := sortedSequences(g.learnedSequences)
+	out := make([]contracts.LearnedSequence, len(items))
+	for i, item := range items {
+		out[i] = item
+		out[i].EventTypes = append([]string(nil), item.EventTypes...)
+		out[i].SourceTypes = append([]string(nil), item.SourceTypes...)
+		out[i].Nodes = append([]string(nil), item.Nodes...)
+	}
+	return out
+}
+
 type compactTransition struct {
 	ID             string    `json:"id"`
 	FromEventType  string    `json:"from_event_type"`

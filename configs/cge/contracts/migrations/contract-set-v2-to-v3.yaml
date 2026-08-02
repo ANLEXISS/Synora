@@ -1,0 +1,22 @@
+schema_version: 1
+namespace: synora.cge
+source_baseline: cge-contract-set-v2.json
+target_baseline: cge-contract-set-v3.json
+classification: migration_required
+approved: true
+durable_rewrite_required: false
+runtime_wire_change: false
+legacy_replay: preserved
+bytes_unchanged: true
+changes:
+  - exact_public_output_contracts
+  - exact_nested_wire_subcontracts
+  - approved_legacy_decoder_rule
+  - closed_legacy_snapshot_variants
+  - package_qualified_reachability
+tests:
+  - scope_decisions_complete
+  - reachable_exemptions_zero
+  - legacy_decoder_rejects_unknown_fields
+  - baseline_v3_immutable
+  - exact_transport_contracts

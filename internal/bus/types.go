@@ -23,7 +23,11 @@ type Client struct {
 
 	pending map[string]chan contract.Message
 
-	incoming chan contract.Message
+	incoming     chan contract.Message
+	closeCh      chan struct{}
+	done         chan struct{}
+	closeOnce    sync.Once
+	incomingOnce sync.Once
 }
 
 type ClientConn struct {
@@ -38,6 +42,7 @@ type Server struct {
 	address string
 	debug   bool
 
-	mu      sync.RWMutex
-	clients map[string]*ClientConn
+	mu       sync.RWMutex
+	clients  map[string]*ClientConn
+	listener net.Listener
 }

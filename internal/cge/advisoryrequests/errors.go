@@ -1,0 +1,31 @@
+package advisoryrequests
+
+import "errors"
+
+var (
+	ErrInvalidPolicy              = errors.New("advisoryrequests: invalid policy")
+	ErrInvalidRequest             = errors.New("advisoryrequests: invalid request")
+	ErrInvalidRequestKey          = errors.New("advisoryrequests: invalid request key")
+	ErrInvalidRequestID           = errors.New("advisoryrequests: invalid request id")
+	ErrInvalidStatus              = errors.New("advisoryrequests: invalid status")
+	ErrInvalidTransition          = errors.New("advisoryrequests: invalid transition")
+	ErrInvalidDisposition         = errors.New("advisoryrequests: invalid disposition")
+	ErrInvalidAssessment          = errors.New("advisoryrequests: invalid assessment")
+	ErrUnknownCandidateReference  = errors.New("advisoryrequests: unknown candidate reference")
+	ErrMissingSourceFingerprint   = errors.New("advisoryrequests: missing source fingerprint")
+	ErrRequestLimitReached        = errors.New("advisoryrequests: request limit reached")
+	ErrReasonLimitReached         = errors.New("advisoryrequests: reason limit reached")
+	ErrFactCodeLimitReached       = errors.New("advisoryrequests: fact code limit reached")
+	ErrHypothesisPairLimitReached = errors.New("advisoryrequests: hypothesis pair limit reached")
+	ErrRequestIDCollision         = errors.New("advisoryrequests: request id collision")
+	ErrRequestKeyCollision        = errors.New("advisoryrequests: request key collision")
+	ErrRequestNotFound            = errors.New("advisoryrequests: request not found")
+	ErrRequestTerminal            = errors.New("advisoryrequests: request terminal")
+	ErrDeferUntilRequired         = errors.New("advisoryrequests: defer until required")
+	ErrDeferUntilInvalid          = errors.New("advisoryrequests: defer until invalid")
+	ErrSourceRevisionConflict     = errors.New("advisoryrequests: source revision conflict")
+	ErrStaleAssessment            = errors.New("advisoryrequests: stale assessment")
+	ErrFingerprintMismatch        = errors.New("advisoryrequests: fingerprint mismatch")
+	ErrInvalidPlan                = errors.New("advisoryrequests: invalid plan")
+	ErrInvalidExplanation         = errors.New("advisoryrequests: invalid explanation")
+)

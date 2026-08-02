@@ -12,6 +12,7 @@ Group=synora
 ExecStart=/opt/synora/bin/synora-core
 
 Environment=SYNORA_LOG_PATH=/var/lib/synora/logs/events.log
+EnvironmentFile=-/etc/synora/synora-core.env
 
 Restart=always
 RestartSec=2

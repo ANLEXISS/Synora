@@ -4,12 +4,13 @@ import (
 	"context"
 	"time"
 
+	"synora/internal/cge/decisioncomparison"
 	"synora/pkg/contract"
 )
 
-// CognitiveEngine is the passive boundary between Core and the future
-// Cognitive Graph Engine. Implementations observe events and expose
-// read-only diagnostics; they do not own security decisions or actions.
+// CognitiveEngine is the passive boundary between Core and the Cognitive
+// Graph Engine. Implementations may persist descriptive governed decisions,
+// but they do not own physical execution authority or actions.
 type CognitiveEngine interface {
 	Observe(context.Context, Event) (ObservationResult, error)
 	Snapshot(context.Context) (Snapshot, error)
@@ -20,6 +21,26 @@ type CognitiveEngine interface {
 // implementation owns durable resources.
 type CognitiveCloser interface {
 	Close() error
+}
+
+// HistoricalDecisionObserver is an optional post-history boundary. The
+// reference is redacted and descriptive; the observer never feeds a result
+// back into the historical engine.
+type HistoricalDecisionObserver interface {
+	ObserveHistoricalDecision(context.Context, Event, decisioncomparison.HistoricalDecisionRef) (ObservationResult, error)
+}
+
+// ChainAwareObserver is an optional boundary used when Core has already
+// identified the governed chain. The chain reference is attached to the
+// detached CGE observation, not to the stable Core event contract.
+type ChainAwareObserver interface {
+	ObserveWithChain(context.Context, Event, string) (ObservationResult, error)
+}
+
+// ChainAwareHistoricalDecisionObserver preserves the historical comparison
+// while carrying the detached chain reference into the CGE observation.
+type ChainAwareHistoricalDecisionObserver interface {
+	ObserveHistoricalDecisionWithChain(context.Context, Event, decisioncomparison.HistoricalDecisionRef, string) (ObservationResult, error)
 }
 
 // Event is the immutable, minimal event representation exchanged across the
@@ -75,7 +96,7 @@ type ObservationResult struct {
 	LastEventType    string
 }
 
-// Snapshot is the read-only state exposed by a CGE implementation in pass 1.
+// Snapshot is the read-only state exposed by a CGE implementation.
 type Snapshot struct {
 	ObservationCount uint64
 	LastObservedAt   time.Time
@@ -113,8 +134,8 @@ type Snapshot struct {
 	CognitiveMetrics                      MetricsSnapshot
 }
 
-// Explanation is reserved for future explanations. Pass 1 has no decision
-// or action content to explain.
+// Explanation remains a diagnostic surface. A descriptive governed decision
+// is exposed through the authority store and never becomes an action here.
 type Explanation struct {
 	SituationID                           string
 	Available                             bool

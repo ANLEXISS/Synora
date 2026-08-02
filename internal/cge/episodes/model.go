@@ -65,9 +65,11 @@ type ObservationRef struct {
 	NodeID  string
 	ZoneID  string
 
-	HouseMode      string
-	Occupancy      string
-	ContextQuality string
+	HouseMode                  string
+	Occupancy                  string
+	ContextQuality             string
+	ContextSnapshotFingerprint string
+	ContextFreshness           string
 
 	ActivationID string
 	ClipID       string
@@ -172,7 +174,7 @@ func (o ObservationRef) Validate() error {
 	if o.ObservedAt.IsZero() {
 		return ErrMissingObservedAt
 	}
-	if !validText(o.EventType, true) || !validText(o.NodeID, true) || !validText(o.ZoneID, true) || !validText(o.HouseMode, true) || !validText(o.Occupancy, true) || !validText(o.ContextQuality, true) || !validText(o.ActivationID, true) || !validText(o.ClipID, true) || !validText(o.TrackID, true) || !validText(o.SequenceKey, true) || !validText(o.ChainID, true) {
+	if !validText(o.EventType, true) || !validText(o.NodeID, true) || !validText(o.ZoneID, true) || !validText(o.HouseMode, true) || !validText(o.Occupancy, true) || !validText(o.ContextQuality, true) || !validText(o.ContextSnapshotFingerprint, true) || !validText(o.ContextFreshness, true) || !validText(o.ActivationID, true) || !validText(o.ClipID, true) || !validText(o.TrackID, true) || !validText(o.SequenceKey, true) || !validText(o.ChainID, true) {
 		return fmt.Errorf("%w: bounded reference", ErrInvalidObservation)
 	}
 	if err := o.Subject.Validate(); err != nil {

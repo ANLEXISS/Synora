@@ -1,0 +1,31 @@
+package evidencediscrimination
+
+import "errors"
+
+var (
+	ErrInvalidPolicy              = errors.New("evidencediscrimination: invalid policy")
+	ErrInvalidCatalog             = errors.New("evidencediscrimination: invalid catalog")
+	ErrInvalidDefinition          = errors.New("evidencediscrimination: invalid definition")
+	ErrInvalidCandidate           = errors.New("evidencediscrimination: invalid candidate")
+	ErrInvalidOutcome             = errors.New("evidencediscrimination: invalid outcome")
+	ErrInvalidHypothesisPair      = errors.New("evidencediscrimination: invalid hypothesis pair")
+	ErrInvalidFactSet             = errors.New("evidencediscrimination: invalid fact set")
+	ErrInvalidHypothesisSet       = errors.New("evidencediscrimination: invalid hypothesis set")
+	ErrUnknownFactCode            = errors.New("evidencediscrimination: unknown fact code")
+	ErrUnknownHypothesisKind      = errors.New("evidencediscrimination: unknown hypothesis kind")
+	ErrUnknownHypothesisReference = errors.New("evidencediscrimination: unknown hypothesis reference")
+	ErrMissingSourceFingerprint   = errors.New("evidencediscrimination: missing source fingerprint")
+	ErrCandidateLimitReached      = errors.New("evidencediscrimination: candidate limit reached")
+	ErrOutcomeLimitReached        = errors.New("evidencediscrimination: outcome limit reached")
+	ErrPairLimitReached           = errors.New("evidencediscrimination: pair limit reached")
+	ErrFactCodeLimitReached       = errors.New("evidencediscrimination: fact code limit reached")
+	ErrCandidateIDCollision       = errors.New("evidencediscrimination: candidate id collision")
+	ErrOutcomeIDCollision         = errors.New("evidencediscrimination: outcome id collision")
+	ErrFingerprintMismatch        = errors.New("evidencediscrimination: fingerprint mismatch")
+	ErrStaleFactSet               = errors.New("evidencediscrimination: stale fact set")
+	ErrStaleHypothesisSet         = errors.New("evidencediscrimination: stale hypothesis set")
+	ErrSourceRevisionConflict     = errors.New("evidencediscrimination: source revision conflict")
+	ErrInvalidPlan                = errors.New("evidencediscrimination: invalid plan")
+	ErrInvalidExplanation         = errors.New("evidencediscrimination: invalid explanation")
+	ErrInvalidDiff                = errors.New("evidencediscrimination: invalid diff")
+)

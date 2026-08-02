@@ -150,6 +150,25 @@ type ExpirationConfig struct {
 	Windows    time.Duration
 }
 
+// ContextSourceSnapshot is the intentionally small read-only state slice
+// consumed by Core context adapters. It contains no mutable maps or pointers
+// into Store and no action, validation, or event collections.
+type ContextSourceSnapshot struct {
+	Devices  []DeviceState
+	Cameras  []CameraState
+	Presence []PresenceState
+	System   ContextSystemState
+}
+
+// ContextSystemState is the bounded system view exposed to read-only context
+// adapters. It deliberately excludes the mutable maps, action history, and
+// security details carried by SystemState.
+type ContextSystemState struct {
+	LastState    string
+	Armed        bool
+	SecurityMode string
+}
+
 // DefaultPresenceTTL keeps a resident present long enough for normal camera
 // gaps while retaining last_seen after expiration.
 const DefaultPresenceTTL = 15 * time.Minute

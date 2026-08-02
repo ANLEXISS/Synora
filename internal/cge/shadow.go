@@ -10,15 +10,19 @@ import (
 	"sync"
 	"time"
 
+	"synora/internal/cge/calibrationledger"
 	"synora/internal/cge/chains"
 	"synora/internal/cge/chains/association"
 	"synora/internal/cge/chains/durable"
 	"synora/internal/cge/chains/evidence"
 	"synora/internal/cge/chains/generations"
 	cgecontext "synora/internal/cge/context"
+	"synora/internal/cge/decisioncomparison"
+	"synora/internal/cge/durableids"
 	"synora/internal/cge/fieldtrial"
 	"synora/internal/cge/hypotheses"
 	"synora/internal/cge/routines"
+	"synora/internal/cge/shadowworkflow"
 )
 
 // RoutineTopologyProvider is a detached, read-only topology boundary. A
@@ -45,8 +49,9 @@ func (p StaticRoutineTopologyProvider) CurrentTopology(context.Context) (cgecont
 	return p.Topology, p.Available, nil
 }
 
-// ShadowEngine records only enough state to validate Core integration. It has
-// no decision, automation, action, persistence, or physical-device behavior.
+// ShadowEngine records cognitive projections and may synthesize/persist
+// descriptive governed decisions. It never executes physical actions by
+// itself; the historical Core remains the sole executor in this phase.
 type ShadowEngine struct {
 	mu sync.RWMutex
 
@@ -54,29 +59,42 @@ type ShadowEngine struct {
 	lastObservedAt   time.Time
 	lastEventType    string
 
-	coordinator       *durable.Coordinator
-	dataDir           string
-	policy            association.Policy
-	evidencePolicy    evidence.Policy
-	allowlist         map[string]struct{}
-	actor             string
-	clock             Clock
-	logger            Logger
-	metrics           *shadowMetrics
-	orchestrator      *ShadowOrchestrator
-	contextProvider   cgecontext.Provider
-	contextConfig     ShadowContextConfig
-	routineConfig     ShadowRoutineConfig
-	deviationConfig   ShadowDeviationConfig
-	deviationStore    *RecentDeviationStore
-	trialRecorder     *fieldtrial.Recorder
-	fieldTrialConfig  fieldtrial.Config
-	lastDeviation     ShadowDeviationResult
-	lastAssessment    *DeviationAssessmentSummary
-	lastOrchestration ShadowOrchestrationResult
-	topologyProvider  RoutineTopologyProvider
-	closeOnce         sync.Once
-	closeErr          error
+	coordinator                *durable.Coordinator
+	dataDir                    string
+	policy                     association.Policy
+	evidencePolicy             evidence.Policy
+	admissionPolicy            ShadowEventAdmissionPolicy
+	admissionMu                sync.RWMutex
+	admission                  ShadowAdmissionStatus
+	contextStatusMu            sync.RWMutex
+	contextStatus              CoreContextProviderStatus
+	actor                      string
+	clock                      Clock
+	logger                     Logger
+	metrics                    *shadowMetrics
+	orchestrator               *ShadowOrchestrator
+	contextProvider            cgecontext.Provider
+	contextConfig              ShadowContextConfig
+	routineConfig              ShadowRoutineConfig
+	deviationConfig            ShadowDeviationConfig
+	deviationStore             *RecentDeviationStore
+	trialRecorder              *fieldtrial.Recorder
+	fieldTrialConfig           fieldtrial.Config
+	lastDeviation              ShadowDeviationResult
+	lastAssessment             *DeviationAssessmentSummary
+	lastOrchestration          ShadowOrchestrationResult
+	topologyProvider           RoutineTopologyProvider
+	workflow                   *shadowworkflow.Runtime
+	authority                  *DecisionAuthority
+	decisionSelector           ChainSelector
+	decisionSynthesizer        DecisionSynthesizer
+	targetResolver             CognitiveDecisionTargetResolver
+	snapshotProvider           OperationalSnapshotProvider
+	decisionSink               DecisionPublicationSink
+	authorityComparisons       []AuthorityDecisionComparison
+	authorityComparisonMetrics AuthorityComparisonMetrics
+	closeOnce                  sync.Once
+	closeErr                   error
 }
 
 // LastOrchestrationResult returns a detached, identifier-bearing diagnostic
@@ -115,6 +133,77 @@ func (e *ShadowEngine) Status() durable.StatusSnapshot {
 	return e.coordinator.Status()
 }
 
+// WorkflowStatus returns the detached status of the optional experimental
+// workflow. It is not part of the historical decision boundary.
+func (e *ShadowEngine) WorkflowStatus() shadowworkflow.StatusSnapshot {
+	if e == nil || e.workflow == nil {
+		return shadowworkflow.StatusSnapshot{State: shadowworkflow.StateDisabled, StoreMode: shadowworkflow.StoreMemory}
+	}
+	return e.workflow.Status()
+}
+
+// WorkflowProjection returns the detached read-only projections produced by
+// the optional workflow. It exposes existing diagnostics only; the Core never
+// consumes these values as decisions, commands, or actions.
+func (e *ShadowEngine) WorkflowProjection() shadowworkflow.CognitiveProjectionSnapshot {
+	if e == nil || e.workflow == nil {
+		return shadowworkflow.CognitiveProjectionSnapshot{}
+	}
+	return e.workflow.CognitiveProjection()
+}
+
+// WorkflowCalibrationRecords returns defensive ledger records for diagnostics.
+func (e *ShadowEngine) WorkflowCalibrationRecords(q calibrationledger.Query) (calibrationledger.QueryResult, error) {
+	if e == nil || e.workflow == nil {
+		return calibrationledger.QueryResult{}, calibrationledger.ErrSnapshotUnavailable
+	}
+	return e.workflow.CalibrationRecords(q)
+}
+
+// WorkflowCalibrationSnapshot returns the detached durable ledger snapshot.
+func (e *ShadowEngine) WorkflowCalibrationSnapshot() calibrationledger.Snapshot {
+	if e == nil || e.workflow == nil {
+		return calibrationledger.Snapshot{}
+	}
+	return e.workflow.CalibrationSnapshot()
+}
+
+// AdmissionStatus returns a defensive, aggregate-only view of the latest
+// Core-to-Shadow admission result.
+func (e *ShadowEngine) AdmissionStatus() ShadowAdmissionStatus {
+	if e == nil {
+		return ShadowAdmissionStatus{LastCode: ShadowAdmissionDisabled, HistoricalAuthorityUnchanged: true, NoActionProduced: true}
+	}
+	e.admissionMu.RLock()
+	defer e.admissionMu.RUnlock()
+	return e.admission.clone()
+}
+
+// AdmissionMetrics returns aggregate admission counters with bounded names.
+func (e *ShadowEngine) AdmissionMetrics() map[string]uint64 {
+	return e.AdmissionStatus().Metrics()
+}
+
+func (e *ShadowEngine) recordAdmission(result ShadowAdmissionResult) {
+	if e == nil {
+		return
+	}
+	if err := result.Validate(); err != nil {
+		result = ShadowAdmissionResult{
+			Code:                         ShadowAdmissionInvalid,
+			EventType:                    result.EventType,
+			HistoricalAuthorityUnchanged: true,
+			NoActionProduced:             true,
+		}
+	}
+	e.admissionMu.Lock()
+	e.admission.record(result)
+	e.admissionMu.Unlock()
+	if e.metrics != nil {
+		e.metrics.admission(result.Code)
+	}
+}
+
 // ListRoutines returns defensive routine snapshots for development analysis.
 func (e *ShadowEngine) ListRoutines() []routines.Snapshot {
 	if e == nil || e.coordinator == nil {
@@ -151,7 +240,7 @@ func (e *ShadowEngine) PlanAssociationForEvent(ctx context.Context, event Event)
 	if e == nil || e.coordinator == nil {
 		return association.Plan{}, ErrShadowStartup
 	}
-	adapted, err := AdaptEventWithAllowlist(event, mapKeys(e.allowlist))
+	adapted, err := AdaptEventWithPolicy(event, e.admissionPolicy)
 	if err != nil {
 		return association.Plan{}, err
 	}
@@ -181,7 +270,7 @@ func (e *ShadowEngine) EvaluateEvidenceForObservation(ctx context.Context, chain
 	if err != nil {
 		return evidence.EvidenceEvaluation{}, err
 	}
-	return evidence.EvaluateObservation(chainSnapshot, observationID, at, e.evidencePolicy)
+	return evidence.EvaluateObservation(chainSnapshot, durableids.Protect(durableids.KindObservation, observationID), at, e.evidencePolicy)
 }
 
 // SeedAssociationAmbiguityFixture creates a duplicate, synthetic branch from
@@ -313,9 +402,20 @@ func (e *ShadowEngine) CreateCheckpoint(ctx context.Context, createdAt time.Time
 	return e.coordinator.CreateSnapshotGeneration(ctx, store, createdAt, DefaultShadowActor, "cge-shadow:campaign:checkpoint")
 }
 
-// NewShadowEngine returns a concurrency-safe, non-decision-making observer.
+// NewShadowEngine returns a concurrency-safe observer with shadow decision
+// synthesis disabled until Core supplies its detached snapshot boundary.
 func NewShadowEngine() *ShadowEngine {
-	return &ShadowEngine{}
+	authority, _ := NewDecisionAuthority(AuthorityModeShadow, nil, nil, &MemoryDecisionStore{})
+	return &ShadowEngine{
+		authority:           authority,
+		decisionSynthesizer: DefaultDecisionSynthesizer{},
+		targetResolver:      DefaultCognitiveDecisionTargetResolver{},
+		admissionPolicy:     DefaultShadowEventAdmissionPolicy(),
+		admission: ShadowAdmissionStatus{
+			HistoricalAuthorityUnchanged: true,
+			NoActionProduced:             true,
+		},
+	}
 }
 
 // SetContextProvider installs an explicit detached provider for embedding and
@@ -325,6 +425,12 @@ func (e *ShadowEngine) SetContextProvider(provider cgecontext.Provider) {
 		return
 	}
 	e.contextProvider = provider
+	e.contextStatusMu.Lock()
+	e.contextStatus.Enabled = false
+	if _, ok := provider.(cgecontext.CoreContextProvider); ok {
+		e.contextStatus.Enabled = true
+	}
+	e.contextStatusMu.Unlock()
 }
 
 // SetRoutineTopologyProvider installs the read-only topology boundary used by
@@ -340,6 +446,70 @@ func (e *ShadowEngine) SetRoutineTopologyProvider(provider RoutineTopologyProvid
 	e.topologyProvider = provider
 }
 
+// OperationalSnapshotProvider is a detached read-only Core state adapter.
+type OperationalSnapshotProvider interface {
+	SnapshotForDecision(context.Context, DecisionTarget) (OperationalSnapshot, error)
+}
+
+func (e *ShadowEngine) SetChainSelector(selector ChainSelector) {
+	if e != nil {
+		e.decisionSelector = selector
+	}
+}
+
+func (e *ShadowEngine) SetDecisionSynthesizer(synthesizer DecisionSynthesizer) {
+	if e != nil {
+		e.decisionSynthesizer = synthesizer
+	}
+}
+
+func (e *ShadowEngine) SetDecisionTargetResolver(resolver CognitiveDecisionTargetResolver) {
+	if e != nil && resolver != nil {
+		e.targetResolver = resolver
+	}
+}
+
+func (e *ShadowEngine) SetOperationalSnapshotProvider(provider OperationalSnapshotProvider) {
+	if e != nil {
+		e.snapshotProvider = provider
+	}
+}
+
+func (e *ShadowEngine) SetDecisionPublicationSink(sink DecisionPublicationSink) {
+	if e != nil {
+		e.decisionSink = sink
+	}
+}
+
+// AuthorityComparisons exposes bounded, detached diagnostics comparing the
+// historical Core choice with the synthesized CGE intent.
+func (e *ShadowEngine) AuthorityComparisons() []AuthorityDecisionComparison {
+	if e == nil {
+		return nil
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	result := make([]AuthorityDecisionComparison, len(e.authorityComparisons))
+	for i, value := range e.authorityComparisons {
+		result[i] = value
+		result[i].HistoricalActionIDs = append([]string(nil), value.HistoricalActionIDs...)
+		result[i].CognitiveIntentIDs = append([]string(nil), value.CognitiveIntentIDs...)
+		result[i].DivergenceCodes = append([]string(nil), value.DivergenceCodes...)
+	}
+	return result
+}
+
+// AuthorityComparisonMetricsSnapshot exposes bounded convergence counters as
+// a defensive diagnostic snapshot.
+func (e *ShadowEngine) AuthorityComparisonMetricsSnapshot() AuthorityComparisonMetrics {
+	if e == nil {
+		return AuthorityComparisonMetrics{}
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.authorityComparisonMetrics
+}
+
 func (e *ShadowEngine) Observe(ctx context.Context, event Event) (ObservationResult, error) {
 	if err := contextErr(ctx); err != nil {
 		return ObservationResult{}, err
@@ -348,7 +518,7 @@ func (e *ShadowEngine) Observe(ctx context.Context, event Event) (ObservationRes
 		return ObservationResult{}, nil
 	}
 	if e.coordinator != nil {
-		return e.observeRuntime(ctx, event)
+		return e.observeRuntime(ctx, event, nil, "")
 	}
 
 	e.mu.Lock()
@@ -361,7 +531,56 @@ func (e *ShadowEngine) Observe(ctx context.Context, event Event) (ObservationRes
 		LastEventType:    e.lastEventType,
 	}
 	e.mu.Unlock()
+	e.recordAdmission(ShadowAdmissionResult{
+		Code:                         ShadowAdmissionDisabled,
+		EventType:                    admissionEventType(event),
+		HistoricalAuthorityUnchanged: true,
+		NoActionProduced:             true,
+	})
 	return result, nil
+}
+
+func (e *ShadowEngine) ObserveHistoricalDecision(ctx context.Context, event Event, historical decisioncomparison.HistoricalDecisionRef) (ObservationResult, error) {
+	if err := contextErr(ctx); err != nil {
+		return ObservationResult{}, err
+	}
+	if e == nil {
+		return ObservationResult{}, nil
+	}
+	if e.coordinator != nil {
+		return e.observeRuntime(ctx, event, &historical, "")
+	}
+	return e.Observe(ctx, event)
+}
+
+// ObserveWithChain is the chain-aware variant used by Core after historical
+// recognition. It keeps the stable Event contract unchanged.
+func (e *ShadowEngine) ObserveWithChain(ctx context.Context, event Event, chainID string) (ObservationResult, error) {
+	if err := contextErr(ctx); err != nil {
+		return ObservationResult{}, err
+	}
+	if e == nil {
+		return ObservationResult{}, nil
+	}
+	if e.coordinator != nil {
+		return e.observeRuntime(ctx, event, nil, chainID)
+	}
+	return e.Observe(ctx, event)
+}
+
+// ObserveHistoricalDecisionWithChain carries both the historical decision
+// comparison and the detached governed chain reference into CGE.
+func (e *ShadowEngine) ObserveHistoricalDecisionWithChain(ctx context.Context, event Event, historical decisioncomparison.HistoricalDecisionRef, chainID string) (ObservationResult, error) {
+	if err := contextErr(ctx); err != nil {
+		return ObservationResult{}, err
+	}
+	if e == nil {
+		return ObservationResult{}, nil
+	}
+	if e.coordinator != nil {
+		return e.observeRuntime(ctx, event, &historical, chainID)
+	}
+	return e.Observe(ctx, event)
 }
 
 func (e *ShadowEngine) Snapshot(ctx context.Context) (Snapshot, error) {

@@ -2,6 +2,8 @@
 package actionpolicy
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,6 +102,27 @@ func (s *Store) Get() contract.ActionPolicy {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return clone(s.policy)
+}
+
+// Revision returns a stable, non-secret revision for the effective policy.
+// It is content-derived so a restart does not make an unchanged policy look
+// stale, while every accepted policy replacement changes the revision.
+func (s *Store) Revision() uint64 {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	data, err := json.Marshal(s.policy)
+	s.mu.RUnlock()
+	if err != nil {
+		return 0
+	}
+	sum := sha256.Sum256(data)
+	revision := binary.BigEndian.Uint64(sum[:8])
+	if revision == 0 {
+		return 1
+	}
+	return revision
 }
 
 func (s *Store) Update(raw []byte) (contract.ActionPolicy, error) {

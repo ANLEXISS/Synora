@@ -6,4 +6,4 @@ The demonstrations cover `routine-formation`, `temporal-divergence`, `spatial-di
 
 `Memory field isolation` runs each variant in a separate session from the same deterministic baseline. Structure, time, interval, coverage and total values come only from the real assessment.
 
-The result presents the observation, comparable memory and measured divergences. The CGE measures a divergence with its memory; it does not yet interpret its cause. The catalog produces no situation hypothesis, intent, complete behavioral causality, automatic threat qualification or security decision.
+The result presents the observation, comparable memory and measured divergences. The CGE measures a divergence with its memory; it does not yet interpret its cause. The catalog may expose a descriptive governed intent in shadow, but produces no production security decision, command, or physical action.

@@ -216,6 +216,13 @@ func (e *Engine) CriticalSeeds() []cgecontracts.CriticalSeed {
 	return e.graphMemory.CriticalSeeds()
 }
 
+func (e *Engine) LearnedSequences() []cgecontracts.LearnedSequence {
+	if e == nil || e.graphMemory == nil {
+		return nil
+	}
+	return e.graphMemory.LearnedSequences()
+}
+
 func (e *Engine) CriticalSeed(id string) (cgecontracts.CriticalSeed, bool) {
 	if e == nil || e.graphMemory == nil {
 		return cgecontracts.CriticalSeed{}, false

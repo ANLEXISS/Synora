@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
+	"strings"
 	"time"
 
 	"synora/internal/cge/chains"
@@ -16,9 +16,11 @@ import (
 	"synora/internal/cge/chains/generations"
 	"synora/internal/cge/chains/journal"
 	cgecontext "synora/internal/cge/context"
+	"synora/internal/cge/decisioncomparison"
 	"synora/internal/cge/deviation"
 	"synora/internal/cge/fieldtrial"
 	"synora/internal/cge/routines"
+	"synora/internal/cge/shadowworkflow"
 )
 
 var (
@@ -64,6 +66,9 @@ func ErrorCode(err error) string {
 	if errors.Is(err, ErrShadowPanic) {
 		return "panic_recovered"
 	}
+	if errors.Is(err, shadowworkflow.ErrComparisonBuildFailed) {
+		return "comparison_build_failed"
+	}
 	if errors.Is(err, ErrInvalidShadowConfig) {
 		return "invalid_config"
 	}
@@ -91,6 +96,10 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 	if logger == nil {
 		return nil, fmt.Errorf("%w: logger is required", ErrShadowStartup)
 	}
+	admissionPolicy, err := NewShadowEventAdmissionPolicy(config.EligibleEventTypes)
+	if err != nil {
+		return nil, fmt.Errorf("%w: admission policy", ErrShadowStartup)
+	}
 	fileJournal, err := journal.NewFileJournal(config.JournalPath, journal.FileJournalOptions{CreateParentDirs: true})
 	if err != nil {
 		return nil, fmt.Errorf("%w: journal configuration", ErrShadowStartup)
@@ -99,20 +108,54 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 	if err != nil {
 		return nil, err
 	}
-	allowlist := make(map[string]struct{}, len(config.EligibleEventTypes))
-	for _, eventType := range config.EligibleEventTypes {
-		allowlist[eventType] = struct{}{}
-	}
 	metrics := &shadowMetrics{}
+	decisionStore, storeErr := NewFileDecisionStore(filepath.Join(config.DataDir, "decisions.ndjson"))
+	if storeErr != nil {
+		return nil, fmt.Errorf("%w: decision store", ErrShadowStartup)
+	}
+	kernel, kernelErr := NewSafetyKernel(config.AuthorityMode, func() time.Time { return clock.Now().UTC() })
+	if kernelErr != nil {
+		return nil, fmt.Errorf("%w: safety kernel", ErrShadowStartup)
+	}
+	authority, authorityErr := NewDecisionAuthority(config.AuthorityMode, kernel, nil, decisionStore)
+	if authorityErr != nil {
+		return nil, fmt.Errorf("%w: authority mode", ErrShadowStartup)
+	}
+	authority.now = func() time.Time { return clock.Now().UTC() }
+	planStore, planStoreErr := NewFileExecutionPlanStore(config.DataDir)
+	if planStoreErr != nil {
+		return nil, fmt.Errorf("%w: execution plan store", ErrShadowStartup)
+	}
+	planPlanner := DefaultGovernedExecutionPlanner{Now: func() time.Time { return clock.Now().UTC() }}
+	planKernel := DefaultExecutionPlanSafetyKernel{Now: func() time.Time { return clock.Now().UTC() }}
+	if err := authority.ConfigureExecution(config.ExecutionMode, planPlanner, planKernel, planStore, config.ExecutionDiagnostics); err != nil {
+		return nil, fmt.Errorf("%w: execution planner: %v", ErrShadowStartup, err)
+	}
+	governanceStore, governanceErr := NewFileChainGovernanceStore(filepath.Join(config.DataDir, "chain-governance.ndjson"))
+	if governanceErr != nil {
+		return nil, fmt.Errorf("%w: chain governance store", ErrShadowStartup)
+	}
+	chainRegistry, governanceErr := NewChainRegistryWithStore(governanceStore)
+	if governanceErr != nil {
+		return nil, fmt.Errorf("%w: chain governance recovery", ErrShadowStartup)
+	}
 	engine := &ShadowEngine{
-		coordinator: coordinator, policy: config.AssociationPolicy, evidencePolicy: config.EvidencePolicy, allowlist: allowlist,
+		coordinator: coordinator, policy: config.AssociationPolicy, evidencePolicy: config.EvidencePolicy, admissionPolicy: admissionPolicy,
+		admission: ShadowAdmissionStatus{
+			HistoricalAuthorityUnchanged: true,
+			NoActionProduced:             true,
+		},
 		actor: config.Actor, clock: clock, logger: logger, metrics: metrics,
-		dataDir:          config.DataDir,
-		contextConfig:    config.Context,
-		routineConfig:    config.Routines,
-		deviationConfig:  config.Deviation,
-		fieldTrialConfig: config.FieldTrial,
-		topologyProvider: unavailableRoutineTopologyProvider{},
+		dataDir:             config.DataDir,
+		authority:           authority,
+		decisionSelector:    NewContractChainSelector(nil, nil, nil, chainRegistry),
+		decisionSynthesizer: DefaultDecisionSynthesizer{},
+		targetResolver:      DefaultCognitiveDecisionTargetResolver{},
+		contextConfig:       config.Context,
+		routineConfig:       config.Routines,
+		deviationConfig:     config.Deviation,
+		fieldTrialConfig:    config.FieldTrial,
+		topologyProvider:    unavailableRoutineTopologyProvider{},
 	}
 	engine.deviationStore, err = NewRecentDeviationStore(config.Deviation.RecentAssessmentLimit)
 	if err != nil {
@@ -138,6 +181,27 @@ func NewShadowEngineWithConfig(ctx context.Context, config ShadowConfig, clock C
 	}
 	if config.Cognitive.Enabled {
 		engine.orchestrator = newShadowOrchestrator(coordinator, config, clock, metrics)
+	}
+	if config.Workflow.Enabled {
+		workflowRuntime, workflowErr := shadowworkflow.NewRuntime(ctx, config.Workflow, clock, logger, nil, nil)
+		engine.workflow = workflowRuntime
+		if workflowRuntime != nil {
+			workflowRuntime.SetCommitObserver(func(input shadowworkflow.ShadowWorkflowInput) {
+				defer func() {
+					if recover() != nil {
+						engine.safeLog("decision_commit_observer_panic")
+					}
+				}()
+				observation := chains.ObservationRef{
+					ID: input.Observation.EventID, EventType: input.Observation.EventType,
+					Timestamp: input.Observation.ObservedAt, HistoricalChainID: input.HistoricalChainID,
+				}
+				engine.synthesizeDecision(ctx, observation, input.HistoricalDecision)
+			})
+		}
+		if workflowErr != nil {
+			engine.safeLog("workflow_recovery_failed")
+		}
 	}
 	if config.FieldTrial.Enabled {
 		recorder, recorderErr := fieldtrial.Open(ctx, config.FieldTrial, fieldTrialMetadata(config))
@@ -213,7 +277,7 @@ func openShadowCoordinator(ctx context.Context, config ShadowConfig, clock Clock
 
 // Observe performs the explicit post-history shadow flow. It recovers its own
 // panic so callers never inherit shadow failures.
-func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event) (result ObservationResult, err error) {
+func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event, historical *decisioncomparison.HistoricalDecisionRef, chainID string) (result ObservationResult, err error) {
 	var trialObservation chains.ObservationRef
 	if e.trialRecorder != nil {
 		started := time.Now()
@@ -242,17 +306,38 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event) (result 
 	e.lastObservedAt = event.Timestamp
 	e.lastEventType = event.Type
 	e.mu.Unlock()
-	adapted, adaptErr := AdaptEventWithAllowlist(event, mapKeys(e.allowlist))
+	adapted, adaptErr := AdaptEventWithPolicy(event, e.admissionPolicy)
 	if adaptErr != nil {
+		e.recordAdmission(ShadowAdmissionResult{
+			Code:                         ShadowAdmissionInvalid,
+			EventType:                    admissionEventType(event),
+			Eligible:                     e.admissionPolicy.allows(admissionEventType(event)),
+			HistoricalAuthorityUnchanged: true,
+			NoActionProduced:             true,
+		})
 		e.metrics.malformed(now, ErrorCode(adaptErr))
 		e.safeLog(ErrorCode(adaptErr))
 		return result, adaptErr
 	}
 	if !adapted.Eligible {
+		e.recordAdmission(ShadowAdmissionResult{
+			Code:                         ShadowAdmissionIgnoredByPolicy,
+			EventType:                    admissionEventType(event),
+			HistoricalAuthorityUnchanged: true,
+			NoActionProduced:             true,
+		})
 		e.metrics.skipped()
 		return result, nil
 	}
 	e.metrics.eligible()
+	if len([]rune(chainID)) > 256 || strings.ContainsAny(chainID, "\r\n") {
+		e.metrics.malformed(now, "event.scalar_validation")
+		e.safeLog("event.scalar_validation")
+		return result, adaptationError("event.scalar_validation")
+	}
+	// This argument is historical diagnostic data; never place it in ChainID.
+	// ChainID is reserved for a CGE-owned chain and is not a selector input.
+	adapted.Input.Observation.HistoricalChainID = chainID
 	if e.contextProvider != nil {
 		e.metrics.cognitive("context_resolution_attempted")
 		frame, contextErr := e.resolveContext(ctx, adapted.Input.Observation)
@@ -271,6 +356,7 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event) (result 
 			}
 		}
 	}
+	e.recordAdmission(e.submitWorkflow(adapted.Input.Observation, historical))
 	trialObservation = adapted.Input.Observation.Clone()
 	e.mu.Lock()
 	e.lastOrchestration = ShadowOrchestrationResult{}
@@ -309,6 +395,9 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event) (result 
 					return result, shadowError{code: "routine_orchestration_degraded", stage: "routine_learning", err: routineErr}
 				}
 			}
+		}
+		if e.workflow == nil {
+			e.synthesizeDecision(ctx, adapted.Input.Observation, historical)
 		}
 		return result, nil
 	}
@@ -351,6 +440,9 @@ func (e *ShadowEngine) observeRuntime(ctx context.Context, event Event) (result 
 		if routineErr != nil {
 			e.safeLog(ErrorCode(routineErr))
 		}
+	}
+	if e.workflow == nil {
+		e.synthesizeDecision(ctx, adapted.Input.Observation, historical)
 	}
 	return result, nil
 }
@@ -595,18 +687,10 @@ func (e *ShadowEngine) resolveContext(ctx context.Context, observation chains.Ob
 			err = ErrShadowPanic
 		}
 	}()
-	return e.contextProvider.Resolve(ctx, observation.ID, observation.Timestamp, observation.NodeID)
-}
-
-func mapKeys(values map[string]struct{}) []string {
-	result := make([]string, 0, len(values))
-	for value := range values {
-		result = append(result, value)
+	if _, ok := e.contextProvider.(cgecontext.CoreContextProvider); ok {
+		return e.contextSnapshot(ctx, cgecontext.SnapshotRequest{ObservationID: observation.ID, ObservedAt: observation.Timestamp, NodeID: observation.NodeID})
 	}
-	// The adapter only performs membership checks; sorting makes tests and
-	// diagnostics deterministic without retaining caller-owned configuration.
-	sort.Strings(result)
-	return result
+	return e.contextProvider.Resolve(ctx, observation.ID, observation.Timestamp, observation.NodeID)
 }
 
 func (e *ShadowEngine) safeLog(code string) {
@@ -634,11 +718,18 @@ func (e *ShadowEngine) Metrics() MetricsSnapshot {
 
 // Close closes the coordinator once and never creates a snapshot.
 func (e *ShadowEngine) Close() error {
-	if e == nil || e.coordinator == nil {
+	if e == nil {
 		return nil
 	}
 	e.closeOnce.Do(func() {
-		e.closeErr = e.coordinator.Close()
+		if e.workflow != nil {
+			if err := e.workflow.Close(context.Background()); err != nil {
+				e.safeLog("workflow_close_error")
+			}
+		}
+		if e.coordinator != nil {
+			e.closeErr = e.coordinator.Close()
+		}
 		if e.trialRecorder != nil {
 			if err := e.trialRecorder.Close(context.Background(), e.shadowNow()); err != nil {
 				e.metrics.cognitive("field_trial_record_errors")

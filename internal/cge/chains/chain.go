@@ -121,18 +121,23 @@ func (s Status) ValidateContributionMutation() error {
 // ObservationRef is a detached, immutable reference to a source observation.
 // It intentionally contains no arbitrary payload or mutable source object.
 type ObservationRef struct {
-	ID           string            `json:"id"`
-	EventType    string            `json:"event_type"`
-	Timestamp    time.Time         `json:"timestamp"`
-	NodeID       string            `json:"node_id,omitempty"`
-	DeviceID     string            `json:"device_id,omitempty"`
-	EntityID     string            `json:"entity_id,omitempty"`
-	ActivationID string            `json:"activation_id,omitempty"`
-	ClipID       string            `json:"clip_id,omitempty"`
-	ClipIndex    int               `json:"clip_index,omitempty"`
-	TrackID      string            `json:"track_id,omitempty"`
-	SequenceKey  string            `json:"sequence_key,omitempty"`
-	Context      *cgecontext.Frame `json:"context,omitempty"`
+	ID           string    `json:"id"`
+	EventType    string    `json:"event_type"`
+	Timestamp    time.Time `json:"timestamp"`
+	NodeID       string    `json:"node_id,omitempty"`
+	DeviceID     string    `json:"device_id,omitempty"`
+	EntityID     string    `json:"entity_id,omitempty"`
+	ActivationID string    `json:"activation_id,omitempty"`
+	ClipID       string    `json:"clip_id,omitempty"`
+	ClipIndex    int       `json:"clip_index,omitempty"`
+	TrackID      string    `json:"track_id,omitempty"`
+	SequenceKey  string    `json:"sequence_key,omitempty"`
+	// HistoricalChainID is diagnostic input from the legacy engine. It is
+	// deliberately separate from ChainID, which is reserved for a CGE-owned
+	// chain and may never be used as a cognitive selection hint.
+	HistoricalChainID string            `json:"historical_chain_id,omitempty"`
+	ChainID           string            `json:"chain_id,omitempty"`
+	Context           *cgecontext.Frame `json:"context,omitempty"`
 }
 
 func (r ObservationRef) validate() error {

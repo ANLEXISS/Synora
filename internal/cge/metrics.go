@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	cgecontext "synora/internal/cge/context"
 	"synora/internal/cge/fieldtrial"
 )
 
@@ -14,6 +15,24 @@ type MetricsSnapshot struct {
 	EventsEligible  uint64
 	EventsSkipped   uint64
 	EventsMalformed uint64
+
+	CoreContextSnapshotsRequested uint64
+	CoreContextSnapshotsSucceeded uint64
+	CoreContextSnapshotsFailed    uint64
+	CoreContextFreshSnapshots     uint64
+	CoreContextAgingSnapshots     uint64
+	CoreContextStaleSnapshots     uint64
+	CoreContextEmptySnapshots     uint64
+	CoreContextSnapshotDurationNS uint64
+
+	AdmissionAccepted        uint64
+	AdmissionIgnoredByPolicy uint64
+	AdmissionInvalid         uint64
+	AdmissionQueueFull       uint64
+	AdmissionStopping        uint64
+	AdmissionStopped         uint64
+	AdmissionDisabled        uint64
+	AdmissionUnavailable     uint64
 
 	PlansAttachExisting  uint64
 	PlansCreateCandidate uint64
@@ -147,6 +166,36 @@ type shadowMetrics struct {
 	value MetricsSnapshot
 }
 
+func (m *shadowMetrics) coreContextFailed() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.value.CoreContextSnapshotsFailed++
+	m.mu.Unlock()
+}
+
+func (m *shadowMetrics) coreContextSucceeded(freshness cgecontext.FreshnessCode, durationNS uint64, empty bool) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.value.CoreContextSnapshotsSucceeded++
+	m.value.CoreContextSnapshotDurationNS += durationNS
+	switch freshness {
+	case cgecontext.FreshnessFresh:
+		m.value.CoreContextFreshSnapshots++
+	case cgecontext.FreshnessAging:
+		m.value.CoreContextAgingSnapshots++
+	case cgecontext.FreshnessStale:
+		m.value.CoreContextStaleSnapshots++
+	}
+	if empty {
+		m.value.CoreContextEmptySnapshots++
+	}
+	m.mu.Unlock()
+}
+
 func (m *shadowMetrics) observed(now time.Time) uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -163,6 +212,32 @@ func (m *shadowMetrics) eligible() {
 func (m *shadowMetrics) skipped() {
 	m.mu.Lock()
 	m.value.EventsSkipped++
+	m.mu.Unlock()
+}
+
+func (m *shadowMetrics) admission(code ShadowAdmissionCode) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	switch code {
+	case ShadowAdmissionAccepted:
+		m.value.AdmissionAccepted++
+	case ShadowAdmissionIgnoredByPolicy:
+		m.value.AdmissionIgnoredByPolicy++
+	case ShadowAdmissionInvalid:
+		m.value.AdmissionInvalid++
+	case ShadowAdmissionQueueFull:
+		m.value.AdmissionQueueFull++
+	case ShadowAdmissionStopping:
+		m.value.AdmissionStopping++
+	case ShadowAdmissionStopped:
+		m.value.AdmissionStopped++
+	case ShadowAdmissionDisabled:
+		m.value.AdmissionDisabled++
+	case ShadowAdmissionUnavailable:
+		m.value.AdmissionUnavailable++
+	}
 	m.mu.Unlock()
 }
 

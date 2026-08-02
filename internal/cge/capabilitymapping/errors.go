@@ -1,0 +1,33 @@
+package capabilitymapping
+
+import "errors"
+
+var (
+	ErrInvalidPolicy               = errors.New("capabilitymapping: invalid policy")
+	ErrInvalidCatalog              = errors.New("capabilitymapping: invalid catalog")
+	ErrInvalidCapabilityDefinition = errors.New("capabilitymapping: invalid capability definition")
+	ErrUnknownCapabilityKind       = errors.New("capabilitymapping: unknown capability kind")
+	ErrInvalidCapabilityInstance   = errors.New("capabilitymapping: invalid capability instance")
+	ErrInvalidCapabilityStatus     = errors.New("capabilitymapping: invalid capability status")
+	ErrInvalidCapabilityQuality    = errors.New("capabilitymapping: invalid capability quality")
+	ErrInvalidCapabilityScope      = errors.New("capabilitymapping: invalid capability scope")
+	ErrInvalidCapabilityConstraint = errors.New("capabilitymapping: invalid capability constraint")
+	ErrInvalidInventory            = errors.New("capabilitymapping: invalid inventory")
+	ErrInventoryCatalogMismatch    = errors.New("capabilitymapping: inventory catalog mismatch")
+	ErrInventoryRevisionInvalid    = errors.New("capabilitymapping: invalid inventory revision")
+	ErrInvalidRequest              = errors.New("capabilitymapping: invalid request")
+	ErrRequestTerminal             = errors.New("capabilitymapping: request terminal")
+	ErrInvalidRequirement          = errors.New("capabilitymapping: invalid requirement")
+	ErrCapabilityLimitReached      = errors.New("capabilitymapping: capability limit reached")
+	ErrCandidateLimitReached       = errors.New("capabilitymapping: candidate limit reached")
+	ErrCapabilityIDCollision       = errors.New("capabilitymapping: capability ID collision")
+	ErrCandidateIDCollision        = errors.New("capabilitymapping: candidate ID collision")
+	ErrMissingSourceFingerprint    = errors.New("capabilitymapping: missing source fingerprint")
+	ErrFingerprintMismatch         = errors.New("capabilitymapping: fingerprint mismatch")
+	ErrStaleRequest                = errors.New("capabilitymapping: stale request")
+	ErrStaleInventory              = errors.New("capabilitymapping: stale inventory")
+	ErrSourceRevisionConflict      = errors.New("capabilitymapping: source revision conflict")
+	ErrInvalidAssessment           = errors.New("capabilitymapping: invalid assessment")
+	ErrInvalidPlan                 = errors.New("capabilitymapping: invalid plan")
+	ErrInvalidExplanation          = errors.New("capabilitymapping: invalid explanation")
+)
