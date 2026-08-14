@@ -471,6 +471,13 @@ func (s *Server) residentConfigDelete(msg contract.Message) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.state != nil {
+		for _, photo := range s.state.FacePhotosList(deleted.ID, 200) {
+			if photo.Status == string(contract.FacePhotoActive) || photo.Status == string(contract.FacePhotoStored) || photo.Status == string(contract.FacePhotoValidating) {
+				_, _, _ = s.state.TransitionFacePhoto(photo.ID, contract.FacePhotoRemovalPending, "resident_removed")
+			}
+		}
+	}
 	// Runtime identity, presence and source events are intentionally preserved.
 	s.notifyMutation("resident.updated", deleted.ID)
 	return deleted.ConfigView(), nil

@@ -139,14 +139,7 @@ func TestWebSocketWithBearerReceivesInitialSnapshot(t *testing.T) {
 	}
 	defer conn.Close()
 
-	var envelope wsEnvelope
-	if err := conn.ReadJSON(&envelope); err != nil {
-		t.Fatalf("read initial snapshot: %v", err)
-	}
-	if envelope.Type != "snapshot.initial" {
-		t.Fatalf("unexpected websocket envelope: %#v", envelope)
-	}
-	data := envelope.Data.(map[string]any)
+	data := readInitialSnapshot(t, conn)
 	system := data["system"].(map[string]any)
 	if system["last_state"] != "idle" {
 		t.Fatalf("unexpected initial snapshot data: %#v", data)
@@ -179,13 +172,7 @@ func TestWebSocketWithCookieSessionReceivesInitialSnapshot(t *testing.T) {
 	}
 	defer conn.Close()
 
-	var envelope wsEnvelope
-	if err := conn.ReadJSON(&envelope); err != nil {
-		t.Fatalf("read initial snapshot: %v", err)
-	}
-	if envelope.Type != "snapshot.initial" {
-		t.Fatalf("unexpected websocket envelope: %#v", envelope)
-	}
+	_ = readInitialSnapshot(t, conn)
 }
 
 func TestWebSocketAcceptsQueryTokenForBrowserTests(t *testing.T) {
@@ -233,15 +220,19 @@ func TestWebSocketBroadcastsSnapshotUpdateAfterBusSignal(t *testing.T) {
 	if err := conn.ReadJSON(&envelope); err != nil {
 		t.Fatalf("read update: %v", err)
 	}
-	if envelope.Type != "snapshot.updated" {
+	if envelope.Type != contract.RealtimeSnapshot {
 		t.Fatalf("unexpected update type: %#v", envelope)
 	}
-	data, _ := json.Marshal(envelope.Data)
-	if strings.Contains(string(data), "security.yaml") || strings.Contains(string(data), "api_token") {
-		t.Fatalf("websocket message leaks private configuration: %s", string(data))
+	if strings.Contains(string(envelope.Payload), "security.yaml") || strings.Contains(string(envelope.Payload), "api_token") {
+		t.Fatalf("websocket message leaks private configuration: %s", string(envelope.Payload))
 	}
-	payload := envelope.Data.(map[string]any)
-	assertCompactCGEEnvelope(t, payload["cge"])
+	var payload struct {
+		Snapshot map[string]any `json:"snapshot"`
+	}
+	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+		t.Fatalf("decode snapshot payload: %v", err)
+	}
+	assertCompactCGEEnvelope(t, payload.Snapshot["cge"])
 }
 
 func TestWebSocketMultipleClientsReceivePublishedMessage(t *testing.T) {
@@ -510,13 +501,32 @@ func (s *localTestServer) Close() {
 
 func discardInitial(t *testing.T, conn *websocket.Conn) {
 	t.Helper()
+	_ = readInitialSnapshot(t, conn)
+}
+
+func readInitialSnapshot(t *testing.T, conn *websocket.Conn) map[string]any {
+	t.Helper()
+	var ready wsEnvelope
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("read connection.ready: %v", err)
+	}
+	if ready.Type != contract.RealtimeConnectionReady {
+		t.Fatalf("expected connection.ready, got %#v", ready)
+	}
 	var envelope wsEnvelope
 	if err := conn.ReadJSON(&envelope); err != nil {
 		t.Fatalf("read initial snapshot: %v", err)
 	}
-	if envelope.Type != "snapshot.initial" {
-		t.Fatalf("expected initial snapshot, got %#v", envelope)
+	if envelope.Type != contract.RealtimeSnapshot {
+		t.Fatalf("expected snapshot, got %#v", envelope)
 	}
+	var payload struct {
+		Snapshot map[string]any `json:"snapshot"`
+	}
+	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+		t.Fatalf("decode initial snapshot: %v", err)
+	}
+	return payload.Snapshot
 }
 
 func emptyPublicSnapshot() *contract.PublicSnapshot {

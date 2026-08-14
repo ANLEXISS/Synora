@@ -31,6 +31,12 @@ class SCRFDFaceRunner:
         model_path=MODEL_PATH,
     ):
 
+        if model_path == self.MODEL_PATH:
+            model_path = os.getenv(
+                "SYNORA_SCRFD_MODEL",
+                os.path.join(os.getenv("SYNORA_MODEL_ROOT", "/var/lib/synora/models"), "det_10g.rknn"),
+            )
+
         self.model_path = model_path
         self.runner = None
         self.available = False

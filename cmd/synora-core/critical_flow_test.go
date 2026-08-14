@@ -196,8 +196,8 @@ func TestCriticalFlowUnknownProducesDecisionAndSnapshotEvent(t *testing.T) {
 		t.Fatalf("unexpected snapshot event: %#v", eventView)
 	}
 	assessment := latestDanger(public)
-	if assessment != nil {
-		t.Fatalf("danger below 0.65 must not be persisted: %#v", public.CGE)
+	if assessment == nil || assessment["risk_level"] != "critical" || assessment["expected_state"] != "intrusion" {
+		t.Fatalf("unknown must persist an immediate intrusion assessment: %#v", public.CGE)
 	}
 }
 

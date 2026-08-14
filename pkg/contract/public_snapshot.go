@@ -9,6 +9,7 @@ import (
 )
 
 type PublicSnapshot struct {
+	Revision      uint64           `json:"revision"`
 	System        map[string]any   `json:"system"`
 	Devices       []map[string]any `json:"devices"`
 	Residents     []map[string]any `json:"residents"`
@@ -26,6 +27,7 @@ type PublicSnapshot struct {
 	Metrics       map[string]any   `json:"metrics"`
 	CGE           map[string]any   `json:"cge"`
 	EventChains   map[string]any   `json:"event_chains,omitempty"`
+	Incidents     []map[string]any `json:"incidents"`
 }
 
 func PublicSnapshotFromCoreState(state map[string]any) PublicSnapshot {
@@ -33,6 +35,7 @@ func PublicSnapshotFromCoreState(state map[string]any) PublicSnapshot {
 	system := publicSystemState(mapValue(state["system"]))
 
 	return PublicSnapshot{
+		Revision:      uint64Value(state["revision"]),
 		System:        system,
 		Devices:       collectionFrom(state, store, "devices"),
 		Residents:     collectionFrom(state, store, "residents"),
@@ -50,7 +53,34 @@ func PublicSnapshotFromCoreState(state map[string]any) PublicSnapshot {
 		Metrics:       publicMetrics(state["metrics"]),
 		CGE:           mapOrEmpty(normalizeMap(mapValue(state["cge"]))),
 		EventChains:   mapOrEmpty(normalizeMap(mapValue(state["event_chains"]))),
+		Incidents:     collectionFrom(state, store, "incidents"),
 	}
+}
+
+func uint64Value(value any) uint64 {
+	switch typed := value.(type) {
+	case uint64:
+		return typed
+	case uint:
+		return uint64(typed)
+	case int:
+		if typed >= 0 {
+			return uint64(typed)
+		}
+	case int64:
+		if typed >= 0 {
+			return uint64(typed)
+		}
+	case float64:
+		if typed >= 0 {
+			return uint64(typed)
+		}
+	case json.Number:
+		if parsed, err := typed.Int64(); err == nil && parsed >= 0 {
+			return uint64(parsed)
+		}
+	}
+	return 0
 }
 
 func publicSystemState(raw map[string]any) map[string]any {
@@ -91,12 +121,37 @@ func publicMetrics(value any) map[string]any {
 
 func collectionFrom(state map[string]any, store map[string]any, key string) []map[string]any {
 	if value, ok := state[key]; ok && value != nil {
-		return collection(value)
+		return publicCollection(value, key)
 	}
 	if value, ok := store[key]; ok && value != nil {
-		return collection(value)
+		return publicCollection(value, key)
 	}
 	return []map[string]any{}
+}
+
+func publicCollection(value any, key string) []map[string]any {
+	items := collection(value)
+	if key == "events" {
+		filtered := items[:0]
+		for _, item := range items {
+			eventType, _ := item["type"].(string)
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(eventType)), "face.") || strings.HasPrefix(strings.ToLower(strings.TrimSpace(eventType)), "photo.") {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		return filtered
+	}
+	if key != "clips" {
+		return items
+	}
+	for _, item := range items {
+		// The absolute spool path is an internal reconciliation detail, never
+		// part of the public snapshot, REST metadata, or WebSocket contract.
+		delete(item, "path")
+		delete(item, "Path")
+	}
+	return items
 }
 
 func automationCollection(value any) []map[string]any {
@@ -206,7 +261,9 @@ func isSensitivePublicKey(key string) bool {
 	case "api_token", "api_token_hash", "token", "access_token", "refresh_token",
 		"secret", "secret_hash", "password", "passphrase", "authorization",
 		"credential", "credentials", "private_key", "security", "security_yaml",
-		"path", "clip_path", "file_path", "filesystem_path":
+		"path", "clip_path", "file_path", "filesystem_path", "storage_key",
+		"embedding", "embeddings", "landmark", "landmarks", "crop", "crop_image",
+		"photo", "photo_data", "face", "face_data", "image", "image_data":
 		return true
 	}
 	for _, suffix := range []string{"_secret", "_password", "_token", "_private_key"} {

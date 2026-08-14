@@ -3,7 +3,12 @@ package vision
 import "time"
 
 type ClipJob struct {
-	ID string
+	ID           string
+	ActivationID string
+	ClipIndex    int
+	NodeID       string
+	SequenceKey  string
+	TrackID      string
 
 	CameraID string
 

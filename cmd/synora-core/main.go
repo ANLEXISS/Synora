@@ -21,7 +21,6 @@ import (
 	"synora/internal/cge/decisioncomparison"
 	"synora/internal/device"
 	"synora/internal/engine"
-	cgecontracts "synora/internal/engine/contracts"
 	eventpkg "synora/internal/event"
 	"synora/internal/idgen"
 	"synora/internal/ingest"
@@ -53,8 +52,18 @@ type coreMetrics struct {
 type coreApp struct {
 	mu sync.RWMutex
 
-	snapshotPending atomic.Bool
-	coreRevision    atomic.Uint64
+	snapshotPending  atomic.Bool
+	coreRevision     atomic.Uint64
+	realtimeMu       sync.Mutex
+	realtimeEpoch    string
+	realtimeSequence atomic.Uint64
+	eventMu          sync.Mutex
+	processMu        sync.Mutex
+	processedEvents  map[string]struct{}
+	clipAvailable    map[string]struct{}
+	inputEpoch       string
+	inputSequence    uint64
+	inputReceivedAt  time.Time
 
 	bus        coreBus
 	engine     *engine.Engine
@@ -255,8 +264,9 @@ func main() {
 		CGE:        app.engine,
 	}
 	app.snapshotPublisher = snapshotpkg.Publisher{
-		Builder: app.snapshotBuilder,
-		Bus:     app.bus,
+		Builder:  app.snapshotBuilder,
+		Bus:      app.bus,
+		Metadata: app.realtimeMetadata,
 	}
 	app.actionDispatcher = automation.Dispatcher{
 		Bus:    app.bus,
@@ -300,6 +310,7 @@ func main() {
 	if err != nil {
 		log.Println("state persistence load warning:", err)
 	}
+	app.reconcileClips()
 	chainManager.AttachState(stateStore)
 	// Reconcile persisted runtime presence before publishing the first
 	// snapshot. Expiration is evaluated against wall-clock time after a
@@ -450,6 +461,18 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	if event == nil {
 		return
 	}
+	if !a.acceptEvent(event) {
+		return
+	}
+	a.processMu.Lock()
+	defer a.processMu.Unlock()
+	// These are Core-owned public projections. A bus implementation may fan a
+	// publication back to Core (and tests deliberately exercise that topology),
+	// but a projection must never become a second input observation.
+	if event.Type == "incident.created" || event.Type == "incident.updated" || event.Type == "clip.available" {
+		return
+	}
+	a.canonicalizeVisionIdentifiers(event)
 	a.coreRevision.Add(1)
 	// Capture the boundary DTO before the historical engine can normalize or
 	// enrich the source event. The deferred call keeps this observer after the
@@ -477,6 +500,15 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	if event.Type == contract.EventSystemStateChanged || event.Type == contract.EventSystemPresence {
 		log.Printf("core: stored lifecycle event=%s type=%s category=%s", event.ID, event.Type, contract.EventCategory(event.Type))
 		a.metrics.record(event.Source, 0)
+		a.triggerSnapshot()
+		return
+	}
+	if a.processClipLifecycle(event) {
+		a.triggerSnapshot()
+		return
+	}
+	if contract.NormalizeEventType(event.Type) == contract.EventVisionEnd {
+		a.finalizeVisionActivation(event)
 		a.triggerSnapshot()
 		return
 	}
@@ -520,13 +552,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 		historicalChainID = result.DangerAssessment.MatchedSeedID
 	}
 	if historicalChainID == "" && result != nil && result.Decision != nil {
-		for _, behavior := range a.engine.LearnedBehaviors() {
-			if behavior.ID == "" || behavior.TriggerSequenceSignature == "" || behavior.TriggerSequenceSignature != result.Decision.SequenceKey || behavior.Status != cgecontracts.LearnedBehaviorApproved || !behavior.Enabled || behavior.Forgotten {
-				continue
-			}
-			historicalChainID = behavior.ID
-			break
-		}
+		historicalChainID = a.engine.ApprovedLearnedBehaviorID(result.Decision.SequenceKey)
 	}
 
 	if result != nil &&
@@ -542,9 +568,35 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	latency := time.Since(started)
 
 	previousSystemState := a.state.SystemState()
+	if contract.NormalizeEventType(event.Type) == contract.EventVisionIdentity && !a.acceptedResidentIdentity(event) {
+		if result != nil {
+			result.Identity = nil
+			result.Presence = nil
+		}
+	}
 	stateChanged := stateapply.Apply(a.state, result, stateapply.Callbacks{
 		SyncPresence: a.syncResidentPresence,
 	})
+	a.updateVisionTracking(event)
+	incidentID := ""
+	if incident, created, changed, err := a.recordIncident(event, result); err != nil {
+		log.Printf("core: incident persistence warning: %v", err)
+	} else {
+		incidentID = incident.ID
+		if changed && created {
+			log.Printf("core: incident created id=%s event_id=%s state=%s", incident.ID, event.ID, incident.SecurityState)
+			a.publishEvent("incident.created", incident, contract.PriorityCritical)
+		} else if changed {
+			a.publishEvent("incident.updated", contract.RealtimeIncidentUpdatedPayload{
+				IncidentID: incident.ID, Revision: incident.Revision, Status: incident.Status,
+				Reason: "enriched", Incident: incident,
+			}, contract.PriorityHigh)
+		}
+	}
+	if event.ClipID != "" {
+		a.state.AttachClipReferences(event.ClipID, event.ID, incidentID)
+		a.publishClipAvailableIfReady(event.ClipID)
+	}
 	if ref, refErr := buildHistoricalDecisionRef(event, result, previousSystemState, a.state.SystemState(), stateChanged); refErr != nil {
 		log.Printf("core: historical decision comparison reference rejected code=%s", cge.ErrorCode(refErr))
 	} else {
@@ -560,9 +612,6 @@ func (a *coreApp) processEvent(event *contract.Event) {
 		current.ManualRiskScore = 0
 		current.ManualRiskExpiresAt = time.Time{}
 		a.state.SetSystemState(current)
-	}
-	if presence := stateapply.ApplyVisionIdentity(a.state, event); presence != nil {
-		a.syncResidentPresence(presence)
 	}
 	a.applyAutomationContext(event)
 	a.applyActionPolicy(event, result)
@@ -1284,6 +1333,7 @@ func (a *coreApp) cleanupLoop() {
 	defer ticker.Stop()
 	cfg := state.DefaultExpirationConfig()
 	for range ticker.C {
+		a.reconcileClips()
 		result := a.state.Cleanup(time.Now().UTC(), cfg)
 		if len(result.Deleted) == 0 {
 			continue
@@ -1302,8 +1352,17 @@ func (a *coreApp) publishEvent(eventType string, payload any, priority int) {
 		log.Println("core: publish marshal error", err)
 		return
 	}
+	epoch, sequence := a.nextRealtimeCursor()
+	revision := uint64(0)
+	if a.state != nil {
+		revision = a.state.Revision()
+	}
 	msg := contract.Message{
 		ID:        idgen.New("msg"),
+		Version:   contract.RealtimeSchemaVersion,
+		Epoch:     epoch,
+		Sequence:  sequence,
+		Revision:  revision,
 		Type:      contract.NormalizeEventType(eventType),
 		Kind:      contract.KindEvent,
 		Source:    "core",

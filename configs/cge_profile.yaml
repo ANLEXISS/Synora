@@ -4,8 +4,8 @@ security_profile:
     enabled: true
     tick_seconds: 5
     window_minutes: 30
-    half_life_minutes: 10
+    half_life_minutes: 15
     idle_below_score: 0.25
     idle_stable_seconds: 300
-    downgrade_stable_seconds: 60
+    downgrade_stable_seconds: 10
     lock_intrusion_until_reset: true

@@ -9,7 +9,9 @@ import (
 const (
 	ErrorInvalidJSON      = "invalid_json"
 	ErrorInvalidRequest   = "invalid_request"
+	ErrorPayloadTooLarge  = "payload_too_large"
 	ErrorNotFound         = "not_found"
+	ErrorConflict         = "conflict"
 	ErrorDuplicateID      = "duplicate_id"
 	ErrorValidationFailed = "validation_failed"
 	ErrorForbiddenAction  = "forbidden_action"

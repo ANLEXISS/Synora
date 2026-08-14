@@ -32,12 +32,18 @@ func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
 	}
 
 	parsed := &contract.Event{
-		ID:        idgen.New("evt"),
-		Type:      contract.NormalizeEventType(msg.Type),
-		Source:    strings.TrimSpace(msg.Source),
-		Timestamp: p.resolveTimestamp(msg.Timestamp, payload["timestamp"]),
-		Payload:   payload,
-		Priority:  msg.Priority,
+		ID:         strings.TrimSpace(msg.ID),
+		Type:       contract.NormalizeEventType(msg.Type),
+		Source:     strings.TrimSpace(msg.Source),
+		Timestamp:  p.resolveTimestamp(msg.Timestamp, payload["timestamp"]),
+		Payload:    payload,
+		Priority:   msg.Priority,
+		Epoch:      strings.TrimSpace(msg.Epoch),
+		Sequence:   msg.Sequence,
+		ReceivedAt: time.Now().UTC(),
+	}
+	if parsed.ID == "" {
+		parsed.ID = idgen.New("evt")
 	}
 	if eventID, ok := payload["event_id"].(string); ok && strings.TrimSpace(eventID) != "" {
 		parsed.ID = strings.TrimSpace(eventID)
@@ -56,7 +62,13 @@ func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
 	if parsed.NodeID != "" && strings.TrimSpace(resolveString(payload, "node_id", "node")) == "" {
 		payload["node_id"] = parsed.NodeID
 	}
-	parsed.Identity = strings.TrimSpace(resolveString(payload, "identity", "resident_id"))
+	parsed.ResidentID = strings.TrimSpace(resolveString(payload, "resident_id"))
+	parsed.Identity = strings.TrimSpace(resolveString(payload, "identity"))
+	if parsed.ResidentID != "" {
+		// Identity remains the compatibility field consumed by Engine/Core;
+		// Vision's stable identifier is always resident_id, never display_name.
+		parsed.Identity = parsed.ResidentID
+	}
 	parsed.Confidence = resolveFloat(payload, "confidence")
 	parsed.TrackID = resolveString(payload, "track_id")
 	parsed.ClipID = resolveString(payload, "clip_id")
@@ -117,9 +129,6 @@ func metadataBool(value any) bool {
 }
 
 func (p Parser) resolveTimestamp(messageTS time.Time, raw any) time.Time {
-	if !messageTS.IsZero() {
-		return messageTS.UTC()
-	}
 	switch value := raw.(type) {
 	case float64:
 		if value > 1e12 {
@@ -145,6 +154,9 @@ func (p Parser) resolveTimestamp(messageTS time.Time, raw any) time.Time {
 			}
 			return time.Unix(parsed, 0).UTC()
 		}
+	}
+	if !messageTS.IsZero() {
+		return messageTS.UTC()
 	}
 	if p.Now != nil {
 		return p.Now().UTC()

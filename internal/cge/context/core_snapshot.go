@@ -346,6 +346,32 @@ func AggregateFreshness(values ...FreshnessCode) FreshnessCode {
 	return worst
 }
 
+// AggregateFreshnessKnownNeutral is used only for the global envelope. A
+// domain's own unknown value remains visible, while a bounded fact from
+// another domain is sufficient to classify the envelope.
+func AggregateFreshnessKnownNeutral(values ...FreshnessCode) FreshnessCode {
+	if len(values) == 0 {
+		return FreshnessUnknown
+	}
+	worst := FreshnessFresh
+	known := false
+	for _, value := range values {
+		switch value {
+		case FreshnessStale:
+			return FreshnessStale
+		case FreshnessAging:
+			known = true
+			worst = FreshnessAging
+		case FreshnessFresh:
+			known = true
+		}
+	}
+	if !known {
+		return FreshnessUnknown
+	}
+	return worst
+}
+
 func CanonicalCoreTopology(value CoreTopologyContext) CoreTopologyContext {
 	out := value
 	out.Nodes = append([]Node(nil), value.Nodes...)

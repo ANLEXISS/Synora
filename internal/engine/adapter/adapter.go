@@ -68,6 +68,9 @@ func NormalizeEvent(event *contract.Event, registry *device.Registry) time.Time 
 	if event.Identity == "" {
 		event.Identity = strings.TrimSpace(resolvePayloadString(event.Payload, "identity", "resident_id"))
 	}
+	if event.Identity == "" {
+		event.Identity = strings.TrimSpace(event.ResidentID)
+	}
 
 	if event.Confidence == 0 {
 		event.Confidence = asFloat(event.Payload["confidence"])
@@ -239,6 +242,9 @@ func buildNodeStates(
 }
 
 func buildIdentity(event *contract.Event, now time.Time) *state.IdentityState {
+	if event == nil || contract.NormalizeEventType(event.Type) != contract.EventVisionIdentity {
+		return nil
+	}
 	identity := normalizedIdentity(event.Identity)
 	if identity == "" {
 		return nil
@@ -257,6 +263,9 @@ func buildIdentity(event *contract.Event, now time.Time) *state.IdentityState {
 }
 
 func buildPresence(event *contract.Event, now time.Time) *state.PresenceState {
+	if event == nil || contract.NormalizeEventType(event.Type) != contract.EventVisionIdentity {
+		return nil
+	}
 	identity := normalizedIdentity(event.Identity)
 	if identity == "" {
 		return nil
@@ -292,7 +301,6 @@ func buildClip(event *contract.Event, now time.Time) *state.ClipState {
 	clipID := event.ClipID
 	if clipID == "" {
 		clipID = idgen.New("clip")
-		event.ClipID = clipID
 	}
 
 	return &state.ClipState{
@@ -305,6 +313,12 @@ func buildClip(event *contract.Event, now time.Time) *state.ClipState {
 		CreatedAt: now,
 		UpdatedAt: now,
 		ExpiresAt: now.Add(5 * time.Minute),
+		// Legacy engine inputs may carry only an unverified clip_path. Keep
+		// the stateapply compatibility record, but never present it as a
+		// physically received V1 clip and never add its generated ID to an
+		// incident through event.ClipID.
+		Status:      contract.ClipStatusMissing,
+		FailureCode: "unverified_legacy_path",
 	}
 }
 

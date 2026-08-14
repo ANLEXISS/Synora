@@ -11,6 +11,10 @@ import (
 	"synora/pkg/contract"
 )
 
+// IntrusionLockDuration is the V1 temporal lock. It is intentionally kept in
+// the operational runtime, not in the advisory cognitive layer.
+const IntrusionLockDuration = 15 * time.Second
+
 // DangerRuntime is the temporal projection of CGE evidence into the current
 // system state. It deliberately reads immutable-ish chain projections and
 // never rewrites events or chain evaluations.
@@ -149,15 +153,21 @@ func (r *DangerRuntime) Recompute(store *state.Store, chains *eventpkg.ChainMana
 		}
 	}
 
-	locked := config.LockIntrusionUntilReset && (current.IntrusionActive || current.EmergencyActive)
+	locked := config.LockIntrusionUntilReset && current.IntrusionActive &&
+		!current.IntrusionTime.IsZero() && now.Before(current.IntrusionTime.Add(IntrusionLockDuration))
 	for _, item := range contributions {
-		if item.Critical {
-			locked = config.LockIntrusionUntilReset
+		if item.Critical && config.LockIntrusionUntilReset && current.IntrusionActive &&
+			!current.IntrusionTime.IsZero() && now.Before(current.IntrusionTime.Add(IntrusionLockDuration)) {
+			locked = true
 			break
 		}
 	}
 	if locked {
 		contributions = append(contributions, contribution{Score: 0.95, Original: 0.95, At: now, Reason: "critical/intrusion unresolved", Critical: true})
+	} else if current.IntrusionActive {
+		// Do not carry an expired lock across recomputations or restarts.
+		current.IntrusionActive = false
+		current.IntrusionTime = time.Time{}
 	}
 
 	peak := current.DangerScorePeak
@@ -198,7 +208,9 @@ func (r *DangerRuntime) Recompute(store *state.Store, chains *eventpkg.ChainMana
 	} else {
 		r.idleSince = time.Time{}
 		if !locked {
-			if level == contract.DangerHigh || level == contract.DangerCritical || level == contract.DangerMediumHigh {
+			if level == contract.DangerCritical {
+				current.LastState = "intrusion"
+			} else if level == contract.DangerHigh || level == contract.DangerMediumHigh {
 				current.LastState = "suspicious"
 			} else if level == contract.DangerMedium || level == contract.DangerLow {
 				current.LastState = "activity"

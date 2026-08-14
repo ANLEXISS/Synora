@@ -92,10 +92,15 @@ func TestDangerRuntimeIntrusionLockAndHysteresis(t *testing.T) {
 	}
 	current := store.SystemState()
 	current.IntrusionActive = true
+	current.IntrusionTime = t0.Add(31 * time.Minute)
 	store.SetSystemState(current)
-	result = runtime.Recompute(store, chains, t0.Add(31*time.Minute), false)
-	if !result.Locked || result.CurrentLevel != string(contract.DangerCritical) || result.CurrentState != "intrusion" {
-		t.Fatalf("intrusion lock lost: %#v", result)
+	result = runtime.Recompute(store, chains, t0.Add(31*time.Minute+14*time.Second), false)
+	if !result.Locked {
+		t.Fatalf("intrusion lock should be active before 15 seconds: %#v", result)
+	}
+	result = runtime.Recompute(store, chains, t0.Add(31*time.Minute+15*time.Second), false)
+	if result.Locked {
+		t.Fatalf("intrusion lock should be released after 15 seconds: %#v", result)
 	}
 }
 

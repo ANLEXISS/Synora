@@ -29,6 +29,8 @@ const (
 
 	// EventVisionIdentity reports that a known resident or identity was recognized by vision.
 	EventVisionIdentity = "vision.identity"
+	// EventVisionEnd closes one Vision activation. Retries are idempotent at Core.
+	EventVisionEnd = "vision.end"
 	// EventVisionUnknown reports a detected person or subject with no known identity.
 	EventVisionUnknown = "vision.unknown"
 	// EventVisionUncertain reports a low-confidence identity or ambiguous visual classification.
@@ -59,6 +61,10 @@ const (
 	EventDiscoveryNetworkDegraded         = "discovery.network.degraded"
 	EventDiscoveryVisionIngressStatus     = "discovery.vision_ingress.status"
 	EventDiscoveryRuntimeStatus           = "discovery.runtime.status"
+	EventClipReady                        = "clip.ready"
+	EventClipProcessing                   = "clip.processing"
+	EventClipProcessed                    = "clip.processed"
+	EventClipFailed                       = "clip.failed"
 	EventRuntimeComponentFlapping         = "runtime.component.flapping"
 	EventRuntimeModelMissing              = "runtime.model.missing"
 
@@ -95,10 +101,14 @@ type Event struct {
 
 	Payload map[string]any `json:"payload,omitempty"`
 
-	DeviceID string `json:"device_id,omitempty"`
-	NodeID   string `json:"node_id,omitempty"`
+	DeviceID   string    `json:"device_id,omitempty"`
+	NodeID     string    `json:"node_id,omitempty"`
+	Epoch      string    `json:"epoch,omitempty"`
+	Sequence   uint64    `json:"sequence,omitempty"`
+	ReceivedAt time.Time `json:"received_at,omitempty"`
 
 	Identity   string  `json:"identity,omitempty"`
+	ResidentID string  `json:"resident_id,omitempty"`
 	Confidence float64 `json:"confidence,omitempty"`
 
 	Priority     int    `json:"priority,omitempty"`
@@ -121,7 +131,11 @@ type eventJSON struct {
 	Payload            map[string]any `json:"payload,omitempty"`
 	DeviceID           string         `json:"device_id,omitempty"`
 	NodeID             string         `json:"node_id,omitempty"`
+	Epoch              string         `json:"epoch,omitempty"`
+	Sequence           uint64         `json:"sequence,omitempty"`
+	ReceivedAt         time.Time      `json:"received_at,omitempty"`
 	Identity           string         `json:"identity,omitempty"`
+	ResidentID         string         `json:"resident_id,omitempty"`
 	Confidence         float64        `json:"confidence,omitempty"`
 	Priority           int            `json:"priority,omitempty"`
 	GroupKey           string         `json:"group_key,omitempty"`
@@ -149,7 +163,11 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 		Payload:            decoded.Payload,
 		DeviceID:           decoded.DeviceID,
 		NodeID:             decoded.NodeID,
+		Epoch:              decoded.Epoch,
+		Sequence:           decoded.Sequence,
+		ReceivedAt:         decoded.ReceivedAt,
 		Identity:           decoded.Identity,
+		ResidentID:         decoded.ResidentID,
 		Confidence:         decoded.Confidence,
 		Priority:           decoded.Priority,
 		GroupKey:           decoded.GroupKey,
@@ -245,6 +263,10 @@ func EventCategory(eventType string) string {
 		EventDiscoveryRuntimeStatus,
 		EventRuntimeComponentFlapping,
 		EventRuntimeModelMissing,
+		EventClipReady,
+		EventClipProcessing,
+		EventClipProcessed,
+		EventClipFailed,
 		EventDiscoveryCameraOnline,
 		EventDiscoveryCameraOffline,
 		EventDeviceOffline,
@@ -261,6 +283,7 @@ func EventCategory(eventType string) string {
 	case EventManualRisk, EventSecurityModeChanged:
 		return EventCategorySecurity
 	case EventVisionIdentity,
+		EventVisionEnd,
 		EventVisionMotion:
 		return EventCategoryVision
 	case EventActionRequest,
@@ -311,6 +334,7 @@ func NormalizeEventType(raw string) string {
 		EventVisionIdentity,
 		EventVisionUnknown,
 		EventVisionUncertain,
+		EventVisionEnd,
 		EventVisionWeapon,
 		EventVisionFall,
 		EventVisionFight,
@@ -329,6 +353,10 @@ func NormalizeEventType(raw string) string {
 		EventDiscoveryRuntimeStatus,
 		EventRuntimeComponentFlapping,
 		EventRuntimeModelMissing,
+		EventClipReady,
+		EventClipProcessing,
+		EventClipProcessed,
+		EventClipFailed,
 		EventSystemStateChanged,
 		EventSystemPresence,
 		EventSystemStateReset,

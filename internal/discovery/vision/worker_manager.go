@@ -81,10 +81,24 @@ func (ExecProcessExecutor) Start(
 	command string,
 	args ...string,
 ) (ManagedProcess, error) {
+	return startExecProcess(command, nil, args...)
+}
+
+func (ExecProcessExecutor) StartWithEnv(command string, environment map[string]string, args ...string) (ManagedProcess, error) {
+	return startExecProcess(command, environment, args...)
+}
+
+func startExecProcess(command string, environment map[string]string, args ...string) (ManagedProcess, error) {
 	cmd := exec.Command(
 		command,
 		args...,
 	)
+	if len(environment) > 0 {
+		cmd.Env = os.Environ()
+		for key, value := range environment {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
+	}
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -128,8 +142,9 @@ type WorkerManager struct {
 
 	publisher Publisher
 
-	pythonPath string
-	workerPath string
+	pythonPath  string
+	workerPath  string
+	environment map[string]string
 
 	executor ProcessExecutor
 	now      func() time.Time
@@ -221,11 +236,23 @@ func NewWorkerManager(
 		stopTimeout:      cfg.StopTimeout,
 		crashEventLimit:  cfg.CrashEventLimit,
 		nextBackoff:      cfg.BaseBackoff,
+		environment:      map[string]string{},
 
 		status: WorkerStatusStopped,
 
 		cameraLocks: map[string]*sync.Mutex{},
 	}
+}
+
+// SetEnvironment configures only the managed worker process. It avoids
+// leaking a deployment-specific face root into the Discovery process itself.
+func (m *WorkerManager) SetEnvironment(key, value string) {
+	if m == nil || key == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.environment[key] = value
 }
 
 func (m *WorkerManager) Start(
@@ -255,10 +282,19 @@ func (m *WorkerManager) Start(
 	m.lastStart = now
 	m.expectedStop = false
 
-	process, err := m.executor.Start(
-		m.pythonPath,
-		m.workerPath,
-	)
+	var process ManagedProcess
+	var err error
+	if executor, ok := m.executor.(interface {
+		StartWithEnv(string, map[string]string, ...string) (ManagedProcess, error)
+	}); ok {
+		environment := make(map[string]string, len(m.environment))
+		for key, value := range m.environment {
+			environment[key] = value
+		}
+		process, err = executor.StartWithEnv(m.pythonPath, environment, m.workerPath)
+	} else {
+		process, err = m.executor.Start(m.pythonPath, m.workerPath)
+	}
 
 	if err != nil {
 		m.status = WorkerStatusStopped

@@ -388,6 +388,22 @@ func (e *Engine) LearnedBehaviors() []cgecontracts.LearnedBehavior {
 	return e.graphMemory.LearnedBehaviors()
 }
 
+// ApprovedLearnedBehaviorID returns the approved, enabled learned behavior
+// whose trigger matches sequenceKey. The engine owns the learned-behavior
+// lifecycle so callers do not need to depend on its contract package.
+func (e *Engine) ApprovedLearnedBehaviorID(sequenceKey string) string {
+	if e == nil || sequenceKey == "" {
+		return ""
+	}
+	for _, behavior := range e.LearnedBehaviors() {
+		if behavior.ID == "" || behavior.TriggerSequenceSignature != sequenceKey || behavior.Status != cgecontracts.LearnedBehaviorApproved || !behavior.Enabled || behavior.Forgotten {
+			continue
+		}
+		return behavior.ID
+	}
+	return ""
+}
+
 func (e *Engine) LearnedBehavior(id string) (cgecontracts.LearnedBehavior, bool) {
 	if e == nil || e.graphMemory == nil {
 		return cgecontracts.LearnedBehavior{}, false

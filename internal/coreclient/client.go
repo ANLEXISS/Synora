@@ -89,6 +89,62 @@ func (c *Client) Events() ([]map[string]any, error) {
 	return result, nil
 }
 
+func (c *Client) Incidents(limit int) ([]contract.Incident, error) {
+	var result []contract.Incident
+	if err := c.call("incidents.list", map[string]any{"limit": limit}, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) Incident(id string) (*contract.Incident, error) {
+	var result contract.Incident
+	if err := c.call("incidents.get", idPayload(id), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) MarkIncidentViewed(id string) (*contract.Incident, error) {
+	var result contract.Incident
+	if err := c.call("incidents.mark_viewed", idPayload(id), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) AcknowledgeIncident(id string) (*contract.Incident, error) {
+	var result contract.Incident
+	if err := c.call("incidents.acknowledge", idPayload(id), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) ResolveIncident(id string) (*contract.Incident, error) {
+	var result contract.Incident
+	if err := c.call("incidents.resolve", idPayload(id), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) Clips(limit int) ([]contract.Clip, error) {
+	var result []contract.Clip
+	if err := c.call("clips.list", map[string]any{"limit": limit}, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) Clip(id string) (*contract.Clip, error) {
+	var result contract.Clip
+	if err := c.call("clips.get", idPayload(id), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) EventChain(id string) (map[string]any, error) {
 	var result map[string]any
 	if err := c.call("event.chain", idPayload(id), &result); err != nil {
@@ -585,6 +641,38 @@ func (c *Client) DeleteResident(id string) (map[string]any, error) {
 	return result, nil
 }
 
+func (c *Client) ResidentPhotos(residentID string, limit int) ([]contract.FacePhoto, error) {
+	var result []contract.FacePhoto
+	if err := c.call("residents.photos.list", map[string]any{"resident_id": strings.TrimSpace(residentID), "limit": limit}, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) ResidentPhoto(id string) (*contract.FacePhoto, error) {
+	var result contract.FacePhoto
+	if err := c.call("residents.photos.get", idPayload(id), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) RegisterResidentPhoto(value contract.FacePhoto) (*contract.FacePhoto, error) {
+	var result contract.FacePhoto
+	if err := c.call("residents.photos.register", value, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) DeleteResidentPhoto(residentID, photoID string) (*contract.FacePhoto, error) {
+	var result contract.FacePhoto
+	if err := c.call("residents.photos.delete", map[string]any{"resident_id": residentID, "id": photoID}, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) Automations() ([]map[string]any, error) {
 	var result []map[string]any
 	if err := c.call("automation.list", nil, &result); err != nil {
@@ -775,7 +863,9 @@ func isStableAPIErrorCode(code string) bool {
 	switch strings.TrimSpace(code) {
 	case contract.ErrorInvalidJSON,
 		contract.ErrorInvalidRequest,
+		contract.ErrorPayloadTooLarge,
 		contract.ErrorNotFound,
+		contract.ErrorConflict,
 		contract.ErrorDuplicateID,
 		contract.ErrorValidationFailed,
 		contract.ErrorForbiddenAction,

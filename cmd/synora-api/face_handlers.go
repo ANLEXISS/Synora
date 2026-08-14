@@ -13,12 +13,13 @@ import (
 	"strings"
 	"time"
 
+	"synora/internal/facestore"
 	"synora/internal/idgen"
 	"synora/pkg/contract"
 )
 
 const (
-	defaultFaceDataRoot = "services/vision-worker/data/face"
+	defaultFaceDataRoot = facestore.DefaultRoot
 	maxFaceUploadSize   = 5 << 20
 )
 
@@ -28,14 +29,15 @@ type faceConfigurationProvider interface {
 }
 
 type faceStore struct {
-	root string
+	root     string
+	physical *facestore.Store
 }
 
 func newFaceStore(root string) *faceStore {
 	if strings.TrimSpace(root) == "" {
 		root = defaultFaceDataRoot
 	}
-	return &faceStore{root: filepath.Clean(root)}
+	return &faceStore{root: filepath.Clean(root), physical: facestore.New(root, facestore.Limits{})}
 }
 
 func handleResidentRoute(core residentConfigurationProvider, faces *faceStore) http.HandlerFunc {
@@ -45,6 +47,10 @@ func handleResidentRoute(core residentConfigurationProvider, faces *faceStore) h
 	return func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.URL.Path, "/api/residents/")
 		parts := splitPath(rest)
+		if len(parts) >= 2 && parts[1] == "photos" {
+			handleResidentPhotoRoute(core, faces).ServeHTTP(w, r)
+			return
+		}
 		if len(parts) >= 2 && parts[1] == "face" {
 			faceHandler.ServeHTTP(w, r)
 			return

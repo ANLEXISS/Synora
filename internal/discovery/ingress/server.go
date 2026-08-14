@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,10 +13,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 
+	"synora/internal/clipstore"
 	"synora/internal/discovery/vision"
 	"synora/internal/idgen"
+	"synora/pkg/contract"
 )
 
 type Authenticator interface {
@@ -30,30 +36,221 @@ type Queue interface {
 	Enqueue(job *vision.ClipJob) error
 }
 
+type Publisher interface {
+	Send(msg contract.Message) error
+}
+
 type Config struct {
 	Addr string
 
 	CertFile string
+	KeyFile  string
 
-	KeyFile string
-
-	ClipDir string
-
-	MaxClipSize int64
+	ClipDir      string
+	MaxClipSize  int64
+	MaxClipCount int
+	MaxClipBytes int64
+	TempMaxAge   time.Duration
 
 	Authenticator Authenticator
-
-	Devices DeviceTracker
-
-	Queue Queue
+	Devices       DeviceTracker
+	Queue         Queue
+	Publisher     Publisher
 
 	AllowInsecure bool
 	OnStatus      func(status, reason string)
 }
 
-func StartServer(
-	cfg Config,
-) {
+const defaultTempMaxAge = time.Hour
+
+// NewHandler exposes the real upload handler for integration tests and keeps
+// the physical storage path independent from the HTTP server lifecycle.
+func NewHandler(cfg Config) http.Handler {
+	if cfg.MaxClipSize <= 0 {
+		cfg.MaxClipSize = 50 << 20
+	}
+	if cfg.TempMaxAge <= 0 {
+		cfg.TempMaxAge = defaultTempMaxAge
+	}
+	if cfg.MaxClipCount <= 0 {
+		cfg.MaxClipCount = 500
+	}
+	if cfg.MaxClipBytes <= 0 {
+		cfg.MaxClipBytes = 5 << 30
+	}
+	_ = ReconcileStorage(cfg.ClipDir, cfg.TempMaxAge)
+	var uploadMu sync.Mutex
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/vision", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		deviceID := strings.TrimSpace(r.Header.Get("X-Synora-Device"))
+		if !clipstore.SafeComponent(deviceID) {
+			http.Error(w, "valid device required", http.StatusBadRequest)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, cfg.MaxClipSize)
+		file, header, err := r.FormFile("clip")
+		if err != nil {
+			status := http.StatusBadRequest
+			if strings.Contains(strings.ToLower(err.Error()), "too large") {
+				status = http.StatusRequestEntityTooLarge
+			}
+			http.Error(w, "clip required", status)
+			return
+		}
+		defer file.Close()
+
+		clipID := firstNonEmpty(r.Header.Get("X-Synora-Clip-ID"), r.FormValue("clip_id"))
+		if clipID == "" {
+			clipID = idgen.New("clip")
+		}
+		if !clipstore.SafeComponent(clipID) {
+			http.Error(w, "invalid clip id", http.StatusBadRequest)
+			return
+		}
+		clipIndex, err := parseOptionalInt(firstNonEmpty(r.Header.Get("X-Synora-Clip-Index"), r.FormValue("clip_index")))
+		if err != nil {
+			http.Error(w, "invalid clip index", http.StatusBadRequest)
+			return
+		}
+		activationID := firstNonEmpty(r.Header.Get("X-Synora-Activation-ID"), r.FormValue("activation_id"))
+		sequenceKey := firstNonEmpty(r.Header.Get("X-Synora-Sequence-Key"), r.FormValue("sequence_key"))
+		trackID := firstNonEmpty(r.Header.Get("X-Synora-Track-ID"), r.FormValue("track_id"))
+		nodeID := firstNonEmpty(r.Header.Get("X-Synora-Node-ID"), r.FormValue("node_id"))
+
+		uploadMu.Lock()
+		defer uploadMu.Unlock()
+		now := time.Now().UTC()
+		finalPath, err := clipstore.FinalPath(cfg.ClipDir, deviceID, clipID)
+		if err != nil {
+			http.Error(w, "invalid clip path", http.StatusBadRequest)
+			return
+		}
+		partPath, err := clipstore.PartPath(cfg.ClipDir, deviceID, clipID)
+		if err != nil {
+			http.Error(w, "invalid clip path", http.StatusBadRequest)
+			return
+		}
+		if _, err := clipstore.EnsureCameraDir(cfg.ClipDir, deviceID); err != nil {
+			http.Error(w, "clip storage unavailable", http.StatusInsufficientStorage)
+			return
+		}
+		if info, err := os.Lstat(partPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			http.Error(w, "unsafe clip temporary path", http.StatusConflict)
+			return
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			http.Error(w, "clip temporary storage unavailable", http.StatusInsufficientStorage)
+			return
+		}
+
+		part, err := os.OpenFile(partPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+		if err != nil {
+			http.Error(w, "clip temporary storage unavailable", http.StatusInsufficientStorage)
+			return
+		}
+		hash := sha256.New()
+		size, copyErr := io.Copy(io.MultiWriter(part, hash), file)
+		syncErr := part.Sync()
+		closeErr := part.Close()
+		if copyErr != nil || syncErr != nil || closeErr != nil {
+			_ = os.Remove(partPath)
+			status := http.StatusInternalServerError
+			if strings.Contains(strings.ToLower(fmt.Sprint(copyErr)), "too large") {
+				status = http.StatusRequestEntityTooLarge
+			}
+			http.Error(w, "clip write failed", status)
+			return
+		}
+		checksum := hex.EncodeToString(hash.Sum(nil))
+		if cfg.Authenticator != nil {
+			if err := cfg.Authenticator.VerifyCameraRequest(r, checksum); err != nil {
+				_ = os.Remove(partPath)
+				log.Printf("ingress auth failed device=%s err=%v", deviceID, err)
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+
+		if info, statErr := os.Lstat(finalPath); statErr == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				_ = os.Remove(partPath)
+				http.Error(w, "unsafe existing clip path", http.StatusConflict)
+				return
+			}
+			existingSize, existingChecksum, hashErr := fileDigest(finalPath)
+			if hashErr != nil || existingSize != size || existingChecksum != checksum {
+				_ = os.Remove(partPath)
+				http.Error(w, "clip id content collision", http.StatusConflict)
+				return
+			}
+			_ = os.Remove(partPath)
+		} else if errors.Is(statErr, os.ErrNotExist) {
+			available, err := storageCapacityAvailable(cfg.ClipDir, cfg.MaxClipCount, cfg.MaxClipBytes, size)
+			if err != nil {
+				_ = os.Remove(partPath)
+				http.Error(w, "clip storage unavailable", http.StatusInsufficientStorage)
+				return
+			}
+			if !available {
+				_ = os.Remove(partPath)
+				http.Error(w, "clip storage quota exhausted", http.StatusInsufficientStorage)
+				return
+			}
+			if err := os.Rename(partPath, finalPath); err != nil {
+				_ = os.Remove(partPath)
+				http.Error(w, "clip finalization failed", http.StatusInsufficientStorage)
+				return
+			}
+		} else {
+			_ = os.Remove(partPath)
+			http.Error(w, "clip path unavailable", http.StatusInsufficientStorage)
+			return
+		}
+		if cfg.Publisher == nil {
+			http.Error(w, "core unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		mediaType := strings.TrimSpace(header.Header.Get("Content-Type"))
+		clip := contract.Clip{
+			ID: clipID, ActivationID: activationID, ClipIndex: clipIndex,
+			SequenceKey: sequenceKey, TrackID: trackID,
+			CameraID: deviceID, NodeID: nodeID, CreatedAt: now, ReceivedAt: now,
+			ReadyAt: now, Status: contract.ClipStatusReady, SizeBytes: size,
+			Checksum: checksum, MediaType: mediaType, Container: "mp4",
+			UpdatedAt: now, Revision: 1,
+		}
+		if cfg.Devices != nil {
+			cfg.Devices.TouchCameraClip(deviceID, now)
+		}
+		if err := publishLifecycle(cfg.Publisher, contract.EventClipReady, clip, "", clipID+":ready"); err != nil {
+			log.Printf("clip ready publication failed clip=%s err=%v", clipID, err)
+			http.Error(w, "core unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if cfg.Queue == nil {
+			_ = publishLifecycle(cfg.Publisher, contract.EventClipFailed, clip, "analysis_queue_unavailable", clipID+":failed")
+			http.Error(w, "analysis queue unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if err := cfg.Queue.Enqueue(&vision.ClipJob{ID: clipID, CameraID: deviceID, Path: finalPath, CreatedAt: now, ActivationID: activationID, ClipIndex: clipIndex, NodeID: nodeID, SequenceKey: sequenceKey, TrackID: trackID}); err != nil {
+			log.Printf("analysis queue unavailable clip=%s err=%v", clipID, err)
+			_ = publishLifecycle(cfg.Publisher, contract.EventClipFailed, clip, "analysis_queue_full", clipID+":failed")
+			http.Error(w, "analysis queue full", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "queued", "clip_id": clipID})
+	})
+	return mux
+}
+
+func StartServer(cfg Config) {
 	certMissing := !regularFile(cfg.CertFile)
 	keyMissing := !regularFile(cfg.KeyFile)
 	if certMissing || keyMissing {
@@ -68,291 +265,158 @@ func StartServer(
 		}
 		log.Printf("vision ingress insecure fallback enabled reason=%s", reason)
 	}
-
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/vision", func(
-		w http.ResponseWriter,
-		r *http.Request,
-	) {
-
-		if r.Method != http.MethodPost {
-
-			w.WriteHeader(
-				http.StatusMethodNotAllowed,
-			)
-
-			return
-		}
-
-		r.Body = http.MaxBytesReader(
-			w,
-			r.Body,
-			cfg.MaxClipSize,
-		)
-
-		deviceID := r.Header.Get(
-			"X-Synora-Device",
-		)
-
-		file, _, err := r.FormFile(
-			"clip",
-		)
-
-		if deviceID == "" || err != nil {
-
-			http.Error(
-				w,
-				"device and clip required",
-				http.StatusBadRequest,
-			)
-
-			return
-		}
-
-		defer file.Close()
-
-		now := time.Now().UTC()
-
-		clipID := idgen.New(
-			"clip",
-		)
-
-		tmpFile, err := os.CreateTemp(
-			"",
-			"synora-upload-*",
-		)
-
-		if err != nil {
-
-			http.Error(
-				w,
-				"temp file error",
-				http.StatusInternalServerError,
-			)
-
-			return
-		}
-
-		tmpPath := tmpFile.Name()
-
-		defer func() {
-
-			if tmpPath != "" {
-
-				os.Remove(
-					tmpPath,
-				)
-			}
-		}()
-
-		defer tmpFile.Close()
-
-		hash := sha256.New()
-
-		writer := io.MultiWriter(
-			tmpFile,
-			hash,
-		)
-
-		size, err := io.Copy(
-			writer,
-			file,
-		)
-
-		if err != nil {
-
-			http.Error(
-				w,
-				"copy error",
-				http.StatusInternalServerError,
-			)
-
-			return
-		}
-
-		bodyHash := hex.EncodeToString(
-			hash.Sum(nil),
-		)
-
-		err = cfg.Authenticator.VerifyCameraRequest(
-			r,
-			bodyHash,
-		)
-
-		if err != nil {
-
-			log.Printf(
-				"ingress auth failed device=%s err=%v",
-				deviceID,
-				err,
-			)
-
-			http.Error(
-				w,
-				"unauthorized",
-				http.StatusUnauthorized,
-			)
-
-			return
-		}
-
-		deviceDir := filepath.Join(
-			cfg.ClipDir,
-			deviceID,
-		)
-
-		err = os.MkdirAll(
-			deviceDir,
-			0755,
-		)
-
-		if err != nil {
-
-			http.Error(
-				w,
-				"directory error",
-				http.StatusInternalServerError,
-			)
-
-			return
-		}
-
-		clipPath := filepath.Join(
-			deviceDir,
-			fmt.Sprintf(
-				"%s.mp4",
-				clipID,
-			),
-		)
-
-		err = os.Rename(
-			tmpPath,
-			clipPath,
-		)
-
-		if err != nil {
-
-			http.Error(
-				w,
-				"persist error",
-				http.StatusInternalServerError,
-			)
-
-			return
-		}
-
-		tmpPath = ""
-
-		cfg.Devices.TouchCameraClip(
-			deviceID,
-			now,
-		)
-
-		err = cfg.Queue.Enqueue(
-			&vision.ClipJob{
-				ID: clipID,
-
-				CameraID: deviceID,
-
-				Path: clipPath,
-
-				CreatedAt: now,
-			},
-		)
-
-		if err != nil {
-
-			log.Printf(
-				"queue full clip=%s device=%s",
-				clipID,
-				deviceID,
-			)
-
-			os.Remove(
-				clipPath,
-			)
-
-			http.Error(
-				w,
-				"analysis queue full",
-				http.StatusServiceUnavailable,
-			)
-
-			return
-		}
-
-		log.Printf(
-			"clip accepted device=%s clip=%s size=%d",
-			deviceID,
-			clipID,
-			size,
-		)
-
-		w.Header().Set(
-			"Content-Type",
-			"application/json",
-		)
-
-		err = json.NewEncoder(w).Encode(
-			map[string]any{
-				"status":  "queued",
-				"clip_id": clipID,
-			},
-		)
-
-		if err != nil {
-
-			log.Printf(
-				"response encode failed clip=%s err=%v",
-				clipID,
-				err,
-			)
-		}
-	})
-
-	server := &http.Server{
-		Addr:         cfg.Addr,
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
+	handler := NewHandler(cfg)
+	server := &http.Server{Addr: cfg.Addr, Handler: handler, ReadTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		listener, err := net.Listen("tcp", cfg.Addr)
 		if err != nil {
 			setStatus(cfg, "error", err.Error())
-			log.Printf("vision ingress stopped err=%v", err)
 			return
 		}
 		if certMissing || keyMissing {
 			setStatus(cfg, "degraded", "listening insecure local mode")
-			log.Printf("vision ingress listening addr=%s mode=insecure-local", cfg.Addr)
 			err = server.Serve(listener)
 		} else {
 			certificate, loadErr := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
 			if loadErr != nil {
-				listener.Close()
+				_ = listener.Close()
 				setStatus(cfg, "error", loadErr.Error())
-				log.Printf("vision ingress stopped err=%v", loadErr)
 				return
 			}
 			setStatus(cfg, "ok", "listening")
-			log.Printf("vision ingress listening addr=%s", cfg.Addr)
 			server.TLSConfig = &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12}
 			err = server.ServeTLS(listener, "", "")
 		}
-
 		if err != nil && err != http.ErrServerClosed {
 			setStatus(cfg, "error", err.Error())
-
-			log.Printf(
-				"vision ingress stopped err=%v",
-				err,
-			)
 		}
 	}()
+}
+
+func publishLifecycle(publisher Publisher, eventType string, clip contract.Clip, failureCode, eventID string) error {
+	if publisher == nil {
+		return nil
+	}
+	if failureCode != "" {
+		clip.FailureCode = failureCode
+		clip.Status = contract.ClipStatusFailed
+	}
+	body, err := json.Marshal(contract.ClipLifecyclePayload{Clip: clip, ClipID: clip.ID, CameraID: clip.CameraID, FailureCode: failureCode})
+	if err != nil {
+		return err
+	}
+	return publisher.Send(contract.Message{ID: eventID, Type: eventType, Kind: contract.KindEvent, Source: "discovery", Target: "core", Timestamp: time.Now().UTC(), Payload: body})
+}
+
+func fileDigest(path string) (int64, string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	size, err := io.Copy(hash, file)
+	if err != nil {
+		return 0, "", err
+	}
+	return size, hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func storageCapacityAvailable(root string, maxCount int, maxBytes, incomingBytes int64) (bool, error) {
+	if maxCount <= 0 || maxBytes <= 0 || incomingBytes < 0 {
+		return false, errors.New("invalid clip storage quota")
+	}
+	count := 0
+	var totalBytes int64
+	info, err := os.Stat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return incomingBytes <= maxBytes, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.IsDir() {
+		return false, errors.New("clip storage root is not a directory")
+	}
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if !strings.HasSuffix(entry.Name(), ".mp4") {
+			return nil
+		}
+		entryInfo, statErr := entry.Info()
+		if statErr != nil {
+			return statErr
+		}
+		count++
+		totalBytes += entryInfo.Size()
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return count < maxCount && totalBytes <= maxBytes-incomingBytes, nil
+}
+
+func ReconcileStorage(root string, maxPartAge time.Duration) error {
+	if strings.TrimSpace(root) == "" {
+		return nil
+	}
+	if maxPartAge <= 0 {
+		maxPartAge = defaultTempMaxAge
+	}
+	info, err := os.Stat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil || !info.IsDir() {
+		return err
+	}
+	now := time.Now().UTC()
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			if entry.Type()&os.ModeSymlink != 0 {
+				return nil
+			}
+			return nil
+		}
+		if !strings.HasSuffix(entry.Name(), ".part") {
+			if strings.HasSuffix(entry.Name(), ".mp4") {
+				log.Printf("clip orphan candidate")
+			}
+			return nil
+		}
+		stat, statErr := entry.Info()
+		if statErr == nil && now.Sub(stat.ModTime().UTC()) > maxPartAge {
+			if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				return removeErr
+			}
+		}
+		return nil
+	})
+}
+
+func parseOptionalInt(raw string) (int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, nil
+	}
+	return strconv.Atoi(strings.TrimSpace(raw))
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func regularFile(path string) bool {

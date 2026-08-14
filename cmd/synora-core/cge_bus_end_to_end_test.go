@@ -618,7 +618,11 @@ func TestBusCoreCGECalibrationLedgerEndToEnd(t *testing.T) {
 func TestBusCoreCGECoreContextStaleIsNotNegative(t *testing.T) {
 	h := newBusCoreE2EHarness(t)
 	h.context.now = func() time.Time { return e2eAt.Add(20 * time.Minute) }
-	h.publish(t, contract.EventVisionIdentity, mainE2EPayload("stale-context-event", "cam_01", "resident-stale", "stale-context-clip"))
+	stalePayload := mainE2EPayload("stale-context-event", "cam_01", "resident-stale", "stale-context-clip")
+	// The current transport contract requires resident_id. Keep the legacy
+	// display value as inert test data while exercising a valid Core resident.
+	stalePayload["resident_id"] = "alexis"
+	h.publish(t, contract.EventVisionIdentity, stalePayload)
 	waitForE2ECommit(t, h)
 	status := h.shadow.ContextProviderStatus()
 	if status.StaleSnapshots != 1 || status.SnapshotsFailed != 0 || !status.Degraded {

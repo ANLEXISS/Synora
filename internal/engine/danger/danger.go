@@ -214,9 +214,9 @@ func ComputeDangerScore(event *contract.Event, context Context) scoreResult {
 		}
 	case contract.EventVisionUnknown:
 		result = scoreResult{
-			level:            2,
-			score:            0.48,
-			category:         contract.DangerCategoryIdentity,
+			level:            5,
+			score:            0.82,
+			category:         contract.DangerCategorySecurity,
 			title:            "Unknown presence",
 			explanation:      "A person or subject was detected without a known identity.",
 			reasons:          []string{"unknown_identity"},
@@ -224,18 +224,18 @@ func ComputeDangerScore(event *contract.Event, context Context) scoreResult {
 			validationReason: "",
 		}
 		if nodeKind == "entry" || context.DeviceRole == "access_control" {
-			result.level = 3
-			result.score = 0.62
+			result.level = 5
+			result.score = 0.82
 			result.category = contract.DangerCategorySecurity
-			result.title = "Unknown presence at entrance"
+			result.title = "Unknown presence intrusion"
 			result.explanation = "An unknown subject was detected near an access-control area."
 			result.reasons = append(result.reasons, "access_control_zone")
 			result.validation = true
 			result.validationReason = "unknown_at_access_point"
 		}
 		if night && (nodeKind == "entry" || nodeKind == "sensitive") {
-			result.level = 4
-			result.score = 0.82
+			result.level = 5
+			result.score = 0.90
 			result.category = contract.DangerCategorySecurity
 			result.title = "Unknown presence at night"
 			result.explanation = "An unknown subject was detected at night in a sensitive or access-control area."
@@ -246,11 +246,10 @@ func ComputeDangerScore(event *contract.Event, context Context) scoreResult {
 		if repetition >= 2 {
 			result.score = math.Min(0.88, result.score+0.08)
 			result.reasons = append(result.reasons, "repeated_unknown_signal")
-			if result.level < 3 {
-				result.level = 3
+			if result.level < 5 {
+				result.level = 5
 			}
-			if result.level == 3 && repetition >= 3 {
-				result.level = 4
+			if result.level == 5 && repetition >= 3 {
 				result.score = math.Max(result.score, 0.76)
 			}
 			result.validation = true
@@ -505,6 +504,7 @@ func RecommendedSystemActions(level int, category string, validation bool, conte
 			add(&out, contract.SystemActionSetIntrusionState, contract.PriorityCritical, reason)
 		}
 		add(&out, contract.SystemActionRecordClipIfAvailable, contract.PriorityCritical, reason)
+		add(&out, contract.SystemActionStoreEvidence, contract.PriorityCritical, reason)
 		add(&out, contract.SystemActionLockEvidence, contract.PriorityCritical, reason)
 		if validation {
 			add(&out, contract.SystemActionCreateValidation, contract.PriorityCritical, "immediate_validation_required")

@@ -29,6 +29,8 @@ type PersistedState struct {
 	Version           int                                     `json:"version"`
 	SavedAt           time.Time                               `json:"saved_at"`
 	Clips             map[string]ClipState                    `json:"clips,omitempty"`
+	FacePhotos        map[string]PersistedFacePhoto           `json:"face_photos,omitempty"`
+	FaceDataset       *contract.FaceDatasetState              `json:"face_dataset,omitempty"`
 	Validations       map[string]contract.ValidationRequest   `json:"validations,omitempty"`
 	BehaviorOverrides map[string]json.RawMessage              `json:"learned_behavior_overrides,omitempty"`
 	ActionResults     map[string]contract.ActionResult        `json:"action_results,omitempty"`
@@ -37,9 +39,21 @@ type PersistedState struct {
 	ValidationEvents  []*contract.Event                       `json:"validation_events,omitempty"`
 	Identities        map[string]IdentityState                `json:"identities,omitempty"`
 	Presence          map[string]PresenceState                `json:"presence,omitempty"`
+	ResidentTracks    map[string]ResidentTrack                `json:"resident_tracks,omitempty"`
+	EntityTracks      map[string]EntityTrack                  `json:"entity_tracks,omitempty"`
 	EventChains       map[string]contract.EventChain          `json:"event_chains,omitempty"`
 	CriticalChains    map[string]contract.CriticalChainMemory `json:"critical_chain_memories,omitempty"`
+	Incidents         map[string]contract.Incident            `json:"incidents,omitempty"`
 	System            *SystemState                            `json:"system,omitempty"`
+	InputEpoch        string                                  `json:"vision_input_epoch,omitempty"`
+	InputSequence     uint64                                  `json:"vision_input_sequence,omitempty"`
+}
+
+// PersistedFacePhoto keeps the relative source key in the private state file
+// while contract.FacePhoto deliberately omits it from all RPC/HTTP JSON.
+type PersistedFacePhoto struct {
+	Photo      contract.FacePhoto `json:"photo"`
+	StorageKey string             `json:"storage_key,omitempty"`
 }
 
 type PersistedSummary struct {
@@ -50,6 +64,7 @@ type PersistedSummary struct {
 	Danger        int
 	Identities    int
 	Presence      int
+	Incidents     int
 }
 
 type FilePersistence struct {
@@ -171,6 +186,8 @@ func emptyPersistedState() *PersistedState {
 	return &PersistedState{
 		Version:           PersistedStateVersion,
 		Clips:             map[string]ClipState{},
+		FacePhotos:        map[string]PersistedFacePhoto{},
+		FaceDataset:       &contract.FaceDatasetState{SchemaVersion: 1, Status: contract.FaceDatasetIdle},
 		Validations:       map[string]contract.ValidationRequest{},
 		BehaviorOverrides: map[string]json.RawMessage{},
 		ActionResults:     map[string]contract.ActionResult{},
@@ -178,8 +195,11 @@ func emptyPersistedState() *PersistedState {
 		Events:            []*contract.Event{},
 		Identities:        map[string]IdentityState{},
 		Presence:          map[string]PresenceState{},
+		ResidentTracks:    map[string]ResidentTrack{},
+		EntityTracks:      map[string]EntityTrack{},
 		EventChains:       map[string]contract.EventChain{},
 		CriticalChains:    map[string]contract.CriticalChainMemory{},
+		Incidents:         map[string]contract.Incident{},
 	}
 }
 

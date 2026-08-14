@@ -133,7 +133,9 @@ func main() {
 	}
 
 	core := coreclient.New(busClient)
-	wsHub := newWebSocketHub(core)
+	wsHub := newWebSocketHubWithOrigin(core, func(r *http.Request) bool {
+		return websocketOriginAllowed(r, securityConfig)
+	})
 	go wsHub.observeBus(busClient)
 	simulationRunner := newSimulationRunner(busClient, wsHub)
 	webEnabled := getenvBool("SYNORA_WEB_ENABLED", true)
@@ -164,6 +166,10 @@ func main() {
 	apiMux.HandleFunc("/api/events", handleEvents(core))
 	apiMux.HandleFunc("/api/events/chains", handleEventChains(core))
 	apiMux.HandleFunc("/api/events/chains/", handleEventChain(core))
+	apiMux.HandleFunc("/api/incidents", handleIncidentCollection(core))
+	apiMux.HandleFunc("/api/incidents/", handleIncidentRoute(core))
+	apiMux.HandleFunc("/api/clips", handleClipCollection(core))
+	apiMux.HandleFunc("/api/clips/", handleClipRoute(core))
 	apiMux.HandleFunc("/api/simulation/scenarios", withFeature(features.Enabled(security.FeatureDevSimulation), security.FeatureDevSimulation, handleSimulationScenarios()))
 	apiMux.HandleFunc("/api/simulation/run", withFeature(features.Enabled(security.FeatureDevSimulation), security.FeatureDevSimulation, handleSimulationRun(simulationRunner)))
 	apiMux.HandleFunc("/api/simulation/runs/", withFeature(features.Enabled(security.FeatureDevSimulation), security.FeatureDevSimulation, handleSimulationRunStatus(simulationRunner)))
@@ -308,7 +314,16 @@ func main() {
 		if httpsServer != nil {
 			_ = httpsServer.Shutdown(shutdownCtx)
 		}
+		wsHub.Close()
+		_ = busClient.Close()
 	}
+}
+
+func websocketOriginAllowed(r *http.Request, cfg *security.Config) bool {
+	if r == nil || strings.TrimSpace(r.Header.Get("Origin")) == "" {
+		return true
+	}
+	return sameOriginRequest(r, cfg)
 }
 
 func regularFile(path string) bool {
@@ -609,6 +624,13 @@ func requiredAPIPermission(r *http.Request) string {
 		return webapi.PermissionStateRead
 	case strings.HasPrefix(path, "/api/events"):
 		return webapi.PermissionStateRead
+	case strings.HasPrefix(path, "/api/incidents"):
+		if readOnly {
+			return webapi.PermissionStateRead
+		}
+		return webapi.PermissionSecurityAdmin
+	case strings.HasPrefix(path, "/api/clips"):
+		return webapi.PermissionStateRead
 	case path == "/api/system/health":
 		return webapi.PermissionSettingsRead
 	case path == "/api/system/version":
@@ -637,7 +659,7 @@ func requiredAPIPermission(r *http.Request) string {
 		return webapi.PermissionDevicesRead
 	case strings.HasPrefix(path, "/api/residents"):
 		residentPath := strings.TrimPrefix(path, "/api/residents/")
-		if strings.Contains(residentPath, "/face") {
+		if strings.Contains(residentPath, "/face") || strings.Contains(residentPath, "/photos") {
 			return webapi.PermissionResidentsWrite
 		}
 		if readOnly {
@@ -1184,9 +1206,11 @@ func apiErrorStatus(code string) int {
 		return http.StatusBadRequest
 	case contract.ErrorInvalidRequest:
 		return http.StatusBadRequest
+	case contract.ErrorPayloadTooLarge:
+		return http.StatusRequestEntityTooLarge
 	case contract.ErrorNotFound:
 		return http.StatusNotFound
-	case contract.ErrorDuplicateID, contract.ErrorTopologyRequired:
+	case contract.ErrorConflict, contract.ErrorDuplicateID, contract.ErrorTopologyRequired:
 		return http.StatusConflict
 	case contract.ErrorValidationFailed:
 		return http.StatusBadRequest

@@ -24,6 +24,9 @@ const (
 type Message struct {
 	ID            string          `json:"id,omitempty"`
 	Version       string          `json:"version,omitempty"`
+	Epoch         string          `json:"epoch,omitempty"`
+	Sequence      uint64          `json:"sequence,omitempty"`
+	Revision      uint64          `json:"revision,omitempty"`
 	Type          string          `json:"type"`
 	Kind          string          `json:"kind,omitempty"`
 	Source        string          `json:"source"`
@@ -41,6 +44,9 @@ func (m Message) MarshalJSON() ([]byte, error) {
 	aux := struct {
 		ID            string          `json:"id,omitempty"`
 		Version       string          `json:"version,omitempty"`
+		Epoch         string          `json:"epoch,omitempty"`
+		Sequence      uint64          `json:"sequence,omitempty"`
+		Revision      uint64          `json:"revision,omitempty"`
 		Type          string          `json:"type"`
 		Kind          string          `json:"kind,omitempty"`
 		Source        string          `json:"source"`
@@ -55,6 +61,9 @@ func (m Message) MarshalJSON() ([]byte, error) {
 	}{
 		ID:            m.ID,
 		Version:       m.Version,
+		Epoch:         m.Epoch,
+		Sequence:      m.Sequence,
+		Revision:      m.Revision,
 		Type:          m.Type,
 		Kind:          m.Kind,
 		Source:        m.Source,
@@ -76,6 +85,9 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	aux := struct {
 		ID            string          `json:"id,omitempty"`
 		Version       string          `json:"version,omitempty"`
+		Epoch         string          `json:"epoch,omitempty"`
+		Sequence      uint64          `json:"sequence,omitempty"`
+		Revision      uint64          `json:"revision,omitempty"`
 		Type          string          `json:"type"`
 		Kind          string          `json:"kind,omitempty"`
 		Source        string          `json:"source"`
@@ -94,6 +106,9 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	*m = Message{
 		ID:            aux.ID,
 		Version:       aux.Version,
+		Epoch:         aux.Epoch,
+		Sequence:      aux.Sequence,
+		Revision:      aux.Revision,
 		Type:          aux.Type,
 		Kind:          aux.Kind,
 		Source:        aux.Source,

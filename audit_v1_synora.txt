@@ -1,0 +1,1007 @@
+# Audit technique Synora Founders Edition
+
+Date de l'audit : 2 août 2026, UTC
+Dépôt : /home/rock/Synora
+Mode : lecture seule, sauf création explicite de ce fichier de livrable.
+
+Le dépôt était déjà modifié avant cette passe :
+
+    M configs/cge/contracts/writers.yaml
+
+Cette modification existante a été conservée. Aucun autre fichier existant n'a été modifié.
+Aucun AGENTS.md n'a été trouvé.
+
+## 1. Résumé exécutif
+
+Le dépôt contient une base technique réelle : services Go séparés, API REST, WebSocket, bus Unix, StateStore atomique, authentification par session, WebApp React, worker Python, association de caméras Synora et healthcheck de boot.
+
+Il ne constitue pas une V1 vendable.
+
+Les parcours critiques cassent principalement pour les raisons suivantes :
+
+1. Aucun véritable modèle d'incident n'existe.
+2. Les références faciales enregistrées par l'API ne sont pas consommées par le Vision Worker.
+3. Le suivi runtime des tracks, inconnus, clusters et fenêtres n'est pas câblé dans Core.
+4. L'OTA signée et le rollback ne sont pas implémentés.
+5. Les contrôles de sécurité opérationnels sont insuffisants : bus injectable localement, HTTPS optionnel, bootstrap administrateur non consommé.
+
+Conclusion : NON VENDABLE EN L'ÉTAT.
+
+### Points forts
+
+- Séparation claire bus -> core -> API -> WebApp.
+- Sessions basées sur des tokens aléatoires hashés et persistés.
+- Bcrypt pour les mots de passe.
+- Écritures atomiques du StateStore et des configurations.
+- Authentification caméra HMAC avec fenêtre temporelle.
+- Timeout caméra de 30 secondes.
+- API de pairing Synora Camera réellement présente.
+- Healthcheck de boot avec rapport JSON atomique.
+- Nombreux tests unitaires et tests de contrats.
+
+### Cinq blocages majeurs
+
+1. BLOCKER : incidents absents — pas de modèle, persistance, route, acquittement ou notification.
+2. BLOCKER : références faciales découplées du Vision Worker — chemins différents et rebuild déclaratif.
+3. BLOCKER : OTA/rollback absents — RAUC seulement documenté, rollback runtime explicitement désactivé.
+4. CRITICAL : tracking des résidents et inconnus non alimenté par le chemin runtime réel.
+5. CRITICAL : sécurité opérationnelle insuffisante — bus local injectable, HTTPS non obligatoire, bootstrap non consommé.
+
+## 2. Architecture réellement observée
+
+### Services
+
+- synora-bus : bus JSON newline sur /run/synora/bus.sock.
+- synora-core : ingestion des événements, moteur de décision et StateStore.
+- synora-api : REST, WebSocket, authentification et WebApp statique.
+- synora-discovery : ingress clips, runtime caméra, queue Vision et supervision du worker.
+- Vision Worker Python : décodage, détection, tracking et reconnaissance.
+- synora-actions : exécution d'actions et notifications.
+- synora-connect : connectivité distante.
+- synora-runtime-manager : santé et snapshots runtime.
+- MediaMTX : flux média, dépendance externe.
+- synora-web : application React/Vite.
+
+Les unités systemd configurent des redémarrages automatiques, mais synora-discovery s'exécute en root et aucune unité n'intègre réellement RAUC ou mark-good.
+
+### Communications et stockage
+
+Le flux implémenté est :
+
+    Caméra Synora
+      -> POST multipart /vision + HMAC
+      -> synora-discovery :7070
+      -> fichier clip temporaire puis renommage
+      -> queue mémoire de clips
+      -> /run/synora/vision-worker.sock
+      -> Vision Worker Python
+      -> bus Unix, Source=discovery, Target=core
+      -> synora-core
+      -> StateStore
+      -> API /api/state
+      -> WebSocket /api/ws
+      -> WebApp
+
+Preuves principales :
+
+- Routes API : cmd/synora-api/main.go:163-245.
+- Ingress : internal/discovery/ingress/server.go:88-282.
+- Requête Vision : internal/discovery/vision/runtime.go:28-56 et 174-223.
+- Publication Vision : internal/discovery/vision/worker.go:24-105.
+- Bus : internal/bus/server.go:29-49 et 95-151.
+- StateStore : internal/state/store.go:13-35.
+
+Le flux casse avant le résultat V1 complet :
+
+- les métadonnées de séquence ne sont pas transportées dans vision.Request ;
+- la file est volatile ;
+- le socket Vision n'a pas de deadline de lecture ;
+- les erreurs de publication sont journalisées puis ignorées ;
+- Core ne crée pas d'incident ;
+- la WebApp n'a pas de vue incident.
+
+### Divergences avec l'architecture annoncée
+
+- L'architecture produit suppose des incidents ; aucun composant incident n'existe.
+- Elle suppose un suivi multi-pièces ; les structures existent mais ne sont pas alimentées par le runtime.
+- Elle suppose une OTA fiable ; le dépôt ne contient qu'un healthcheck et des contrats préparatoires.
+- Elle est caméra Synora uniquement ; l'API et l'UI exposent encore plusieurs types de périphériques et automations générales.
+
+## 3. Matrice V1 exhaustive
+
+Légende obligatoire : COMPLETE, PARTIAL, STUB, BROKEN, MISSING, EXTERNAL, UNVERIFIED_HARDWARE, OUT_OF_SCOPE_V1.
+
+### A. Installation et onboarding
+
+| Fonctionnalité | Statut | Preuve / tests / risque / travail restant |
+|---|---|---|
+| Détection premier démarrage | MISSING | Aucun état d'onboarding ou route first-run trouvé. Aucun test. Créer un état d'installation versionné. |
+| Génération premier administrateur | PARTIAL | synora-bootstrap-config génère mot de passe et hash bcrypt : cmd/synora-bootstrap-config/main.go:117-195. Tests bootstrap présents. Aucun parcours Web de création/rotation. |
+| Authentification mot de passe | COMPLETE | internal/api/users.go:178-219, bcrypt et UserDirectory.Authenticate. Tests API/auth passants. Exploitable isolément. |
+| Sessions | PARTIAL | internal/api/session.go:110-248 : tokens aléatoires hashés, TTL, rotation et révocation. Tests présents. Pas de gestion complète des comptes. |
+| Configuration réseau | EXTERNAL | YAML et outils réseau présents, application dépendante de systemd/hostapd/réseau machine. Tests de parsing seulement. |
+| Découverte centrale | EXTERNAL | Services et URLs configurés. Pas de test matériel. |
+| Pairing caméra Synora | PARTIAL | Routes start/confirm/claim : cmd/synora-api/main.go:212-219. Tests handlers. Sessions de pairing en mémoire et clé publique optionnelle. |
+| Affectation caméra/pièce | PARTIAL | Device.Patch accepte room/node. Tests CRUD. Pas de workflow onboarding final. |
+| Topologie | PARTIAL | CRUD topology et écritures YAML. Tests topology. Pas intégrée au tracking runtime. |
+| Création résident | PARTIAL | RPC et CRUD résident réels. Tests CRUD. Pas de contrôle final d'installation. |
+| Références faciales | PARTIAL | Upload, validation MIME et stockage atomique. Tests handlers. Non consommées correctement par Vision. |
+| Validation finale installation | MISSING | Aucun endpoint ou état de validation final. |
+| Reprise onboarding interrompu | MISSING | Aucun état d'étape persisté. |
+| Protection bootstrap | PARTIAL | writeYAMLIfMissing évite l'écrasement. Le secret initial reste valide et aucune consommation n'existe. |
+| Protection dernier administrateur | MISSING | Aucun contrôle de nombre d'administrateurs ou route utilisateur. |
+
+### B. Caméras Synora
+
+| Fonctionnalité | Statut | Preuve / tests / risque / travail restant |
+|---|---|---|
+| Découverte | EXTERNAL | Découverte/réseau présents mais dépendants du système. Tests de configuration uniquement. |
+| Identité stable | PARTIAL | ID/serial/model/device ID durables. configs/network.yaml:41-49 met require_device_public_key à false. |
+| Auth caméra-centrale | PARTIAL | HMAC timestamp/body hash : internal/security/device_auth.go:14-92. Pas de nonce/rejeu persistant. |
+| Association/désassociation | PARTIAL | Claim et CRUD device présents. Désassociation ne purge pas preuves/état. |
+| Reconnexion | PARTIAL | Registry réactive au prochain clip. Tests runtime. Registry volatile. |
+| Online/offline | PARTIAL | Timeout 30 s : internal/discovery/runtime/loop.go:9-75. Pas de notification incident. |
+| last_seen | COMPLETE | Mis à jour par TouchDeviceClip et Core. Tests Core. Correct pour l'état courant. |
+| Changement de pièce | PARTIAL | Patch device réel. Pas de réconciliation tracking. |
+| Suppression | PARTIAL | Soft delete et Remove existent. Clips et historique restent orphelins. |
+| Réception clip | PARTIAL | Multipart, HMAC et limite 50 MiB : internal/discovery/ingress/server.go:88-282. Pas de validation vidéo/durée/MIME complète. |
+| clip_id | PARTIAL | Généré par Discovery. Stable seulement côté centrale. |
+| activation_id et clip_index | MISSING | Non présents dans vision.Request. Aucun test. |
+| track_id et sequence_key | PARTIAL | Types Core existent, mais non garantis sur le flux clip réel. |
+| Stockage atomique | PARTIAL | Temp puis os.Rename. Rename cross-filesystem non traité. |
+| Quotas | MISSING | Aucun quota disque clip. |
+| Rétention fichiers | MISSING | Cleanup supprime la métadonnée, pas les fichiers. |
+| Vue directe | EXTERNAL | /api/streams et MediaMTX présents. Auth/flux réel non vérifiés. |
+| Upload interrompu | PARTIAL | Erreur HTTP et suppression partielle. Pas de reprise/chunking. |
+| Doublons | MISSING | Nouveau clip_id à chaque requête. Pas d'idempotence. |
+
+### C. Vision Worker
+
+| Fonctionnalité | Statut | Preuve / tests / risque / travail restant |
+|---|---|---|
+| Mise en file | PARTIAL | Queue Go bornée et 4 workers. Queue volatile. |
+| Backpressure | PARTIAL | Retour 503 si queue pleine. Clip supprimé, aucun retry durable. |
+| Décodage vidéo | PARTIAL | cv2.VideoCapture dans services/vision-worker/core/pipeline.py:1391-1634. Tests avec mocks. |
+| Détection personne | UNVERIFIED_HARDWARE | RKNN/model runner câblé mais aucun modèle réel dans le dépôt. |
+| Détection visage | UNVERIFIED_HARDWARE | SCRFD et pipeline présents. Validation RKNN nécessaire. |
+| Embedding | UNVERIFIED_HARDWARE | ArcFace via FaceRecognizer. Tests runner mocké seulement. |
+| Comparaison résident | PARTIAL | identify_embedding réel. Dataset chargé au démarrage seulement. |
+| Identité reconnue | PARTIAL | vision.identity généré. Tests de contrat. Références mal câblées. |
+| Identité incertaine | PARTIAL | vision.uncertain généré. Pas de politique Core dédiée. |
+| Inconnu | PARTIAL | vision.unknown généré. Pas de track persistant. |
+| Mouvement | PARTIAL | vision.motion produit. Pas de fin de séquence robuste. |
+| Fin présence | MISSING | Aucun événement runtime fiable de sortie de présence. |
+| Sabotage | PARTIAL | vision.tamper existe. Non validé caméra réelle. |
+| Arme/chute/bagarre | OUT_OF_SCOPE_V1 | Worker déclare ces capacités indisponibles ou optionnelles. À masquer commercialement. |
+| Timeouts | BROKEN | WorkerTimeout existe mais le socket Vision n'applique pas de deadline. |
+| Déduplication | MISSING | Aucun cache ID/sequence. |
+| Publication bus | PARTIAL | internal/discovery/vision/worker.go:54-105 continue après erreur et retourne nil. Perte silencieuse possible. |
+| Fermeture séquence | PARTIAL | Reset des structures en fin de clip. Pas de corrélation inter-clips. |
+| Debug biométrique | PARTIAL | Sauvegarde debug activée par défaut. Pas de rétention exploitation. |
+
+### D. Bus, Core et StateStore
+
+| Fonctionnalité | Statut | Preuve / tests / risque / travail restant |
+|---|---|---|
+| Bus Unix | PARTIAL | internal/bus/server.go:29-49, socket 0660. Tests bus. Confiance locale excessive. |
+| Framing | PARTIAL | JSON newline. Serveur sans limite explicite de taille. |
+| Limite messages | PARTIAL | Client Scanner 1 MiB. Limite asymétrique serveur/client. |
+| Reconnexion | PARTIAL | Reconnect automatique. Événements perdus pendant coupure. |
+| RPC timeout | PARTIAL | Timeout par défaut 5 s. Pas de file durable. |
+| Concurrence | PARTIAL | Locks bus/StateStore. Race global non validé. |
+| Auth producteurs | MISSING | Source déclarée dans le message, pas d'identité cryptographique. Injection locale possible. |
+| Core propriétaire état | PARTIAL | StateStore central, mais runtime Registry garde un état parallèle. |
+| Tracks | MISSING | Structures et setters présents mais aucun appel runtime à SetTrack. |
+| Clusters | MISSING | Structure persistable mais non alimentée runtime. |
+| Event windows | PARTIAL | Structure et purge présentes, non alimentées par Vision réel. |
+| Clips | PARTIAL | ClipState avec TTL 5 minutes. Fichiers physiques non purgés. |
+| Incidents | MISSING | Aucun type, store, RPC, route ou snapshot. |
+| Validations | PARTIAL | Modèle et CRUD présents. Ce ne sont pas des incidents. |
+| Action results | PARTIAL | Persistés et limités à 200. Pas reliés à incident. |
+| Recent events | PARTIAL | Limite 200. Pas d'historique durable complet. |
+| System state | PARTIAL | idle/activity/suspicious/intrusion exposés. Sémantique basée sur CGE générique. |
+| Persistance atomique | COMPLETE | internal/state/persistence.go:97-138, temp + Sync + Rename + sync dir. |
+| Corruption | PARTIAL | Fichier corrompu renommé puis état vide : internal/state/persistence.go:74-94. Pas de restauration automatique. |
+| Migration | PARTIAL | Migration état 1 vers version courante. Migrations configuration no-op et non branchées. |
+| Rétention | PARTIAL | Limites mémoire et TTL présence/clips. Pas de quota disque global. |
+
+### E. Moteur de sécurité
+
+| Fonctionnalité | Statut | Preuve / tests / risque / travail restant |
+|---|---|---|
+| Idle | COMPLETE | Mapping assessment niveau 0. Tests Core. |
+| Activity | COMPLETE | Mapping niveau 1-2. Tests Core. |
+| Suspicious | COMPLETE | Mapping niveau 3-4. Tests Core. |
+| Intrusion | PARTIAL | Niveau >=5 : internal/engine/adapter/adapter.go:440-457. Pas de modèle incident. |
+| Priorités | PARTIAL | Priorités événements/assessments présentes, tests CGE. Pas de contrat produit simplifié. |
+| Score | PARTIAL | DangerAssessment contient score, raisons et evidence. Non présenté comme incident. |
+| Topologie | PARTIAL | CGE et topology existent, non utilisées par les tracks runtime. |
+| Résidents présents | PARTIAL | PresenceState et TTL. Clip réel non validé. |
+| Inconnus suivis | MISSING | Pas de SetTrack runtime ni entity track durable. |
+| Déplacements cohérents | MISSING | Pas de chemin caméra A -> B persistant. |
+| Propagation danger | PARTIAL | Présente dans CGE/danger, non qualifiée V1 caméra-only. |
+| Événements retardés | PARTIAL | Logique CGE temporelle, politique Core produit non explicite. |
+| Doublons | MISSING | Aucun idempotency key enforcement. |
+| Verrouillage intrusion | PARTIAL | Reset manuel et expiration risque manuel. Pas de verrouillage incident durable. |
+| Downgrade | PARTIAL | IntrusionTime effacé au downgrade, sans incident/preuves. |
+| Reset manuel | PARTIAL | /api/intrusion/reset existe, reset sans incident. |
+| Justification | PARTIAL | Assessment contient Explanation, Reasons et Evidence. Non accessible comme incident exploitable. |
+| Decay loop | STUB | Engine.StartDecayLoop() est vide : internal/engine/engine.go:126. |
+
+### F. Incidents et alertes
+
+Toutes les fonctionnalités suivantes sont MISSING : modèle incident, création automatique intrusion, regroupement, association caméra/pièce/identité/clip, cycle new/viewed/acknowledged, consultation REST, acquittement, persistance, rétention, conservation après reset, diffusion WebSocket, notification locale, notification distante fiable, retry et déduplication notifications.
+
+EventChain, DangerAssessment et les actions notify_user des configurations CGE ne constituent pas un incident V1.
+
+Preuve négative : aucun Incident, incident_id ou /api/incidents dans les packages runtime ; internal/state/store.go:13-35 et pkg/contract/public_snapshot.go:11-29 n'exposent aucun incident.
+
+### G. API, WebSocket et contrats frontend
+
+| Élément | Statut | Observation |
+|---|---|---|
+| Auth REST | PARTIAL | Login, cookie session et bearer API token. |
+| Autorisation | PARTIAL | Permissions par route présentes. |
+| CSRF | PARTIAL | Vérification Origin/Referer pour mutations cookie. |
+| CORS | PARTIAL | Configurable mais dépend de la configuration. |
+| Pagination | PARTIAL | Présente sur certains endpoints, pas globalement. |
+| Erreurs structurées | COMPLETE | apiErrorStatus et helpers JSON. |
+| Routes caméra | PARTIAL | Réelles, pairing non validé matériellement. |
+| Routes résident | PARTIAL | CRUD et photos réels. |
+| Routes incident | MISSING | Aucune. |
+| Routes clips | MISSING | Aucun endpoint dédié. |
+| Route version | COMPLETE | /api/system/version réel. |
+| Route health | PARTIAL | /health statique ; /api/system/health réel. |
+| WebSocket auth | PARTIAL | Auth middleware réel. |
+| WebSocket Origin | BROKEN | CheckOrigin retourne true : cmd/synora-api/ws.go:149-151. |
+| Subscription | MISSING | Messages clients ignorés. |
+| Replay/reprise | MISSING | Aucun curseur, séquence ou replay. |
+| Version événement | MISSING | Snapshot sans protocole incrémental versionné. |
+| Heartbeat | PARTIAL | Ping/pong serveur. |
+| Reconnexion frontend | PARTIAL | Backoff et polling fallback. |
+| Snapshot cohérent | PARTIAL | Snapshot initial réel, pas de réconciliation incrémentale. |
+
+Routes enregistrées : cmd/synora-api/main.go:163-245.
+
+Routes mortes ou trompeuses :
+
+- redirect_http_to_https est présent dans la configuration mais aucun redirect effectif n'est branché.
+- /health retourne un status ok statique sans vérifier Core.
+- Les routes génériques devices, automations, CGE, simulation et lab exposent des surfaces hors périmètre V1.
+- Aucun endpoint incident n'existe malgré l'état de sécurité exposé.
+
+### H. WebApp
+
+Pages réellement présentes : Dashboard, événements live, devices/caméras, résidents, topologie/home map, automations, CGE, Synora Lab et Settings.
+
+La WebApp consomme principalement /api/state et /api/ws, avec fallback polling. Elle ne consomme aucun endpoint incident ou clip.
+
+Le fichier synora-web/src/App.tsx reste une démo Vite ; l'entrée produit utilise src/app/App.tsx, ce qui constitue un artefact mort.
+
+package.json contient dev, build, lint et preview, mais aucun script test.
+
+Écarts V1 : automations domotiques visibles, CGE/Lab visibles, types de périphériques tiers visibles, pas de page incidents, pas d'acquittement, pas de statut notification et état offline limité.
+
+Statut global : PARTIAL.
+
+### I. Sécurité
+
+Protections présentes : bcrypt, session cookie HttpOnly/SameSite=Strict, hash des session IDs, rotation/révocation, limite login, limite body JSON, limites uploads, validation chemins photos, HMAC caméra, sanitization snapshots et permissions prévues sur configurations.
+
+| Risque | Statut | Preuve / impact |
+|---|---|---|
+| Injection événements bus local | Confirmé HIGH | internal/bus/server.go:230-284 ; faux producteur local possible. |
+| HTTPS optionnel | Confirmé HIGH | cmd/synora-api/main.go:87-94 ; HTTP reste disponible si TLS absent. |
+| Rejeu caméra | Confirmé MEDIUM | timestamp skew 30 s, pas de nonce/cache anti-rejeu. |
+| WebSocket cross-origin | Plausible HIGH | CheckOrigin=true ; validation navigateur à faire. |
+| Usurpation caméra | Plausible HIGH | require_device_public_key=false ; dépend du réseau et du setup token. |
+| Debug biométrique | Confirmé MEDIUM | images runtime écrites sans rétention claire. |
+| Saturation disque clips | Confirmé HIGH | pas de quota/reaper fichiers. |
+| Worker Vision root/socket | Confirmé HIGH | discovery systemd en root, socket sans protocole d'authentification. |
+| Dernier administrateur | Confirmé HIGH | aucun contrôle de compte admin restant. |
+
+Blocages absolus avant commercialisation : incident lifecycle, TLS obligatoire, authentification producteurs bus, bootstrap admin consommable, reconnaissance faciale raccordée, OTA/rollback et politique clips/biométrie.
+
+### J. Maintenance, diagnostic et OTA
+
+| Fonctionnalité | Statut | Preuve |
+|---|---|---|
+| /api/system/version | COMPLETE | cmd/synora-api/main.go:233-235. |
+| version.json | PARTIAL | Lecture/fallback réel, génération Makefile. |
+| Sans Git | COMPLETE | Fallback unknown. |
+| Kernel/arch/uptime | COMPLETE | internal/version/version.go:73-92. |
+| Slot courant | STUB | Toujours unmanaged, placeholder-rauc-not-installed. |
+| Boot healthcheck | PARTIAL | Checks services, API, modèles, disque et réseau. |
+| Rapport JSON atomique | COMPLETE | cmd/synora-boot-healthcheck/main.go:274-304. |
+| Codes sortie | COMPLETE | 0, 1 et 2. |
+| Intégration bootloader | MISSING | Aucun ExecStartPost ni contrôleur RAUC. |
+| OTA signée | MISSING | Aucun installateur ou vérification bundle. |
+| Compatibilité hardware OTA | MISSING | Documentation seulement. |
+| mark-good | MISSING | Non appelé. |
+| Rollback système | MISSING | RAUC seulement décrit. |
+| Rollback runtime | STUB | internal/manager/manager.go:474-482 retourne disabled. |
+| Compteur échecs | MISSING | Aucun mécanisme. |
+| Migration OTA | STUB | Migrations no-op et non branchées. |
+| Température | MISSING | Aucun contrôle matériel identifié. |
+| Export diagnostic | PARTIAL | Réel, sanitation présente. |
+| Rotation logs | MISSING | Aucune politique identifiée. |
+
+docs/ota-rollback.md est explicitement conceptuel et indique que l'intégration RAUC ne fait pas partie du dépôt opérationnel.
+
+### K. Qualité et exploitation
+
+Résultats des commandes :
+
+- go vet ./... : PASS.
+- Python unittest : PASS, 10 tests sur 10.
+- go test ./... -count=1 en sandbox : échec de plusieurs tests bus avec "setsockopt: operation not permitted".
+- go test ./... -count=1 hors sandbox : FAIL, même si les sockets démarrent, avec TestBusCoreCGEAllowlistedEvents/identity en timeout, TestCoreDoesNotImportGraphMemoryDirectly en violation d'architecture et TestPhysicalSmokeEnvironmentProfileUsesProductionParser en échec.
+- go test -race ./... : non terminé ; reproduit les erreurs de tests bus dans l'environnement limité avant interruption contrôlée.
+- npm test : non exécuté, node_modules absent et aucun script test.
+- npm run lint : non exécuté, node_modules absent.
+- npm run build : non exécuté, node_modules absent.
+- git diff --check : PASS.
+- make build : non exécuté car il créerait des artefacts dans le dépôt.
+- make install, make update et toute installation : non exécutés conformément aux contraintes.
+
+Les tests CGE sont nombreux mais ne valident pas le parcours caméra réel jusqu'à incident.
+
+## 4. Parcours de bout en bout
+
+### Première installation
+
+Étapes existantes : synora-bootstrap-config init --apply, génération token/session/PSK/mot de passe, écriture des YAML puis démarrage des services.
+
+Point de rupture : aucun onboarding Web ni état first-run. L'utilisateur ne peut pas terminer proprement réseau, caméra, pièce, topologie, résident, visage et validation finale.
+
+Données : configuration potentiellement partiellement écrite, mais aucune progression persistée.
+
+Tests nécessaires : système vierge, interruption à chaque étape, reprise et bootstrap répété.
+
+### Résident reconnu
+
+Le parcours attendu est : résident -> photos -> rebuild -> chargement worker -> embedding -> identité -> présence.
+
+Rupture confirmée : API /var/lib/synora/vision/face, worker /opt/synora/services/vision-worker/data/faces. Preuves : configs/security.yaml:16-18, deployments/systemd/synora-api.service:12-16 et services/vision-worker/modules/face/FaceRecognizer.py:15-23.
+
+Le rebuild ne produit pas d'embeddings et ne recharge pas le worker : cmd/synora-api/face_handlers.go:156-175.
+
+### Inconnu détecté
+
+vision.unknown peut être généré et le moteur peut passer à suspicious dans les tests synthétiques.
+
+Le parcours casse ensuite : aucun anonymous/entity track durable, aucun suivi inter-caméras, aucun incident, aucune notification et aucune preuve conservée comme incident.
+
+### Caméra déconnectée
+
+Le runtime marque la caméra offline après 30 secondes sans clip et la remet online au prochain clip.
+
+Manques : persistance du runtime registry, notification utilisateur, incident caméra offline, test réel de coupure/reconnexion et traitement de file pendant indisponibilité.
+
+### Incident et acquittement
+
+Parcours impossible. Aucun modèle Incident, endpoint, RPC, stockage, UI ou notification. /api/intrusion/reset modifie l'état système mais ne crée ni ne conserve une preuve structurée.
+
+### Redémarrage sans perte
+
+Préservé : configurations YAML, utilisateurs, sessions, StateStore JSON, résidents, topology, métadonnées limitées d'événements, danger et action results bornés.
+
+Perdu ou réinitialisé : queue clip, queue bus non durable, runtime camera registry, pairing pending, connexion Vision, tracks runtime, embeddings en mémoire, progression onboarding et statuts notification inexistants.
+
+Risque : StateStore peut redémarrer avec métadonnées mais sans correspondance physique des clips.
+
+### OTA et rollback
+
+Le dépôt sait lire une version, produire un healthcheck et écrire un rapport atomique. Il ne sait pas vérifier un bundle signé, sélectionner un slot, installer, compter les boots, appeler mark-good ou effectuer un rollback.
+
+## 5. Défauts confirmés
+
+### AUDIT-001 — BLOCKER — Modèle incident absent
+
+- Attendu : incident persistant associé aux événements, clips, caméra, pièce, score, cause et identité.
+- Actuel : seulement EventChain, DangerAssessment et SystemState.
+- Cause : aucune structure incident dans StateStore, contracts, RPC, API ou snapshot.
+- Fichiers : internal/state/store.go, pkg/contract/public_snapshot.go, internal/rpc/server.go, cmd/synora-api/main.go.
+- Conséquence : parcours sécurité commercial impossible.
+- Correction : modèle, repository, RPC, REST, WebSocket, lifecycle et retention.
+- Non-régression : intrusion -> incident unique -> restart -> consultation -> ack -> reset.
+
+### AUDIT-002 — BLOCKER — Références faciales non raccordées
+
+- Attendu : photos API utilisées par le worker.
+- Actuel : racines différentes ; rebuild met seulement status à ready et ne recharge rien.
+- Cause : absence de contrat synchronisation/reload.
+- Conséquence : reconnaissance résident non démontrée.
+- Correction : racine commune configurable, embeddings versionnés, reload atomique.
+- Non-régression : ajout photo -> rebuild -> reload -> clip réel -> identity.
+
+### AUDIT-003 — CRITICAL — Tracks runtime absents
+
+- Attendu : résident/inconnu suivi entre pièces.
+- Actuel : Track, Cluster et EventWindow existent mais SetTrack, SetCluster et SetEventWindow ne sont pas appelés par le runtime Vision.
+- Conséquence : pas de trajectoire multi-caméra.
+- Correction : propriétaire Core unique des tracks et corrélation track_id/sequence_key.
+- Non-régression : caméra A -> caméra B avec événements retardés et doublons.
+
+### AUDIT-004 — CRITICAL — Erreurs de publication Vision perdues
+
+- Attendu : retry, dead-letter ou échec visible.
+- Actuel : internal/discovery/vision/worker.go:54-105 journalise, continue puis retourne nil.
+- Conséquence : clip traité avec état Core incomplet.
+- Correction : résultat par clip, retry borné, statut durable.
+- Non-régression : bus indisponible pendant publication.
+
+### AUDIT-005 — CRITICAL — Timeout Vision non appliqué
+
+- Attendu : clip bloqué libère worker et produit une erreur.
+- Actuel : json.Decoder.Decode sans deadline dans internal/discovery/vision/runtime.go:174-223.
+- Conséquence : blocage de queue et perte de disponibilité.
+- Correction : deadline socket, cancellation et watchdog.
+- Non-régression : worker suspendu puis reprise.
+
+### AUDIT-006 — CRITICAL — Bus local injectable
+
+- Attendu : seuls services autorisés peuvent produire des événements.
+- Actuel : source déclarée dans message, pas d'identité cryptographique.
+- Conséquence : faux producteur local.
+- Correction : credentials Unix vérifiés, allowlist UID/PID ou signature locale.
+- Non-régression : spoof source et remplacement de connexion.
+
+### AUDIT-007 — HIGH — Clips sans idempotence, validation complète ni rétention disque
+
+- Attendu : activation_id, clip_id, clip_index, hash, durée, MIME, déduplication et quota.
+- Actuel : ID aléatoire local et limite taille seulement ; aucun quota/reaper.
+- Correction : contrat clip versionné, idempotency key, staging même filesystem et reaper.
+- Non-régression : upload partiel, doublon, disque plein et clip invalide.
+
+### AUDIT-008 — HIGH — HTTPS non obligatoire
+
+- Attendu : accès Web sécurisé local et tunnel.
+- Actuel : HTTP reste disponible si certificats absents ; redirect_http_to_https non utilisé.
+- Fichiers : cmd/synora-api/main.go:87-94 et configs/security.yaml:8-14.
+- Correction : refuser démarrage ou rediriger strictement.
+- Non-régression : certificat absent, requête HTTP et cookie.
+
+### AUDIT-009 — HIGH — Bootstrap administrateur non consommé
+
+- Attendu : admin créé une fois, mot de passe initial remplacé/révoqué.
+- Actuel : secret initial et token API restent valides ; aucun état first-run ni gestion dernier admin.
+- Fichiers : cmd/synora-bootstrap-config/main.go:141-171 et internal/api/users.go:64-72.
+- Correction : bootstrap nonce, changement obligatoire, révocation et protection dernier admin.
+- Non-régression : seconde initialisation, perte secret et suppression dernier admin.
+
+### AUDIT-010 — BLOCKER — OTA absente
+
+- Attendu : bundle signé, slot A/B, mark-good et rollback.
+- Actuel : internal/manager/manager.go:474-482 retourne status disabled ; version slot unmanaged.
+- Correction : intégration RAUC réelle, manifest signé, hooks, compteur et migration.
+- Non-régression : coupure avant reboot, boot invalide, service critique indisponible et rollback.
+
+### AUDIT-011 — HIGH — WebSocket non versionné et Origin permissif
+
+- Attendu : canal authentifié, abonnement, replay et ordre déterministe.
+- Actuel : CheckOrigin=true, pas de subscription, curseur ou replay ; snapshots complets.
+- Correction : Origin allowlist, envelope versionnée, revision et replay cursor.
+- Non-régression : cross-origin, client lent et reconnexion avec événements manqués.
+
+### AUDIT-012 — HIGH — Surfaces V1 hors périmètre visibles
+
+- Attendu : Founders Edition caméra-only et sécurité.
+- Actuel : devices génériques, automations, CGE, Lab et capacités expérimentales exposés.
+- Correction : feature flags produit et masquage immédiat.
+- Non-régression : utilisateur V1 ne voit pas ces surfaces.
+
+### AUDIT-013 — MEDIUM — Suite Go globale rouge
+
+- Attendu : suite complète verte.
+- Actuel : timeout bus/Core, violation architecture et parseur CGE en échec.
+- Correction : corriger les tests et déterminer si le timeout indique un défaut runtime.
+- Non-régression : go test ./... et go test -race ./....
+
+## 6. Sécurité
+
+### Vulnérabilités confirmées
+
+- Injection d'événements par producteur bus local non authentifié.
+- HTTPS restant disponible en clair si TLS absent.
+- Rejeu possible d'une requête caméra signée dans la fenêtre de 30 secondes, faute de nonce/cache.
+- Debug facial et images runtime écrits sans politique de rétention claire.
+- Worker Vision sur socket Unix sans authentification dédiée.
+- Discovery exécuté en root.
+
+### Risques plausibles nécessitant validation
+
+- CheckOrigin=true sur WebSocket avec session cookie.
+- Exposition de noms de clips via permissions de répertoire.
+- Usurpation caméra avec MAC/setup token si clé publique désactivée.
+- Saturation disque clips/debug.
+- Désynchronisation après suppression résident/caméra.
+
+### Protections présentes
+
+- Bcrypt.
+- Cookies HttpOnly/SameSite=Strict.
+- Hash des sessions.
+- Rotation/révocation sessions.
+- Limite login.
+- Validation chemins photos.
+- Limites uploads.
+- HMAC caméra.
+- Sanitization snapshots.
+- Permissions prévues sur configurations.
+
+### Blocages absolus avant commercialisation
+
+Incident lifecycle, TLS obligatoire, authentification producteurs bus, bootstrap admin consommable, reconnaissance faciale raccordée, OTA/rollback et politique clips/biométrie.
+
+## 7. Persistance et résistance aux pannes
+
+### Données persistées
+
+- Configurations YAML.
+- Résidents et topology.
+- Authentification.
+- Sessions.
+- StateStore JSON.
+- Identités et présence selon TTL.
+- Métadonnées clips.
+- Danger assessments bornés.
+- Action results bornés.
+- Événements récents bornés.
+- Event chains.
+
+### Données perdues au redémarrage
+
+- Queue clip.
+- Queue bus non durable.
+- Runtime camera registry.
+- Pairing pending.
+- Connexion Vision.
+- Tracks non alimentés.
+- Embeddings chargés en mémoire.
+- Progression onboarding.
+- Statuts notification inexistants.
+
+### Écritures et corruption
+
+Le StateStore utilise temp + Sync + Rename + synchronisation du répertoire.
+
+Limites :
+
+- tous les setters runtime ne déclenchent pas eux-mêmes SaveNow ;
+- la cohérence dépend du chemin appelant ;
+- pas de WAL ;
+- corruption -> renommage du fichier et état vide ;
+- pas de restauration automatique depuis backup ;
+- migrations configuration no-op et non branchées.
+
+### Rétention
+
+- recent events : 200.
+- danger : 100.
+- action results : 200.
+- présence/tracks/clips par expiration.
+- fichiers clip physiques : aucune purge confirmée.
+- photos archivées/crops : aucune rétention confirmée.
+- logs/debug : aucune rotation confirmée.
+
+## 8. Contrats à figer avant l'UI/UX
+
+### Authentification
+
+Réutiliser POST /api/auth/login, POST /api/auth/refresh, POST /api/auth/logout et GET /api/auth/me.
+
+Contrat minimal :
+
+    {
+      "session": { "expires_at": "timestamp", "refreshable": true },
+      "user": { "id": "user_id", "role": "admin|resident|guest", "permissions": [] }
+    }
+
+Ajouter bootstrap initial, changement obligatoire et révocation globale.
+
+### Caméras
+
+Réutiliser pairing Synora Camera et GET/PATCH/DELETE /api/devices/{id}.
+
+Contrat minimal :
+
+    {
+      "id": "cam_01",
+      "serial": "...",
+      "model": "...",
+      "room_id": "room_entry",
+      "status": "online|offline|pairing|disabled",
+      "last_seen": "...",
+      "capabilities": ["clip", "live"],
+      "trust": { "key_id": "...", "paired_at": "..." }
+    }
+
+### Résidents
+
+Réutiliser CRUD résident et routes face. Ajouter face_profile.status, reference_count, dataset_version, embedding_status, last_rebuilt_at et delete_policy.
+
+### Topologie
+
+    {
+      "rooms": [
+        { "id": "room_entry", "name": "Entrée", "floor": 0, "neighbors": ["room_hall"] }
+      ]
+    }
+
+La topologie doit être une dépendance explicite du tracking.
+
+### Événements
+
+pkg/contract/event.go:87-114 contient déjà activation_id, clip_id, clip_index, track_id et sequence_key.
+
+Ils doivent être obligatoires pour les événements Vision, avec occurred_at, received_at, camera_id, room_id, identity et confidence.
+
+### Incidents
+
+Nouveau contrat obligatoire :
+
+    {
+      "id": "inc_...",
+      "status": "new|viewed|acknowledged|closed",
+      "created_at": "...",
+      "updated_at": "...",
+      "severity": "suspicious|intrusion",
+      "cause": "unknown_person",
+      "score": 0.82,
+      "camera_id": "cam_01",
+      "room_id": "room_entry",
+      "identity": null,
+      "event_ids": [],
+      "clip_ids": [],
+      "timeline": [],
+      "acknowledged_at": null
+    }
+
+### Clips
+
+Ajouter hash, taille, durée, MIME, chemin interne non exposé, expiration, statut received/queued/processing/processed/failed et idempotency key.
+
+### État système
+
+Réutiliser PublicSnapshot et SystemState. Ajouter state_revision, last_incident_id, active_incident_count, degraded_reasons, camera_summary et vision_worker_status.
+
+### WebSocket
+
+    {
+      "version": 1,
+      "type": "snapshot|event|incident.updated|system.updated",
+      "revision": 42,
+      "sequence": 1002,
+      "occurred_at": "...",
+      "payload": {}
+    }
+
+Ajouter abonnement, heartbeat, replay depuis sequence et réponse de resynchronisation.
+
+### Erreurs API
+
+Le format existant est réutilisable :
+
+    { "error": "validation_failed", "message": "Room does not exist", "details": {} }
+
+Documenter les codes HTTP, limites, pagination et erreurs de permission.
+
+## 9. Tests manquants
+
+### P0
+
+- Clip réel caméra -> Discovery -> Vision -> bus -> Core.
+- Création d'incident à intrusion.
+- Incident unique malgré doublons.
+- Acquittement et reset.
+- Résident reconnu avec références réellement chargées.
+- Inconnu suivi entre deux caméras.
+- Authentification producteur bus.
+- HTTPS obligatoire.
+- Bootstrap initial et dernier administrateur.
+
+### P1
+
+- Coupure bus pendant publication.
+- Worker Vision bloqué.
+- Worker crash/restart.
+- Queue pleine et retry.
+- Upload interrompu.
+- Clip dupliqué.
+- Disque plein.
+- Corruption StateStore.
+- Redémarrage pendant écriture.
+- Suppression résident et purge biométrique.
+- Réconciliation clips physiques/métadonnées.
+
+### P2
+
+- Topologie multi-pièces.
+- Événements hors ordre.
+- Expiration présence.
+- Downgrade intrusion.
+- Reset manuel.
+- WebSocket reconnexion/replay.
+- UI offline.
+
+### Hardware
+
+- RKNN réel.
+- Modèles présents/absents.
+- Camera firmware réel.
+- Pairing réel.
+- Perte Wi-Fi.
+- Reboot caméra.
+- Reboot centrale.
+- MediaMTX live.
+- Température, stockage et ressources.
+
+### OTA
+
+- Bundle signé valide/invalide.
+- Mauvaise architecture.
+- Mauvaise version.
+- Coupure pendant installation.
+- Boot slot invalide.
+- Échec service critique.
+- mark-good.
+- Rollback automatique.
+- Conservation de /var/lib/synora.
+
+### Sécurité
+
+- Rejeu HMAC.
+- Spoof caméra.
+- Injection bus.
+- WebSocket cross-origin.
+- Path traversal uploads.
+- Accès clips non autorisé.
+- Logs biométriques.
+- Export diagnostic sans secret.
+- Rate limiting réel.
+
+## 10. Découpage des prochaines passes Codex
+
+### P0. Incidents V1 et contrat sécurité
+
+Objectif : créer le modèle incident complet.
+
+Périmètre : pkg/contract, internal/state, internal/rpc, cmd/synora-api et WebSocket.
+
+Acceptation : intrusion crée un incident unique persistant et acquittable.
+
+Tests : API, restart, doublons, reset.
+
+Hors périmètre : UI définitive et automations générales.
+
+### P0. Parcours Vision réel
+
+Objectif : clip réel jusqu'à événement Core.
+
+Périmètre : ingress, queue, runtime socket, worker Python et publication bus.
+
+Acceptation : succès, erreur, timeout, retry et statut clip observables.
+
+Tests : vidéo réelle, worker absent, bus absent et queue pleine.
+
+Hors périmètre : arme/chute/bagarre.
+
+### P0. Références faciales
+
+Objectif : dataset unique et rechargable.
+
+Périmètre : face_handlers.go, FaceRecognizer, systemd et configuration.
+
+Acceptation : upload -> rebuild -> embedding -> clip reconnu.
+
+Tests : ajout, suppression, reload et modèle absent.
+
+Hors périmètre : apprentissage autonome.
+
+### P0. Boundary bus et HTTPS
+
+Objectif : empêcher injection locale et accès HTTP non sécurisé.
+
+Périmètre : bus server/client, credentials Unix, API TLS et WebSocket Origin.
+
+Acceptation : producteurs non autorisés rejetés ; HTTP refuse ou redirige strictement.
+
+Tests : spoof, replay et cross-origin.
+
+### P1. Tracks, présence et topologie
+
+Objectif : suivi résident/inconnu multi-pièces.
+
+Périmètre : Core, StateStore, topology et event correlation.
+
+Acceptation : trajectoire stable avec événements retardés/doublés.
+
+Tests : caméra A/B, identité incertaine et disparition.
+
+Hors périmètre : CGE générique autonome.
+
+### P1. Clips, rétention et restauration
+
+Objectif : preuves cohérentes et stockage borné.
+
+Périmètre : ingress, clip repository, quota, reaper et incident references.
+
+Acceptation : idempotence, quota, purge et conservation incident.
+
+Tests : disque plein, corruption et reboot.
+
+### P1. Bootstrap/onboarding
+
+Objectif : installation interrompable et reprenable.
+
+Périmètre : first-run, admin, network, pairing, topology, resident et validation.
+
+Acceptation : parcours Web complet depuis système vierge.
+
+Tests : interruption/reprise, bootstrap répété et dernier admin.
+
+Hors périmètre : multi-logement.
+
+### P1. OTA/RAUC
+
+Objectif : mise à jour signée avec rollback.
+
+Périmètre : manifest, RAUC, healthcheck, migration, systemd et boot.
+
+Acceptation : update valide, échec boot, rollback et mark-good.
+
+Tests : coupures électriques simulées sur banc.
+
+Hors périmètre : serveur cloud obligatoire.
+
+### P2. API/UI V1
+
+Objectif : contrats stables et retrait des surfaces trompeuses.
+
+Périmètre : incidents, clips, WebSocket et pages V1.
+
+Acceptation : UI consomme uniquement contrats stables et affiche incident réel.
+
+Tests : build, lint, flows authentifiés et offline.
+
+Hors périmètre : refonte esthétique complète.
+
+### P3. Qualification hardware/bêta
+
+Objectif : validation caméra/centrale réelle.
+
+Périmètre : RKNN, caméra, réseau, stockage et MediaMTX.
+
+Acceptation : scénarios sécurité reproductibles.
+
+Tests : longue durée, coupures, température et charge.
+
+Hors périmètre : fonctions non validées commercialement.
+
+### P4. CGE générique et fonctions exploratoires
+
+Statut : OUT_OF_SCOPE_V1.
+
+Conserver isolé derrière flags et outils développeur. Ne pas exposer dans la V1 vendue.
+
+## 11. Verdict final
+
+### Avant de commencer l'UI/UX définitive
+
+1. Contrat incident.
+2. Contrat clip/événement.
+3. Parcours Vision réel.
+4. Références faciales raccordées.
+5. Tracking résident/inconnu.
+6. WebSocket versionné.
+7. Liste exacte des routes V1.
+8. Masquage CGE, automations et devices hors périmètre.
+
+### Avant une bêta sur hardware réel
+
+1. Test caméra Synora réelle.
+2. RKNN et modèles réels.
+3. Pairing et reconnexion.
+4. Clip réel jusqu'à Core.
+5. Résident reconnu.
+6. Inconnu suivi.
+7. Incident créé, consulté et acquitté.
+8. Reboot sans perte.
+9. Quota/rétention clips.
+10. TLS et sécurité bus.
+11. Tests longue durée et coupure réseau.
+
+### Avant la vente
+
+1. OTA signée.
+2. Rollback automatique vérifié.
+3. Bootstrap admin sécurisé.
+4. Protection dernier administrateur.
+5. Incident et notification fiables.
+6. Backup/restauration.
+7. Export diagnostic sans secrets.
+8. Suite Go complète verte.
+9. Build Web reproductible.
+10. Documentation alignée avec le code.
+11. Validation hardware de toutes les promesses commerciales.
+
+### Fonctionnalités à désactiver ou masquer immédiatement
+
+- Automations domotiques générales.
+- Périphériques tiers.
+- CGE/Lab/validation admin.
+- Simulation.
+- Détection arme, chute et bagarre.
+- Toute promesse de suivi multi-pièces tant que les tracks runtime ne sont pas câblés.
+- Toute présentation d'un simple événement comme un incident.
+- OTA/rollback tant que RAUC n'est pas opérationnel.
+- Accès HTTP non sécurisé en production.
+
+### Décisions nécessitant validation humaine
+
+- Politique exacte d'intrusion pour un inconnu.
+- Seuils et délais suspicious/intrusion.
+- Rétention clips et biométrie.
+- Politique de suppression résident.
+- Support ou non du live dans la première release.
+- Choix RAUC/bootloader et layout A/B.
+- Notification locale minimale.
+- Politique de tunnel distant.
+- Niveau de confiance requis pour reconnaître un résident.
+- Date à laquelle les fonctions Vision expérimentales pourront devenir des promesses commerciales.
+
+Verdict : la base logicielle est un prototype avancé et un laboratoire d'intégration, mais Synora Founders Edition n'est pas vendable en l'état.
+
+## Annexe — Commandes exécutées et résultats
+
+Les commandes suivantes ont été exécutées sans installation ni modification du dépôt, sauf les commandes de test utilisant leurs répertoires temporaires/cache hors dépôt.
+
+1. `rg --files -g 'AGENTS.md'`
+   Résultat : aucun AGENTS.md trouvé.
+
+2. `rg --files` et inventaire des répertoires
+   Résultat : services Go sous cmd/internal/pkg, Vision Worker Python sous services/vision-worker, WebApp React/Vite sous synora-web, configs, migrations, systemd et outils présents.
+
+3. `git status --short --branch`
+   Résultat : branche cge/durable-cognitive-workflow, ahead 1/behind 7, une seule modification préexistante : configs/cge/contracts/writers.yaml.
+
+4. `git diff --check`
+   Résultat : aucune erreur d'espacement.
+
+5. `rg -n "\\bIncident\\b|incident_id|/api/incidents" ...`
+   Résultat : aucun modèle, route ou champ incident runtime trouvé.
+
+6. `rg -n -i "rauc|mark-good|rollback|slot|signed update|signature" ...`
+   Résultat : RAUC et rollback présents dans la documentation et contrats préparatoires ; Runtime.Rollback retourne disabled ; aucun installateur RAUC opérationnel.
+
+7. `rg -n "SetTrack\\(|SetCluster\\(|SetEventWindow\\(" cmd internal --glob '*.go' --glob '!**/*_test.go'`
+   Résultat : définitions dans internal/state/store.go, aucun appel runtime producteur hors StateStore générique.
+
+8. `rg -n "process_clip|load_faces|rebuild|SYNORA_FACE|vision/face" services cmd deployments Makefile configs`
+   Résultat : signature process_clip compatible avec l'appel courant ; chemins API/worker différents ; rebuild API ne calcule ni ne recharge les embeddings.
+
+9. `GOCACHE=/tmp/synora-gocache-audit go test ./... -count=1`
+   Résultat : échec initial de tests bus dans la sandbox avec `setsockopt: operation not permitted`, plus échecs Core dans la sortie de suite.
+
+10. `GOCACHE=/tmp/synora-gocache-audit-escalated go test ./... -count=1`
+    Résultat hors sandbox : FAIL. Échecs confirmés : TestBusCoreCGEAllowlistedEvents/identity timeout, TestCoreDoesNotImportGraphMemoryDirectly, TestPhysicalSmokeEnvironmentProfileUsesProductionParser.
+
+11. `GOCACHE=/tmp/synora-gocache-audit-race go test -race ./... -count=1`
+    Résultat : non terminé ; erreurs bus de sandbox reproduites avant interruption contrôlée.
+
+12. `go vet ./...`
+    Résultat : PASS.
+
+13. `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s services/vision-worker/tests -v`
+    Résultat : PASS, 10 tests sur 10. Couverture principalement contrats, mocks et dry-run ; pas de clip réel matériel jusqu'au bus.
+
+14. `npm test`, `npm run lint`, `npm run build` dans synora-web
+    Résultat : non exécutés car node_modules absent ; aucune dépendance installée et aucun lockfile modifié.
+
+15. `make build`, `make install`, `make update`
+    Résultat : non exécutés. Ils créeraient des artefacts ou modifieraient le système, ce qui était interdit par la passe.
+
+16. Vérification finale des processus de test
+    Résultat : aucun `go test` laissé en exécution après interruption contrôlée du race detector.
+

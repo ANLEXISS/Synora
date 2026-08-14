@@ -99,3 +99,23 @@ func TestTopologyMethodsDecodeCanonicalObject(t *testing.T) {
 		t.Fatalf("msgType=%q result=%#v", requester.msgType, result)
 	}
 }
+
+func TestIncidentMethodsUseCanonicalRPCNames(t *testing.T) {
+	requester := &recordingRequester{result: json.RawMessage(`{"id":"incident-1","status":"acknowledged"}`)}
+	client := &Client{bus: requester}
+	if _, err := client.AcknowledgeIncident(" incident-1 "); err != nil {
+		t.Fatal(err)
+	}
+	if requester.msgType != "incidents.acknowledge" {
+		t.Fatalf("msgType=%q", requester.msgType)
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(requester.payload, &payload); err != nil || payload["id"] != "incident-1" {
+		t.Fatalf("payload=%s err=%v", requester.payload, err)
+	}
+
+	requester.result = json.RawMessage(`{"error":"conflict","message":"transition not allowed"}`)
+	if _, err := client.MarkIncidentViewed("incident-1"); contract.APIErrorCode(err) != contract.ErrorConflict {
+		t.Fatalf("conflict should survive coreclient transport, err=%v", err)
+	}
+}

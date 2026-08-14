@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 import tempfile
 import unittest
@@ -133,6 +134,10 @@ class EventContractTests(unittest.TestCase):
         self.assertEqual(events[0]["identity"], "alexis")
         self.assertEqual(events[1]["identity"], "unknown")
         self.assertEqual(events[2]["identity"], "uncertain")
+
+        encoded = json.dumps(events[0])
+        for forbidden in ("embedding", "crop", "landmark"):
+            self.assertNotIn(forbidden, encoded)
 
     def test_builder_scene_event_contract_shape(self):
         builder = EventBuilder({

@@ -25,7 +25,7 @@ func TestDangerScoringUnknownEntrance(t *testing.T) {
 		Now:        testTime(12),
 	})
 
-	if assessment.Level != 3 || assessment.Category != contract.DangerCategorySecurity || !assessment.ValidationRequired {
+	if assessment.Level != 5 || assessment.Category != contract.DangerCategorySecurity || !assessment.ValidationRequired {
 		t.Fatalf("unexpected assessment: %#v", assessment)
 	}
 	assertAction(t, assessment, contract.SystemActionCreateValidation)
@@ -39,7 +39,7 @@ func TestDangerScoringUnknownEntranceNight(t *testing.T) {
 		Now:        testTime(23),
 	})
 
-	if assessment.Level != 4 || assessment.Score < 0.80 || !assessment.ValidationRequired {
+	if assessment.Level != 5 || assessment.Score < 0.80 || !assessment.ValidationRequired {
 		t.Fatalf("unexpected assessment: %#v", assessment)
 	}
 }

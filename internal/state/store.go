@@ -2,11 +2,14 @@ package state
 
 import (
 	"encoding/json"
+	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"synora/internal/clipstore"
 	"synora/pkg/contract"
 )
 
@@ -18,10 +21,14 @@ type Store struct {
 	CameraStates      map[string]*CameraState
 	NodeStates        map[string]*NodeState
 	Tracks            map[string]*Track
+	ResidentTracks    map[string]*ResidentTrack
+	EntityTracks      map[string]*EntityTrack
 	Clusters          map[string]*Cluster
 	Identities        map[string]*IdentityState
 	Presence          map[string]*PresenceState
 	Clips             map[string]*ClipState
+	FacePhotos        map[string]*contract.FacePhoto
+	FaceDataset       *contract.FaceDatasetState
 	Validations       map[string]*contract.ValidationRequest
 	BehaviorOverrides map[string]json.RawMessage
 	ActionResults     map[string]*contract.ActionResult
@@ -31,9 +38,38 @@ type Store struct {
 	EventWindows      map[string]*contract.EventWindow
 	EventChains       map[string]*contract.EventChain
 	CriticalChains    map[string]*contract.CriticalChainMemory
+	Incidents         map[string]*contract.Incident
 	System            *SystemState
 
-	persistence Persistence
+	persistence   Persistence
+	incidentLimit int
+	inputEpoch    string
+	inputSequence uint64
+}
+
+func (s *Store) InputCursor() (string, uint64) {
+	if s == nil {
+		return "", 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.inputEpoch, s.inputSequence
+}
+
+func (s *Store) SetInputCursor(epoch string, sequence uint64) {
+	if s == nil {
+		return
+	}
+	epoch = strings.TrimSpace(epoch)
+	s.mu.Lock()
+	if s.inputEpoch == epoch && s.inputSequence == sequence {
+		s.mu.Unlock()
+		return
+	}
+	s.inputEpoch, s.inputSequence = epoch, sequence
+	s.revision.Add(1)
+	s.mu.Unlock()
+	_ = s.SaveNow()
 }
 
 const (
@@ -67,10 +103,14 @@ func NewStore(options ...Option) *Store {
 		CameraStates:      make(map[string]*CameraState),
 		NodeStates:        make(map[string]*NodeState),
 		Tracks:            make(map[string]*Track),
+		ResidentTracks:    make(map[string]*ResidentTrack),
+		EntityTracks:      make(map[string]*EntityTrack),
 		Clusters:          make(map[string]*Cluster),
 		Identities:        make(map[string]*IdentityState),
 		Presence:          make(map[string]*PresenceState),
 		Clips:             make(map[string]*ClipState),
+		FacePhotos:        make(map[string]*contract.FacePhoto),
+		FaceDataset:       &contract.FaceDatasetState{SchemaVersion: 1, Status: contract.FaceDatasetIdle},
 		Validations:       make(map[string]*contract.ValidationRequest),
 		BehaviorOverrides: make(map[string]json.RawMessage),
 		ActionResults:     make(map[string]*contract.ActionResult),
@@ -80,6 +120,8 @@ func NewStore(options ...Option) *Store {
 		EventWindows:      make(map[string]*contract.EventWindow),
 		EventChains:       make(map[string]*contract.EventChain),
 		CriticalChains:    make(map[string]*contract.CriticalChainMemory),
+		Incidents:         make(map[string]*contract.Incident),
+		incidentLimit:     DefaultIncidentLimit,
 		System: &SystemState{
 			LastState:            "idle",
 			LastStateTime:        now,
@@ -301,7 +343,13 @@ func (s *Store) SetClip(value *ClipState) {
 		return
 	}
 	s.mu.Lock()
-	cloned := *value
+	cloned := cloneClip(value)
+	if cloned.Status == "" {
+		cloned.Status = contract.ClipStatusProcessed
+	}
+	if cloned.UpdatedAt.IsZero() {
+		cloned.UpdatedAt = cloned.CreatedAt
+	}
 	s.Clips[value.ID] = &cloned
 	s.revision.Add(1)
 	s.mu.Unlock()
@@ -315,8 +363,246 @@ func (s *Store) Clip(id string) (*ClipState, bool) {
 	if !ok || value == nil {
 		return nil, false
 	}
-	cloned := *value
+	cloned := cloneClip(value)
 	return &cloned, true
+}
+
+const (
+	DefaultClipListLimit = 50
+	MaxClipListLimit     = 100
+)
+
+func (s *Store) ClipsList(limit int) []contract.Clip {
+	if s == nil {
+		return []contract.Clip{}
+	}
+	if limit <= 0 {
+		limit = DefaultClipListLimit
+	}
+	if limit > MaxClipListLimit {
+		limit = MaxClipListLimit
+	}
+	s.mu.RLock()
+	items := make([]contract.Clip, 0, len(s.Clips))
+	for _, value := range s.Clips {
+		if value != nil {
+			items = append(items, cloneClip(value))
+		}
+	}
+	s.mu.RUnlock()
+	sort.Slice(items, func(i, j int) bool {
+		left, right := items[i].UpdatedAt, items[j].UpdatedAt
+		if left.Equal(right) {
+			return items[i].ID > items[j].ID
+		}
+		return left.After(right)
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items
+}
+
+func (s *Store) RegisterClip(value *ClipState) (contract.Clip, bool, error) {
+	if s == nil || value == nil {
+		return contract.Clip{}, false, contract.NewAPIError(contract.ErrorInternal, "state store unavailable")
+	}
+	cloned := cloneClip(value)
+	if cloned.Status == "" {
+		cloned.Status = contract.ClipStatusReady
+	}
+	if err := cloned.Validate(); err != nil {
+		return contract.Clip{}, false, contract.NewAPIError(contract.ErrorInvalidRequest, "%v", err)
+	}
+	s.mu.Lock()
+	if existing, ok := s.Clips[cloned.ID]; ok && existing != nil {
+		if !sameClipContent(existing, &cloned) {
+			s.mu.Unlock()
+			return contract.Clip{}, false, contract.NewAPIError(contract.ErrorConflict, "clip id collision")
+		}
+		result := cloneClip(existing)
+		s.mu.Unlock()
+		return result, false, nil
+	}
+	if cloned.Revision == 0 {
+		cloned.Revision = 1
+	}
+	if cloned.UpdatedAt.IsZero() {
+		cloned.UpdatedAt = cloned.ReadyAt
+		if cloned.UpdatedAt.IsZero() {
+			cloned.UpdatedAt = cloned.CreatedAt
+		}
+	}
+	s.Clips[cloned.ID] = &cloned
+	for incidentID, incident := range s.Incidents {
+		if incident == nil || !containsString(incident.ClipIDs, cloned.ID) || containsString(cloned.IncidentIDs, incidentID) {
+			continue
+		}
+		cloned.IncidentIDs = append(cloned.IncidentIDs, incidentID)
+		for _, eventID := range incident.EventIDs {
+			if !containsString(cloned.EventIDs, eventID) {
+				cloned.EventIDs = append(cloned.EventIDs, eventID)
+			}
+		}
+	}
+	s.revision.Add(1)
+	result := cloneClip(&cloned)
+	s.mu.Unlock()
+	if err := s.SaveNow(); err != nil {
+		return result, true, err
+	}
+	return result, true, nil
+}
+
+func (s *Store) TransitionClip(id string, target contract.ClipStatus, failureCode string) (contract.Clip, bool, error) {
+	if s == nil {
+		return contract.Clip{}, false, contract.NewAPIError(contract.ErrorInternal, "state store unavailable")
+	}
+	if err := target.Validate(); err != nil {
+		return contract.Clip{}, false, contract.NewAPIError(contract.ErrorInvalidRequest, "%v", err)
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return contract.Clip{}, false, contract.NewAPIError(contract.ErrorInvalidRequest, "clip id is required")
+	}
+	now := time.Now().UTC()
+	s.mu.Lock()
+	value, ok := s.Clips[id]
+	if !ok || value == nil {
+		s.mu.Unlock()
+		return contract.Clip{}, false, contract.NewAPIError(contract.ErrorNotFound, "clip not found")
+	}
+	if value.Status == target {
+		result := cloneClip(value)
+		s.mu.Unlock()
+		return result, false, nil
+	}
+	if !contract.ValidClipTransition(value.Status, target) {
+		from := value.Status
+		s.mu.Unlock()
+		return contract.Clip{}, false, contract.NewAPIErrorWithDetails(contract.ErrorConflict,
+			map[string]any{"from": from, "to": target}, "clip transition from %s to %s is not allowed", from, target)
+	}
+	value.Status = target
+	value.UpdatedAt = now
+	value.Revision++
+	value.FailureCode = strings.TrimSpace(failureCode)
+	switch target {
+	case contract.ClipStatusProcessing:
+		value.ProcessingAt = now
+	case contract.ClipStatusProcessed:
+		value.ProcessedAt = now
+	case contract.ClipStatusExpired:
+		value.ExpiresAt = now
+	}
+	result := cloneClip(value)
+	s.revision.Add(1)
+	s.mu.Unlock()
+	if err := s.SaveNow(); err != nil {
+		return result, true, err
+	}
+	return result, true, nil
+}
+
+func (s *Store) AttachClipReferences(clipID, eventID, incidentID string) bool {
+	if s == nil || strings.TrimSpace(clipID) == "" {
+		return false
+	}
+	clipID = strings.TrimSpace(clipID)
+	s.mu.Lock()
+	value, ok := s.Clips[clipID]
+	if !ok || value == nil {
+		s.mu.Unlock()
+		return false
+	}
+	changed := false
+	if eventID = strings.TrimSpace(eventID); eventID != "" && !containsString(value.EventIDs, eventID) {
+		value.EventIDs = append(value.EventIDs, eventID)
+		if value.EventID == "" {
+			value.EventID = eventID
+		}
+		changed = true
+	}
+	if incidentID = strings.TrimSpace(incidentID); incidentID != "" && !containsString(value.IncidentIDs, incidentID) {
+		value.IncidentIDs = append(value.IncidentIDs, incidentID)
+		changed = true
+	}
+	if changed {
+		value.UpdatedAt = time.Now().UTC()
+		value.Revision++
+		s.revision.Add(1)
+	}
+	result := changed
+	s.mu.Unlock()
+	if changed {
+		_ = s.SaveNow()
+	}
+	return result
+}
+
+func (s *Store) ReconcileClipFiles(now time.Time) int {
+	if s == nil {
+		return 0
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	changed := 0
+	s.mu.Lock()
+	for _, value := range s.Clips {
+		if value == nil || strings.TrimSpace(value.Path) == "" {
+			continue
+		}
+		fileAvailable, _ := clipstore.VerifyRegularFile(value.Path, value.SizeBytes, value.Checksum)
+		target := value.Status
+		failure := value.FailureCode
+		switch {
+		case fileAvailable && value.Status == contract.ClipStatusMissing:
+			target, failure = contract.ClipStatusReady, ""
+		case !fileAvailable && value.Status != contract.ClipStatusExpired:
+			target, failure = contract.ClipStatusMissing, "file_missing_or_unsafe"
+		case fileAvailable && value.Status == contract.ClipStatusProcessing:
+			target, failure = contract.ClipStatusReady, ""
+		}
+		if target != value.Status || failure != value.FailureCode {
+			value.Status = target
+			value.FailureCode = failure
+			value.UpdatedAt = now
+			value.Revision++
+			changed++
+		}
+	}
+	if changed > 0 {
+		s.revision.Add(uint64(changed))
+	}
+	s.mu.Unlock()
+	if changed > 0 {
+		_ = s.SaveNow()
+	}
+	return changed
+}
+
+func cloneClip(value *ClipState) contract.Clip {
+	if value == nil {
+		return contract.Clip{}
+	}
+	cloned := contract.Clip(*value)
+	cloned.EventIDs = append([]string(nil), value.EventIDs...)
+	cloned.IncidentIDs = append([]string(nil), value.IncidentIDs...)
+	return cloned
+}
+
+func sameClipContent(left, right *ClipState) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	if left.CameraID != right.CameraID || left.SizeBytes != right.SizeBytes {
+		return false
+	}
+	if left.Checksum != "" && right.Checksum != "" {
+		return left.Checksum == right.Checksum
+	}
+	return left.ActivationID == right.ActivationID && left.ClipIndex == right.ClipIndex
 }
 
 func (s *Store) DeleteClip(id string) {
@@ -596,7 +882,10 @@ func (s *Store) ContextSnapshot() ContextSourceSnapshot {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := ContextSourceSnapshot{}
+	out := ContextSourceSnapshot{Revision: s.revision.Load()}
+	if out.Revision == 0 {
+		out.Revision = 1
+	}
 	if s.System != nil {
 		out.System = ContextSystemState{LastState: s.System.LastState, Armed: s.System.Armed, SecurityMode: string(s.System.Security.Mode)}
 	} else {
@@ -741,7 +1030,7 @@ func (s *Store) Revision() uint64 {
 func (s *Store) Size() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return len(s.DeviceStates) + len(s.CameraStates) + len(s.NodeStates) + len(s.Tracks) + len(s.Clusters) + len(s.Identities) + len(s.Presence) + len(s.Clips) + len(s.EventWindows) + len(s.EventChains) + len(s.CriticalChains)
+	return len(s.DeviceStates) + len(s.CameraStates) + len(s.NodeStates) + len(s.Tracks) + len(s.ResidentTracks) + len(s.EntityTracks) + len(s.Clusters) + len(s.Identities) + len(s.Presence) + len(s.Clips) + len(s.EventWindows) + len(s.EventChains) + len(s.CriticalChains)
 }
 
 func (s *Store) ActiveTracks() int {
@@ -824,8 +1113,7 @@ func (s *Store) Snapshot(collection string) map[string]interface{} {
 			if value == nil {
 				continue
 			}
-			cloned := *value
-			out[id] = cloned
+			out[id] = cloneClip(value)
 		}
 	case "validations":
 		for id, value := range s.Validations {
@@ -879,6 +1167,12 @@ func (s *Store) Snapshot(collection string) map[string]interface{} {
 		for id, value := range s.CriticalChains {
 			if value != nil {
 				out[id] = *cloneCriticalChainMemory(value)
+			}
+		}
+	case "incidents":
+		for id, value := range s.Incidents {
+			if value != nil {
+				out[id] = cloneIncident(value)
 			}
 		}
 	}
@@ -953,6 +1247,10 @@ func (s *Store) Upsert(collection string, id string, data interface{}) {
 		s.SetCriticalChainMemory(&value)
 	case *contract.CriticalChainMemory:
 		s.SetCriticalChainMemory(value)
+	case contract.Incident:
+		s.SetIncident(&value)
+	case *contract.Incident:
+		s.SetIncident(value)
 	case SystemState:
 		s.SetSystemState(value)
 	case *SystemState:
@@ -1006,6 +1304,12 @@ func (s *Store) Delete(collection string, id string) {
 		s.DeleteEventChain(id)
 	case "critical_chain_memories", "critical_chains":
 		s.DeleteCriticalChainMemory(id)
+	case "incidents":
+		s.mu.Lock()
+		delete(s.Incidents, id)
+		s.revision.Add(1)
+		s.mu.Unlock()
+		s.SaveNow()
 	}
 }
 
@@ -1018,6 +1322,18 @@ func (s *Store) Cleanup(now time.Time, cfg ExpirationConfig) CleanupResult {
 		if value == nil || (!value.ExpiresAt.IsZero() && !value.ExpiresAt.After(now)) {
 			delete(s.Tracks, id)
 			result.Deleted["tracks"] = append(result.Deleted["tracks"], id)
+		}
+	}
+	for id, value := range s.ResidentTracks {
+		if value == nil || (!value.ExpiresAt.IsZero() && !value.ExpiresAt.After(now)) {
+			delete(s.ResidentTracks, id)
+			result.Deleted["resident_tracks"] = append(result.Deleted["resident_tracks"], id)
+		}
+	}
+	for id, value := range s.EntityTracks {
+		if value == nil || (!value.ExpiresAt.IsZero() && !value.ExpiresAt.After(now)) {
+			delete(s.EntityTracks, id)
+			result.Deleted["entity_tracks"] = append(result.Deleted["entity_tracks"], id)
 		}
 	}
 	for id, value := range s.Clusters {
@@ -1050,12 +1366,9 @@ func (s *Store) Cleanup(now time.Time, cfg ExpirationConfig) CleanupResult {
 			result.Deleted["presence"] = append(result.Deleted["presence"], id)
 		}
 	}
-	for id, value := range s.Clips {
-		if value == nil || (!value.ExpiresAt.IsZero() && !value.ExpiresAt.After(now)) {
-			delete(s.Clips, id)
-			result.Deleted["clips"] = append(result.Deleted["clips"], id)
-		}
-	}
+	// Clip metadata is durable evidence. Physical retention changes a clip to
+	// expired while leaving its ID and incident associations queryable; the
+	// generic runtime cleanup must never delete that metadata.
 	for id, value := range s.EventWindows {
 		if value == nil || value.LastUpdate.Add(cfg.Windows).Before(now) {
 			delete(s.EventWindows, id)
@@ -1145,15 +1458,56 @@ func (s *Store) PersistedState() *PersistedState {
 func (s *Store) applyPersistedState(persisted *PersistedState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.inputEpoch = strings.TrimSpace(persisted.InputEpoch)
+	s.inputSequence = persisted.InputSequence
+	s.Clips = make(map[string]*ClipState, len(persisted.Clips))
 	if persisted.Clips != nil {
-		s.Clips = make(map[string]*ClipState, len(persisted.Clips))
 		for id, value := range persisted.Clips {
 			cloned := value
+			cloned.EventIDs = append([]string(nil), value.EventIDs...)
+			cloned.IncidentIDs = append([]string(nil), value.IncidentIDs...)
 			if cloned.ID == "" {
 				cloned.ID = id
 			}
+			if cloned.Status == "" {
+				if cloned.Path != "" {
+					if info, err := os.Lstat(cloned.Path); err == nil && info.Mode().IsRegular() {
+						cloned.Status = contract.ClipStatusProcessed
+					} else {
+						cloned.Status = contract.ClipStatusMissing
+					}
+				} else {
+					cloned.Status = contract.ClipStatusMissing
+				}
+			}
+			if cloned.UpdatedAt.IsZero() {
+				cloned.UpdatedAt = cloned.CreatedAt
+			}
 			s.Clips[id] = &cloned
 		}
+	}
+	s.FacePhotos = make(map[string]*contract.FacePhoto, len(persisted.FacePhotos))
+	for id, value := range persisted.FacePhotos {
+		cloned := value.Photo
+		cloned.StorageKey = value.StorageKey
+		if cloned.ID == "" {
+			cloned.ID = id
+		}
+		if cloned.Status == "" {
+			cloned.Status = string(contract.FacePhotoStored)
+		}
+		if cloned.CreatedAt.IsZero() {
+			cloned.CreatedAt = time.Now().UTC()
+		}
+		if cloned.UpdatedAt.IsZero() {
+			cloned.UpdatedAt = cloned.CreatedAt
+		}
+		s.FacePhotos[id] = &cloned
+	}
+	if persisted.FaceDataset != nil {
+		s.FaceDataset = cloneFaceDataset(persisted.FaceDataset)
+	} else {
+		s.FaceDataset = &contract.FaceDatasetState{SchemaVersion: 1, Status: contract.FaceDatasetIdle}
 	}
 	if persisted.Validations != nil {
 		s.Validations = make(map[string]*contract.ValidationRequest, len(persisted.Validations))
@@ -1211,6 +1565,26 @@ func (s *Store) applyPersistedState(persisted *PersistedState) {
 			s.Presence[id] = &cloned
 		}
 	}
+	if persisted.ResidentTracks != nil {
+		s.ResidentTracks = make(map[string]*ResidentTrack, len(persisted.ResidentTracks))
+		for id, value := range persisted.ResidentTracks {
+			cloned := value
+			if cloned.ResidentID == "" {
+				cloned.ResidentID = id
+			}
+			s.ResidentTracks[id] = &cloned
+		}
+	}
+	if persisted.EntityTracks != nil {
+		s.EntityTracks = make(map[string]*EntityTrack, len(persisted.EntityTracks))
+		for id, value := range persisted.EntityTracks {
+			cloned := value
+			if cloned.ID == "" {
+				cloned.ID = id
+			}
+			s.EntityTracks[id] = &cloned
+		}
+	}
 	if persisted.EventChains != nil {
 		s.EventChains = make(map[string]*contract.EventChain, len(persisted.EventChains))
 		for id, value := range persisted.EventChains {
@@ -1237,6 +1611,20 @@ func (s *Store) applyPersistedState(persisted *PersistedState) {
 			s.CriticalChains[id] = cloned
 		}
 	}
+	if persisted.Incidents != nil {
+		s.Incidents = make(map[string]*contract.Incident, len(persisted.Incidents))
+		for id, value := range persisted.Incidents {
+			cloned := cloneIncident(&value)
+			if cloned == nil {
+				continue
+			}
+			if cloned.ID == "" {
+				cloned.ID = id
+			}
+			s.Incidents[id] = cloned
+		}
+		s.trimIncidentsLocked(s.incidentLimit)
+	}
 	if persisted.System != nil {
 		s.System = persisted.System
 	}
@@ -1245,12 +1633,20 @@ func (s *Store) applyPersistedState(persisted *PersistedState) {
 func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
 	persisted := emptyPersistedState()
 	persisted.SavedAt = savedAt
+	persisted.InputEpoch = s.inputEpoch
+	persisted.InputSequence = s.inputSequence
 	for id, value := range s.Clips {
 		if value == nil {
 			continue
 		}
-		persisted.Clips[id] = *value
+		persisted.Clips[id] = cloneClip(value)
 	}
+	for id, value := range s.FacePhotos {
+		if value != nil {
+			persisted.FacePhotos[id] = PersistedFacePhoto{Photo: *cloneFacePhoto(value), StorageKey: value.StorageKey}
+		}
+	}
+	persisted.FaceDataset = cloneFaceDataset(s.FaceDataset)
 	for id, value := range s.Validations {
 		if value == nil {
 			continue
@@ -1281,6 +1677,18 @@ func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
 		}
 		persisted.Presence[id] = *value
 	}
+	for id, value := range s.ResidentTracks {
+		if value != nil {
+			persisted.ResidentTracks[id] = *value
+		}
+	}
+	for id, value := range s.EntityTracks {
+		if value != nil {
+			cloned := *value
+			cloned.CandidateResidentID = ""
+			persisted.EntityTracks[id] = cloned
+		}
+	}
 	for id, value := range s.EventChains {
 		if value != nil {
 			persisted.EventChains[id] = *cloneEventChain(value)
@@ -1291,6 +1699,12 @@ func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
 			persisted.CriticalChains[id] = *cloneCriticalChainMemory(value)
 		}
 	}
+	for id, value := range s.Incidents {
+		if value != nil {
+			persisted.Incidents[id] = *cloneIncident(value)
+		}
+	}
+	trimPersistedIncidents(persisted.Incidents, s.incidentLimit)
 	system := s.systemStateLocked()
 	persisted.System = &system
 	return persisted
@@ -1308,6 +1722,7 @@ func persistedSummary(value *PersistedState) PersistedSummary {
 		Danger:        len(value.Danger),
 		Identities:    len(value.Identities),
 		Presence:      len(value.Presence),
+		Incidents:     len(value.Incidents),
 	}
 }
 

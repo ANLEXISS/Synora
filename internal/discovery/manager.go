@@ -1,19 +1,25 @@
 package discovery
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"synora/internal/bus"
+	"synora/internal/clipstore"
 	"synora/internal/device"
 	"synora/internal/discovery/ingress"
 	"synora/internal/discovery/network"
 	discoveryruntime "synora/internal/discovery/runtime"
 	"synora/internal/discovery/vision"
+	"synora/internal/facedataset"
+	"synora/internal/facestore"
 	"synora/internal/security"
 	"synora/pkg/contract"
 )
@@ -32,6 +38,12 @@ type Manager struct {
 	auth *security.DeviceVerifier
 
 	network *network.Manager
+
+	faceStore     *facestore.Store
+	faceBuilder   *facedataset.Builder
+	faceSyncMu    sync.Mutex
+	faceSyncRun   bool
+	faceSyncAgain bool
 }
 
 func NewManager(
@@ -103,6 +115,13 @@ func NewManager(
 
 		auth: auth,
 	}
+	faceRoot := strings.TrimSpace(os.Getenv("SYNORA_FACE_DATA_ROOT"))
+	if faceRoot == "" {
+		faceRoot = strings.TrimSpace(cfg.Vision.FaceDataRoot)
+	}
+	m.faceStore = facestore.New(faceRoot, facestore.Limits{})
+	workerManager.SetEnvironment("SYNORA_FACE_DATA_ROOT", m.faceStore.Root)
+	m.faceBuilder = facedataset.NewBuilder(m.faceStore)
 
 	m.pool = vision.NewWorkerPool(
 		4,
@@ -166,15 +185,23 @@ func (m *Manager) Start() {
 	healthState.setSuccess(0)
 	go m.monitorVisionHealth()
 
+	clipDir := strings.TrimSpace(os.Getenv("SYNORA_CLIP_DIR"))
+	if clipDir == "" {
+		clipDir = VisionClipDir
+	}
 	ingress.StartServer(ingress.Config{
 		Addr:          VisionHTTPSAddr,
 		CertFile:      CertFile,
 		KeyFile:       KeyFile,
-		ClipDir:       VisionClipDir,
+		ClipDir:       clipDir,
 		MaxClipSize:   MaxClipSize,
+		MaxClipCount:  clipLimitInt("SYNORA_CLIP_MAX_COUNT", 500),
+		MaxClipBytes:  clipLimitInt64("SYNORA_CLIP_MAX_BYTES", 5<<30),
+		TempMaxAge:    clipDuration("SYNORA_CLIP_PART_MAX_AGE", time.Hour),
 		Authenticator: m,
 		Devices:       m.devices,
 		Queue:         m.pool,
+		Publisher:     m.bus,
 		AllowInsecure: allowInsecureIngress(),
 		OnStatus: func(status, reason string) {
 			healthState.setVisionIngress(status, reason)
@@ -185,13 +212,225 @@ func (m *Manager) Start() {
 			})
 		},
 	})
+	go m.resumePendingClips(clipDir)
+	if err := m.faceStore.Init(); err != nil {
+		log.Printf("discovery face storage degraded err=%v", err)
+	}
+	go m.listenFaceMutations()
+	m.requestFaceSync()
 	m.publishRuntimeStatus()
+}
+
+func (m *Manager) listenFaceMutations() {
+	if m == nil || m.bus == nil {
+		return
+	}
+	for msg := range m.bus.SubscribeChannel("discovery") {
+		switch msg.Type {
+		case "resident.face_photo.updated", "resident.face_photo.removal_pending", "resident.updated":
+			m.requestFaceSync()
+		}
+	}
+}
+
+func (m *Manager) requestFaceSync() {
+	if m == nil {
+		return
+	}
+	m.faceSyncMu.Lock()
+	if m.faceSyncRun {
+		m.faceSyncAgain = true
+		m.faceSyncMu.Unlock()
+		return
+	}
+	m.faceSyncRun = true
+	m.faceSyncMu.Unlock()
+	go func() {
+		for {
+			m.syncFaceDataset()
+			m.faceSyncMu.Lock()
+			again := m.faceSyncAgain
+			m.faceSyncAgain = false
+			if !again {
+				m.faceSyncRun = false
+				m.faceSyncMu.Unlock()
+				return
+			}
+			m.faceSyncMu.Unlock()
+		}
+	}()
+}
+
+func (m *Manager) syncFaceDataset() {
+	if m == nil || m.bus == nil || m.faceBuilder == nil || m.vision == nil {
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{"limit": 200})
+	response, err := m.bus.Request("face_dataset.snapshot", "discovery", payload, "core")
+	if err != nil {
+		log.Printf("face dataset snapshot unavailable err=%v", err)
+		return
+	}
+	var snapshot struct {
+		DesiredRevision uint64 `json:"desired_revision"`
+		Photos          []struct {
+			Photo      contract.FacePhoto `json:"photo"`
+			StorageKey string             `json:"storage_key"`
+		} `json:"photos"`
+	}
+	if err := json.Unmarshal(response.Payload, &snapshot); err != nil {
+		log.Printf("face dataset snapshot decode failed err=%v", err)
+		return
+	}
+	photos := make([]contract.FacePhoto, 0, len(snapshot.Photos))
+	photoByID := make(map[string]contract.FacePhoto, len(snapshot.Photos))
+	for _, item := range snapshot.Photos {
+		item.Photo.StorageKey = item.StorageKey
+		photos = append(photos, item.Photo)
+		photoByID[item.Photo.ID] = item.Photo
+	}
+	missing := []string{}
+	for _, photo := range photos {
+		if photo.Status == string(contract.FacePhotoRemoved) || photo.Status == string(contract.FacePhotoRejected) {
+			continue
+		}
+		path, pathErr := m.faceStore.SourcePath(photo.ResidentID, photo.StorageKey)
+		if pathErr != nil {
+			continue
+		}
+		info, statErr := os.Lstat(path)
+		if statErr != nil || !info.Mode().IsRegular() {
+			missing = append(missing, photo.ID)
+		}
+	}
+	if len(missing) > 0 {
+		missingPayload, _ := json.Marshal(map[string]any{"photo_ids": missing})
+		_, _ = m.bus.Request("face_dataset.mark_missing", "discovery", missingPayload, "core")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	manifest, err := m.faceBuilder.BuildAndActivate(ctx, photos, snapshot.DesiredRevision, m.vision, m.vision)
+	if err != nil {
+		log.Printf("face dataset build/reload retained previous version err=%v", err)
+		var validationErr *facedataset.ValidationError
+		if errors.As(err, &validationErr) && validationErr.PhotoID != "" {
+			reject, _ := json.Marshal(map[string]any{"id": validationErr.PhotoID, "failure_code": validationErr.Code})
+			_, _ = m.bus.Request("residents.photos.reject", "discovery", reject, "core")
+		}
+		failure, _ := json.Marshal(map[string]any{"failure_code": "dataset_sync_failed"})
+		_, _ = m.bus.Request("face_dataset.failure", "discovery", failure, "core")
+		return
+	}
+	residentIDs := make([]string, 0, len(manifest.Entries))
+	photoIDs := make([]string, 0, len(manifest.Entries))
+	seen := map[string]bool{}
+	for _, entry := range manifest.Entries {
+		photoIDs = append(photoIDs, entry.PhotoID)
+		if !seen[entry.ResidentID] {
+			residentIDs = append(residentIDs, entry.ResidentID)
+			seen[entry.ResidentID] = true
+		}
+	}
+	activate, _ := json.Marshal(map[string]any{"version": manifest.Version, "desired_revision": manifest.DesiredRevision, "manifest_checksum": manifest.Checksum, "model_fingerprint": manifest.ModelFingerprint, "embedding_dimension": manifest.EmbeddingDimension, "resident_ids": residentIDs, "photo_ids": photoIDs})
+	activation, err := m.bus.Request("face_dataset.activate", "discovery", activate, "core")
+	if err != nil {
+		log.Printf("face dataset activation rejected err=%v", err)
+		return
+	}
+	var activationResult struct {
+		RemovedPhotoIDs []string `json:"removed_photo_ids"`
+	}
+	if err := json.Unmarshal(activation.Payload, &activationResult); err != nil {
+		return
+	}
+	for _, photoID := range activationResult.RemovedPhotoIDs {
+		photo, ok := photoByID[photoID]
+		if !ok {
+			continue
+		}
+		if err := m.faceStore.RemoveSource(photo); err != nil {
+			log.Printf("face source removal deferred photo=%s err=%v", photoID, err)
+			continue
+		}
+		removePayload, _ := json.Marshal(map[string]any{"id": photoID})
+		if _, err := m.bus.Request("residents.photos.remove_confirmed", "discovery", removePayload, "core"); err != nil {
+			log.Printf("face metadata removal confirmation failed photo=%s err=%v", photoID, err)
+		}
+	}
+	if _, err := m.faceBuilder.PruneObsolete(7 * 24 * time.Hour); err != nil {
+		log.Printf("face dataset obsolete version purge deferred err=%v", err)
+	}
+}
+
+func (m *Manager) resumePendingClips(root string) {
+	if m == nil || m.bus == nil || m.pool == nil {
+		return
+	}
+	for attempt := 0; attempt < 5; attempt++ {
+		payload, _ := json.Marshal(map[string]any{"limit": contract.MaxClipListLimit})
+		response, err := m.bus.Request("clips.list", "discovery", payload, "core")
+		if err != nil {
+			time.Sleep(time.Second)
+			continue
+		}
+		var values []contract.Clip
+		if err := json.Unmarshal(response.Payload, &values); err != nil {
+			log.Printf("discovery clip resume decode failed err=%v", err)
+			return
+		}
+		for _, value := range values {
+			if value.Status != contract.ClipStatusReady && value.Status != contract.ClipStatusProcessing {
+				continue
+			}
+			path, err := clipstore.FinalPath(root, value.CameraID, value.ID)
+			if err != nil {
+				continue
+			}
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() {
+				continue
+			}
+			if err := m.pool.Enqueue(&vision.ClipJob{ID: value.ID, CameraID: value.CameraID, Path: path, CreatedAt: value.CreatedAt, ActivationID: value.ActivationID, ClipIndex: value.ClipIndex, NodeID: value.NodeID, SequenceKey: value.SequenceKey, TrackID: value.TrackID}); err != nil {
+				log.Printf("discovery clip resume queue failed clip=%s err=%v", value.ID, err)
+			}
+		}
+		return
+	}
+	log.Printf("discovery clip resume unavailable after retries")
 }
 
 func allowInsecureIngress() bool {
 	value := strings.TrimSpace(os.Getenv("SYNORA_ALLOW_INSECURE_INGRESS"))
 	allowed, _ := strconv.ParseBool(value)
 	return allowed
+}
+
+func clipLimitInt(name string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(name))
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func clipLimitInt64(name string, fallback int64) int64 {
+	value := strings.TrimSpace(os.Getenv(name))
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func clipDuration(name string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(name))
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func (m *Manager) publishDiagnostic(eventType string, payload map[string]any) {

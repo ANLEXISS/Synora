@@ -14,9 +14,10 @@ type Sender interface {
 }
 
 type Publisher struct {
-	Builder *Builder
-	Bus     Sender
-	Now     func() time.Time
+	Builder  *Builder
+	Bus      Sender
+	Now      func() time.Time
+	Metadata func() (epoch string, sequence uint64, revision uint64)
 }
 
 func (p Publisher) PublishStateSnapshot() {
@@ -32,15 +33,20 @@ func (p Publisher) PublishStateSnapshot() {
 	if p.Now != nil {
 		now = p.Now().UTC()
 	}
-	err = p.Bus.Send(contract.Message{
+	message := contract.Message{
 		ID:        idgen.New("msg"),
+		Version:   contract.RealtimeSchemaVersion,
 		Type:      "state.snapshot",
 		Kind:      contract.KindEvent,
 		Source:    "core",
 		Target:    "api",
 		Timestamp: now,
 		Payload:   body,
-	})
+	}
+	if p.Metadata != nil {
+		message.Epoch, message.Sequence, message.Revision = p.Metadata()
+	}
+	err = p.Bus.Send(message)
 	if err != nil {
 		log.Println("core: snapshot publish error", err)
 	}

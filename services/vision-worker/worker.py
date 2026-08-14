@@ -7,11 +7,20 @@ import socket
 import sys
 import threading
 
+import cv2
+import numpy as np
+
 from core.events import ALLOWED_EVENT_TYPES, EventBuilder
 from core.model_runner import model_status
+from face_dataset import FaceDatasetError, FaceDatasetManager, safe_component, _regular_file
 
 
 SOCKET_PATH = "/run/synora/vision-worker.sock"
+FACE_DATA_ROOT = os.path.abspath(os.path.realpath(os.getenv("SYNORA_FACE_DATA_ROOT", "/var/lib/synora/vision/face")))
+MODEL_ROOT = os.getenv("SYNORA_MODEL_ROOT", "/var/lib/synora/models")
+ARCFACE_MODEL = os.getenv("SYNORA_ARCFACE_MODEL", os.path.join(MODEL_ROOT, "arcface_w600k_r50.rknn"))
+MAX_REQUEST_BYTES = 1 << 20
+COMMAND_TIMEOUT_SECONDS = float(os.getenv("SYNORA_VISION_COMMAND_TIMEOUT", "30"))
 
 
 logging.basicConfig(
@@ -35,6 +44,8 @@ class VisionWorker:
         self.dry_run = dry_run
         self.pipeline_error = None
         self.debug_http_error = None
+        self.face_dataset = None
+        self.face_dataset_startup_error = None
 
         if dry_run:
             self.face_recognizer = None
@@ -46,12 +57,17 @@ class VisionWorker:
                 from modules.detect.person_detector import PersonDetector
                 from modules.face.FaceRecognizer import FaceRecognizer
 
-                self.face_recognizer = FaceRecognizer()
+                self.face_recognizer = FaceRecognizer(model_path=ARCFACE_MODEL)
                 self.person_detector = PersonDetector()
                 self.pipeline = VisionPipeline(
                     self.face_recognizer,
                     self.person_detector,
                 )
+                self.face_dataset = FaceDatasetManager(FACE_DATA_ROOT, self.face_recognizer)
+                try:
+                    self.face_dataset.startup()
+                except FaceDatasetError as exc:
+                    self.face_dataset_startup_error = exc.code
             except Exception as exc:
                 self.pipeline_error = str(exc)
                 self.face_recognizer = None
@@ -132,10 +148,10 @@ class VisionWorker:
             }
 
         models = {
-            "arcface": model_status("/var/lib/synora/models/arcface_w600k_r50.rknn"),
-            "scrfd": model_status("/var/lib/synora/models/det_10g.rknn"),
-            "yolo": model_status("/var/lib/synora/models/yolov8.rknn"),
-            "weapon": model_status("/var/lib/synora/models/weapon.rknn"),
+            "arcface": model_status(ARCFACE_MODEL),
+            "scrfd": model_status(os.path.join(MODEL_ROOT, "det_10g.rknn")),
+            "yolo": model_status(os.path.join(MODEL_ROOT, "yolov8.rknn")),
+            "weapon": model_status(os.path.join(MODEL_ROOT, "weapon.rknn")),
         }
         weapon_capability = dict(models["weapon"])
         weapon_capability["optional"] = True
@@ -150,7 +166,7 @@ class VisionWorker:
         face_detection = {"status": "unavailable", "error": "face detector unavailable"}
         if self.pipeline is not None:
             face_detection = self.pipeline.face_detection_capability()
-        return {
+        result = {
             "mode": "degraded" if self.pipeline_error or not any(item.get("status") == "available" for item in (face_capability, object_capability, face_detection)) else "normal",
             "debug_http": {
                 "status": "unavailable" if self.debug_http_error else "ok",
@@ -166,6 +182,11 @@ class VisionWorker:
             "models": models,
             "error": self.pipeline_error,
         }
+        if self.face_dataset is not None:
+            result["face_dataset"] = self.face_dataset.snapshot()
+        if self.face_dataset_startup_error:
+            result["face_dataset_error"] = self.face_dataset_startup_error
+        return result
 
     # ------------------------------------------------
 
@@ -173,6 +194,13 @@ class VisionWorker:
         self,
         req,
     ):
+
+        request_id = req.get("request_id") or req.get("id") or ""
+        operation = req.get("operation")
+        if operation == "face_dataset.embed":
+            return self._with_request_id(request_id, self.process_face_embed(req))
+        if operation == "face_dataset.reload":
+            return self._with_request_id(request_id, self.process_face_reload(req))
 
         clip_path = req.get(
             "clip_path"
@@ -215,9 +243,9 @@ class VisionWorker:
             }
 
         log.info(
-            "PROCESS CLIP camera=%s path=%s",
+            "PROCESS CLIP camera=%s clip_id=%s",
             camera_id,
-            clip_path,
+            clip_id,
         )
 
         if self.dry_run:
@@ -273,9 +301,117 @@ class VisionWorker:
             len(events),
         )
 
-        return {
-            "events": events
-        }
+        return {"request_id": request_id, "events": events}
+
+    @staticmethod
+    def _with_request_id(request_id, response):
+        result = dict(response or {})
+        result["request_id"] = request_id
+        return result
+
+    @staticmethod
+    def _run_bounded(fn, timeout=None):
+        if timeout is None:
+            timeout = COMMAND_TIMEOUT_SECONDS
+        result = {}
+        finished = threading.Event()
+
+        def invoke():
+            try:
+                result["value"] = fn()
+            except Exception as exc:
+                result["error"] = exc
+            finally:
+                finished.set()
+
+        threading.Thread(target=invoke, daemon=True).start()
+        if not finished.wait(max(0.1, timeout)):
+            raise FaceDatasetError("timeout", "vision command timed out")
+        if "error" in result:
+            raise result["error"]
+        return result.get("value")
+
+    def _source_for_request(self, req):
+        resident_id = req.get("resident_id")
+        photo_id = req.get("photo_id")
+        storage_key = req.get("storage_key")
+        if not safe_component(resident_id) or not safe_component(photo_id):
+            raise FaceDatasetError("invalid_request", "resident_id and photo_id are required")
+        if not isinstance(storage_key, str):
+            raise FaceDatasetError("path_not_allowed", "a canonical storage key is required")
+        parts = storage_key.split("/")
+        if len(parts) != 2 or parts[0] != resident_id or not safe_component(parts[1]):
+            raise FaceDatasetError("path_outside_root", "invalid face source key")
+        source = os.path.join(FACE_DATA_ROOT, "sources", parts[0], parts[1])
+        return source, _regular_file(source, FACE_DATA_ROOT)
+
+    def process_face_embed(self, req):
+        if self.face_recognizer is None or self.pipeline is None or self.face_dataset is None:
+            return {"error": "face recognition unavailable", "failure_code": "backend_unavailable"}
+        try:
+            source, _ = self._source_for_request(req)
+            image = cv2.imread(source, cv2.IMREAD_COLOR)
+            if image is None:
+                raise FaceDatasetError("source_invalid", "face source cannot be decoded")
+
+            def infer():
+                faces = self.pipeline.face_detector.detect(image)
+                if len(faces) == 0:
+                    raise FaceDatasetError("no_face", "exactly one face is required")
+                if len(faces) != 1:
+                    raise FaceDatasetError("multiple_faces", "exactly one face is required")
+                face = faces[0]
+                x1, y1, x2, y2 = face["bbox"]
+                if min(x2 - x1, y2 - y1) < self.pipeline.FACE_MIN_SIZE:
+                    raise FaceDatasetError("face_too_small", "face is below the existing minimum size")
+                crop = self.pipeline.make_square_crop(image, x1, y1, x2, y2)
+                quality = float(self.pipeline.face_quality(crop))
+                if not np.isfinite(quality) or quality <= 0.0:
+                    raise FaceDatasetError("face_too_blurry", "face quality is unusable")
+                aligned = self.pipeline.align_face_arcface(image, face.get("landmarks"))
+                if aligned is None:
+                    raise FaceDatasetError("face_alignment_failed", "face alignment failed")
+                embedding = self.face_recognizer.embed(aligned)
+                backend_failure = getattr(self.face_recognizer, "last_embed_failure", "")
+                if embedding is None and backend_failure:
+                    raise FaceDatasetError(backend_failure, "ArcFace embedding is invalid")
+                embedding, failure = self.face_recognizer.validate_embedding(
+                    embedding, self.face_recognizer.embedding_dim
+                )
+                if failure:
+                    raise FaceDatasetError(failure, "ArcFace embedding is invalid")
+                return embedding
+
+            embedding = self._run_bounded(infer)
+            return {
+                "embedding": [float(value) for value in embedding],
+                "model_fingerprint": self.face_recognizer.model_fingerprint(),
+            }
+        except FaceDatasetError as exc:
+            return {"error": exc.message, "failure_code": exc.code}
+        except Exception:
+            log.exception("face dataset embed failed")
+            return {"error": "face embedding failed", "failure_code": "embedding_failed"}
+
+    def process_face_reload(self, req):
+        if self.face_dataset is None:
+            return {"error": "face dataset unavailable", "failure_code": "backend_unavailable"}
+        try:
+            state = self._run_bounded(
+                lambda: self.face_dataset.reload(req.get("version"), req.get("root"))
+            )
+            return {
+                "version": state["loaded_version"],
+                "loaded_version": state["loaded_version"],
+                "active_revision": state["active_revision"],
+                "dimension": state["dimension"],
+                "model_fingerprint": state["fingerprint"],
+            }
+        except FaceDatasetError as exc:
+            return {"error": exc.message, "failure_code": exc.code}
+        except Exception:
+            log.exception("face dataset reload failed")
+            return {"error": "face dataset reload failed", "failure_code": "reload_failed"}
 
     # ------------------------------------------------
 
@@ -295,7 +431,7 @@ class VisionWorker:
             SOCKET_PATH
         )
 
-        server.listen(1)
+        server.listen(4)
 
         log.info(
             "VISION IPC READY socket=%s",
@@ -310,44 +446,31 @@ class VisionWorker:
                 "IPC CLIENT CONNECTED"
             )
 
-            with conn:
+            self.serve_connection(conn)
 
-                reader = conn.makefile("r")
-
-                writer = conn.makefile("w")
-
-                while True:
-
-                    line = reader.readline()
-
-                    if not line:
-                        break
-
-                    try:
-
-                        req = json.loads(
-                            line
-                        )
-
-                        resp = self.process_request(
-                            req
-                        )
-
-                    except Exception as e:
-
-                        log.exception(
-                            "PROCESS ERROR"
-                        )
-
-                        resp = {
-                            "error": str(e)
-                        }
-
-                    writer.write(
-                        json.dumps(resp) + "\n"
-                    )
-
+    def serve_connection(self, conn):
+        """Serve the same bounded JSON transport used by the Unix socket."""
+        with conn:
+            reader = conn.makefile("r")
+            writer = conn.makefile("w")
+            while True:
+                line = reader.readline(MAX_REQUEST_BYTES + 1)
+                if not line:
+                    break
+                if len(line) > MAX_REQUEST_BYTES:
+                    writer.write(json.dumps({"error": "request too large", "failure_code": "request_too_large"}) + "\n")
                     writer.flush()
+                    continue
+                try:
+                    req = json.loads(line)
+                    if not isinstance(req, dict):
+                        raise ValueError("request must be an object")
+                    resp = self.process_request(req)
+                except Exception:
+                    log.exception("PROCESS ERROR")
+                    resp = {"error": "invalid worker request", "failure_code": "invalid_request"}
+                writer.write(json.dumps(resp) + "\n")
+                writer.flush()
 
 
 # ------------------------------------------------

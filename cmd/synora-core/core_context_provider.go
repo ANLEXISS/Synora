@@ -107,7 +107,11 @@ func buildCoreContextSnapshot(capturedAt time.Time, source state.ContextSourceSn
 		if current, ok := presence[id]; ok {
 			value.PresenceCode = normalizePresenceCode(current.State)
 			value.CurrentNodeCode = strings.TrimSpace(current.Location)
-			value.ConfidencePermille = confidencePermille(current.Confidence)
+			confidence := current.Confidence
+			if !current.LastSeen.IsZero() && capturedAt.After(current.LastSeen) {
+				confidence = state.DecayedPresenceConfidence(confidence, capturedAt.Sub(current.LastSeen))
+			}
+			value.ConfidencePermille = confidencePermille(confidence)
 			value.LastSeenUnixNano = current.LastSeen.UnixNano()
 			value.FreshnessCode = string(cgecontextFreshness(capturedAt, current.LastSeen, policy.ResidentFreshFor, policy.ResidentStaleAfter))
 		}
@@ -188,9 +192,10 @@ func buildCoreContextSnapshot(capturedAt time.Time, source state.ContextSourceSn
 	}
 	snapshot := cgecontext.CoreContextSnapshot{
 		SchemaVersion: CoreContextSchemaVersion(), CapturedAtUnixNano: capturedAt.UnixNano(),
-		HomeMode: homeMode, SystemState: source.System.LastState,
+		SourceRevision: source.Revision,
+		HomeMode:       homeMode, SystemState: source.System.LastState,
 		Residents: residents, Devices: deviceValues, Cameras: cameraValues, Topology: topologyValue,
-		Freshness: cgecontext.ContextFreshness{Overall: cgecontext.AggregateFreshness(residentsFreshness, devicesFreshness, camerasFreshness, topologyFreshness), Residents: residentsFreshness, Devices: devicesFreshness, Cameras: camerasFreshness, Topology: topologyFreshness},
+		Freshness: cgecontext.ContextFreshness{Overall: cgecontext.AggregateFreshnessKnownNeutral(residentsFreshness, devicesFreshness, camerasFreshness, topologyFreshness), Residents: residentsFreshness, Devices: devicesFreshness, Cameras: camerasFreshness, Topology: topologyFreshness},
 	}
 	return snapshot.WithFingerprint()
 }

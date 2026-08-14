@@ -105,6 +105,7 @@ func (b *Builder) CoreState() map[string]any {
 	cge := b.cgeInspection()
 	cge["danger_assessments"] = b.DangerAssessmentViews()
 	return map[string]any{
+		"revision":     b.State.Revision(),
 		"nodes":        b.TopologyTreeViews(),
 		"devices":      b.DeviceViews(),
 		"device":       b.DeviceViews(),
@@ -130,6 +131,7 @@ func (b *Builder) CoreState() map[string]any {
 			"events":         b.State.Snapshot("events"),
 			"validations":    b.State.Snapshot("validations"),
 			"action_results": b.State.Snapshot("action_results"),
+			"incidents":      b.State.Snapshot("incidents"),
 			"danger":         b.DangerAssessmentViews(),
 			"system":         b.State.SystemState(),
 		},
@@ -138,6 +140,7 @@ func (b *Builder) CoreState() map[string]any {
 
 func (b *Builder) StatePayload() map[string]any {
 	return map[string]any{
+		"revision":       b.State.Revision(),
 		"system":         b.State.SystemState(),
 		"metrics":        b.metricsSnapshot(),
 		"nodes":          b.State.Snapshot("nodes"),
@@ -150,6 +153,7 @@ func (b *Builder) StatePayload() map[string]any {
 		"identities":     b.State.Snapshot("identities"),
 		"validations":    b.State.Snapshot("validations"),
 		"action_results": b.State.Snapshot("action_results"),
+		"incidents":      b.State.Snapshot("incidents"),
 		"danger":         b.DangerAssessmentViews(),
 		"topology":       b.TopologyTreeViews(),
 		"residents":      b.ResidentViews(),

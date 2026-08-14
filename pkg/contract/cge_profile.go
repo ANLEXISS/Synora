@@ -32,9 +32,9 @@ type DangerDecayConfig struct {
 
 func DefaultDangerDecayConfig() DangerDecayConfig {
 	return DangerDecayConfig{
-		Enabled: true, TickSeconds: 5, WindowMinutes: 30, HalfLifeMinutes: 10,
-		IdleBelowScore: 0.25, IdleStableSeconds: 300, DowngradeStableSeconds: 60,
-		LockIntrusionUntilReset: true,
+		Enabled: true, TickSeconds: 5, WindowMinutes: 30, HalfLifeMinutes: 15,
+		IdleBelowScore: 0.25, IdleStableSeconds: 300, DowngradeStableSeconds: 10,
+		LockIntrusionUntilReset: true, // V1 means a 15-second temporal lock.
 	}
 }
 

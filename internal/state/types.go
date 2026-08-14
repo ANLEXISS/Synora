@@ -1,6 +1,7 @@
 package state
 
 import (
+	"math"
 	"time"
 
 	"synora/pkg/contract"
@@ -51,6 +52,43 @@ type Track struct {
 	ExpiresAt  time.Time `json:"expires_at"`
 }
 
+// ResidentTrack is the durable Core-side association keyed only by resident_id.
+// It contains no biometric material and is never sourced from display_name.
+type ResidentTrack struct {
+	ResidentID   string    `json:"resident_id"`
+	LastNodeID   string    `json:"last_node_id,omitempty"`
+	LastDeviceID string    `json:"last_device_id,omitempty"`
+	LastTrackID  string    `json:"last_track_id,omitempty"`
+	LastEventID  string    `json:"last_event_id,omitempty"`
+	ActivationID string    `json:"activation_id,omitempty"`
+	SequenceKey  string    `json:"sequence_key,omitempty"`
+	Epoch        string    `json:"epoch,omitempty"`
+	Confidence   float64   `json:"confidence"`
+	LastSeen     time.Time `json:"last_seen"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	ExpiresAt    time.Time `json:"expires_at"`
+}
+
+// EntityTrack is the anonymous track projection used until a later valid
+// vision.identity binds the same track to a resident_id.
+type EntityTrack struct {
+	ID                  string    `json:"id"`
+	TrackID             string    `json:"track_id,omitempty"`
+	NodeID              string    `json:"node_id,omitempty"`
+	DeviceID            string    `json:"device_id,omitempty"`
+	ActivationID        string    `json:"activation_id,omitempty"`
+	SequenceKey         string    `json:"sequence_key,omitempty"`
+	Epoch               string    `json:"epoch,omitempty"`
+	ResidentID          string    `json:"resident_id,omitempty"`
+	CandidateResidentID string    `json:"-"`
+	Kind                string    `json:"kind"`
+	Confidence          float64   `json:"confidence"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+	LastSeen            time.Time `json:"last_seen"`
+	ExpiresAt           time.Time `json:"expires_at"`
+}
+
 type Cluster struct {
 	ID        string    `json:"id"`
 	NodeID    string    `json:"node_id,omitempty"`
@@ -86,17 +124,7 @@ type PresenceState struct {
 	ExpiresAt  time.Time `json:"expires_at"`
 }
 
-type ClipState struct {
-	ID        string    `json:"id"`
-	CameraID  string    `json:"camera_id"`
-	EventID   string    `json:"event_id,omitempty"`
-	Path      string    `json:"path,omitempty"`
-	Start     time.Time `json:"start"`
-	End       time.Time `json:"end"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	ExpiresAt time.Time `json:"expires_at"`
-}
+type ClipState = contract.Clip
 
 type SystemState struct {
 	LastState     string    `json:"last_state"`
@@ -154,6 +182,9 @@ type ExpirationConfig struct {
 // consumed by Core context adapters. It contains no mutable maps or pointers
 // into Store and no action, validation, or event collections.
 type ContextSourceSnapshot struct {
+	// Revision is the monotonic StateStore revision captured with the facts.
+	// It is metadata for read-only consumers and does not grant them authority.
+	Revision uint64
 	Devices  []DeviceState
 	Cameras  []CameraState
 	Presence []PresenceState
@@ -173,6 +204,37 @@ type ContextSystemState struct {
 // gaps while retaining last_seen after expiration.
 const DefaultPresenceTTL = 15 * time.Minute
 
+// PresenceDecayTau is the confidence time constant. It is intentionally
+// independent from track/cluster cleanup TTLs and from the durable presence
+// record retention policy.
+const PresenceDecayTau = 15 * time.Minute
+
+// DecayedPresenceConfidence returns confidence(t) = confidence(0) *
+// exp(-elapsed/tau). Capture confidence remains the source evidence; this is
+// only the time-qualified runtime value.
+func DecayedPresenceConfidence(confidence float64, elapsed time.Duration) float64 {
+	if confidence <= 0 || elapsed <= 0 {
+		if confidence < 0 {
+			return 0
+		}
+		if confidence > 1 {
+			return 1
+		}
+		return confidence
+	}
+	if elapsed == 0 {
+		return confidence
+	}
+	value := confidence * math.Exp(-elapsed.Seconds()/PresenceDecayTau.Seconds())
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
+}
+
 type CleanupResult struct {
 	Deleted map[string][]string `json:"deleted"`
 }
@@ -180,7 +242,7 @@ type CleanupResult struct {
 func DefaultExpirationConfig() ExpirationConfig {
 	return ExpirationConfig{
 		Tracks:     20 * time.Second,
-		Clusters:   15 * time.Second,
+		Clusters:   10 * time.Second,
 		Identities: 45 * time.Second,
 		Presence:   DefaultPresenceTTL,
 		Clips:      5 * time.Minute,

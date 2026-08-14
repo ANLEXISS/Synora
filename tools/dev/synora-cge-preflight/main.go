@@ -264,7 +264,7 @@ func secretLike(value string) bool {
 
 var recognizedEnvironment = func() map[string]bool {
 	values := []string{
-		cge.ShadowEnabledEnv, cge.ShadowDataDirEnv, cge.ShadowJournalPathEnv, cge.ShadowInitializeEnv, cge.ShadowJournalIDEnv,
+		cge.ShadowEnabledEnv, cge.AuthorityModeEnv, cge.ShadowDataDirEnv, cge.ShadowJournalPathEnv, cge.ShadowInitializeEnv, cge.ShadowJournalIDEnv,
 		cge.ShadowCognitiveEnabledEnv, cge.ShadowAutoEvidenceEnv, cge.ShadowMaxReevaluationsEnv,
 		cge.ShadowContextEnabledEnv, cge.ShadowContextTimezoneEnv, cge.ShadowContextAllowPartialEnv,
 		cge.ShadowRoutineLearningEnabledEnv, cge.ShadowRoutineBucketEnv, cge.ShadowRoutineAllowPartialEnv,

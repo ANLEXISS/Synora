@@ -78,8 +78,12 @@ func TestPersistentStoreSavesAndReloadsDurableState(t *testing.T) {
 	if _, ok := second.Validation("validation-1"); !ok {
 		t.Fatal("validation should reload")
 	}
-	if _, ok := second.Clip("clip-1"); !ok {
+	clip, ok := second.Clip("clip-1")
+	if !ok {
 		t.Fatal("clip should reload")
+	}
+	if clip.Path != "/var/lib/synora/clips/clip-1.mp4" {
+		t.Fatalf("clip physical path should reload for reconciliation: %#v", clip)
 	}
 	if results := second.ActionResultsList(); len(results) != 1 || results[0].Data["adapter"] != "fake" {
 		t.Fatalf("action result should reload with data: %#v", results)
@@ -262,6 +266,21 @@ func TestPersistentStoreUnknownVersionReturnsCleanError(t *testing.T) {
 	store := NewStore(WithPersistencePath(path))
 	if _, err := store.LoadPersisted(); err == nil {
 		t.Fatal("expected unknown version error")
+	}
+}
+
+func TestPersistentStoreLegacyStateWithoutClipsRestoresEmptyClipCollection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"events":[]}`), 0640); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(WithPersistencePath(path))
+	summary, err := store.LoadPersisted()
+	if err != nil || summary.Clips != 0 {
+		t.Fatalf("legacy state load summary=%#v err=%v", summary, err)
+	}
+	if clips := store.ClipsList(0); len(clips) != 0 {
+		t.Fatalf("legacy state without clips must restore an empty collection: %#v", clips)
 	}
 }
 

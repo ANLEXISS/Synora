@@ -3,6 +3,8 @@ import numpy as np
 import os
 import logging
 import time
+import threading
+import hashlib
 
 from core.model_runner import create_model_runner, ModelUnavailableError, model_status
 
@@ -73,6 +75,10 @@ class FaceRecognizer:
             log.exception("ARCFACE unavailable model=%s", model_path)
 
         self.embedding_dim = 512
+        self._db_lock = threading.RLock()
+        self.dataset_version = ""
+        self.dataset_revision = 0
+        self.dataset_fingerprint = ""
 
         if self.available:
             log.info(
@@ -82,15 +88,17 @@ class FaceRecognizer:
                 model_path,
             )
 
+        # The active database is an immutable snapshot.  It is deliberately
+        # not populated from the historical display-name directory layout.
+        # The worker installs a manifest-built snapshot at startup/reload.
         self.resident_embeddings = {}
 
         self.debug_runtime_saves = True
 
         self.runtime_save_counter = 0
 
-        self.load_faces(
-            faces_dir
-        )
+        # Legacy filesystem discovery is intentionally disabled.  Dataset
+        # activation is owned by worker.py and always comes from datasets/current.
 
     def capability(self):
         status = dict(self.capability_status or {})
@@ -164,6 +172,73 @@ class FaceRecognizer:
 
         return v / norm
 
+    @staticmethod
+    def validate_embedding(value, expected_dim=512):
+        """Validate the contract shared by embed and FaceDB loading."""
+        if value is None:
+            return None, "embedding_missing"
+        vector = np.asarray(value, dtype=np.float32).flatten()
+        if vector.size != expected_dim:
+            return None, "embedding_dimension_mismatch"
+        if not np.isfinite(vector).all():
+            return None, "embedding_non_finite"
+        norm = float(np.linalg.norm(vector))
+        if not np.isfinite(norm) or norm <= 0.0:
+            return None, "embedding_zero"
+        return vector / norm, ""
+
+    def model_fingerprint(self):
+        try:
+            digest = hashlib.sha256()
+            with open(self.model_path, "rb") as model:
+                for chunk in iter(lambda: model.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            return digest.hexdigest()
+        except OSError:
+            return ""
+
+    def build_face_db(self, entries):
+        """Build a complete immutable resident_id -> photo_id -> embedding map."""
+        database = {}
+        for entry in entries:
+            resident_id = entry["resident_id"]
+            photo_id = entry["photo_id"]
+            vector, failure = self.validate_embedding(entry["embedding"], self.embedding_dim)
+            if failure:
+                raise ValueError(failure)
+            database.setdefault(resident_id, {})[photo_id] = vector
+        return database
+
+    def swap_face_db(self, database, version="", revision=0, fingerprint=""):
+        """Atomically replace the complete database used by recognition."""
+        immutable = {
+            resident: {photo: vector.copy() for photo, vector in photos.items()}
+            for resident, photos in database.items()
+        }
+        with self._db_lock:
+            self.resident_embeddings = {
+                resident: {
+                    "base": np.asarray(list(photos.values()), dtype=np.float32),
+                    "auto": np.empty((0, self.embedding_dim), dtype=np.float32),
+                    "photo_ids": tuple(photos.keys()),
+                    "photos": photos,
+                }
+                for resident, photos in immutable.items()
+            }
+            self.dataset_version = version
+            self.dataset_revision = int(revision or 0)
+            self.dataset_fingerprint = fingerprint or ""
+
+    def active_dataset(self):
+        with self._db_lock:
+            return {
+                "version": self.dataset_version,
+                "revision": self.dataset_revision,
+                "fingerprint": self.dataset_fingerprint,
+                "dimension": self.embedding_dim,
+                "resident_count": len(self.resident_embeddings),
+            }
+
     # ------------------------------------------------
     # UPSCALE SMALL FACES
     # ------------------------------------------------
@@ -203,6 +278,7 @@ class FaceRecognizer:
     ):
 
         if not getattr(self, "available", True) or self.runner is None:
+            self.last_embed_failure = "embedding_backend_unavailable"
             return None
 
         face = cv2.cvtColor(
@@ -241,7 +317,7 @@ class FaceRecognizer:
             log.error(
                 "ARCFACE EMPTY OUTPUT"
             )
-
+            self.last_embed_failure = "embedding_missing"
             return None
 
         emb = np.asarray(
@@ -249,7 +325,11 @@ class FaceRecognizer:
             dtype=np.float32,
         ).flatten()
 
+        self.last_embed_failure = ""
+
         if emb.size != self.embedding_dim:
+
+            self.last_embed_failure = "embedding_dimension_mismatch"
 
             log.error(
                 "INVALID EMBEDDING SIZE=%d",
@@ -258,7 +338,9 @@ class FaceRecognizer:
 
             return None
 
-        if np.isnan(emb).any():
+        if not np.isfinite(emb).all():
+
+            self.last_embed_failure = "embedding_non_finite"
 
             log.error(
                 "EMBEDDING CONTAINS NAN"
@@ -277,7 +359,9 @@ class FaceRecognizer:
         face,
     ):
 
+        self.last_embed_failure = ""
         if not getattr(self, "available", True) or self.runner is None:
+            self.last_embed_failure = "embedding_backend_unavailable"
             return None
 
         if face is None:
@@ -286,6 +370,7 @@ class FaceRecognizer:
                 "EMBED FACE NONE"
             )
 
+            self.last_embed_failure = "embedding_missing"
             return None
 
         if face.size == 0:
@@ -294,6 +379,7 @@ class FaceRecognizer:
                 "EMBED FACE EMPTY"
             )
 
+            self.last_embed_failure = "face_too_small"
             return None
 
         h, w = face.shape[:2]
@@ -306,6 +392,7 @@ class FaceRecognizer:
                 w,
             )
 
+            self.last_embed_failure = "face_too_small"
             return None
 
         # ------------------------------------------------
@@ -362,13 +449,13 @@ class FaceRecognizer:
                 emb1 + emb2
             ) / 2
 
-            emb = self._normalize(
-                emb
-            )
+            emb, failure = self.validate_embedding(emb, self.embedding_dim)
+            if failure:
+                self.last_embed_failure = failure
+                return None
 
             log.info(
-                "ARCFACE EMBEDDING OK norm=%.4f",
-                float(np.linalg.norm(emb)),
+                "ARCFACE EMBEDDING OK",
             )
 
             return emb
@@ -563,17 +650,19 @@ class FaceRecognizer:
                 0.0,
             )
 
-        query = self._normalize(
-            embedding
-        ).astype("float32")
-
         best_identity = None
 
         best_score = 0.0
 
-        for resident, embeddings in (
-            self.resident_embeddings.items()
-        ):
+        with self._db_lock:
+            active_embeddings = dict(self.resident_embeddings)
+
+        query, failure = self.validate_embedding(embedding, self.embedding_dim)
+        if failure:
+            return "unknown", None, 0.0
+        query = query.astype("float32")
+
+        for resident, embeddings in active_embeddings.items():
 
             base_embeddings = (
                 embeddings["base"]

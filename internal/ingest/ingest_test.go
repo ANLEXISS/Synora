@@ -77,3 +77,29 @@ func TestParserProductionGroupKeyKeepsExistingShape(t *testing.T) {
 		t.Fatalf("production group_key changed unexpectedly: %s", event.GroupKey)
 	}
 }
+
+func TestParserPreservesTransportIdentityAndCaptureTimestamp(t *testing.T) {
+	capture := time.Date(2026, 8, 11, 10, 11, 12, 123000000, time.UTC)
+	received := capture.Add(30 * time.Second)
+	body, err := json.Marshal(map[string]any{
+		"device_id": "cam_01", "resident_id": "resident-1", "timestamp": capture.Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := (Parser{Now: func() time.Time { return received }}).Parse(contract.Message{
+		ID: "clip-1:event:0:vision.identity", Type: contract.EventVisionIdentity, Source: "discovery",
+		Timestamp: received, Payload: body,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.ID != "clip-1:event:0:vision.identity" || !event.Timestamp.Equal(capture) {
+		t.Fatalf("transport identity/capture timestamp lost: %#v", event)
+	}
+	// ReceivedAt is deliberately generated at the ingest boundary; it must not
+	// replace the capture timestamp.
+	if !event.ReceivedAt.After(event.Timestamp) {
+		t.Fatalf("received timestamp should be after capture timestamp: %#v", event)
+	}
+}

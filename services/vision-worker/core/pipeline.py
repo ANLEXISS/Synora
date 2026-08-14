@@ -1485,12 +1485,13 @@ class VisionPipeline:
             if not cap.isOpened():
 
                 log.error(
-                    "VIDEO OPEN FAILED -> %s",
-                    clip_path,
+                    "VIDEO OPEN FAILED camera=%s scene=%s",
+                    camera,
+                    scene_id,
                 )
                 self.metrics.error(
                     "decode",
-                    f"video open failed: {clip_path}",
+                    "video open failed",
                 )
                 self.events.clear_context()
 

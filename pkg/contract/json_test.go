@@ -581,6 +581,7 @@ func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
 				"clip-1": map[string]any{
 					"CameraID":  "camera-1",
 					"EventID":   "evt-clip",
+					"Path":      "/var/lib/synora/clips/camera-1/clip-1.mp4",
 					"CreatedAt": "0001-01-01T00:00:00Z",
 				},
 			},
@@ -653,6 +654,9 @@ func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
 	}
 	if snapshot.Clips[0]["event_id"] != "evt-clip" {
 		t.Fatalf("clip event_id should be exposed: %#v", snapshot.Clips[0])
+	}
+	if _, ok := snapshot.Clips[0]["path"]; ok {
+		t.Fatalf("public snapshot must not expose clip spool path: %#v", snapshot.Clips[0])
 	}
 	if snapshot.Validations[0]["decision_id"] != "dec-1" || snapshot.Validations[0]["proposed_identity"] != "alexis" {
 		t.Fatalf("validation should be exposed cleanly: %#v", snapshot.Validations[0])

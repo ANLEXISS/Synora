@@ -9,6 +9,7 @@ import (
 	"synora/internal/engine"
 	"synora/internal/idgen"
 	"synora/internal/state"
+	"synora/internal/topology"
 	"synora/pkg/contract"
 )
 
@@ -25,6 +26,9 @@ func ApplyVisionIdentity(store *state.Store, event *contract.Event) *state.Prese
 		return nil
 	}
 	identity := strings.TrimSpace(event.Identity)
+	if identity == "" {
+		identity = strings.TrimSpace(event.ResidentID)
+	}
 	if identity == "" || strings.EqualFold(identity, "unknown") || strings.EqualFold(identity, "uncertain") || event.Confidence < MinResidentIdentityConfidence {
 		return nil
 	}
@@ -67,13 +71,68 @@ func ApplyVisionIdentity(store *state.Store, event *contract.Event) *state.Prese
 	return presence
 }
 
+// ApplyVisionIdentityForResidents is the production Core boundary. Vision's
+// stable identifier is resident_id; the compatibility Identity field is never
+// promoted to a resident identifier at this production boundary. The 0.6/0.4 hysteresis
+// applies to entering and retaining presence respectively.
+func ApplyVisionIdentityForResidents(store *state.Store, event *contract.Event, residents map[string]*topology.Resident) *state.PresenceState {
+	if store == nil || event == nil || contract.NormalizeEventType(event.Type) != contract.EventVisionIdentity {
+		return nil
+	}
+	residentID := strings.TrimSpace(event.ResidentID)
+	// Legacy in-process callers predate the transport contract and have no
+	// payload boundary. Keep them compatible without allowing a real Vision
+	// message to promote display_name/identity into a stable identifier.
+	if residentID == "" && legacyIdentityPayload(event) {
+		candidate := strings.TrimSpace(event.Identity)
+		if _, exists := residents[candidate]; exists {
+			residentID = candidate
+		}
+	}
+	resident, ok := residents[residentID]
+	if residentID == "" || !ok || resident == nil || event.Confidence < MinResidentIdentityConfidence {
+		return nil
+	}
+	now := event.Timestamp.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	current, currentOK := store.PresenceState(residentID)
+	entering := !currentOK || current == nil || current.State != "present"
+	if entering && event.Confidence < 0.60 {
+		return nil
+	}
+	if !entering && event.Confidence < 0.40 {
+		return nil
+	}
+	copy := *event
+	copy.ResidentID = residentID
+	copy.Identity = residentID
+	return ApplyVisionIdentity(store, &copy)
+}
+
+func legacyIdentityPayload(event *contract.Event) bool {
+	if event == nil || len(event.Payload) == 0 {
+		return true
+	}
+	_, hasResidentID := event.Payload["resident_id"]
+	_, hasTransportID := event.Payload["event_id"]
+	return !hasResidentID && !hasTransportID
+}
+
 func TouchDeviceState(store *state.Store, registry *device.Registry, event *contract.Event) {
 	if store == nil || registry == nil || event == nil || event.DeviceID == "" {
 		return
 	}
 	staticDevice, ok := registry.Get(event.DeviceID)
 	if !ok || staticDevice == nil {
-		return
+		// Vision may carry a camera identifier before the registry reload has
+		// completed. Keep only a bounded operational device/camera fact; no
+		// secret or image data is copied into StateStore.
+		if !contract.IsVisionEvent(event.Type) && event.Type != contract.EventClipReady && event.Type != contract.EventClipProcessing && event.Type != contract.EventClipProcessed && event.Type != contract.EventClipFailed {
+			return
+		}
+		staticDevice = &device.DeviceConfig{ID: event.DeviceID, Type: "camera", NodeID: strings.TrimSpace(event.NodeID)}
 	}
 	payloadNodeID, _ := event.Payload["node_id"].(string)
 	if strings.TrimSpace(payloadNodeID) == "" {
