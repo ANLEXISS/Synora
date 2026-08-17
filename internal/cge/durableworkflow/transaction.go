@@ -48,7 +48,7 @@ func Open(store Store, policy Policy) (*Coordinator, error) {
 	if err != nil {
 		return nil, err
 	}
-	coordinator := &Coordinator{store: store, policy: policy, state: replay.State, transactions: make(map[WorkflowTransactionID]string)}
+	coordinator := &Coordinator{store: store, policy: policy, state: replay.State, transactions: make(map[WorkflowTransactionID]string), recoveryWarnings: append([]string(nil), replay.Report.Warnings...)}
 	for _, record := range recovery.Records {
 		if record.Kind != RecordTransaction {
 			continue
@@ -62,6 +62,15 @@ func Open(store Store, policy Policy) (*Coordinator, error) {
 		}
 	}
 	return coordinator, nil
+}
+
+// RecoveryWarnings returns warnings produced by the same complete load that
+// was validated and replayed during Open. Callers must not reload the store
+// merely to recover these diagnostics.
+func (c *Coordinator) RecoveryWarnings() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]string(nil), c.recoveryWarnings...)
 }
 
 func (c *Coordinator) Snapshot() WorkflowState {

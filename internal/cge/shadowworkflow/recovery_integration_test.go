@@ -67,6 +67,116 @@ func TestQualificationCorruptMiddleWALFailsClosed(t *testing.T) {
 	}
 }
 
+func corruptQualificationWAL(t *testing.T, cfg Config, recordIndex int, mutate func([]byte)) {
+	t.Helper()
+	r := commitFileQualificationEvent(t, cfg, fmt.Sprintf("corrupt-%d", recordIndex))
+	if err := r.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	mutateQualificationWALFile(t, cfg, recordIndex, mutate)
+}
+
+func mutateQualificationWALFile(t *testing.T, cfg Config, recordIndex int, mutate func([]byte)) {
+	t.Helper()
+	path := filepath.Join(cfg.StoreDirectory, "workflow.wal")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(content, []byte("\n"))
+	if recordIndex < 0 || recordIndex >= len(lines) || len(lines[recordIndex]) == 0 {
+		t.Fatalf("wal record index=%d lines=%d", recordIndex, len(lines))
+	}
+	mutate(lines[recordIndex])
+	if err := os.WriteFile(path, bytes.Join(lines, []byte("\n")), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertQualificationRecoveryFailsClosed(t *testing.T, cfg Config) {
+	t.Helper()
+	recovered, openErr := NewRuntime(context.Background(), cfg, fixedClock{now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}, nil, nil, nil)
+	if openErr == nil {
+		t.Fatalf("corrupt WAL opened successfully: status=%+v", recovered.Status())
+	}
+	status := recovered.Status()
+	if status.State != StateRecoveryFailed || status.LastErrorCode != "recovery_failed" || status.WorkflowRevision != 0 {
+		t.Fatalf("corrupt WAL recovery=%+v err=%v", status, openErr)
+	}
+	if recovered.accepting || recovered.cancel != nil {
+		t.Fatalf("failed recovery became operational: accepting=%t cancel=%v", recovered.accepting, recovered.cancel != nil)
+	}
+	select {
+	case <-recovered.done:
+	default:
+		t.Fatal("failed recovery left a worker lifecycle open")
+	}
+	if result := recovered.TrySubmit(testInput(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), "rejected-after-corruption")); result.Status != SubmitStopped {
+		t.Fatalf("submit after corruption=%+v", result)
+	}
+	if err := recovered.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestQualificationCorruptFirstRecordFailsClosed(t *testing.T) {
+	directory := t.TempDir()
+	cfg := fileQualificationConfig(directory)
+	corruptQualificationWAL(t, cfg, 0, func(line []byte) { line[len(line)/2] ^= 0x7f })
+	assertQualificationRecoveryFailsClosed(t, cfg)
+}
+
+func TestQualificationCorruptWALChecksumAndLengthFailClosed(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func([]byte)
+	}{
+		{name: "checksum", mutate: func(line []byte) {
+			marker := []byte(`"Checksum":"`)
+			index := bytes.Index(line, marker)
+			if index < 0 || index+len(marker) >= len(line) {
+				t.Fatalf("checksum field missing from %s", line)
+			}
+			if line[index+len(marker)] == '0' {
+				line[index+len(marker)] = '1'
+			} else {
+				line[index+len(marker)] = '0'
+			}
+		}},
+		{name: "length", mutate: func(line []byte) {
+			marker := []byte(`"PayloadLength":`)
+			index := bytes.Index(line, marker)
+			if index < 0 || index+len(marker) >= len(line) {
+				t.Fatalf("payload length field missing from %s", line)
+			}
+			line[index+len(marker)] = '9'
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			cfg := fileQualificationConfig(directory)
+			corruptQualificationWAL(t, cfg, 1, test.mutate)
+			assertQualificationRecoveryFailsClosed(t, cfg)
+		})
+	}
+}
+
+func TestQualificationCorruptWALRepeatedRestartFailsClosed(t *testing.T) {
+	directory := t.TempDir()
+	cfg := fileQualificationConfig(directory)
+	r := commitFileQualificationEvent(t, cfg, "corrupt-repeated")
+	if err := r.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	mutateQualificationWALFile(t, cfg, 1, func(line []byte) { line[len(line)/2] ^= 0x7f })
+	for attempt := 0; attempt < 5; attempt++ {
+		t.Run(fmt.Sprintf("restart-%d", attempt), func(t *testing.T) {
+			assertQualificationRecoveryFailsClosed(t, cfg)
+		})
+	}
+}
+
 func TestRuntimeFileStoreRecoversWorkflowAndProjectionAfterRestart(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "workflow")
 	cfg := fileQualificationConfig(directory)

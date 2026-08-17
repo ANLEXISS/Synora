@@ -159,13 +159,14 @@ type SyncStore interface {
 }
 
 type Coordinator struct {
-	mu           sync.RWMutex
-	store        Store
-	policy       Policy
-	state        WorkflowState
-	walSequence  uint64
-	closed       bool
-	transactions map[WorkflowTransactionID]string
+	mu               sync.RWMutex
+	store            Store
+	policy           Policy
+	state            WorkflowState
+	walSequence      uint64
+	closed           bool
+	transactions     map[WorkflowTransactionID]string
+	recoveryWarnings []string
 }
 
 type Genesis struct {

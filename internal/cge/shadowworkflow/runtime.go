@@ -23,6 +23,7 @@ type Runtime struct {
 	coordinator                 *durableworkflow.Coordinator
 	store                       durableworkflow.Store
 	queue                       chan ShadowWorkflowInput
+	cycleDone                   chan struct{}
 	cancel                      context.CancelFunc
 	done                        chan struct{}
 	accepting                   bool
@@ -124,7 +125,8 @@ func NewRuntime(ctx context.Context, cfg Config, clock Clock, logger Logger, cap
 		return nil, fmt.Errorf("%w: clock", ErrInvalidConfig)
 	}
 	r.queue = make(chan ShadowWorkflowInput, cfg.QueueCapacity)
-	r.state = StateStarting
+	r.cycleDone = make(chan struct{}, 1)
+	r.state = StateRecovering
 	var qualificationStarted time.Time
 	var recoveryStarted time.Time
 	if cfg.Qualification.Enabled {
@@ -144,21 +146,24 @@ func NewRuntime(ctx context.Context, cfg Config, clock Clock, logger Logger, cap
 	coordinator, err := durableworkflow.Open(store, r.durablePolicy())
 	if err != nil {
 		_ = store.Close()
+		r.mu.Lock()
+		r.accepting = false
 		r.state = StateRecoveryFailed
 		r.lastErrorCode = ErrorCode(fmt.Errorf("%w: %v", ErrRecoveryFailed, err))
+		r.mu.Unlock()
 		close(r.done)
 		return r, fmt.Errorf("%w: %v", ErrRecoveryFailed, err)
 	}
-	r.store, r.coordinator, r.accepting = store, coordinator, true
-	if recovered, loadErr := store.Load(); loadErr == nil {
-		r.lastWarnings = append([]string(nil), recovered.Warnings...)
-	}
+	r.mu.Lock()
+	r.store, r.coordinator = store, coordinator
+	r.lastWarnings = coordinator.RecoveryWarnings()
+	r.mu.Unlock()
 	r.lastCheckpointAt = clock.Now().UTC()
 	if err := r.rebuildCognitiveProjection(coordinator.Snapshot()); err != nil {
+		r.mu.Lock()
 		r.state = StateDegraded
 		r.lastErrorCode = "cognitive_situation_recovery_failed"
-	} else {
-		r.state = StateRunning
+		r.mu.Unlock()
 	}
 	if cfg.CalibrationLedger.Enabled {
 		r.metrics.add("calibration_ledger_enabled")
@@ -222,6 +227,12 @@ func NewRuntime(ctx context.Context, cfg Config, clock Clock, logger Logger, cap
 			r.qualificationStageEnd(qualificationStageRecovery, recoveryStarted, nil)
 		}
 	}
+	r.mu.Lock()
+	if r.state == StateRecovering {
+		r.state = StateRunning
+	}
+	r.accepting = true
+	r.mu.Unlock()
 	workerCtx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	go r.worker(workerCtx)
@@ -266,6 +277,10 @@ func (r *Runtime) TrySubmit(input ShadowWorkflowInput) (result SubmitResult) {
 	if !r.cfg.Enabled || r.state == StateDisabled {
 		r.counters.rejected.Add(1)
 		return SubmitResult{Status: SubmitDisabled, ReasonCode: "disabled"}
+	}
+	if r.state == StateStarting || r.state == StateRecovering || r.state == StateRecoveryFailed {
+		r.counters.rejected.Add(1)
+		return SubmitResult{Status: SubmitStopped, ReasonCode: "stopped"}
 	}
 	if r.state == StateStorageLimitReached {
 		r.counters.rejected.Add(1)
@@ -315,6 +330,10 @@ func (r *Runtime) worker(ctx context.Context) {
 				r.recordFailure(err)
 			} else {
 				r.recordSuccess()
+			}
+			select {
+			case r.cycleDone <- struct{}{}:
+			default:
 			}
 		}
 	}

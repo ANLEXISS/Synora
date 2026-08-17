@@ -291,6 +291,7 @@ func newInjectedRuntime(t *testing.T, cfg Config, clock Clock, store durablework
 	r := &Runtime{cfg: cfg, clock: clock, state: StateStarting, metrics: newMetricCounter(), capabilityProvider: capabilityProvider, authorizationProvider: authorizationProvider, done: make(chan struct{})}
 	r.breaker.state = circuitClosed
 	r.queue = make(chan ShadowWorkflowInput, cfg.QueueCapacity)
+	r.cycleDone = make(chan struct{}, 1)
 	coordinator, err := durableworkflow.Open(store, r.durablePolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -306,13 +307,17 @@ func newInjectedRuntime(t *testing.T, cfg Config, clock Clock, store durablework
 
 func waitForQualification(t *testing.T, runtime *Runtime, condition func(StatusSnapshot) bool) StatusSnapshot {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
 		status := runtime.Status()
 		if condition(status) {
 			return status
 		}
-		time.Sleep(time.Millisecond)
+		select {
+		case <-runtime.cycleDone:
+		case <-timer.C:
+			return runtime.Status()
+		}
 	}
-	return runtime.Status()
 }

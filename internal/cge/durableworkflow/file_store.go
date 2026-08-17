@@ -2,6 +2,7 @@ package durableworkflow
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -101,7 +102,11 @@ func (s *FileStore) Load() (RecoveryInput, error) {
 		if len(line) > 0 {
 			record, decodeErr := DecodeRecord(line, s.policy.MaxRecordBytes)
 			if decodeErr != nil {
-				if readErr == io.EOF && s.policy.AllowTruncatedFinalRecord {
+				// Only a physically incomplete final frame is policy-repairable.
+				// A checksum, length, or framing error must never be treated as a
+				// truncated tail, otherwise a corrupt final record could be silently
+				// discarded and the runtime could recover a misleading prefix.
+				if readErr == io.EOF && errors.Is(decodeErr, ErrTruncatedRecord) && s.policy.AllowTruncatedFinalRecord {
 					input.TruncatedFinalRecord = true
 					input.Warnings = append(input.Warnings, "final_record_truncated")
 					break
