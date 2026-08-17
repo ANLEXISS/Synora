@@ -1494,6 +1494,7 @@ class VisionPipeline:
                     "video open failed",
                 )
                 self.events.clear_context()
+                cap.release()
 
                 return {
                     "events": []
@@ -1528,40 +1529,42 @@ class VisionPipeline:
                     ),
                 )
 
-            while True:
+            try:
+                while True:
 
-                ret, frame = cap.read()
+                    ret, frame = cap.read()
 
-                if (
-                    not ret or
-                    frame is None
-                ):
-                    log.info(
-                        "DECODE END frame_index=%d ret=%s",
-                        frame_index,
-                        ret,
+                    if (
+                        not ret or
+                        frame is None
+                    ):
+                        log.info(
+                            "DECODE END frame_index=%d ret=%s",
+                            frame_index,
+                            ret,
+                        )
+                        break
+
+                    self.metrics.mark_input()
+
+                    if (
+                        frame_index % sample
+                    ) != 0:
+
+                        frame_index += 1
+
+                        continue
+
+                    self.process_person_frame(
+                        frame,
+                        camera=camera,
+                        source_frame_id=frame_index,
                     )
-                    break
-
-                self.metrics.mark_input()
-
-                if (
-                    frame_index % sample
-                ) != 0:
 
                     frame_index += 1
 
-                    continue
-
-                self.process_person_frame(
-                    frame,
-                    camera=camera,
-                    source_frame_id=frame_index,
-                )
-
-                frame_index += 1
-
-            cap.release()
+            finally:
+                cap.release()
 
             events = self.run_recognition(
                 camera,

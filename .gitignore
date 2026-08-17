@@ -5,11 +5,21 @@ __pycache__/
 **/__pycache__/
 *.pyc
 services/vision-worker/venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # Go
 bin/
 main
 coverage.out
+*.prof
+*.pprof
+*.coverprofile
+*.race
+*.trace
 
 # Models
 *.onnx
@@ -38,6 +48,16 @@ Thumbs.db
 # Logs
 *.log
 
+# Runtime state and temporary files
+*.wal
+*.wal.*
+*.pid
+*.sock
+*.tmp
+*.temp
+/runtime/
+/var/
+
 # Environment
 .env
 .env.*
@@ -60,3 +80,7 @@ tools/mediamtx/mediamtx
 
 # Local system-test reports
 artifacts/system-test/
+
+# Local audit exports
+.audit/
+audit-export/

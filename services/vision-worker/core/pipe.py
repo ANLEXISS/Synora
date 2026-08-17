@@ -328,6 +328,7 @@ class VisionPipeline:
 
         if not cap.isOpened():
             log.error("VIDEO OPEN FAILED -> %s",clip_path)
+            cap.release()
             return {"events":[]}
 
         start=time.time()
@@ -337,22 +338,24 @@ class VisionPipeline:
         frame_index=0
         sample=max(1,int(fps/self.TARGET_FPS))
 
-        while True:
+        try:
+            while True:
 
-            ret,frame=cap.read()
+                ret,frame=cap.read()
 
-            if not ret:
-                break
+                if not ret:
+                    break
 
-            if frame_index % sample != 0:
+                if frame_index % sample != 0:
+                    frame_index+=1
+                    continue
+
+                self.process_person_frame(frame)
+
                 frame_index+=1
-                continue
 
-            self.process_person_frame(frame)
-
-            frame_index+=1
-
-        cap.release()
+        finally:
+            cap.release()
 
         events=self.run_recognition(camera,scene_id)
 

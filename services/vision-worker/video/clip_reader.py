@@ -14,18 +14,20 @@ class ClipReader:
         frames = []
         idx = 0
 
-        while True:
+        try:
+            while True:
 
-            ret, frame = cap.read()
+                ret, frame = cap.read()
 
-            if not ret:
-                break
+                if not ret:
+                    break
 
-            if idx % self.sample_rate == 0:
-                frames.append(frame)
+                if idx % self.sample_rate == 0:
+                    frames.append(frame)
 
-            idx += 1
+                idx += 1
 
-        cap.release()
+        finally:
+            cap.release()
 
         return frames
