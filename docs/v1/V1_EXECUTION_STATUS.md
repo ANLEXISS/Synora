@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 08 — Discovery et uploads résilients
+- Jalon : 09 — Résilience du worker Vision
 - Groupe : 06–10
-- État : validé et intégré ; poursuite automatique vers J09
+- État : validé et intégré ; poursuite automatique vers J10
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -154,9 +154,24 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
   `integration/synora-v1-execution` puis `integration/synora-v1`
 - Limites : qualification matérielle non exécutée sur cette machine
 
+## Jalon 09
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j09-vision-resilience`
+- Branche dédiée : `codex/v1-j09-vision-resilience`
+- Commit : `6ef33054c933fbf04a79bbd123338414af4fad37`
+- Validations ciblées : `go test ./internal/discovery/... -count=1`, vet ciblé
+  et race ciblé — PASS
+- Garanties démontrées : arrêt du worker borné même après échec de `Kill`,
+  état non-running après timeout, reprise avec backoff expiré nettoyé, pool
+  normalisé à au moins un worker, validation des jobs, fermeture idempotente,
+  rejet des jobs après fermeture et attente des goroutines
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution` puis `integration/synora-v1`
+- Limites : qualification matérielle non exécutée sur cette machine
+
 ## Prochain jalon
 
-Jalon 09 — Résilience du worker Vision.
+Jalon 10 — Matrice de pannes logicielles.
 
 ## Historique
 
