@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 07 — StateStore et pannes de stockage
+- Jalon : 08 — Discovery et uploads résilients
 - Groupe : 06–10
-- État : validé et intégré ; poursuite automatique vers J08
+- État : validé et intégré ; poursuite automatique vers J09
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -138,9 +138,25 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
   stabilité de la passe Go multi-packages parallèle reste à confirmer au gate
   du groupe 06–10
 
+## Jalon 08
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j08-discovery-uploads`
+- Branche dédiée : `codex/v1-j08-discovery-uploads`
+- Commit : `75ba18b6a8e654ef8f521b08002343ae1465476a`
+- Validations ciblées : `go test ./internal/discovery/... ./internal/clipstore
+  -count=1`, vet ciblé et race ciblé — PASS
+- Garanties démontrées : rejet des payloads vides et interrompus, nettoyage
+  des temporaires, limites de taille, vérification finale taille/checksum,
+  synchronisation du répertoire après rename et suppression des nouveaux
+  fichiers si la publication Core échoue ; idempotence et collisions
+  existantes conservées
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution` puis `integration/synora-v1`
+- Limites : qualification matérielle non exécutée sur cette machine
+
 ## Prochain jalon
 
-Jalon 08 — Discovery et uploads résilients.
+Jalon 09 — Résilience du worker Vision.
 
 ## Historique
 
