@@ -54,7 +54,8 @@ GO_BINS := \
 	synora-discovery:./cmd/synora-discovery \
 	synora-network-config:./cmd/synora-network-config \
 	synora-runtime-manager:./cmd/synora-runtime-manager \
-	synora-connect:./cmd/synora-connect
+	synora-connect:./cmd/synora-connect \
+	synora-ota:./cmd/synora-ota
 
 DEV_TOOL_BINS := \
 	synora-scenario-sim:./tools/dev/legacy-simulators/scenario-sim \
@@ -74,7 +75,9 @@ RUNTIME_SERVICES := \
 
 START_ORDER := mediamtx $(RUNTIME_SERVICES)
 STOP_ORDER := synora-connect synora-discovery synora-api synora-actions synora-core synora-runtime-manager synora-bus mediamtx
-SYSTEMD_UNITS := $(addsuffix .service,$(RUNTIME_SERVICES)) mediamtx.service
+OTA_UNITS := synora-ota-mark-good
+START_ORDER += $(OTA_UNITS)
+SYSTEMD_UNITS := $(addsuffix .service,$(RUNTIME_SERVICES) $(OTA_UNITS)) mediamtx.service
 
 help:
 	@printf '%s\n' \

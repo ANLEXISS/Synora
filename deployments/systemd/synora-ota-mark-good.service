@@ -1,0 +1,15 @@
+[Unit]
+Description=Synora post-boot OTA health gate
+After=synora-bus.service synora-core.service synora-api.service synora-discovery.service synora-actions.service synora-connect.service
+Wants=synora-bus.service synora-core.service synora-api.service synora-discovery.service synora-actions.service synora-connect.service
+ConditionPathExists=/usr/bin/rauc
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/synora/bin/synora-ota mark-good
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
