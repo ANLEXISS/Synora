@@ -2,7 +2,7 @@
 
 ## Jalon courant
 
-- Jalon : 17 — Données sensibles et droits utilisateur
+- Jalon : 18 — Sauvegarde et restauration
 - Groupe : 16–20
 - État : validé sur branche dédiée ; intégration au checkpoint 16–20 en cours
 - Branche : `integration/synora-v1-execution`
@@ -319,6 +319,25 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Limites : la propriété effective des fichiers reste celle de l’installateur
   du service ; la qualification d’un export matériel n’est pas exécutée ici
 
+## Jalon 18
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j18-backup-restore`
+- Branche dédiée : `codex/v1-j18-backup-restore`
+- Commit : `174e5ca`
+- Validations ciblées : `go test ./internal/backup ./internal/state
+  ./cmd/synora-backup -count=1` et vet ciblé — PASS
+- Garanties démontrées : snapshot cohérent par staging et rename, manifeste
+  checksumé, restauration incidents/clips/présence/métadonnées, rejet d’un
+  snapshot altéré, faible espace disque, interruption avant commit et
+  expiration reprenable via répertoire `.delete`
+- CLI : `cmd/synora-backup` pour `create`, `restore` et `expire`
+- Documentation : `docs/v1/V1_BACKUP_POLICY.md`
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`; intégration finale dans
+  `integration/synora-v1` après ce compte rendu
+- Limites : aucun coffre Synora+ ni service cloud n’est requis ou appelé ; la
+  sauvegarde couvre l’état persistant et les fichiers explicitement listés
+
 ## Gate groupe 11–15
 
 - `git diff --check` — PASS
@@ -367,7 +386,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 18 — Backup et restauration.
+Jalon 19 — OTA de la centrale.
 
 ## Historique
 
