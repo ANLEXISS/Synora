@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 11 — Threat model et identité des appareils
+- Jalon : 12 — Pairing et authentification caméra
 - Groupe : 11–15
-- État : validé et intégré ; poursuite automatique vers J12
+- État : validé et intégré ; poursuite automatique vers J13
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -205,6 +205,23 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Limites : l’action physique de bootstrap et le pairing caméra seront
   implémentés et qualifiés au J12 ; aucune attestation matérielle
 
+## Jalon 12
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j12-camera-pairing`
+- Branche dédiée : `codex/v1-j12-camera-pairing`
+- Commit : `8eeb8a2d8ff60187799a4707fc2d7d06b9c4f878`
+- Validations ciblées : `go test ./internal/security
+  ./internal/discovery/network ./cmd/synora-api -count=1`, vet ciblé et race
+  ciblé — PASS
+- Garanties démontrées : fenêtre de pairing active et bornée, clé publique
+  caméra obligatoire en production, preuve Ed25519 horodatée, MAC observée,
+  claim à usage unique, rejet replay/ancienne preuve, enregistrement de
+  l’identité au moment de la confirmation et redaction des secrets conservée
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution` puis `integration/synora-v1`
+- Limites : la chaîne de confiance matérielle du bouton physique et la
+  qualification radio restent à démontrer au niveau hardware
+
 ## Gate groupe 06–10
 
 - `git diff --check` — PASS
@@ -233,7 +250,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 12 — Pairing et authentification caméra.
+Jalon 13 — Sécurité API et webapp.
 
 ## Historique
 
