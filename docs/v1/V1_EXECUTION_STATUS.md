@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 20 — OTA caméra et récupération
-- Groupe : 16–20
-- État : validé sur branche dédiée ; intégration au checkpoint 16–20 en cours
+- Jalon : 21 — qualification hardware et harness reproductible
+- Groupe : 21–25
+- État : validé sur branche dédiée ; intégration dans le groupe 21–25 en cours
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -393,6 +393,24 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Qualification fonctionnelle matérielle — non exécutée ici ; les scénarios
   backup, OTA centrale et OTA caméra simulés sont verts
 
+## Jalon 21
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j21-hardware-harness`
+- Branche dédiée : `codex/v1-j21-hardware-harness`
+- Commit : `7c13313`
+- Validations ciblées : `python3 -B -m unittest
+  tools.tests.test_v1_hardware_qualification -v`, `python3 -B
+  tools/v1_hardware_qualification.py doctor` et `git diff --check` — PASS
+- Livrables : référence BOM versionnée sans inférence, protocole reproductible,
+  collecte thermique/charge/stockage/réseau/écritures SSD, soak déterministe,
+  journal de test de coupure assistée et rapport borné
+- Garantie : chaque observation est marquée `fixture` ou `host_observation`;
+  aucune mesure locale ne devient une qualification physique
+- Blocage externe explicite : unité cible, BOM complète et résultats de coupure
+  réelle non disponibles; statut conservé à
+  `blocked_no_target_confirmation`, sans seuil matériel inventé
+- État : branche poussée, fast-forward dans `integration/synora-v1-execution`
+
 ## Checkpoint groupe 16–20
 
 - Tag annoté à créer et pousser : `v1-checkpoint-20`
@@ -447,7 +465,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 21 — prochain groupe V1 à définir après validation du checkpoint 20.
+Jalon 22 — qualification caméra et réseau.
 
 ## Historique
 
