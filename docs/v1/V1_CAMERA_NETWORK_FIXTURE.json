@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "source": "synthetic_fixture_not_physical_evidence",
+  "cameras": [
+    {
+      "id": "cam_01",
+      "day": {"frames": 120, "usable_frames": 120},
+      "night": {"frames": 120, "usable_frames": 120},
+      "ir_cut": {"transitions": 4, "successful_transitions": 4},
+      "upload": {"sent": 120, "delivered": 120, "latency_ms": [18, 21, 19, 20]},
+      "synoranet": {"reconnect_attempts": 2, "reconnect_successes": 2}
+    },
+    {
+      "id": "cam_02",
+      "day": {"frames": 120, "usable_frames": 120},
+      "night": {"frames": 120, "usable_frames": 120},
+      "ir_cut": {"transitions": 4, "successful_transitions": 4},
+      "upload": {"sent": 120, "delivered": 120, "latency_ms": [22, 23, 20, 21]},
+      "synoranet": {"reconnect_attempts": 2, "reconnect_successes": 2}
+    },
+    {
+      "id": "cam_03",
+      "day": {"frames": 120, "usable_frames": 120},
+      "night": {"frames": 120, "usable_frames": 120},
+      "ir_cut": {"transitions": 4, "successful_transitions": 4},
+      "upload": {"sent": 120, "delivered": 120, "latency_ms": [25, 24, 26, 23]},
+      "synoranet": {"reconnect_attempts": 2, "reconnect_successes": 2}
+    }
+  ],
+  "sensors": {
+    "pir": {"status": "not_attached"},
+    "doppler": {"status": "not_attached"}
+  },
+  "audio": {"camera_microphone": {"status": "disabled_for_camera_v1"}},
+  "detections": {
+    "fall": {"status": "disabled_pending_qualification"},
+    "weapon": {"status": "disabled_pending_qualification"},
+    "tamper": {"status": "disabled_pending_qualification"}
+  }
+}
