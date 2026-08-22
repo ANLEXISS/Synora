@@ -83,3 +83,19 @@ func TestFacePhotoPersistsAndRestores(t *testing.T) {
 		t.Fatal("face photo accessor did not make defensive copy")
 	}
 }
+
+func TestMissingFacePhotoAdvancesDatasetRevision(t *testing.T) {
+	store := NewStore()
+	photo := testFacePhoto("photo-missing", "sha-missing")
+	if _, _, err := store.RegisterFacePhoto(&photo); err != nil {
+		t.Fatal(err)
+	}
+	before := store.FaceDatasetState().DesiredRevision
+	if _, changed, err := store.TransitionFacePhoto(photo.ID, contract.FacePhotoMissing, "source_missing"); err != nil || !changed {
+		t.Fatalf("missing transition changed=%t err=%v", changed, err)
+	}
+	after := store.FaceDatasetState()
+	if after.DesiredRevision != before+1 || after.Status == contract.FaceDatasetActive {
+		t.Fatalf("missing photo did not invalidate desired dataset: before=%d after=%#v", before, after)
+	}
+}

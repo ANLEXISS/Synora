@@ -184,7 +184,7 @@ func (s *Store) TransitionFacePhoto(id string, target contract.FacePhotoStatus, 
 	if s.FaceDataset == nil {
 		s.FaceDataset = &contract.FaceDatasetState{SchemaVersion: 1, Status: contract.FaceDatasetIdle}
 	}
-	if target == contract.FacePhotoRemovalPending || target == contract.FacePhotoStored || target == contract.FacePhotoRejected {
+	if target == contract.FacePhotoRemovalPending || target == contract.FacePhotoStored || target == contract.FacePhotoRejected || target == contract.FacePhotoMissing {
 		s.FaceDataset.DesiredRevision++
 	}
 	s.revision.Add(1)

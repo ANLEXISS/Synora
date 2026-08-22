@@ -136,7 +136,7 @@ func (b *Builder) build(ctx context.Context, staging, version string, now time.T
 	})
 	manifest := Manifest{SchemaVersion: ManifestSchemaVersion, Version: version, DesiredRevision: desiredRevision, BuiltAt: now, Entries: []Entry{}}
 	for _, photo := range items {
-		if photo.Status == string(contract.FacePhotoRemoved) || photo.Status == string(contract.FacePhotoRejected) || photo.Status == string(contract.FacePhotoRemovalPending) {
+		if photo.Status == string(contract.FacePhotoRemoved) || photo.Status == string(contract.FacePhotoRejected) || photo.Status == string(contract.FacePhotoRemovalPending) || photo.Status == string(contract.FacePhotoMissing) {
 			continue
 		}
 		if strings.TrimSpace(photo.ResidentID) == "" || strings.TrimSpace(photo.ID) == "" {

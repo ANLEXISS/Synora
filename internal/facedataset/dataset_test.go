@@ -83,14 +83,41 @@ func TestFailedBuildOrReloadDoesNotPublishCurrent(t *testing.T) {
 	}
 }
 
+func TestMissingPhotoIsExcludedFromDatasetManifest(t *testing.T) {
+	store := facestore.New(t.TempDir(), facestore.Limits{})
+	received, err := store.Receive("resident-1", bytes.NewReader(bytesForDataset(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	received.Photo.Status = string(contract.FacePhotoMissing)
+	builder := NewBuilder(store)
+	manifest, err := builder.BuildAndActivate(context.Background(), []contract.FacePhoto{received.Photo}, 1, testEmbedder{}, &testLoader{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Entries) != 0 {
+		t.Fatalf("missing source was included in manifest: %#v", manifest.Entries)
+	}
+}
+
 func TestCorruptCurrentManifestIsRejected(t *testing.T) {
 	store := facestore.New(t.TempDir(), facestore.Limits{})
-	if err := store.Init(); err != nil { t.Fatal(err) }
+	if err := store.Init(); err != nil {
+		t.Fatal(err)
+	}
 	versionDir := filepath.Join(store.Root, "datasets", "versions", "v-bad")
-	if err := os.MkdirAll(versionDir, 0o750); err != nil { t.Fatal(err) }
-	if err := os.WriteFile(filepath.Join(versionDir, "manifest.json"), []byte(`{"schema_version":1,"version":"v-bad","checksum":"spoof"}`), 0o640); err != nil { t.Fatal(err) }
-	if err := os.WriteFile(filepath.Join(store.Root, "datasets", "current"), []byte("v-bad\n"), 0o640); err != nil { t.Fatal(err) }
-	if _, err := ReadCurrent(store.Root); err == nil { t.Fatal("corrupt current manifest accepted") }
+	if err := os.MkdirAll(versionDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "manifest.json"), []byte(`{"schema_version":1,"version":"v-bad","checksum":"spoof"}`), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Root, "datasets", "current"), []byte("v-bad\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadCurrent(store.Root); err == nil {
+		t.Fatal("corrupt current manifest accepted")
+	}
 }
 
 func bytesForDataset(t *testing.T) []byte {

@@ -183,6 +183,7 @@ func (s *Server) faceDatasetMarkMissing(msg contract.Message) (any, error) {
 		}
 		if value, ok := s.state.FacePhoto(id); ok {
 			updated = append(updated, *value)
+			s.notifyMutation("resident.face_photo.updated", value.ID)
 		}
 	}
 	return updated, nil
