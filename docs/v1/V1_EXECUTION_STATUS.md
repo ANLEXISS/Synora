@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 05 — Replay, ordre et intégration outbox
-- Groupe : 01–05
-- État : validé ; gate groupe prête pour checkpoint
+- Jalon : 06 — États de récupération Core
+- Groupe : 06–10
+- État : validé et intégré ; poursuite automatique vers J07
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -101,10 +101,25 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Checkpoint : tag annoté `v1-checkpoint-05` créé et poussé sur `origin`, pointant
   sur le commit terminal `f3db7b9bb149b208e168e77ba6057c61bc7e148c`
 
+## Jalon 06
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j06-core-recovery`
+- Branche dédiée : `codex/v1-j06-core-recovery`
+- Commit : `47c1c9837d86daf8131a9ec601883aed98b59e92`
+- Validations ciblées : `go test ./internal/recovery ./internal/state
+  ./internal/rpc ./cmd/synora-core -count=1`, vet ciblé et race ciblé — PASS
+- Garanties démontrées : états `starting/recovering/running/degraded/failed`,
+  transition atomique, readiness refusée avant récupération complète,
+  dépendances requises et optionnelles, révocation de readiness sur panne
+  requise, persistance de l’état de récupération et exposition dans la santé
+  RPC
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution` puis `integration/synora-v1`
+- Limites : qualification matérielle non exécutée sur cette machine
+
 ## Prochain jalon
 
-Jalon 06 — États de récupération Core, uniquement après confirmation explicite
-du groupe 01–05.
+Jalon 07 — StateStore et pannes de stockage.
 
 ## Historique
 
