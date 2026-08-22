@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 10 — Matrice de pannes logicielles
-- Groupe : 06–10
-- État : validé ; gate groupe verte, checkpoint prêt
+- Jalon : 11 — Threat model et identité des appareils
+- Groupe : 11–15
+- État : validé et intégré ; poursuite automatique vers J12
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -187,6 +187,24 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
   électrique, qualification matérielle Rock 5/Zero 3W, panne radio ou test
   WireGuard réel n’est démontré ici
 
+## Jalon 11
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j11-threat-model`
+- Branche dédiée : `codex/v1-j11-threat-model`
+- Commit : `28670be80aeb99c0ce670ec41f1fc96986fba7c0`
+- Validations ciblées : `go test ./internal/security -count=1`, `go vet
+  ./internal/security` et `go test -race ./internal/security -count=1` — PASS
+- Garanties démontrées : registre public durable d’identités centrale/caméra,
+  clés privées absentes du registre, permissions `0600`, refus des symlinks et
+  formats corrompus, générations explicites, rotation, révocation,
+  remplacement et vérification Ed25519 limitée à l’identité active
+- Documentation : `docs/v1/V1_THREAT_MODEL.md` inventorie actifs, frontières,
+  attaquants, bootstrap, contrôles et résidus de risque
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution` puis `integration/synora-v1`
+- Limites : l’action physique de bootstrap et le pairing caméra seront
+  implémentés et qualifiés au J12 ; aucune attestation matérielle
+
 ## Gate groupe 06–10
 
 - `git diff --check` — PASS
@@ -215,8 +233,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 11 — Threat model et identité des appareils, après confirmation
-explicite du groupe 06–10.
+Jalon 12 — Pairing et authentification caméra.
 
 ## Historique
 
