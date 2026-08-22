@@ -2,7 +2,7 @@
 
 ## Jalon courant
 
-- Jalon : 18 — Sauvegarde et restauration
+- Jalon : 19 — OTA de la centrale
 - Groupe : 16–20
 - État : validé sur branche dédiée ; intégration au checkpoint 16–20 en cours
 - Branche : `integration/synora-v1-execution`
@@ -338,6 +338,26 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Limites : aucun coffre Synora+ ni service cloud n’est requis ou appelé ; la
   sauvegarde couvre l’état persistant et les fichiers explicitement listés
 
+## Jalon 19
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j19-central-ota`
+- Branche dédiée : `codex/v1-j19-central-ota`
+- Commit : `bff4890`
+- Validations ciblées : `go test ./internal/ota ./cmd/synora-ota
+  ./internal/migrations -count=1` et vet ciblé — PASS
+- Garanties démontrées : manifeste Ed25519, checksum streaming, compatibilité
+  matériel/Core, journal de transaction atomique, bascule RAUC, healthcheck
+  readonly avant `mark-good`, `mark-bad` automatique et récupération après
+  interruption de processus
+- Migration : les plans versionnés existants sont inclus dans la procédure et
+  restent séparés du chemin décisionnel de Core
+- Documentation : `docs/v1/V1_OTA_CENTRAL_POLICY.md`
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`; intégration finale dans
+  `integration/synora-v1` après ce compte rendu
+- Limites : la signature matérielle RAUC et le redémarrage réel ne sont pas
+  exécutés sur cette machine ; ils restent sous l’autorité de la plateforme
+
 ## Gate groupe 11–15
 
 - `git diff --check` — PASS
@@ -386,7 +406,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 19 — OTA de la centrale.
+Jalon 20 — OTA caméra et récupération.
 
 ## Historique
 
