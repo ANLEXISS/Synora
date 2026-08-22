@@ -15,6 +15,7 @@ type ClipRetentionConfig struct {
 	MaxCount           int
 	MaxBytes           int64
 	AcknowledgedMinAge time.Duration
+	MinFreeBytes       int64
 }
 
 func DefaultClipRetentionConfig() ClipRetentionConfig {
@@ -23,6 +24,7 @@ func DefaultClipRetentionConfig() ClipRetentionConfig {
 		MaxCount:           500,
 		MaxBytes:           5 << 30,
 		AcknowledgedMinAge: 7 * 24 * time.Hour,
+		MinFreeBytes:       512 << 20,
 	}
 }
 
@@ -37,7 +39,7 @@ func (s *Store) PurgeClips(now time.Time, cfg ClipRetentionConfig) ([]string, er
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	if cfg.MaxAge <= 0 || cfg.MaxCount <= 0 || cfg.MaxBytes <= 0 || cfg.AcknowledgedMinAge <= 0 {
+	if cfg.MaxAge <= 0 || cfg.MaxCount <= 0 || cfg.MaxBytes <= 0 || cfg.AcknowledgedMinAge <= 0 || cfg.MinFreeBytes <= 0 {
 		defaults := DefaultClipRetentionConfig()
 		if cfg.MaxAge <= 0 {
 			cfg.MaxAge = defaults.MaxAge
@@ -50,6 +52,9 @@ func (s *Store) PurgeClips(now time.Time, cfg ClipRetentionConfig) ([]string, er
 		}
 		if cfg.AcknowledgedMinAge <= 0 {
 			cfg.AcknowledgedMinAge = defaults.AcknowledgedMinAge
+		}
+		if cfg.MinFreeBytes <= 0 {
+			cfg.MinFreeBytes = defaults.MinFreeBytes
 		}
 	}
 	var removed []string

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"synora/internal/clipstore"
+	"synora/internal/retention"
 	"synora/internal/state"
 	"synora/pkg/contract"
 )
@@ -150,8 +151,27 @@ func (a *coreApp) reconcileClips() {
 	}
 }
 
+func (a *coreApp) applyRetention(now time.Time) {
+	if a == nil || a.state == nil {
+		return
+	}
+	policy := retention.DefaultPolicy()
+	if removed := a.state.PurgeIncidents(now, policy.Incidents.MaxAge); len(removed) > 0 {
+		log.Printf("core: incidents expired count=%d", len(removed))
+	}
+	if removed := a.state.PurgeRecentEvents(now, policy.Events.MaxAge); removed > 0 {
+		log.Printf("core: events expired count=%d", removed)
+	}
+	if a.eventStore != nil {
+		if removed := a.eventStore.Prune(now, policy.Events.MaxAge); removed > 0 {
+			log.Printf("core: in-memory events expired count=%d", removed)
+		}
+	}
+}
+
 func clipRetentionConfig() state.ClipRetentionConfig {
 	config := state.DefaultClipRetentionConfig()
+	config.MinFreeBytes = retention.DefaultPolicy().MinFreeBytes
 	if value := os.Getenv("SYNORA_CLIP_MAX_COUNT"); value != "" {
 		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
 			config.MaxCount = parsed
@@ -170,6 +190,11 @@ func clipRetentionConfig() state.ClipRetentionConfig {
 	if value := os.Getenv("SYNORA_CLIP_ACK_MIN_AGE"); value != "" {
 		if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {
 			config.AcknowledgedMinAge = parsed
+		}
+	}
+	if value := os.Getenv("SYNORA_MIN_FREE_BYTES"); value != "" {
+		if parsed, err := strconv.ParseInt(value, 10, 64); err == nil && parsed > 0 {
+			config.MinFreeBytes = parsed
 		}
 	}
 	return config

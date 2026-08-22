@@ -21,6 +21,7 @@ import (
 	"synora/internal/clipstore"
 	"synora/internal/discovery/vision"
 	"synora/internal/idgen"
+	"synora/internal/retention"
 	"synora/pkg/contract"
 )
 
@@ -50,6 +51,7 @@ type Config struct {
 	MaxClipSize  int64
 	MaxClipCount int
 	MaxClipBytes int64
+	MinFreeBytes int64
 	TempMaxAge   time.Duration
 
 	Authenticator Authenticator
@@ -77,6 +79,9 @@ func NewHandler(cfg Config) http.Handler {
 	}
 	if cfg.MaxClipBytes <= 0 {
 		cfg.MaxClipBytes = 5 << 30
+	}
+	if cfg.MinFreeBytes <= 0 {
+		cfg.MinFreeBytes = retention.DefaultPolicy().MinFreeBytes
 	}
 	_ = ReconcileStorage(cfg.ClipDir, cfg.TempMaxAge)
 	var uploadMu sync.Mutex
@@ -199,7 +204,7 @@ func NewHandler(cfg Config) http.Handler {
 			}
 			_ = os.Remove(partPath)
 		} else if errors.Is(statErr, os.ErrNotExist) {
-			available, err := storageCapacityAvailable(cfg.ClipDir, cfg.MaxClipCount, cfg.MaxClipBytes, size)
+			available, err := storageCapacityAvailable(cfg.ClipDir, cfg.MaxClipCount, cfg.MaxClipBytes, size, cfg.MinFreeBytes)
 			if err != nil {
 				_ = os.Remove(partPath)
 				http.Error(w, "clip storage unavailable", http.StatusInsufficientStorage)
@@ -360,8 +365,8 @@ func syncDirectory(path string) error {
 	return directory.Sync()
 }
 
-func storageCapacityAvailable(root string, maxCount int, maxBytes, incomingBytes int64) (bool, error) {
-	if maxCount <= 0 || maxBytes <= 0 || incomingBytes < 0 {
+func storageCapacityAvailable(root string, maxCount int, maxBytes, incomingBytes, minFreeBytes int64) (bool, error) {
+	if maxCount <= 0 || maxBytes <= 0 || incomingBytes < 0 || minFreeBytes <= 0 {
 		return false, errors.New("invalid clip storage quota")
 	}
 	count := 0
@@ -375,6 +380,9 @@ func storageCapacityAvailable(root string, maxCount int, maxBytes, incomingBytes
 	}
 	if !info.IsDir() {
 		return false, errors.New("clip storage root is not a directory")
+	}
+	if reserve, reserveErr := retention.HasReserve(root, incomingBytes, minFreeBytes); reserveErr != nil || !reserve {
+		return false, reserveErr
 	}
 	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {

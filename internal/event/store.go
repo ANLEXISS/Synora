@@ -2,6 +2,7 @@ package event
 
 import (
 	"sync"
+	"time"
 
 	"synora/pkg/contract"
 )
@@ -79,6 +80,31 @@ func (s *Store) List() []*contract.Event {
 	copy(out[n:], s.events[:s.index])
 
 	return out
+}
+
+// Prune removes events older than maxAge in a deterministic pass. Event store
+// ownership remains in Core; this method only bounds the in-memory projection.
+func (s *Store) Prune(now time.Time, maxAge time.Duration) int {
+	if s == nil || maxAge <= 0 {
+		return 0
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	current := s.List()
+	kept := make([]*contract.Event, 0, len(current))
+	removed := 0
+	for _, event := range current {
+		if event != nil && !event.Timestamp.IsZero() && now.Sub(event.Timestamp.UTC()) >= maxAge {
+			removed++
+			continue
+		}
+		kept = append(kept, event)
+	}
+	if removed > 0 {
+		s.Load(kept)
+	}
+	return removed
 }
 
 func cloneMap(source map[string]any) map[string]any {

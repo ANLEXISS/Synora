@@ -348,6 +348,7 @@ func main() {
 		}
 	}
 	app.reconcileClips()
+	app.applyRetention(time.Now().UTC())
 	chainManager.AttachState(stateStore)
 	// Reconcile persisted runtime presence before publishing the first
 	// snapshot. Expiration is evaluated against wall-clock time after a
@@ -1371,6 +1372,7 @@ func (a *coreApp) cleanupLoop() {
 	cfg := state.DefaultExpirationConfig()
 	for range ticker.C {
 		a.reconcileClips()
+		a.applyRetention(time.Now().UTC())
 		result := a.state.Cleanup(time.Now().UTC(), cfg)
 		if len(result.Deleted) == 0 {
 			continue
