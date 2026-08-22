@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "product": "Synora V1",
+  "claim_policy": "No certification is claimed without external evidence.",
+  "items": [
+    {"framework": "CE", "status": "external_evidence_required", "evidence_to_collect": ["technical file", "risk assessment", "EU declaration when applicable", "notified-body evidence if applicable"]},
+    {"framework": "RED", "status": "external_evidence_required", "evidence_to_collect": ["radio module and antenna data", "radio test reports", "essential requirements assessment"]},
+    {"framework": "RoHS", "status": "external_evidence_required", "evidence_to_collect": ["supplier declarations", "materials evidence", "restricted-substance assessment"]},
+    {"framework": "WEEE", "status": "external_evidence_required", "evidence_to_collect": ["producer registration assessment", "marking and take-back instructions"]}
+  ],
+  "not_evidence": ["repository tests", "synthetic fixtures", "source manifest", "this matrix"]
+}
