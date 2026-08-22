@@ -465,6 +465,24 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
   `external_evidence_required`
 - État : branche poussée, intégrée dans `integration/synora-v1-execution`
 
+## Jalon 25
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j25-rc-audit`
+- Branche dédiée : `codex/v1-j25-rc-audit`
+- Commit : `fa2e052`
+- Validations ciblées : audit RC Python et relecture JSON, plus les harnesses
+  J21–J24 — PASS
+- Livrables : changelog V1, audit final, inventaire P0/P1, décision de RC,
+  rappel des limites Vision FP/FN, restauration/OTA/rollback et sécurité
+- État local : `software_rc_audited_external_gates_open`; aucun P0 ouvert dans
+  l’audit du dépôt
+- Décision honnête : une candidate locale peut être taguée, mais `v1-rc1`
+  reste bloqué jusqu’aux preuves externes obligatoires
+- Gates externes ouvertes : unité/BOM et mesures physiques, WireGuard/netlink
+  et client distant, calibration Vision réelle et preuves CE/RED/RoHS/WEEE
+- État : branche poussée, intégrée dans `integration/synora-v1-execution`;
+  gate global final restant à exécuter
+
 ## Checkpoint groupe 16–20
 
 - Tag annoté à créer et pousser : `v1-checkpoint-20`
@@ -519,7 +537,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 25 — release candidate et audit final.
+Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentaire.
 
 ## Historique
 
