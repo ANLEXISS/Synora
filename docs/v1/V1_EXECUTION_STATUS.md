@@ -2,7 +2,7 @@
 
 ## Jalon courant
 
-- Jalon : 19 — OTA de la centrale
+- Jalon : 20 — OTA caméra et récupération
 - Groupe : 16–20
 - État : validé sur branche dédiée ; intégration au checkpoint 16–20 en cours
 - Branche : `integration/synora-v1-execution`
@@ -358,6 +358,25 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Limites : la signature matérielle RAUC et le redémarrage réel ne sont pas
   exécutés sur cette machine ; ils restent sous l’autorité de la plateforme
 
+## Jalon 20
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j20-camera-recovery`
+- Branche dédiée : `codex/v1-j20-camera-recovery`
+- Commit : `49b5f8e`
+- Validations ciblées : `go test ./internal/cameraota
+  ./cmd/synora-camera-ota -count=1`, vet ciblé et race ciblé — PASS
+- Garanties démontrées : manifeste signé/checksumé Zero 3W, compatibilité
+  bootloader, mise en attente offline, journal de phases install/reboot/
+  validation, rollback automatique, reprise après interruption et image de
+  récupération écrite atomiquement
+- Outils opérateur : `synora-camera-ota doctor|version|explain`
+- Documentation : `docs/v1/V1_CAMERA_OTA_POLICY.md`
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`; gate groupe 16–20 à exécuter avant
+  intégration finale dans `integration/synora-v1`
+- Limites : le transport radio et le redémarrage physique Zero 3W restent
+  simulés localement
+
 ## Gate groupe 11–15
 
 - `git diff --check` — PASS
@@ -406,7 +425,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 20 — OTA caméra et récupération.
+Jalon 21 — prochain groupe V1 à définir après validation du checkpoint 20.
 
 ## Historique
 
