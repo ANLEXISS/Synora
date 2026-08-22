@@ -2,7 +2,7 @@
 
 ## Jalon courant
 
-- Jalon : 23 — parcours utilisateur complet
+- Jalon : 24 — release engineering et industrialisation
 - Groupe : 21–25
 - État : validé sur branche dédiée ; intégration dans le groupe 21–25 en cours
 - Branche : `integration/synora-v1-execution`
@@ -429,6 +429,25 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
   réelle de caméra, radio, capteur ou audio n’est revendiquée
 - État : branche poussée, intégrée dans `integration/synora-v1-execution`
 
+## Jalon 23
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j23-user-flow`
+- Branche dédiée : `codex/v1-j23-user-flow`
+- Commits : `51099b8` (santé/version web) et `4fa6530` (qualification du
+  parcours)
+- Validations ciblées : tests du manifeste, `npm run build`, `npm run lint`,
+  `npm audit --omit=dev --audit-level=high` et `git diff --check` — PASS
+- Couverture : onboarding/pairing, résidents/photos, incidents/clips,
+  acquittement/résolution, live à la demande, santé/stockage/version/erreurs,
+  responsive et parcours local d’un nouvel utilisateur
+- Correctif release : `GET /api/system/version` est maintenant consommé dans
+  Settings; le lockfile web est passé à `react-router`/`react-router-dom`
+  `7.18.2`; audit production : zéro vulnérabilité
+- Limites explicites : le contrôle est statique et le test navigateur réel
+  reste à exécuter; accès distant `blocked_external_adapter` tant que
+  WireGuard/netlink et le client distant ne sont pas disponibles
+- État : branche poussée, intégrée dans `integration/synora-v1-execution`
+
 ## Checkpoint groupe 16–20
 
 - Tag annoté à créer et pousser : `v1-checkpoint-20`
@@ -483,7 +502,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 23 — parcours utilisateur complet.
+Jalon 24 — release engineering et industrialisation.
 
 ## Historique
 
