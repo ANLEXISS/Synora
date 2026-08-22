@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 15 — Fuzzing, permissions, audit, support et gate groupe 11–15
-- Groupe : 11–15
-- État : validé ; groupe 11–15 vert, en attente d’intégration et de checkpoint
+- Jalon : 16 — Politiques de rétention
+- Groupe : 16–20
+- État : validé et intégré ; poursuite automatique vers J17
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -278,6 +278,28 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Limites : aucun service externe d’audit dépendances n’est configuré dans
   l’environnement ; l’audit est donc limité au graphe Go et aux outils locaux
 
+## Jalon 16
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j16-retention`
+- Branche dédiée : `codex/v1-j16-retention`
+- Commits : `ef68ef3` (politique/store/réserve) et `7b0d823`
+  (expiration outbox), `65923d9` (documentation)
+- Validations ciblées après intégration : `go test ./internal/retention
+  ./internal/state ./internal/event ./internal/outbox ./internal/dispatcher
+  ./internal/discovery/ingress ./cmd/synora-core -count=1`, vet ciblé et race
+  ciblé — PASS
+- Garanties démontrées : inventaire et limites clips/incidents/événements/logs/
+  outbox/temporaires, sélection stable UTC, réserve disque minimale de 512 MiB,
+  protection des incidents actifs et événements référencés, détachement
+  référentiel clip/incident, TTL des événements et purge terminale outbox sans
+  suppression des livraisons pending/retry/in-flight
+- Documentation : `docs/v1/V1_RETENTION_POLICY.md`
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`; intégration finale dans
+  `integration/synora-v1` après ce compte rendu
+- Limites : les logs externes restent sous la responsabilité du journal système
+  de l’image déployée ; aucun fichier de log global n’est possédé par Synora
+
 ## Gate groupe 11–15
 
 - `git diff --check` — PASS
@@ -326,7 +348,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 16 — Qualification fonctionnelle et Release Candidate.
+Jalon 17 — Données sensibles et droits utilisateur.
 
 ## Historique
 
