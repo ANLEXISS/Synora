@@ -220,6 +220,9 @@ class VisionWorker:
         node_id = req.get(
             "node_id"
         )
+        activation_id = req.get("activation_id")
+        sequence_key = req.get("sequence_key")
+        clip_index = req.get("clip_index")
 
         device_id = (
             req.get("device_id") or
@@ -257,6 +260,9 @@ class VisionWorker:
                         clip_id=clip_id,
                         node_id=node_id,
                         device_id=device_id,
+                        activation_id=activation_id,
+                        sequence_key=sequence_key,
+                        clip_index=clip_index,
                         event_kind=req.get("debug_event", "unknown"),
                     )
                 ]
@@ -268,6 +274,9 @@ class VisionWorker:
                 clip_id=clip_id,
                 node_id=node_id,
                 device_id=device_id,
+                activation_id=activation_id,
+                sequence_key=sequence_key,
+                clip_index=clip_index,
             )
 
         log.info(
@@ -515,6 +524,9 @@ def build_dry_run_event(
     clip_id=None,
     node_id=None,
     device_id=None,
+    activation_id=None,
+    sequence_key=None,
+    clip_index=None,
     event_kind="unknown",
 ):
 
@@ -533,6 +545,9 @@ def build_dry_run_event(
         "node_id": node_id,
         "clip_id": clip_id,
         "clip_path": clip_path,
+        "activation_id": activation_id,
+        "sequence_key": sequence_key,
+        "clip_index": clip_index,
     })
 
     scene_id = (

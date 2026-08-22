@@ -177,6 +177,26 @@ class EventContractTests(unittest.TestCase):
         self.assertEqual(event["track_id"], "dry-run-track")
         self.assertEqual(event["payload"]["track_id"], "dry-run-track")
 
+    def test_dry_run_preserves_clip_correlation_metadata(self):
+        event = build_dry_run_event(
+            clip_path="/tmp/clip_02.mp4",
+            camera_id="cam_02",
+            clip_id="clip_02",
+            node_id="node_02",
+            device_id="device_02",
+            activation_id="activation_02",
+            sequence_key="sequence_02",
+            clip_index=3,
+            event_kind="unknown",
+        )
+
+        self.assertEqual(event["activation_id"], "activation_02")
+        self.assertEqual(event["sequence_key"], "sequence_02")
+        self.assertEqual(event["clip_index"], 3)
+        self.assertEqual(event["payload"]["activation_id"], "activation_02")
+        self.assertEqual(event["payload"]["sequence_key"], "sequence_02")
+        self.assertEqual(event["payload"]["clip_index"], 3)
+
     def test_pipeline_run_recognition_identity_with_mock_runner_path(self):
         pipeline = make_pipeline("match", "alexis", 0.95, faces=True)
 

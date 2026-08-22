@@ -1395,6 +1395,9 @@ class VisionPipeline:
         clip_id=None,
         node_id=None,
         device_id=None,
+        activation_id=None,
+        sequence_key=None,
+        clip_index=None,
     ):
 
         scene_id = (
@@ -1408,6 +1411,9 @@ class VisionPipeline:
             node_id=node_id,
             clip_id=clip_id,
             clip_path=clip_path,
+            activation_id=activation_id,
+            sequence_key=sequence_key,
+            clip_index=clip_index,
         )
 
         analysis_levels = [

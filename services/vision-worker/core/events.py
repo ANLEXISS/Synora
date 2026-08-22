@@ -59,6 +59,9 @@ class EventBuilder:
             "node_id",
             "clip_id",
             "clip_path",
+            "activation_id",
+            "sequence_key",
+            "clip_index",
         ):
             value = self.context.get(key)
             if value is not None and value != "":
@@ -86,6 +89,10 @@ class EventBuilder:
 
         if self.context.get("clip_id"):
             event["clip_id"] = self.context["clip_id"]
+
+        for key in ("activation_id", "sequence_key", "clip_index"):
+            if self.context.get(key) is not None and self.context.get(key) != "":
+                event[key] = self.context[key]
 
         if track_id is not None:
             event["track_id"] = str(track_id)

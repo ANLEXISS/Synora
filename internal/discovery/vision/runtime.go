@@ -32,7 +32,12 @@ type Runtime struct {
 }
 
 type Request struct {
-	ID string `json:"id"`
+	ID           string `json:"id"`
+	ActivationID string `json:"activation_id,omitempty"`
+	ClipIndex    int    `json:"clip_index,omitempty"`
+	NodeID       string `json:"node_id,omitempty"`
+	SequenceKey  string `json:"sequence_key,omitempty"`
+	TrackID      string `json:"track_id,omitempty"`
 
 	ClipPath string `json:"clip_path"`
 
@@ -328,7 +333,12 @@ func (v *Runtime) processLocked(
 	defer func() { _ = conn.SetDeadline(time.Time{}) }()
 
 	req := Request{
-		ID: job.ID,
+		ID:           job.ID,
+		ActivationID: job.ActivationID,
+		ClipIndex:    job.ClipIndex,
+		NodeID:       job.NodeID,
+		SequenceKey:  job.SequenceKey,
+		TrackID:      job.TrackID,
 
 		ClipPath: job.Path,
 
