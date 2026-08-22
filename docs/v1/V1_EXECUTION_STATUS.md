@@ -2,7 +2,7 @@
 
 ## Jalon courant
 
-- Jalon : 02 — Contrat de livraison durable
+- Jalon : 03 — Outbox persistante
 - Groupe : 01–05
 - État : validé et intégré dans la branche d’exécution
 - Branche : `integration/synora-v1-execution`
@@ -40,10 +40,23 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - État : branche dédiée poussée, fast-forward dans
   `integration/synora-v1-execution`
 
+## Jalon 03
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j03-persistent-outbox`
+- Branche dédiée : `codex/v1-j03-persistent-outbox`
+- Commit : `56ac7cb19d088431759b328fb01de501f08389c5`
+- Validations : `go test ./internal/outbox -count=1`, `go vet
+  ./internal/outbox` et `go test -race ./internal/outbox -count=1` — PASS
+- Garanties démontrées : écriture temporaire synchronisée puis rename,
+  restauration pending/retry, copies bornées, rollback mémoire sur échec
+  d’écriture et refus fail-closed d’un fichier corrompu
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`
+
 ## Prochain jalon
 
-Jalon 03 — Outbox persistante, uniquement après commit, validation et push du
-jalon 02.
+Jalon 04 — Dispatcher, ACK et reconnexion, uniquement après commit, validation
+et push du jalon 03.
 
 ## Historique
 
