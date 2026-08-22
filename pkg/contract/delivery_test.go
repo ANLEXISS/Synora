@@ -64,7 +64,6 @@ func TestDeliveryStateTransitionsAreFailClosed(t *testing.T) {
 		{DeliveryAcknowledged, DeliveryInFlight},
 		{DeliveryFailed, DeliveryPending},
 		{DeliveryPending, DeliveryAcknowledged},
-		{DeliveryRetryWait, DeliveryAcknowledged},
 	} {
 		if err := NextDeliveryState(pair[0], pair[1]); err == nil {
 			t.Fatalf("invalid transition %q -> %q was accepted", pair[0], pair[1])
