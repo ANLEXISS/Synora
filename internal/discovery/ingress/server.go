@@ -165,6 +165,15 @@ func NewHandler(cfg Config) http.Handler {
 			http.Error(w, "clip write failed", status)
 			return
 		}
+		if size <= 0 || size > cfg.MaxClipSize {
+			_ = os.Remove(partPath)
+			status := http.StatusBadRequest
+			if size > cfg.MaxClipSize {
+				status = http.StatusRequestEntityTooLarge
+			}
+			http.Error(w, "empty or oversized clip", status)
+			return
+		}
 		checksum := hex.EncodeToString(hash.Sum(nil))
 		if cfg.Authenticator != nil {
 			if err := cfg.Authenticator.VerifyCameraRequest(r, checksum); err != nil {
@@ -175,6 +184,7 @@ func NewHandler(cfg Config) http.Handler {
 			}
 		}
 
+		finalizedHere := false
 		if info, statErr := os.Lstat(finalPath); statErr == nil {
 			if info.Mode()&os.ModeSymlink != 0 {
 				_ = os.Remove(partPath)
@@ -205,12 +215,28 @@ func NewHandler(cfg Config) http.Handler {
 				http.Error(w, "clip finalization failed", http.StatusInsufficientStorage)
 				return
 			}
+			finalizedHere = true
+			if err := syncDirectory(filepath.Dir(finalPath)); err != nil {
+				_ = os.Remove(finalPath)
+				http.Error(w, "clip finalization durability failed", http.StatusInsufficientStorage)
+				return
+			}
 		} else {
 			_ = os.Remove(partPath)
 			http.Error(w, "clip path unavailable", http.StatusInsufficientStorage)
 			return
 		}
+		if valid, verifyErr := clipstore.VerifyRegularFile(finalPath, size, checksum); verifyErr != nil || !valid {
+			if finalizedHere {
+				_ = os.Remove(finalPath)
+			}
+			http.Error(w, "clip finalization verification failed", http.StatusInsufficientStorage)
+			return
+		}
 		if cfg.Publisher == nil {
+			if finalizedHere {
+				_ = os.Remove(finalPath)
+			}
 			http.Error(w, "core unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -228,6 +254,9 @@ func NewHandler(cfg Config) http.Handler {
 			cfg.Devices.TouchCameraClip(deviceID, now)
 		}
 		if err := publishLifecycle(cfg.Publisher, contract.EventClipReady, clip, "", clipID+":ready"); err != nil {
+			if finalizedHere {
+				_ = os.Remove(finalPath)
+			}
 			log.Printf("clip ready publication failed clip=%s err=%v", clipID, err)
 			http.Error(w, "core unavailable", http.StatusServiceUnavailable)
 			return
@@ -320,6 +349,15 @@ func fileDigest(path string) (int64, string, error) {
 		return 0, "", err
 	}
 	return size, hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func syncDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
 
 func storageCapacityAvailable(root string, maxCount int, maxBytes, incomingBytes int64) (bool, error) {

@@ -3,6 +3,7 @@ package ingress
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -193,6 +194,88 @@ func TestClipIngressRejectsDangerousSymlinkAndCleansOldParts(t *testing.T) {
 		t.Fatalf("symlink status=%d body=%s", response.Code, response.Body.String())
 	}
 }
+
+func TestClipIngressRejectsEmptyPayload(t *testing.T) {
+	root := t.TempDir()
+	handler := NewHandler(Config{ClipDir: root, Queue: &clipTestQueue{}, Publisher: &clipTestPublisher{root: root}})
+	recorder, contentType := multipartRequest(t, "cam-1", "empty", nil)
+	recorder.Header.Set("X-Synora-Device", "cam-1")
+	recorder.Header.Set("X-Synora-Clip-ID", "empty")
+	recorder.Header.Set("Content-Type", contentType)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, recorder)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("empty payload status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "cam-1", ".empty.part")); !os.IsNotExist(err) {
+		t.Fatalf("empty payload left temporary file: %v", err)
+	}
+}
+
+func TestClipIngressCleansPartialUpload(t *testing.T) {
+	root := t.TempDir()
+	handler := NewHandler(Config{ClipDir: root, Queue: &clipTestQueue{}, Publisher: &clipTestPublisher{root: root}})
+	recorder, contentType := multipartRequest(t, "cam-1", "partial", []byte("partial-data"))
+	body, err := io.ReadAll(recorder.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = recorder.Body.Close()
+	recorder.Body = io.NopCloser(&failingReader{data: body[:len(body)/2], err: errors.New("client disconnected")})
+	recorder.Header.Set("X-Synora-Device", "cam-1")
+	recorder.Header.Set("X-Synora-Clip-ID", "partial")
+	recorder.Header.Set("Content-Type", contentType)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, recorder)
+	if response.Code != http.StatusBadRequest && response.Code != http.StatusInternalServerError {
+		t.Fatalf("partial upload status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "cam-1", ".partial.part")); !os.IsNotExist(err) {
+		t.Fatalf("partial upload left temporary file: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "cam-1", "partial.mp4")); !os.IsNotExist(err) {
+		t.Fatalf("partial upload left final file: %v", err)
+	}
+}
+
+func TestClipIngressRemovesNewFinalWhenCorePublicationFails(t *testing.T) {
+	root := t.TempDir()
+	handler := NewHandler(Config{
+		ClipDir:   root,
+		Queue:     &clipTestQueue{},
+		Publisher: failingPublisher{err: errors.New("core unavailable")},
+	})
+	recorder, contentType := multipartRequest(t, "cam-1", "publish-failure", []byte("clip"))
+	recorder.Header.Set("X-Synora-Device", "cam-1")
+	recorder.Header.Set("X-Synora-Clip-ID", "publish-failure")
+	recorder.Header.Set("Content-Type", contentType)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, recorder)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("publication failure status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "cam-1", "publish-failure.mp4")); !os.IsNotExist(err) {
+		t.Fatalf("failed publication left final file: %v", err)
+	}
+}
+
+type failingReader struct {
+	data []byte
+	err  error
+}
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	if len(r.data) == 0 {
+		return 0, r.err
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	return n, nil
+}
+
+type failingPublisher struct{ err error }
+
+func (p failingPublisher) Send(contract.Message) error { return p.err }
 
 func multipartRequest(t *testing.T, cameraID, clipID string, data []byte) (*http.Request, string) {
 	t.Helper()
