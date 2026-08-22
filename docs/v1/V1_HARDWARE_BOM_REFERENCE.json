@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "name": "synora-v1-hardware-reference",
+  "status": "frozen_reference_external_confirmation_required",
+  "do_not_infer": true,
+  "known_references": [
+    {
+      "id": "central.target_board",
+      "value": "rock-5-itx",
+      "source": "cmd/synora-api/main_test.go"
+    },
+    {
+      "id": "camera.family",
+      "value": "synora-zero-3w",
+      "source": "docs/v1/V1_CAMERA_OTA_POLICY.md"
+    },
+    {
+      "id": "camera.parallel_count",
+      "value": 3,
+      "source": "V1 plan J22"
+    }
+  ],
+  "required_external_fields": [
+    "central.serial",
+    "central.hardware_revision",
+    "central.power_supply_model",
+    "central.storage_model_and_endurance",
+    "camera.serials",
+    "camera.sensor_and_ir_cut_revision",
+    "camera.power_and_network_path",
+    "pir.model_and_revision",
+    "doppler.model_and_revision"
+  ],
+  "physical_qualification": "blocked_until_target_unit_and_bom_are_attached"
+}
