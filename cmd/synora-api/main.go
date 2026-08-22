@@ -652,7 +652,7 @@ func buildServerHandlerWithAuth(
 	// Keep this wrapper outside the router, auth middleware, CORS and logging
 	// layers so every API response receives the same anti-cache policy,
 	// regardless of route declaration order or router implementation.
-	return securityHeadersMiddleware(withAPINoStore(loggingMiddleware(corsMiddleware(cfg, mux))))
+	return securityHeadersMiddleware(withAPINoStore(loggingMiddleware(corsMiddleware(cfg, apiRateLimitMiddleware(newAPIRequestRateLimiter(), mux)))))
 }
 
 func securityHeadersMiddleware(next http.Handler) http.Handler {
