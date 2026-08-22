@@ -2,7 +2,7 @@
 
 ## Jalon courant
 
-- Jalon : 21 — qualification hardware et harness reproductible
+- Jalon : 23 — parcours utilisateur complet
 - Groupe : 21–25
 - État : validé sur branche dédiée ; intégration dans le groupe 21–25 en cours
 - Branche : `integration/synora-v1-execution`
@@ -397,7 +397,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-j21-hardware-harness`
 - Branche dédiée : `codex/v1-j21-hardware-harness`
-- Commit : `7c13313`
+- Commits : `7c13313`, correctif `bf801d7`
 - Validations ciblées : `python3 -B -m unittest
   tools.tests.test_v1_hardware_qualification -v`, `python3 -B
   tools/v1_hardware_qualification.py doctor` et `git diff --check` — PASS
@@ -410,6 +410,24 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
   réelle non disponibles; statut conservé à
   `blocked_no_target_confirmation`, sans seuil matériel inventé
 - État : branche poussée, fast-forward dans `integration/synora-v1-execution`
+
+## Jalon 22
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j22-camera-network`
+- Branche dédiée : `codex/v1-j22-camera-network`
+- Commit : `4d24232`
+- Validations ciblées : `python3 -B -m unittest
+  tools.tests.test_v1_camera_network_qualification -v`, génération et relecture
+  JSON du rapport, et `git diff --check` — PASS
+- Couverture : trois caméras (`cam_01`, `cam_02`, `cam_03`), jour/nuit, IR-cut,
+  envoi/pertes/latences, reconnexion SynoraNet et écritures atomiques privées
+- Décisions explicites : PIR et Doppler non attachés; microphone caméra
+  désactivé pour V1; chute, arme et tamper désactivés en attente de
+  qualification; aucun signal générique n’est promu en capacité produit
+- Limites : le fixture est synthétique et le rapport reste
+  `fixture_observed_physical_qualification_blocked`; aucune qualification
+  réelle de caméra, radio, capteur ou audio n’est revendiquée
+- État : branche poussée, intégrée dans `integration/synora-v1-execution`
 
 ## Checkpoint groupe 16–20
 
@@ -465,7 +483,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 22 — qualification caméra et réseau.
+Jalon 23 — parcours utilisateur complet.
 
 ## Historique
 
