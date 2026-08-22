@@ -377,6 +377,28 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Limites : le transport radio et le redémarrage physique Zero 3W restent
   simulés localement
 
+## Gate groupe 16–20
+
+- `git diff --check` — PASS
+- `go list ./...` — échec reproductible du VCS Go de l’environnement
+  (répertoire parent `.git` vide/non-repository) ; `GOFLAGS=-buildvcs=false
+  go list ./...` — PASS, 119 packages
+- `go test ./... -count=1` — PASS
+- `go test ./... -shuffle=on -count=3` — PASS
+- `go vet ./...` — PASS
+- `timeout 300s go test -race ./... -count=1` — PASS, exit 0
+- `python3 -B -m unittest discover -s services/vision-worker/tests -v` —
+  PASS (21 tests)
+- Worktree d’exécution — propre avant le commit terminal du checkpoint
+- Qualification fonctionnelle matérielle — non exécutée ici ; les scénarios
+  backup, OTA centrale et OTA caméra simulés sont verts
+
+## Checkpoint groupe 16–20
+
+- Tag annoté à créer et pousser : `v1-checkpoint-20`
+- Le tag pointera sur le commit terminal de ce statut, avant fast-forward dans
+  `integration/synora-v1`
+
 ## Gate groupe 11–15
 
 - `git diff --check` — PASS
