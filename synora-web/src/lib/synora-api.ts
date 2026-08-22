@@ -141,6 +141,10 @@ export function getSystemHealth(signal?: AbortSignal) {
   return synoraFetch<Record<string, unknown>>("/api/system/health", { signal });
 }
 
+export function getSystemVersion(signal?: AbortSignal) {
+  return synoraFetch<Record<string, unknown>>("/api/system/version", { signal });
+}
+
 export function getStreams(signal?: AbortSignal) {
   return synoraFetch<unknown>("/api/streams", { signal }).then((value) => normalizeArray<unknown>(value).filter(isRecord) as SynoraStreamDescriptor[]);
 }
