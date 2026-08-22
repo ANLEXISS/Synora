@@ -134,6 +134,110 @@ button {
   padding: 32px 34px;
 }
 
+.v1-onboarding {
+  display: grid;
+  gap: 18px;
+  margin: 0 0 24px;
+  padding: 20px;
+  border: 1px solid rgba(103, 232, 249, 0.28);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(15, 55, 73, 0.74), rgba(15, 23, 42, 0.84));
+}
+
+.v1-onboarding-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--cyan);
+}
+
+.v1-onboarding-header h2,
+.v1-onboarding-header p {
+  margin: 0;
+}
+
+.v1-onboarding-header h2 {
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 1.1rem;
+}
+
+.v1-onboarding-header p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.v1-onboarding-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.v1-onboarding-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  color: var(--muted);
+  background: rgba(2, 6, 23, 0.34);
+  text-align: left;
+}
+
+.v1-onboarding-step.is-done {
+  color: var(--green);
+}
+
+.v1-onboarding-step.is-next {
+  border-color: rgba(103, 232, 249, 0.54);
+  color: var(--cyan);
+}
+
+.v1-onboarding-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  flex: 1;
+}
+
+.v1-onboarding-copy strong {
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.v1-onboarding-copy small {
+  color: inherit;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.v1-onboarding-number {
+  display: grid;
+  place-items: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 0.7rem;
+}
+
+@media (max-width: 1100px) {
+  .v1-onboarding-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .v1-onboarding-steps {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* =========================================================
    SIDEBAR — DESKTOP
    ========================================================= */

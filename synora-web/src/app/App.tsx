@@ -12,6 +12,7 @@ import { Settings } from "../pages/Settings";
 import { useAuth } from "../hooks/useAuth";
 import { Shield } from "lucide-react";
 import { ErrorBoundary } from "../components/ErrorBoundary";
+import { V1Onboarding } from "../components/V1Onboarding";
 
 export type PageId =
   | "dashboard"
@@ -79,6 +80,7 @@ export default function App() {
 	const auth = useAuth();
 	const [page, setPage] = useState<PageId | "not-found">(pageFromPath);
 	const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+	const meta = useMemo(() => page === "not-found" ? pageMeta.dashboard : pageMeta[page], [page]);
 
 	function navigateTo(nextPage: PageId) {
 		setPage(nextPage);
@@ -102,8 +104,6 @@ export default function App() {
 	}, []);
 
 	if (page === "not-found") return <NotFound onDashboard={() => navigateTo("dashboard")} />;
-
-	const meta = useMemo(() => pageMeta[page], [page]);
 
 	if (auth.loading) {
 		return <div className="auth-shell">Vérification de la session…</div>;
@@ -136,6 +136,8 @@ export default function App() {
 			user={auth.user}
 			onLogout={() => void auth.logout()}
 		/>
+
+        <V1Onboarding navigate={navigateTo} />
 
         {!auth.can(pagePermissions[page]) ? (
           <AccessDenied />
