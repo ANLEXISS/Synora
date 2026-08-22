@@ -4,7 +4,7 @@
 
 - Jalon : 01 — Baseline d’exécution
 - Groupe : 01–05
-- État : validé localement, prêt à pousser
+- État : validé et poussé
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -12,7 +12,7 @@
 
 ## Jalon 01
 
-- Commits : `v1: establish execution plan and status` (à créer)
+- Commit : `0146783f57ab8f26f3a7d99558efd3462ade0d57`
 - Validations :
   - `go test ./... -count=1` — PASS
   - `go vet ./...` — PASS
@@ -25,7 +25,8 @@
 - Blocages : aucun
 
 La baseline consolidée est donc qualifiée verte pour le jalon 01. Aucun code
-produit n’a été modifié pendant cette qualification.
+produit n’a été modifié pendant cette qualification. Le commit est poussé sur
+`origin/integration/synora-v1-execution`.
 
 ## Prochain jalon
 
