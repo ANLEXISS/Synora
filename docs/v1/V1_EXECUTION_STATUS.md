@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 01 — Baseline d’exécution
+- Jalon : 02 — Contrat de livraison durable
 - Groupe : 01–05
-- État : validé et poussé
+- État : validé et intégré dans la branche d’exécution
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -28,10 +28,22 @@ La baseline consolidée est donc qualifiée verte pour le jalon 01. Aucun code
 produit n’a été modifié pendant cette qualification. Le commit est poussé sur
 `origin/integration/synora-v1-execution`.
 
+## Jalon 02
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j02-delivery-contract`
+- Branche dédiée : `codex/v1-j02-delivery-contract`
+- Commit : `fbee49cdafc7382d2978d4554fc81016a9e4ca60`
+- Validations : `go test ./pkg/contract -count=1`, `go vet ./pkg/contract`
+  et `go test -race ./pkg/contract -count=1` — PASS
+- Périmètre : contrat de livraison uniquement ; aucun contrat public existant
+  supprimé ou rendu incompatible
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`
+
 ## Prochain jalon
 
-Jalon 02 — Contrat de livraison durable, uniquement après commit, validation et
-push du jalon 01.
+Jalon 03 — Outbox persistante, uniquement après commit, validation et push du
+jalon 02.
 
 ## Historique
 
