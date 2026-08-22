@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 16 — Politiques de rétention
+- Jalon : 17 — Données sensibles et droits utilisateur
 - Groupe : 16–20
-- État : validé et intégré ; poursuite automatique vers J17
+- État : validé sur branche dédiée ; intégration au checkpoint 16–20 en cours
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -300,6 +300,25 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Limites : les logs externes restent sous la responsabilité du journal système
   de l’image déployée ; aucun fichier de log global n’est possédé par Synora
 
+## Jalon 17
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j17-sensitive-rights`
+- Branche dédiée : `codex/v1-j17-sensitive-rights`
+- Commit : `1a0b3e2`
+- Validations ciblées : `go test` ciblé, `go vet` ciblé et `go test -race` ciblé
+  — PASS
+- Garanties démontrées : suppression physique sûre des sources et photos legacy
+  d’un résident, refus des symlinks, export administrateur limité aux métadonnées,
+  durcissement des répertoires biométriques, purge immédiate des anciennes
+  versions de dataset après retrait, et nettoyage des artefacts biométriques/
+  secrets/chemins dans les bundles de support
+- Documentation : `docs/v1/V1_PRIVACY_LOCAL_FIRST.md`
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`; intégration finale dans
+  `integration/synora-v1` après ce compte rendu
+- Limites : la propriété effective des fichiers reste celle de l’installateur
+  du service ; la qualification d’un export matériel n’est pas exécutée ici
+
 ## Gate groupe 11–15
 
 - `git diff --check` — PASS
@@ -348,7 +367,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 17 — Données sensibles et droits utilisateur.
+Jalon 18 — Backup et restauration.
 
 ## Historique
 
