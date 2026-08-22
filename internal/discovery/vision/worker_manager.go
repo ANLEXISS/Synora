@@ -26,7 +26,10 @@ const (
 	WorkerStatusCrashed  = "crashed"
 )
 
-var ErrWorkerBackoff = errors.New("worker in crash backoff")
+var (
+	ErrWorkerBackoff     = errors.New("worker in crash backoff")
+	ErrWorkerStopTimeout = errors.New("worker stop timed out")
+)
 
 type ManagedProcess interface {
 	PID() int
@@ -277,6 +280,7 @@ func (m *WorkerManager) Start(
 			until.Format(time.RFC3339Nano),
 		)
 	}
+	m.backoffUntil = time.Time{}
 
 	m.status = WorkerStatusStarting
 	m.lastStart = now
@@ -360,14 +364,20 @@ func (m *WorkerManager) Stop(
 		_ = process.Kill()
 	}
 
+	timer := time.NewTimer(m.stopTimeout)
+	defer timer.Stop()
 	select {
 	case <-done:
-	case <-time.After(m.stopTimeout):
+		return nil
+	case <-timer.C:
 		_ = process.Kill()
-		<-done
+		m.mu.Lock()
+		if m.process == process {
+			m.status = WorkerStatusCrashed
+		}
+		m.mu.Unlock()
+		return ErrWorkerStopTimeout
 	}
-
-	return nil
 }
 
 func (m *WorkerManager) Restart(
@@ -460,6 +470,7 @@ func (m *WorkerManager) monitor(
 	} else {
 		m.status = WorkerStatusStopped
 		m.nextBackoff = m.baseBackoff
+		m.backoffUntil = time.Time{}
 	}
 
 	status := m.status
