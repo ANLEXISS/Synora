@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -21,9 +22,23 @@ func main() {
 	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
 	rauc := fs.String("rauc", envOr("SYNORA_RAUC_BIN", "rauc"), "RAUC executable")
 	healthcheck := fs.String("healthcheck", envOr("SYNORA_BOOT_HEALTHCHECK", "/opt/synora/bin/synora-boot-healthcheck"), "post-boot healthcheck executable")
+	manifest := fs.String("manifest", envOr("SYNORA_OTA_MANIFEST", ""), "detached signed OTA manifest")
+	publicKeyPath := fs.String("public-key", envOr("SYNORA_OTA_PUBLIC_KEY", ""), "Ed25519 public key file")
+	currentVersion := fs.String("current-version", envOr("SYNORA_CORE_VERSION", "0.0.0"), "currently running Core version")
+	hardware := fs.String("hardware", envOr("SYNORA_HARDWARE", "rock-5b"), "hardware compatibility identifier")
+	journal := fs.String("journal", envOr("SYNORA_OTA_JOURNAL", "/var/lib/synora/ota/update.json"), "OTA transaction journal")
 	timeout := fs.Duration("timeout", 10*time.Minute, "operation timeout")
 	_ = fs.Parse(os.Args[2:])
 	controller := ota.NewController(commandRunner, *rauc, *healthcheck)
+	controller.SetJournalPath(*journal)
+	if *manifest != "" || *publicKeyPath != "" {
+		key, keyErr := os.ReadFile(*publicKeyPath)
+		if keyErr != nil || len(key) != ed25519.PublicKeySize {
+			fmt.Fprintln(os.Stderr, "synora-ota: invalid public key")
+			os.Exit(1)
+		}
+		controller.SetVerification(ota.Verification{ManifestPath: *manifest, PublicKey: ed25519.PublicKey(key), CurrentVersion: *currentVersion, Hardware: *hardware})
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
@@ -41,6 +56,18 @@ func main() {
 			os.Exit(2)
 		}
 		err = controller.Install(ctx, fs.Arg(0))
+	case "apply":
+		if fs.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "usage: synora-ota apply [flags] BUNDLE")
+			os.Exit(2)
+		}
+		if *manifest == "" || *publicKeyPath == "" {
+			err = fmt.Errorf("apply requires --manifest and --public-key")
+		} else {
+			err = controller.Apply(ctx, fs.Arg(0))
+		}
+	case "recover":
+		err = controller.Recover(ctx)
 	case "mark-good":
 		err = controller.MarkGood(ctx)
 	case "mark-bad":
@@ -56,7 +83,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: synora-ota {status|install|mark-good|mark-bad} [flags]")
+	fmt.Fprintln(os.Stderr, "usage: synora-ota {status|install|apply|recover|mark-good|mark-bad} [flags]")
 }
 
 func commandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
