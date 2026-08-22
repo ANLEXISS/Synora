@@ -447,17 +447,22 @@ func corsMiddleware(cfg *security.Config, next http.Handler) http.Handler {
 		r *http.Request,
 	) {
 
-		origin := r.Header.Get("Origin")
-		if cfg != nil && cfg.AllowsOrigin(origin) {
-			if origin == "" {
-				origin = "*"
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin != "" {
+			if cfg == nil || !cfg.AllowsOrigin(origin) {
+				if r.Method == http.MethodOptions {
+					writeJSON(w, http.StatusForbidden, map[string]string{"error": "origin_not_allowed"})
+					return
+				}
+			} else if explicitOriginAllowed(cfg, origin) {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Add("Vary", "Origin")
+			} else {
+				// A wildcard origin is deliberately public and can never be
+				// combined with credentialed browser requests.
+				w.Header().Set("Access-Control-Allow-Origin", "*")
 			}
-			w.Header().Set(
-				"Access-Control-Allow-Origin",
-				origin,
-			)
-			w.Header().Add("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 
 		w.Header().Set(
@@ -581,7 +586,7 @@ func sameOriginRequest(r *http.Request, cfg *security.Config) bool {
 	if origin == "" || strings.EqualFold(origin, "null") {
 		return false
 	}
-	if cfg != nil && cfg.AllowsOrigin(origin) {
+	if explicitOriginAllowed(cfg, origin) {
 		return true
 	}
 	scheme := "http"
@@ -589,6 +594,22 @@ func sameOriginRequest(r *http.Request, cfg *security.Config) bool {
 		scheme = "https"
 	}
 	return strings.EqualFold(origin, scheme+"://"+r.Host)
+}
+
+func explicitOriginAllowed(cfg *security.Config, origin string) bool {
+	if cfg == nil {
+		return false
+	}
+	origin = strings.TrimSpace(origin)
+	if origin == "" {
+		return false
+	}
+	for _, allowed := range cfg.AllowedOrigins {
+		if strings.TrimSpace(allowed) == origin {
+			return true
+		}
+	}
+	return false
 }
 
 func buildServerHandler(
@@ -631,7 +652,18 @@ func buildServerHandlerWithAuth(
 	// Keep this wrapper outside the router, auth middleware, CORS and logging
 	// layers so every API response receives the same anti-cache policy,
 	// regardless of route declaration order or router implementation.
-	return withAPINoStore(loggingMiddleware(corsMiddleware(cfg, mux)))
+	return securityHeadersMiddleware(withAPINoStore(loggingMiddleware(corsMiddleware(cfg, mux))))
+}
+
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; connect-src 'self' ws: wss:")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func requiredAPIPermission(r *http.Request) string {

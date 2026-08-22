@@ -13,9 +13,9 @@ import (
 // WebHealth describes the state of the static web build served by synora-api.
 type WebHealth struct {
 	Enabled       bool   `json:"enabled"`
-	Root          string `json:"root"`
+	Root          string `json:"-"`
 	IndexPresent  bool   `json:"index_present"`
-	IndexPath     string `json:"index_path"`
+	IndexPath     string `json:"-"`
 	AssetsPresent bool   `json:"assets_present"`
 	AssetsCount   int    `json:"assets_count"`
 	LastModified  string `json:"last_modified,omitempty"`

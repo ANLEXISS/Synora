@@ -556,3 +556,34 @@ func TestCORSAdvertisesPatch(t *testing.T) {
 		t.Fatalf("status=%d methods=%q", rec.Code, rec.Header().Get("Access-Control-Allow-Methods"))
 	}
 }
+
+func TestCORSWildcardNeverEnablesCredentials(t *testing.T) {
+	cfg := &security.Config{AllowedOrigins: []string{"*"}}
+	handler := corsMiddleware(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/state", nil)
+	req.Header.Set("Origin", "https://untrusted.example")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	if rec.Header().Get("Access-Control-Allow-Origin") != "*" || rec.Header().Get("Access-Control-Allow-Credentials") != "" {
+		t.Fatalf("wildcard CORS is credentialed: headers=%v", rec.Header())
+	}
+}
+
+func TestCORSRejectsDisallowedPreflight(t *testing.T) {
+	cfg := &security.Config{AllowedOrigins: []string{"http://localhost:3000"}}
+	handler := corsMiddleware(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("disallowed preflight reached application")
+	}))
+	req := httptest.NewRequest(http.MethodOptions, "/api/devices/cam-1", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), "evil.example") {
+		t.Fatalf("unexpected disallowed preflight response: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}

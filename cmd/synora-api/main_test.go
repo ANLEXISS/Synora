@@ -182,11 +182,12 @@ func TestHandleSystemHealthReturnsCleanRuntimeHealth(t *testing.T) {
 			},
 		},
 	}
+	webRoot := t.TempDir()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/system/health", nil)
 	rec := httptest.NewRecorder()
 
-	handleSystemHealth(core, &webapi.Server{WebEnabled: false, WebRoot: t.TempDir()}, webapi.ServerHealth{
+	handleSystemHealth(core, &webapi.Server{WebEnabled: false, WebRoot: webRoot}, webapi.ServerHealth{
 		HTTPAddr:       ":8080",
 		HTTPSEnabled:   true,
 		HTTPSAddr:      ":8443",
@@ -206,6 +207,9 @@ func TestHandleSystemHealthReturnsCleanRuntimeHealth(t *testing.T) {
 	if _, ok := body["payload"]; ok {
 		t.Fatalf("system health is double wrapped: %s", rec.Body.String())
 	}
+	if strings.Contains(rec.Body.String(), webRoot) {
+		t.Fatal("system health leaked a filesystem path")
+	}
 
 	for _, key := range []string{"services", "network", "mediamtx", "disk", "web"} {
 		if _, ok := body[key]; !ok {
@@ -215,6 +219,40 @@ func TestHandleSystemHealthReturnsCleanRuntimeHealth(t *testing.T) {
 	server, ok := body["server"].(map[string]any)
 	if !ok || server["https_enabled"] != true || server["tls_cert_present"] != true || server["tls_key_present"] != true {
 		t.Fatalf("system health missing TLS server state: %#v", body["server"])
+	}
+}
+
+func TestSameOriginRejectsWildcardForCookieMutation(t *testing.T) {
+	cfg := &security.Config{AllowedOrigins: []string{"*"}}
+	req := httptest.NewRequest(http.MethodPost, "http://synora.local/api/devices", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	if sameOriginRequest(req, cfg) {
+		t.Fatal("wildcard CORS origin was accepted for cookie CSRF protection")
+	}
+	req.Header.Set("Origin", "http://synora.local")
+	if !sameOriginRequest(req, cfg) {
+		t.Fatal("same-host origin was rejected")
+	}
+}
+
+func TestServerHandlerAddsSecurityHeaders(t *testing.T) {
+	handler := securityHeadersMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	for key, want := range map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+		"Referrer-Policy":        "no-referrer",
+		"Permissions-Policy":     "camera=(), microphone=(), geolocation=()",
+	} {
+		if got := rec.Header().Get(key); got != want {
+			t.Fatalf("%s=%q, want %q", key, got, want)
+		}
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
+		t.Fatalf("CSP missing frame protection: %q", got)
 	}
 }
 
