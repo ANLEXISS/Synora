@@ -10,12 +10,16 @@ var ErrQueueFull = errors.New(
 	"worker queue full",
 )
 
+const defaultMaxAttempts = 2
+
 type WorkerPool struct {
 	process func(*ClipJob) error
 
 	queue chan *ClipJob
 
 	workers int
+
+	maxAttempts int
 
 	activeJobs atomic.Int64
 }
@@ -34,6 +38,8 @@ func NewWorkerPool(
 		),
 
 		workers: workers,
+
+		maxAttempts: defaultMaxAttempts,
 	}
 
 	for i := 0; i < workers; i++ {
@@ -86,9 +92,7 @@ func (p *WorkerPool) workerLoop(
 			job.CameraID,
 		)
 
-		err := p.process(
-			job,
-		)
+		err := p.processWithRetry(job)
 
 		p.activeJobs.Add(-1)
 
@@ -110,4 +114,22 @@ func (p *WorkerPool) workerLoop(
 			job.ID,
 		)
 	}
+}
+
+func (p *WorkerPool) processWithRetry(job *ClipJob) error {
+	maxAttempts := p.maxAttempts
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	var err error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err = p.process(job)
+		if err == nil {
+			return nil
+		}
+		if attempt < maxAttempts {
+			log.Printf("retrying clip=%s attempt=%d/%d err=%v", job.ID, attempt+1, maxAttempts, err)
+		}
+	}
+	return err
 }
