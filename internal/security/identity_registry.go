@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -135,6 +136,42 @@ func GenerateIdentityKey() (ed25519.PublicKey, ed25519.PrivateKey, error) {
 
 func IdentityFingerprint(publicKey ed25519.PublicKey) string {
 	return HashSecret(string(publicKey))
+}
+
+func PairingProofMessage(deviceID, setupToken, timestamp, mac, fingerprint string) []byte {
+	return []byte(strings.Join([]string{
+		"synora-camera-pairing-v1", strings.TrimSpace(deviceID),
+		strings.TrimSpace(setupToken), strings.TrimSpace(timestamp),
+		strings.TrimSpace(mac), strings.TrimSpace(fingerprint),
+	}, "|"))
+}
+
+func VerifyPairingProof(publicKey ed25519.PublicKey, deviceID, setupToken, timestamp, mac, fingerprint, signature string, now time.Time, maxSkew time.Duration) error {
+	if err := validatePublicKey(publicKey); err != nil {
+		return err
+	}
+	if strings.TrimSpace(signature) == "" {
+		return errors.New("pairing signature is required")
+	}
+	seconds, err := strconv.ParseInt(strings.TrimSpace(timestamp), 10, 64)
+	if err != nil {
+		return errors.New("invalid pairing timestamp")
+	}
+	if maxSkew <= 0 {
+		maxSkew = DefaultTimestampSkew
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	when := time.Unix(seconds, 0).UTC()
+	if now.Sub(when) > maxSkew || when.Sub(now) > maxSkew {
+		return errors.New("pairing proof timestamp expired")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(signature))
+	if err != nil || !ed25519.Verify(publicKey, PairingProofMessage(deviceID, setupToken, timestamp, mac, fingerprint), decoded) {
+		return errors.New("invalid pairing proof signature")
+	}
+	return nil
 }
 
 func (r *IdentityRegistry) Register(deviceID string, kind IdentityKind, publicKey ed25519.PublicKey) (IdentityRecord, error) {

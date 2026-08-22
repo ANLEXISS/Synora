@@ -23,6 +23,9 @@ func TestDefaultConfigUsesCameraSubnetAndSafeDisabledState(t *testing.T) {
 	if cfg.Enabled || cfg.SubnetCIDR != "10.77.0.0/24" || cfg.GatewayIP != "10.77.0.1" {
 		t.Fatalf("unexpected defaults: %#v", cfg)
 	}
+	if !cfg.Pairing.RequireSetupToken || !cfg.Pairing.RequireDevicePublicKey || !cfg.Pairing.RequireObservedMACMatch {
+		t.Fatalf("pairing defaults must require token, public key and observed MAC: %#v", cfg.Pairing)
+	}
 	if cfg.AP.Channel5GHz != 36 || cfg.AP.Channel2GHz != 6 || cfg.DHCPStart != "10.77.0.50" || cfg.DHCPEnd != "10.77.0.200" {
 		t.Fatalf("unexpected radio or DHCP defaults: %#v", cfg)
 	}

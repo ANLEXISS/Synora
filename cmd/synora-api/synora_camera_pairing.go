@@ -1,9 +1,11 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"synora/internal/discovery/network"
+	"synora/internal/security"
 	"synora/pkg/contract"
 )
 
@@ -25,10 +28,13 @@ const (
 var synoraCameraDeviceIDPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 type synoraCameraPairingStore struct {
-	mu           sync.Mutex
-	sessions     map[string]*synoraCameraPairingSession
-	now          func() time.Time
-	windowActive func() bool
+	mu                 sync.Mutex
+	sessions           map[string]*synoraCameraPairingSession
+	now                func() time.Time
+	windowActive       func() bool
+	identityRegistry   *security.IdentityRegistry
+	requirePublicKey   bool
+	requireObservedMAC bool
 }
 
 type synoraCameraPairingSession struct {
@@ -44,6 +50,7 @@ type synoraCameraPairingSession struct {
 	ObservedMAC          string
 	ObservedIP           string
 	PublicKeyFingerprint string
+	PublicKey            string
 }
 
 func newSynoraCameraPairingStore() *synoraCameraPairingStore {
@@ -66,6 +73,7 @@ type synoraCameraQRPayload struct {
 	Serial     string `json:"serial"`
 	Model      string `json:"model"`
 	SetupToken string `json:"setup_token"`
+	PublicKey  string `json:"public_key,omitempty"`
 }
 
 type synoraCameraPairingStartRequest struct {
@@ -96,6 +104,9 @@ type synoraCameraPairingClaimRequest struct {
 	Model                string `json:"model,omitempty"`
 	MAC                  string `json:"mac,omitempty"`
 	PublicKeyFingerprint string `json:"public_key_fingerprint,omitempty"`
+	PublicKey            string `json:"public_key,omitempty"`
+	Timestamp            string `json:"timestamp,omitempty"`
+	Signature            string `json:"signature,omitempty"`
 }
 
 func handleSynoraCameraPairingCapabilities() http.HandlerFunc {
@@ -138,6 +149,10 @@ func handleSynoraCameraPairingStart(core synoraCameraPairingProvider, store *syn
 			writeError(w, err)
 			return
 		}
+		if store.requirePublicKey && strings.TrimSpace(payload.PublicKey) == "" {
+			writeError(w, contract.NewAPIError(contract.ErrorValidationFailed, "camera public key is required"))
+			return
+		}
 
 		devices, err := core.Devices()
 		if err != nil {
@@ -161,14 +176,16 @@ func handleSynoraCameraPairingStart(core synoraCameraPairingProvider, store *syn
 		store.mu.Lock()
 		store.cleanupLocked(now)
 		store.sessions[sessionID] = &synoraCameraPairingSession{
-			ID:        sessionID,
-			DeviceID:  payload.DeviceID,
-			Serial:    payload.Serial,
-			Model:     payload.Model,
-			SetupHash: hashPairingSecret(payload.SetupToken),
-			CreatedAt: now,
-			ExpiresAt: expiresAt,
-			Status:    "ready",
+			ID:                   sessionID,
+			DeviceID:             payload.DeviceID,
+			Serial:               payload.Serial,
+			Model:                payload.Model,
+			SetupHash:            hashPairingSecret(payload.SetupToken),
+			PublicKey:            strings.TrimSpace(payload.PublicKey),
+			PublicKeyFingerprint: pairingPublicKeyFingerprint(payload.PublicKey),
+			CreatedAt:            now,
+			ExpiresAt:            expiresAt,
+			Status:               "ready",
 		}
 		store.mu.Unlock()
 
@@ -265,9 +282,25 @@ func handleSynoraCameraPairingConfirm(core synoraCameraPairingProvider, store *s
 		if session.Serial != "" {
 			createPayload["serial"] = session.Serial
 		}
+		if store.identityRegistry != nil && session.PublicKey != "" {
+			publicKey, err := base64.StdEncoding.DecodeString(session.PublicKey)
+			if err != nil || len(publicKey) != ed25519.PublicKeySize {
+				store.resetConfirm(request.SessionID)
+				writeError(w, contract.NewAPIError(contract.ErrorValidationFailed, "camera identity is invalid"))
+				return
+			}
+			if _, err := store.identityRegistry.Register(session.DeviceID, security.IdentityCamera, ed25519.PublicKey(publicKey)); err != nil {
+				store.resetConfirm(request.SessionID)
+				writeError(w, contract.NewAPIError(contract.ErrorValidationFailed, "camera identity could not be registered"))
+				return
+			}
+		}
 		encoded, _ := json.Marshal(createPayload)
 		device, err := core.CreateDevice(encoded)
 		if err != nil {
+			if store.identityRegistry != nil && session.PublicKey != "" {
+				_ = store.identityRegistry.Revoke(session.DeviceID, "pairing device creation failed")
+			}
 			store.resetConfirm(request.SessionID)
 			writeError(w, err)
 			return
@@ -316,6 +349,18 @@ func handleSynoraCameraPairingClaimWithProvider(core synoraCameraDeviceUpdater, 
 		if request.DeviceID == "" || len(request.SetupToken) == 0 || len(request.SetupToken) > maxSynoraSetupToken {
 			writeError(w, contract.NewAPIError(contract.ErrorValidationFailed, "device_id and setup_token are required"))
 			return
+		}
+		if store.requireObservedMAC && request.MAC == "" {
+			writeError(w, contract.NewAPIError(contract.ErrorValidationFailed, "camera MAC observation is required"))
+			return
+		}
+		if !store.validateClaimProof(request.DeviceID, request.SetupToken, request.MAC, request.PublicKey, request.Timestamp, request.Signature) {
+			emitNetworkPairingEvent("network.pairing.failed", map[string]any{"reason": "invalid_pairing_proof", "device_id": request.DeviceID})
+			writeError(w, contract.NewAPIError(contract.ErrorNotFound, "pairing session is missing, expired, or proof is invalid"))
+			return
+		}
+		if request.PublicKey != "" {
+			request.PublicKeyFingerprint = pairingPublicKeyFingerprint(request.PublicKey)
 		}
 		observedIP := requestIP(r)
 		session, ok := store.markDeviceSeenWithMetadata(request.DeviceID, request.SetupToken, request.MAC, observedIP, request.PublicKeyFingerprint)
@@ -388,6 +433,39 @@ func (s *synoraCameraPairingStore) pairingWindowActive() bool {
 	return s.windowActive()
 }
 
+func (s *synoraCameraPairingStore) validateClaimProof(deviceID, setupToken, mac, publicKeyEncoded, timestamp, signature string) bool {
+	now := s.currentTime()
+	s.mu.Lock()
+	s.cleanupLocked(now)
+	var expected *synoraCameraPairingSession
+	for _, session := range s.sessions {
+		if session != nil && session.DeviceID == deviceID && session.Status != "consumed" && !session.Confirming && subtle.ConstantTimeCompare([]byte(session.SetupHash), []byte(hashPairingSecret(setupToken))) == 1 {
+			copy := *session
+			expected = &copy
+			break
+		}
+	}
+	s.mu.Unlock()
+	if expected == nil {
+		return false
+	}
+	if strings.TrimSpace(expected.PublicKey) == "" {
+		return !s.requirePublicKey
+	}
+	if strings.TrimSpace(publicKeyEncoded) != expected.PublicKey {
+		return false
+	}
+	publicKey, err := base64.StdEncoding.DecodeString(publicKeyEncoded)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize {
+		return false
+	}
+	fingerprint := security.IdentityFingerprint(ed25519.PublicKey(publicKey))
+	if expected.PublicKeyFingerprint != "" && expected.PublicKeyFingerprint != fingerprint {
+		return false
+	}
+	return security.VerifyPairingProof(ed25519.PublicKey(publicKey), deviceID, setupToken, timestamp, mac, fingerprint, signature, now, security.DefaultTimestampSkew) == nil
+}
+
 func pairingFirstNonEmptyString(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -434,6 +512,7 @@ func parseSynoraCameraQRPayload(request synoraCameraPairingStartRequest) (synora
 	payload.DeviceID = strings.TrimSpace(payload.DeviceID)
 	payload.Serial = strings.TrimSpace(payload.Serial)
 	payload.Model = strings.TrimSpace(payload.Model)
+	payload.PublicKey = strings.TrimSpace(payload.PublicKey)
 	if payload.Type != "synora.camera" {
 		return synoraCameraQRPayload{}, contract.NewAPIError(contract.ErrorValidationFailed, "unsupported QR device type")
 	}
@@ -449,7 +528,21 @@ func parseSynoraCameraQRPayload(request synoraCameraPairingStartRequest) (synora
 	if len(payload.SetupToken) < 8 || len(payload.SetupToken) > maxSynoraSetupToken {
 		return synoraCameraQRPayload{}, contract.NewAPIError(contract.ErrorValidationFailed, "setup_token has an invalid length")
 	}
+	if payload.PublicKey != "" {
+		decoded, err := base64.StdEncoding.DecodeString(payload.PublicKey)
+		if err != nil || len(decoded) != ed25519.PublicKeySize {
+			return synoraCameraQRPayload{}, contract.NewAPIError(contract.ErrorValidationFailed, "public_key has an invalid format")
+		}
+	}
 	return payload, nil
+}
+
+func pairingPublicKeyFingerprint(encoded string) string {
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+	if err != nil || len(decoded) != ed25519.PublicKeySize {
+		return ""
+	}
+	return security.IdentityFingerprint(ed25519.PublicKey(decoded))
 }
 
 func (s *synoraCameraPairingStore) currentTime() time.Time {
@@ -507,7 +600,7 @@ func (s *synoraCameraPairingStore) markDeviceSeenWithMetadata(deviceID, token, m
 	s.cleanupLocked(now)
 	for _, session := range s.sessions {
 		if session == nil || session.DeviceID != deviceID || session.Confirming ||
-			(session.Status != "ready" && session.Status != "device_seen") {
+			session.Status != "ready" {
 			continue
 		}
 		if subtle.ConstantTimeCompare([]byte(session.SetupHash), []byte(hash)) != 1 {

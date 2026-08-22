@@ -214,8 +214,15 @@ func main() {
 	apiMux.HandleFunc("/api/streams/", handleStreams(core))
 	apiMux.HandleFunc("/api/devices/pairing/start", handlePairingStart(core))
 	apiMux.HandleFunc("/api/devices/pairing/complete", handlePairingComplete(core))
+	identityRegistry := security.NewIdentityRegistry(getenv("SYNORA_IDENTITY_REGISTRY", "/var/lib/synora/security/identities.json"))
+	if err := identityRegistry.Load(); err != nil {
+		log.Fatal("camera identity registry: ", err)
+	}
 	synoraCameraPairing := newSynoraCameraPairingStore()
 	synoraCameraPairing.windowActive = network.PairingWindowActive
+	synoraCameraPairing.identityRegistry = identityRegistry
+	synoraCameraPairing.requirePublicKey = true
+	synoraCameraPairing.requireObservedMAC = true
 	apiMux.HandleFunc("/api/devices/pairing/capabilities", handleSynoraCameraPairingCapabilities())
 	apiMux.HandleFunc("/api/devices/pairing/synora-camera/start", handleSynoraCameraPairingStart(core, synoraCameraPairing))
 	apiMux.HandleFunc("/api/devices/pairing/synora-camera/confirm", handleSynoraCameraPairingConfirm(core, synoraCameraPairing))
