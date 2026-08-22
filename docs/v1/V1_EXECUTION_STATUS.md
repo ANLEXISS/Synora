@@ -2,7 +2,7 @@
 
 ## Jalon courant
 
-- Jalon : 03 — Outbox persistante
+- Jalon : 04 — Dispatcher, ACK et reconnexion
 - Groupe : 01–05
 - État : validé et intégré dans la branche d’exécution
 - Branche : `integration/synora-v1-execution`
@@ -53,10 +53,24 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - État : branche dédiée poussée, fast-forward dans
   `integration/synora-v1-execution`
 
+## Jalon 04
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j04-dispatcher-ack`
+- Branche dédiée : `codex/v1-j04-dispatcher-ack`
+- Commit : `3c133347d7f2717a98865d3a5f3d33bfc6daa7af`
+- Validations : `go test ./internal/outbox ./internal/dispatcher -count=1`,
+  `go vet ./pkg/contract ./internal/outbox ./internal/dispatcher` et
+  `go test -race ./internal/outbox ./internal/dispatcher -count=1` — PASS
+- Garanties démontrées : ACK explicite, retry borné avec jitter injectable,
+  reconnexion simulée, replay après ACK perdu avec identité inchangée,
+  rejet des ACK invalides et arrêt d’un transport annulable
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`
+
 ## Prochain jalon
 
-Jalon 04 — Dispatcher, ACK et reconnexion, uniquement après commit, validation
-et push du jalon 03.
+Jalon 05 — Replay, ordre et intégration outbox, uniquement après commit,
+validation et push du jalon 04.
 
 ## Historique
 
