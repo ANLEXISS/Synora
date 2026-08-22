@@ -3,6 +3,7 @@ package rpc
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"synora/internal/state"
 	"synora/pkg/contract"
@@ -32,6 +33,32 @@ func TestClipRPCListGetBoundsAndHidesPath(t *testing.T) {
 	}
 	if _, err := server.Handler("clips.get")(rpcMessage(`{"id":"missing"}`)); contract.APIErrorCode(err) != contract.ErrorNotFound {
 		t.Fatalf("missing clip error=%v", err)
+	}
+}
+
+func TestClipRPCListSupportsRecoveryCursor(t *testing.T) {
+	store := state.NewStore()
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	for _, id := range []string{"clip-a", "clip-b", "clip-c"} {
+		store.SetClip(&state.ClipState{ID: id, CameraID: "cam-1", Status: contract.ClipStatusReady, CreatedAt: now, UpdatedAt: now})
+	}
+	server := NewServer(Config{State: store})
+	value, err := server.Handler("clips.list")(rpcMessage(`{"limit":2}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := value.([]contract.Clip)
+	if len(page) != 2 || page[1].ID != "clip-b" {
+		t.Fatalf("unexpected first page: %#v", page)
+	}
+	payload, _ := json.Marshal(map[string]any{"limit": 2, "before_updated_at": page[1].UpdatedAt, "before_id": page[1].ID})
+	value, err = server.Handler("clips.list")(rpcMessage(string(payload)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = value.([]contract.Clip)
+	if len(page) != 1 || page[0].ID != "clip-a" {
+		t.Fatalf("unexpected cursor page: %#v", page)
 	}
 }
 

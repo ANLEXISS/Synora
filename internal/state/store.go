@@ -380,6 +380,17 @@ const (
 )
 
 func (s *Store) ClipsList(limit int) []contract.Clip {
+	return s.clipsListBefore(limit, time.Time{}, "")
+}
+
+// ClipsListBefore returns a stable descending page for recovery. The cursor
+// is the last UpdatedAt/ID pair from the previous page; using both fields
+// keeps equal-timestamp clips from being skipped or replayed indefinitely.
+func (s *Store) ClipsListBefore(limit int, beforeUpdatedAt time.Time, beforeID string) []contract.Clip {
+	return s.clipsListBefore(limit, beforeUpdatedAt, beforeID)
+}
+
+func (s *Store) clipsListBefore(limit int, beforeUpdatedAt time.Time, beforeID string) []contract.Clip {
 	if s == nil {
 		return []contract.Clip{}
 	}
@@ -404,6 +415,16 @@ func (s *Store) ClipsList(limit int) []contract.Clip {
 		}
 		return left.After(right)
 	})
+	if !beforeUpdatedAt.IsZero() {
+		filtered := items[:0]
+		for _, item := range items {
+			if item.UpdatedAt.Before(beforeUpdatedAt) ||
+				(item.UpdatedAt.Equal(beforeUpdatedAt) && item.ID < beforeID) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
 	if len(items) > limit {
 		items = items[:limit]
 	}

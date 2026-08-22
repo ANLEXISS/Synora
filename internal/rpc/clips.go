@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"strings"
+	"time"
 
 	"synora/internal/state"
 	"synora/pkg/contract"
@@ -9,7 +10,9 @@ import (
 
 func (s *Server) clipsList(msg contract.Message) (any, error) {
 	var request struct {
-		Limit int `json:"limit"`
+		Limit           int       `json:"limit"`
+		BeforeUpdatedAt time.Time `json:"before_updated_at"`
+		BeforeID        string    `json:"before_id"`
 	}
 	if len(msg.Payload) > 0 {
 		if err := decodePayload(msg.Payload, &request); err != nil {
@@ -23,7 +26,7 @@ func (s *Server) clipsList(msg contract.Message) (any, error) {
 	if limit < 1 || limit > state.MaxClipListLimit {
 		return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "clip limit must be between 1 and 100")
 	}
-	values := s.state.ClipsList(limit)
+	values := s.state.ClipsListBefore(limit, request.BeforeUpdatedAt, request.BeforeID)
 	for index := range values {
 		values[index].Path = ""
 	}

@@ -135,3 +135,19 @@ func TestClipStateRetentionPurgesOrdinaryBeforeAcknowledgedEvidence(t *testing.T
 		}
 	}
 }
+
+func TestClipListCursorPaginatesEqualTimestampsWithoutSkipping(t *testing.T) {
+	store := NewStore()
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	for _, id := range []string{"clip-a", "clip-b", "clip-c"} {
+		store.SetClip(&ClipState{ID: id, CameraID: "cam-1", Status: contract.ClipStatusReady, CreatedAt: now, UpdatedAt: now})
+	}
+	first := store.ClipsListBefore(2, time.Time{}, "")
+	if len(first) != 2 || first[0].ID != "clip-c" || first[1].ID != "clip-b" {
+		t.Fatalf("unexpected first page: %#v", first)
+	}
+	second := store.ClipsListBefore(2, first[1].UpdatedAt, first[1].ID)
+	if len(second) != 1 || second[0].ID != "clip-a" {
+		t.Fatalf("unexpected cursor page: %#v", second)
+	}
+}

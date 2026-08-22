@@ -367,12 +367,27 @@ func (m *Manager) resumePendingClips(root string) {
 	if m == nil || m.bus == nil || m.pool == nil {
 		return
 	}
-	for attempt := 0; attempt < 5; attempt++ {
-		payload, _ := json.Marshal(map[string]any{"limit": contract.MaxClipListLimit})
-		response, err := m.bus.Request("clips.list", "discovery", payload, "core")
-		if err != nil {
+	var beforeUpdatedAt time.Time
+	var beforeID string
+	for {
+		payloadValue := map[string]any{"limit": contract.MaxClipListLimit}
+		if !beforeUpdatedAt.IsZero() {
+			payloadValue["before_updated_at"] = beforeUpdatedAt
+			payloadValue["before_id"] = beforeID
+		}
+		payload, _ := json.Marshal(payloadValue)
+		var response *contract.Message
+		var err error
+		for attempt := 0; attempt < 5; attempt++ {
+			response, err = m.bus.Request("clips.list", "discovery", payload, "core")
+			if err == nil {
+				break
+			}
 			time.Sleep(time.Second)
-			continue
+		}
+		if err != nil {
+			log.Printf("discovery clip resume page unavailable after retries err=%v", err)
+			return
 		}
 		var values []contract.Clip
 		if err := json.Unmarshal(response.Payload, &values); err != nil {
@@ -395,9 +410,17 @@ func (m *Manager) resumePendingClips(root string) {
 				log.Printf("discovery clip resume queue failed clip=%s err=%v", value.ID, err)
 			}
 		}
-		return
+		if len(values) < contract.MaxClipListLimit {
+			return
+		}
+		last := values[len(values)-1]
+		if last.UpdatedAt.Equal(beforeUpdatedAt) && last.ID == beforeID {
+			log.Printf("discovery clip resume cursor stalled clip=%s", last.ID)
+			return
+		}
+		beforeUpdatedAt = last.UpdatedAt
+		beforeID = last.ID
 	}
-	log.Printf("discovery clip resume unavailable after retries")
 }
 
 func allowInsecureIngress() bool {
