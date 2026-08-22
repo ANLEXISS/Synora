@@ -264,6 +264,36 @@ func (s *Store) CompactAcknowledged() error {
 	})
 }
 
+// CompactTerminalBefore removes only terminal delivery records older than the
+// cutoff. Pending, retrying and in-flight records are never eligible: their
+// removal would violate at-least-once delivery.
+func (s *Store) CompactTerminalBefore(cutoff time.Time) error {
+	if cutoff.IsZero() {
+		return nil
+	}
+	return s.mutate(func() error {
+		kept := s.order[:0]
+		for _, key := range s.order {
+			record, ok := s.records[key]
+			if !ok {
+				continue
+			}
+			terminal := record.State == contract.DeliveryAcknowledged || record.State == contract.DeliveryFailed || record.State == contract.DeliveryQuarantined
+			updated := record.UpdatedAt
+			if updated.IsZero() {
+				updated = record.CreatedAt
+			}
+			if terminal && !updated.After(cutoff) {
+				delete(s.records, key)
+				continue
+			}
+			kept = append(kept, key)
+		}
+		s.order = kept
+		return nil
+	})
+}
+
 func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -26,28 +26,32 @@ type ContextSender interface {
 }
 
 type Config struct {
-	Interval    time.Duration
-	AckTimeout  time.Duration
-	BatchSize   int
-	MaxAttempts uint32
-	BaseBackoff time.Duration
-	MaxBackoff  time.Duration
-	Jitter      float64
-	Now         func() time.Time
-	Random      func() float64
+	Interval          time.Duration
+	AckTimeout        time.Duration
+	BatchSize         int
+	MaxAttempts       uint32
+	BaseBackoff       time.Duration
+	MaxBackoff        time.Duration
+	Jitter            float64
+	Now               func() time.Time
+	Random            func() float64
+	TerminalRetention time.Duration
+	RetentionInterval time.Duration
 }
 
 func DefaultConfig() Config {
 	return Config{
-		Interval:    250 * time.Millisecond,
-		AckTimeout:  5 * time.Second,
-		BatchSize:   32,
-		MaxAttempts: 8,
-		BaseBackoff: 250 * time.Millisecond,
-		MaxBackoff:  30 * time.Second,
-		Jitter:      0.2,
-		Now:         time.Now,
-		Random:      func() float64 { return 0.5 },
+		Interval:          250 * time.Millisecond,
+		AckTimeout:        5 * time.Second,
+		BatchSize:         32,
+		MaxAttempts:       8,
+		BaseBackoff:       250 * time.Millisecond,
+		MaxBackoff:        30 * time.Second,
+		Jitter:            0.2,
+		Now:               time.Now,
+		Random:            func() float64 { return 0.5 },
+		TerminalRetention: 7 * 24 * time.Hour,
+		RetentionInterval: time.Hour,
 	}
 }
 
@@ -78,6 +82,12 @@ func (c *Config) normalize() error {
 	}
 	if c.Random == nil {
 		c.Random = func() float64 { return 0.5 }
+	}
+	if c.TerminalRetention <= 0 {
+		c.TerminalRetention = 7 * 24 * time.Hour
+	}
+	if c.RetentionInterval <= 0 {
+		c.RetentionInterval = time.Hour
 	}
 	return nil
 }
@@ -164,7 +174,13 @@ func (d *Dispatcher) loop(ctx context.Context) {
 	}()
 	ticker := time.NewTicker(d.config.Interval)
 	defer ticker.Stop()
+	lastRetention := time.Time{}
 	for {
+		now := d.config.Now().UTC()
+		if lastRetention.IsZero() || now.Sub(lastRetention) >= d.config.RetentionInterval {
+			_ = d.store.CompactTerminalBefore(now.Add(-d.config.TerminalRetention))
+			lastRetention = now
+		}
 		d.requeueExpired(ctx)
 		d.dispatchReady(ctx)
 		select {
