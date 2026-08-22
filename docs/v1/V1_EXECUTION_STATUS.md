@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 14 — WireGuard, révocation, reset et transfert de propriété
+- Jalon : 15 — Fuzzing, permissions, audit, support et gate groupe 11–15
 - Groupe : 11–15
-- État : validé et intégré ; poursuite automatique vers J15
+- État : validé ; groupe 11–15 vert, en attente d’intégration et de checkpoint
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -261,6 +261,37 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Limites : l’adaptateur WireGuard/netlink réel, le débit, la radio et la
   qualification Rock 5/Zero 3W restent hors validation locale
 
+## Jalon 15
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j15-final-audit`
+- Branche dédiée : `codex/v1-j15-final-audit`
+- Commit : `5b674f2`
+- Garanties démontrées : fuzz targets sur les parseurs connectivité/réseau,
+  registre d’identités et preuves de pairing, redaction des tokens/cookies,
+  clés, biométrie et chemins pour les extraits de support, permissions des
+  artefacts sensibles vérifiées par les suites existantes
+- Fuzzing ciblé : quatre campagnes de 3 secondes — PASS sans crash ni corpus
+  défaillant
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`; gate global groupe 11–15 exécuté avant
+  le commit terminal de ce statut
+- Limites : aucun service externe d’audit dépendances n’est configuré dans
+  l’environnement ; l’audit est donc limité au graphe Go et aux outils locaux
+
+## Gate groupe 11–15
+
+- `git diff --check` — PASS
+- `go list ./...` — échec reproductible du VCS Go de l’environnement
+  (répertoire parent `.git` vide/non-repository) ; `GOFLAGS=-buildvcs=false
+  go list ./...` — PASS, 119 packages
+- `go test ./... -count=1` — PASS
+- `go test ./... -shuffle=on -count=3` — PASS
+- `go vet ./...` — PASS
+- `timeout 300s go test -race ./... -count=1` — PASS, exit 0
+- `python3 -B -m unittest discover -s services/vision-worker/tests -v` —
+  PASS (21 tests)
+- Worktree d’exécution — propre avant ce commit de statut
+
 ## Gate groupe 06–10
 
 - `git diff --check` — PASS
@@ -281,15 +312,21 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Limites : aucune qualification matérielle ou réglementaire exécutée sur
   cette machine
 
-## Checkpoint
+## Checkpoint groupe 06–10
 
 - Tag annoté : `v1-checkpoint-10`
 - Le tag sera poussé avec le commit terminal de ce statut, puis fast-forwardé
   dans `integration/synora-v1`.
 
+## Checkpoint groupe 11–15
+
+- Tag annoté : `v1-checkpoint-15`
+- Le tag sera créé et poussé avec le commit terminal de ce statut, puis
+  fast-forwardé dans `integration/synora-v1`.
+
 ## Prochain jalon
 
-Jalon 15 — Fuzzing, permissions, audit, support et gate groupe 11–15.
+Jalon 16 — Qualification fonctionnelle et Release Candidate.
 
 ## Historique
 
