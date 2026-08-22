@@ -463,13 +463,44 @@ func (s *Server) mergeStateRuntimeHealth(health contract.RuntimeHealth) contract
 	now := time.Now().UTC()
 	if s != nil && s.state != nil {
 		current := s.state.SystemState()
-		return contract.MergeRuntimeComponentStatusDetailed(
+		health = contract.MergeRuntimeComponentStatusDetailed(
 			health,
 			current.RuntimeComponents,
 			current.RuntimeComponentInfo,
 			current.RuntimeModels,
 			now,
 		)
+		if current.LifecycleState != "" {
+			status := current.LifecycleState
+			if current.Ready && current.Healthy {
+				status = "ok"
+			} else if current.Ready {
+				status = "degraded"
+			} else if status == "running" {
+				status = "degraded"
+			}
+			item := contract.RuntimeServiceHealth{
+				Name:    "core_recovery",
+				Status:  status,
+				Active:  current.Ready,
+				Checked: current.LifecycleUpdatedAt,
+				Message: current.LifecycleReason,
+			}
+			if item.Checked.IsZero() {
+				item.Checked = now
+			}
+			if !current.Healthy && current.LifecycleReason != "" {
+				item.Error = current.LifecycleReason
+			}
+			if health.Components == nil {
+				health.Components = map[string]contract.RuntimeServiceHealth{}
+			}
+			health.Components["core_recovery"] = item
+			if status != "ok" && health.Status == "ok" {
+				health.Status = "degraded"
+			}
+		}
+		return health
 	}
 	return contract.NormalizeRuntimeHealth(health, now)
 }

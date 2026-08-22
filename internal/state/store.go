@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"synora/internal/clipstore"
+	"synora/internal/recovery"
 	"synora/pkg/contract"
 )
 
@@ -1059,6 +1060,27 @@ func (s *Store) SetSystemState(value SystemState) {
 	cloned.Security = contract.NormalizeSecurityModeState(cloned.Security, time.Now().UTC())
 	s.System = &cloned
 	s.revision.Add(1)
+}
+
+// SetRecoveryStatus records Core lifecycle evidence without allowing a
+// consumer to mutate the underlying recovery machine. Persistence is done
+// after releasing the StateStore lock.
+func (s *Store) SetRecoveryStatus(status recovery.Snapshot) error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	current := s.systemStateLocked()
+	current.LifecycleState = string(status.State)
+	current.LifecycleReason = status.Reason
+	current.LifecycleUpdatedAt = status.UpdatedAt
+	current.Ready = status.Ready
+	current.Healthy = status.Healthy
+	current.RecoveryComplete = status.RecoveryComplete
+	s.System = &current
+	s.revision.Add(1)
+	s.mu.Unlock()
+	return s.SaveNow()
 }
 
 // Revision is the monotonic effective StateStore revision used to bind a

@@ -24,6 +24,7 @@ import (
 	eventpkg "synora/internal/event"
 	"synora/internal/idgen"
 	"synora/internal/ingest"
+	"synora/internal/recovery"
 	corerpc "synora/internal/rpc"
 	snapshotpkg "synora/internal/snapshot"
 	"synora/internal/state"
@@ -75,6 +76,7 @@ type coreApp struct {
 	residents map[string]*topology.Resident
 
 	state      *state.Store
+	recovery   *recovery.Machine
 	eventStore *eventpkg.Store
 	chains     *eventpkg.ChainManager
 	danger     *cge.DangerRuntime
@@ -122,8 +124,10 @@ func main() {
 	}
 
 	topologyInstance := &topology.Topology{Nodes: map[string]*topology.Node{}}
+	topologyLoaded := true
 	if err := topology.Load(topologyPath, topologyInstance); err != nil {
 		log.Println("topology load warning:", err)
+		topologyLoaded = false
 	}
 
 	residents, err := topology.LoadResidents(residentsPath)
@@ -195,6 +199,10 @@ func main() {
 			log.Println("cge shadow enabled")
 		}
 	}
+	recoveryMachine, err := newCoreRecoveryMachine()
+	if err != nil {
+		log.Fatal("create Core recovery machine:", err)
+	}
 
 	app := &coreApp{
 		bus:          busClient,
@@ -205,6 +213,7 @@ func main() {
 		topology:     topologyInstance,
 		residents:    residents,
 		state:        stateStore,
+		recovery:     recoveryMachine,
 		eventStore:   eventStore,
 		chains:       chainManager,
 		danger:       dangerRuntime,
@@ -215,6 +224,9 @@ func main() {
 		highPriority: make(chan *contract.Event, 128),
 		normalQueue:  make(chan *contract.Event, 512),
 		rpcQueue:     make(chan contract.Message, 256),
+	}
+	if err := app.beginRecovery(); err != nil {
+		log.Fatal("start Core recovery:", err)
 	}
 	if configuredShadow != nil {
 		configuredShadow.SetContextProvider(newCoreReadOnlyContextProvider(app))
@@ -307,8 +319,33 @@ func main() {
 	app.seedState()
 	app.state.SetPersistence(state.NewFilePersistence(statePath))
 	summary, err := app.state.LoadPersisted()
+	stateLoadErr := err
 	if err != nil {
 		log.Println("state persistence load warning:", err)
+	}
+	if err := app.setRecoveryDependency("topology", topologyLoaded, map[bool]string{true: "topology loaded", false: "topology restore failed"}[topologyLoaded]); err != nil {
+		log.Fatal("record topology recovery status:", err)
+	}
+	if err := app.setRecoveryDependency("bus", busClient != nil, "bus client connected"); err != nil {
+		log.Fatal("record bus recovery status:", err)
+	}
+	if stateLoadErr != nil {
+		if err := app.setRecoveryDependency("state_store", false, "state restore failed"); err != nil {
+			log.Fatal("record state recovery failure:", err)
+		}
+		if err := app.failRecovery("state restore failed"); err != nil {
+			log.Fatal("mark Core recovery failed:", err)
+		}
+	} else {
+		if err := app.setRecoveryDependency("state_store", true, "state restored"); err != nil {
+			log.Fatal("record state recovery status:", err)
+		}
+		if err := app.completeRecovery(); err != nil {
+			log.Printf("Core recovery failed closed: %v", err)
+			if failErr := app.failRecovery("required dependency recovery failed"); failErr != nil {
+				log.Fatal("mark Core recovery failed:", failErr)
+			}
+		}
 	}
 	app.reconcileClips()
 	chainManager.AttachState(stateStore)

@@ -129,11 +129,20 @@ type ClipState = contract.Clip
 type SystemState struct {
 	LastState     string    `json:"last_state"`
 	LastStateTime time.Time `json:"last_state_time"`
-	PreviousState string    `json:"previous_state,omitempty"`
-	DangerLevel   string    `json:"danger_level"`
-	DangerScore   float64   `json:"danger_score"`
-	DangerKnown   bool      `json:"danger_known"`
-	DangerSource  string    `json:"danger_source"`
+	// Lifecycle fields are owned by Core's recovery gate. Ready and Healthy
+	// are never inferred from process liveness; they are evidence-backed views
+	// of required dependency recovery.
+	LifecycleState     string    `json:"lifecycle_state"`
+	LifecycleReason    string    `json:"lifecycle_reason,omitempty"`
+	LifecycleUpdatedAt time.Time `json:"lifecycle_updated_at,omitempty"`
+	Ready              bool      `json:"ready"`
+	Healthy            bool      `json:"healthy"`
+	RecoveryComplete   bool      `json:"recovery_complete"`
+	PreviousState      string    `json:"previous_state,omitempty"`
+	DangerLevel        string    `json:"danger_level"`
+	DangerScore        float64   `json:"danger_score"`
+	DangerKnown        bool      `json:"danger_known"`
+	DangerSource       string    `json:"danger_source"`
 	// DangerScoreCurrent is the decayed, runtime score. DangerScore remains
 	// the historical/current compatibility field used by older clients.
 	DangerDecayEnabled         bool                       `json:"danger_decay_enabled"`
