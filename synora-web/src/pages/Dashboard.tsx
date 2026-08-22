@@ -1,6 +1,7 @@
 import { Activity, Brain, Cpu, ShieldAlert, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { EventRow } from "../components/EventRow";
+import { IncidentEvidencePanel } from "../components/IncidentEvidencePanel";
 import { Panel } from "../components/Panel";
 import { StatCard } from "../components/StatCard";
 import { useSynoraData } from "../hooks/useSynoraData";
@@ -319,6 +320,8 @@ export function Dashboard() {
           <button type="button" className="secondary-button" onClick={() => window.dispatchEvent(new CustomEvent("synora:navigate", { detail: "residents" }))}>Voir les résidents</button>
         </div>
       </Panel>
+
+      <IncidentEvidencePanel />
     </div>
   );
 }

@@ -589,6 +589,61 @@ button {
   max-width: 100%;
 }
 
+.dashboard-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.incident-list,
+.clip-list {
+  display: grid;
+  gap: 10px;
+}
+
+.incident-row,
+.clip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.incident-row:last-child,
+.clip-row:last-child {
+  border-bottom: 0;
+}
+
+.incident-row-main,
+.clip-row > div {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 4px;
+}
+
+.incident-row-main strong,
+.clip-row strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.incident-row-main span,
+.clip-row span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.incident-row-actions {
+  display: flex;
+  gap: 4px;
+}
+
 .dashboard-overview {
   grid-column: 1 / -1;
   display: grid;
@@ -1474,6 +1529,10 @@ button {
   .dashboard-overview {
     grid-template-columns: 1fr;
     gap: 14px;
+  }
+
+  .dashboard-evidence-grid {
+    grid-template-columns: 1fr;
   }
 
   .card-stat,
