@@ -483,6 +483,29 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - État : branche poussée, intégrée dans `integration/synora-v1-execution`;
   gate global final restant à exécuter
 
+## Gate final groupe 21–25
+
+- `GOFLAGS=-buildvcs=false go list ./...` — PASS
+- `GOFLAGS=-buildvcs=false go test ./... -count=1` — PASS
+- `GOFLAGS=-buildvcs=false go test ./... -shuffle=on -count=3` — PASS
+- `GOFLAGS=-buildvcs=false go vet ./...` — PASS
+- `GOFLAGS=-buildvcs=false timeout 300s go test -race ./... -count=1` — PASS
+- `python3 -B -m unittest discover -s services/vision-worker/tests -v` — PASS
+  (21 tests)
+- Harnesses J21–J25 — PASS (13 tests ciblés)
+- `npm --prefix synora-web audit --omit=dev --audit-level=high` — PASS,
+  zéro vulnérabilité
+- `npm --prefix synora-web run build` — PASS
+- `npm --prefix synora-web run lint` — PASS avec 7 avertissements React
+  `exhaustive-deps` préexistants, sans erreur
+- `git diff --check` — PASS; worktree d’exécution propre
+- P0 ouvert — aucun dans l’audit local
+- Limites bloquantes : aucune mesure hardware/radio réelle, aucun adaptateur
+  distant de production, aucune calibration Vision FP/FN réelle et aucune
+  preuve externe CE/RED/RoHS/WEEE
+- Décision : candidate locale autorisée sous le statut
+  `software_rc_audited_external_gates_open`; `v1-rc1` reste bloqué
+
 ## Checkpoint groupe 16–20
 
 - Tag annoté à créer et pousser : `v1-checkpoint-20`
