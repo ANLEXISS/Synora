@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 09 — Résilience du worker Vision
+- Jalon : 10 — Matrice de pannes logicielles
 - Groupe : 06–10
-- État : validé et intégré ; poursuite automatique vers J10
+- État : validé ; gate groupe verte, checkpoint prêt
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -169,9 +169,54 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
   `integration/synora-v1-execution` puis `integration/synora-v1`
 - Limites : qualification matérielle non exécutée sur cette machine
 
+## Jalon 10
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j10-failure-matrix`
+- Branche dédiée : `codex/v1-j10-failure-matrix`
+- Commit : `3daa5e6f0f2d08b559cda92b51d9ea8f72636275`
+- Validations ciblées : `go test ./internal/qualification/failurematrix
+  -count=1`, vet ciblé et race ciblé — PASS
+- Harness : cinq composants Core/bus/Discovery/Vision/StateStore, quatre
+  points de coupure déterministes, charge 128, replay à identité stable,
+  pertes maximales explicites et mesure du temps de reprise local
+- Campagne : 5 scénarios × 100 itérations, soit 500 exécutions — PASS
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`; intégration finale dans
+  `integration/synora-v1` après ce compte rendu
+- Limites : le harness est logiciel et déterministe ; aucune coupure
+  électrique, qualification matérielle Rock 5/Zero 3W, panne radio ou test
+  WireGuard réel n’est démontré ici
+
+## Gate groupe 06–10
+
+- `git diff --check` — PASS
+- `go list ./...` — bloqué par le défaut VCS Go de l’environnement (répertoire
+  parent `.git` vide/non-repository) ; `GOFLAGS=-buildvcs=false go list ./...`
+  — PASS, 119 packages
+- `go test ./... -count=1` — PASS
+- `go test ./... -shuffle=on -count=3` — PASS
+- `go vet ./...` — PASS
+- `timeout 300s go test -race ./... -count=1` — première passe avec un échec
+  fonctionnel isolé sous contention dans
+  `internal/cge/shadowworkflow/TestCognitiveSituationRebuiltAfterRecovery`,
+  sans data race ; le test a passé trois fois isolément sous race, puis la
+  commande globale exacte a terminé `race_exit=0`
+- `python3 -B -m unittest discover -s services/vision-worker/tests -v` —
+  PASS (21 tests)
+- Worktree d’exécution — propre avant mise à jour de ce statut
+- Limites : aucune qualification matérielle ou réglementaire exécutée sur
+  cette machine
+
+## Checkpoint
+
+- Tag annoté : `v1-checkpoint-10`
+- Le tag sera poussé avec le commit terminal de ce statut, puis fast-forwardé
+  dans `integration/synora-v1`.
+
 ## Prochain jalon
 
-Jalon 10 — Matrice de pannes logicielles.
+Jalon 11 — Threat model et identité des appareils, après confirmation
+explicite du groupe 06–10.
 
 ## Historique
 
