@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,8 +17,10 @@ import (
 )
 
 type Store struct {
-	mu       sync.RWMutex
-	revision atomic.Uint64
+	mu                  sync.RWMutex
+	revision            atomic.Uint64
+	persistenceStatusMu sync.RWMutex
+	persistenceStatus   PersistenceHealth
 
 	DeviceStates      map[string]*DeviceState
 	CameraStates      map[string]*CameraState
@@ -47,6 +50,37 @@ type Store struct {
 	incidentLimit int
 	inputEpoch    string
 	inputSequence uint64
+}
+
+// PersistenceHealth is the last observed durability result. A failed write
+// never becomes invisible merely because callers use fire-and-forget state
+// mutators; operators can inspect this evidence and Core can fail closed.
+type PersistenceHealth struct {
+	Healthy   bool      `json:"healthy"`
+	Error     string    `json:"error,omitempty"`
+	CheckedAt time.Time `json:"checked_at"`
+}
+
+func (s *Store) PersistenceHealth() PersistenceHealth {
+	if s == nil {
+		return PersistenceHealth{}
+	}
+	s.persistenceStatusMu.RLock()
+	defer s.persistenceStatusMu.RUnlock()
+	return s.persistenceStatus
+}
+
+func (s *Store) recordPersistenceResult(err error) {
+	if s == nil {
+		return
+	}
+	health := PersistenceHealth{Healthy: err == nil, CheckedAt: time.Now().UTC()}
+	if err != nil {
+		health.Error = err.Error()
+	}
+	s.persistenceStatusMu.Lock()
+	s.persistenceStatus = health
+	s.persistenceStatusMu.Unlock()
 }
 
 func (s *Store) InputCursor() (string, uint64) {
@@ -1482,40 +1516,65 @@ func cloneWindow(value *contract.EventWindow) *contract.EventWindow {
 }
 
 func (s *Store) LoadPersisted() (PersistedSummary, error) {
-	if s.persistence == nil {
+	s.mu.RLock()
+	persistence := s.persistence
+	s.mu.RUnlock()
+	if persistence == nil {
 		return PersistedSummary{}, nil
 	}
-	persisted, err := s.persistence.Load()
+	persisted, err := persistence.Load()
+	if err != nil {
+		s.recordPersistenceResult(err)
+		return PersistedSummary{}, err
+	}
 	if persisted == nil {
+		err := errors.New("persistence returned nil state")
+		s.recordPersistenceResult(err)
 		return PersistedSummary{}, err
 	}
 	s.applyPersistedState(persisted)
-	return persistedSummary(persisted), err
+	s.recordPersistenceResult(nil)
+	return persistedSummary(persisted), nil
 }
 
 func (s *Store) SaveNow() error {
-	if s.persistence == nil {
+	s.mu.RLock()
+	persistence := s.persistence
+	s.mu.RUnlock()
+	if persistence == nil {
 		return nil
 	}
 	persisted := s.PersistedState()
-	return s.persistence.Save(persisted)
+	err := persistence.Save(persisted)
+	s.recordPersistenceResult(err)
+	return err
 }
 
 func (s *Store) BackupNow() error {
-	if s.persistence == nil {
+	s.mu.RLock()
+	persistence := s.persistence
+	s.mu.RUnlock()
+	if persistence == nil {
 		return nil
 	}
-	if persistence, ok := s.persistence.(BackupPersistence); ok {
-		return persistence.Backup()
+	if backup, ok := persistence.(BackupPersistence); ok {
+		err := backup.Backup()
+		s.recordPersistenceResult(err)
+		return err
 	}
 	return nil
 }
 
 func (s *Store) Close() error {
-	if s.persistence == nil {
+	s.mu.RLock()
+	persistence := s.persistence
+	s.mu.RUnlock()
+	if persistence == nil {
 		return nil
 	}
-	return s.persistence.Close()
+	err := persistence.Close()
+	s.recordPersistenceResult(err)
+	return err
 }
 
 func (s *Store) PersistedState() *PersistedState {

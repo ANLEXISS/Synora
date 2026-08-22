@@ -100,7 +100,9 @@ func (p *FilePersistence) Load() (*PersistedState, error) {
 
 	var state PersistedState
 	if err := json.Unmarshal(data, &state); err != nil {
-		renameCorrupt(p.path)
+		if quarantineErr := renameCorrupt(p.path); quarantineErr != nil {
+			return emptyPersistedState(), fmt.Errorf("decode persisted state: %w (quarantine: %v)", err, quarantineErr)
+		}
 		return emptyPersistedState(), fmt.Errorf("decode persisted state: %w", err)
 	}
 	if err := migratePersistedState(&state); err != nil {
@@ -149,8 +151,7 @@ func (p *FilePersistence) Save(state *PersistedState) error {
 		return err
 	}
 	committed = true
-	syncDir(filepath.Dir(p.path))
-	return nil
+	return syncDir(filepath.Dir(p.path))
 }
 
 func (p *FilePersistence) Close() error {
@@ -203,16 +204,16 @@ func emptyPersistedState() *PersistedState {
 	}
 }
 
-func renameCorrupt(path string) {
-	suffix := time.Now().UTC().Format("20060102T150405Z")
-	_ = os.Rename(path, path+".corrupt."+suffix)
+func renameCorrupt(path string) error {
+	suffix := time.Now().UTC().Format("20060102T150405.000000000Z")
+	return os.Rename(path, path+".corrupt."+suffix)
 }
 
-func syncDir(path string) {
+func syncDir(path string) error {
 	dir, err := os.Open(path)
 	if err != nil {
-		return
+		return err
 	}
 	defer dir.Close()
-	_ = dir.Sync()
+	return dir.Sync()
 }
