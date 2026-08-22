@@ -204,6 +204,16 @@ func (a *coreApp) validTrackMovement(previous, next string) bool {
 			return true
 		}
 	}
+	for _, neighborID := range left.Connect {
+		if strings.TrimSpace(neighborID) == right.ID {
+			return true
+		}
+	}
+	for _, neighborID := range right.Connect {
+		if strings.TrimSpace(neighborID) == left.ID {
+			return true
+		}
+	}
 	return false
 }
 

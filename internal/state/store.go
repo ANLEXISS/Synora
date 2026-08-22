@@ -246,6 +246,9 @@ func (s *Store) SetCluster(value *Cluster) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if current := s.Clusters[value.ID]; current != nil && newerThan(current.UpdatedAt, value.UpdatedAt) {
+		return
+	}
 	cloned := *value
 	cloned.EventIDs = append([]string(nil), value.EventIDs...)
 	s.Clusters[value.ID] = &cloned
@@ -307,6 +310,10 @@ func (s *Store) SetPresence(value *PresenceState) {
 		return
 	}
 	s.mu.Lock()
+	if current := s.Presence[value.ID]; current != nil && newerThan(current.LastSeen, value.LastSeen) {
+		s.mu.Unlock()
+		return
+	}
 	cloned := *value
 	if current := s.Presence[value.ID]; current != nil && cloned.LastSeen.IsZero() {
 		// LastSeen is historical runtime data. An absent/cleared update may

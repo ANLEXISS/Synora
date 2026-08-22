@@ -138,9 +138,14 @@ func TestResidentTrackRejectsImpossibleTopologyMovement(t *testing.T) {
 	app.topology = &topology.Topology{Nodes: map[string]*topology.Node{"entry": entry, "hall": hall, "remote": remote}}
 	app.engine.Topology = app.topology
 	app.processEvent(&contract.Event{ID: "move-1", Type: contract.EventVisionIdentity, Source: "vision-worker", ResidentID: "alexis", DeviceID: "cam_01", NodeID: "entry", TrackID: "track-move", Confidence: .9, Timestamp: time.Now().UTC()})
-	app.processEvent(&contract.Event{ID: "move-2", Type: contract.EventVisionIdentity, Source: "vision-worker", ResidentID: "alexis", DeviceID: "cam_02", NodeID: "remote", TrackID: "track-move", Confidence: .9, Timestamp: time.Now().Add(time.Second)})
+	app.processEvent(&contract.Event{ID: "move-2", Type: contract.EventVisionIdentity, Source: "vision-worker", ResidentID: "alexis", DeviceID: "cam_01", NodeID: "hall", TrackID: "track-move", Confidence: .9, Timestamp: time.Now().Add(time.Second)})
 	track, _ := app.state.ResidentTrack("alexis")
-	if track == nil || track.LastNodeID != "entry" {
+	if track == nil || track.LastNodeID != "hall" {
+		t.Fatalf("connected topology movement was rejected: %#v", track)
+	}
+	app.processEvent(&contract.Event{ID: "move-3", Type: contract.EventVisionIdentity, Source: "vision-worker", ResidentID: "alexis", DeviceID: "cam_02", NodeID: "remote", TrackID: "track-move", Confidence: .9, Timestamp: time.Now().Add(2 * time.Second)})
+	track, _ = app.state.ResidentTrack("alexis")
+	if track == nil || track.LastNodeID != "hall" {
 		t.Fatalf("impossible movement changed ResidentTrack: %#v", track)
 	}
 }
