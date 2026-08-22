@@ -2,7 +2,7 @@
 
 ## Jalon courant
 
-- Jalon : 24 — release engineering et industrialisation
+- Jalon : 25 — release candidate et audit final
 - Groupe : 21–25
 - État : validé sur branche dédiée ; intégration dans le groupe 21–25 en cours
 - Branche : `integration/synora-v1-execution`
@@ -448,6 +448,23 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
   WireGuard/netlink et le client distant ne sont pas disponibles
 - État : branche poussée, intégrée dans `integration/synora-v1-execution`
 
+## Jalon 24
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j24-release-engineering`
+- Branche dédiée : `codex/v1-j24-release-engineering`
+- Commits : `ff32960` (outillage) et `65f0ea4` (dossier documentaire)
+- Validations ciblées : tests Python release engineering, tests/vet/race Go sur
+  `internal/security`, `internal/version` et `cmd/synora-boot-healthcheck`,
+  génération/relecture JSON et `git diff --check` — PASS
+- Livrables : manifeste source reproductible sans timestamp, inventaire SBOM
+  et licences avec limites déclarées, provisioning read-only, burn-in,
+  récupération, diagnostics support expurgés et matrice CE/RED/RoHS/WEEE
+- Limites explicites : aucune image cible n’est produite ici, aucune clé privée
+  de signature n’est présente, les licences Go restent à résoudre par la
+  chaîne d’approvisionnement et les éléments réglementaires restent
+  `external_evidence_required`
+- État : branche poussée, intégrée dans `integration/synora-v1-execution`
+
 ## Checkpoint groupe 16–20
 
 - Tag annoté à créer et pousser : `v1-checkpoint-20`
@@ -502,7 +519,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 24 — release engineering et industrialisation.
+Jalon 25 — release candidate et audit final.
 
 ## Historique
 
