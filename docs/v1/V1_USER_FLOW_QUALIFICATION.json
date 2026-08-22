@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "source": "repository_static_qualification_not_browser_evidence",
+  "flows": [
+    {
+      "id": "onboarding_pairing",
+      "status": "covered",
+      "artifacts": [
+        {"path": "synora-web/src/components/V1Onboarding.tsx", "markers": ["Première mise en service", "Ajouter une caméra", "Créer un résident"]},
+        {"path": "synora-web/src/components/SynoraCameraPairingWizard.tsx", "markers": ["Scanner la caméra", "Confirmer l’appairage"]}
+      ]
+    },
+    {
+      "id": "residents_photos",
+      "status": "covered",
+      "artifacts": [
+        {"path": "synora-web/src/pages/Residents.tsx", "markers": ["uploadResidentBaseFace", "rebuildResidentFace", "base_photos"]}
+      ]
+    },
+    {
+      "id": "incidents_clips_ack_resolve",
+      "status": "covered",
+      "artifacts": [
+        {"path": "synora-web/src/components/IncidentEvidencePanel.tsx", "markers": ["incidents", "clips", "acknowledge", "resolve"]},
+        {"path": "synora-web/src/lib/synora-api.ts", "markers": ["/api/incidents", "/api/clips"]}
+      ]
+    },
+    {
+      "id": "on_demand_live",
+      "status": "covered",
+      "artifacts": [
+        {"path": "synora-web/src/pages/Devices.tsx", "markers": ["live_available", "webrtc_url", "hls_url"]},
+        {"path": "synora-web/src/pages/LiveEvents.tsx", "markers": ["reconnecting", "polling"]}
+      ]
+    },
+    {
+      "id": "remote_access",
+      "status": "blocked_external_adapter",
+      "artifacts": [
+        {"path": "docs/v1/V1_CONNECTIVITY_ARCHITECTURE.md", "markers": ["NoopTunnelController", "aucun transport de vidéo"]},
+        {"path": "internal/connectivity/tunnel.go", "markers": ["NoopTunnelController", "never invokes netlink"]}
+      ],
+      "reason": "L’adaptateur WireGuard/netlink de production et la radio ne sont pas disponibles dans cette V1 locale."
+    },
+    {
+      "id": "health_storage_version_errors",
+      "status": "covered",
+      "artifacts": [
+        {"path": "synora-web/src/lib/synora-api.ts", "markers": ["/api/system/health", "/api/system/version"]},
+        {"path": "synora-web/src/components/ErrorBoundary.tsx", "markers": ["role=\"alert\""]},
+        {"path": "synora-web/src/pages/Settings.tsx", "markers": ["getSystemHealth", "role=\"alert\""]}
+      ]
+    },
+    {
+      "id": "responsive_webapp",
+      "status": "covered",
+      "artifacts": [
+        {"path": "synora-web/src/styles/globals.css", "markers": ["@media (max-width: 560px)", "@media (max-width: 760px)"]},
+        {"path": "synora-web/src/App.css", "markers": ["@media (max-width: 1024px)"]}
+      ]
+    },
+    {
+      "id": "new_user_local_flow",
+      "status": "covered_static",
+      "artifacts": [
+        {"path": "synora-web/src/app/App.tsx", "markers": ["V1Onboarding", "dashboard", "devices", "residents"]},
+        {"path": "docs/system-test.md", "markers": ["/api/system/health"]}
+      ],
+      "reason": "Le parcours est couvert par code, tests API et build; un test navigateur avec une centrale réelle reste à exécuter."
+    }
+  ]
+}
