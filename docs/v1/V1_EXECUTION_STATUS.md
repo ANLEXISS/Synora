@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 06 — États de récupération Core
+- Jalon : 07 — StateStore et pannes de stockage
 - Groupe : 06–10
-- État : validé et intégré ; poursuite automatique vers J07
+- État : validé et intégré ; poursuite automatique vers J08
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -117,9 +117,30 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
   `integration/synora-v1-execution` puis `integration/synora-v1`
 - Limites : qualification matérielle non exécutée sur cette machine
 
+## Jalon 07
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j07-state-failures`
+- Branche dédiée : `codex/v1-j07-state-failures`
+- Commit : `b40b0a169107cc186cd49274502cf5867a57ed23`
+- Validations ciblées : `go test ./internal/state -count=1`, `go vet
+  ./internal/state` et `go test -race ./internal/state -count=1` — PASS
+- Validations complémentaires : `go test ./... -p 1 -count=1` — PASS ; la
+  première passe parallèle `go test ./... -count=1` a été interrompue après
+  plus de cinq minutes d’attente dans `synora-api`, puis le package isolé a
+  passé en moins d’une seconde avec timeout borné
+- Garanties démontrées : état corrompu ou version inconnue jamais appliqué au
+  StateStore vivant, erreur de quarantine conservée, erreurs de write/rename/
+  sync observables, nettoyage des temporaires atomiques et état de santé de
+  persistance récupérable après succès
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution` puis `integration/synora-v1`
+- Limites : qualification matérielle non exécutée sur cette machine ; la
+  stabilité de la passe Go multi-packages parallèle reste à confirmer au gate
+  du groupe 06–10
+
 ## Prochain jalon
 
-Jalon 07 — StateStore et pannes de stockage.
+Jalon 08 — Discovery et uploads résilients.
 
 ## Historique
 
