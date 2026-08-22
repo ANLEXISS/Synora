@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 12 — Pairing et authentification caméra
+- Jalon : 13 — Sécurité API et webapp
 - Groupe : 11–15
-- État : validé et intégré ; poursuite automatique vers J13
+- État : validé et intégré ; poursuite automatique vers J14
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -222,6 +222,27 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Limites : la chaîne de confiance matérielle du bouton physique et la
   qualification radio restent à démontrer au niveau hardware
 
+## Jalon 13
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j13-api-security`
+- Branche dédiée : `codex/v1-j13-api-security`
+- Commits : `f04ace4` (origines, CSRF, headers, redaction) et `c2068ba`
+  (rate limiting)
+- Validations ciblées après intégration : `go test ./cmd/synora-api
+  ./internal/api -count=1`, `go vet ./cmd/synora-api ./internal/api` et
+  `go test -race ./cmd/synora-api ./internal/api -count=1` — PASS
+- Garanties démontrées : sessions locales expirables et permissions par
+  endpoint conservées, wildcard CORS sans credentials, prévols interdits
+  refusés, mutations par cookie protégées contre les origines externes,
+  en-têtes anti-clickjacking/anti-sniffing/anti-referrer, CSP, chemins
+  filesystem absents des réponses web, limites JSON/upload conservées et
+  rate limiting API borné par client
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`; intégration finale dans
+  `integration/synora-v1` après ce compte rendu
+- Limites : le rate limiter est local au processus et ne constitue pas une
+  quota distribué ; la qualification navigateur réelle reste à exécuter
+
 ## Gate groupe 06–10
 
 - `git diff --check` — PASS
@@ -250,7 +271,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 13 — Sécurité API et webapp.
+Jalon 14 — WireGuard, révocation, reset et transfert de propriété.
 
 ## Historique
 
