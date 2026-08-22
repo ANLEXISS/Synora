@@ -28,7 +28,9 @@ import type {
   CgeValidationHistoryItem,
   ResidentCreatePayload,
 	ResidentMutationPayload,
-	ActionPolicy,
+  ActionPolicy,
+	SynoraIncident,
+	SynoraClip,
 } from "./synora-types";
 
 export function getActionPolicy(signal?: AbortSignal) {
@@ -115,6 +117,18 @@ export function buildResidentMutationPayload(form: ResidentFormMutationInput): R
 
 export function getState(signal?: AbortSignal) {
   return synoraFetch<unknown>("/api/state", { signal }).then(normalizeSnapshot);
+}
+
+export function getIncidents(limit = 20, signal?: AbortSignal) {
+  return synoraFetch<SynoraIncident[]>(`/api/incidents?limit=${Math.max(1, Math.min(100, limit))}`, { signal });
+}
+
+export function updateIncidentStatus(id: string, action: "view" | "acknowledge" | "resolve") {
+  return synoraFetch<SynoraIncident>(`/api/incidents/${encodeURIComponent(id)}/${action}`, { method: "POST" });
+}
+
+export function getClips(limit = 20, signal?: AbortSignal) {
+  return synoraFetch<SynoraClip[]>(`/api/clips?limit=${Math.max(1, Math.min(100, limit))}`, { signal });
 }
 
 export function getRuntimeStatus(signal?: AbortSignal) {

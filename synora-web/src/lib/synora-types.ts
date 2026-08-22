@@ -221,6 +221,40 @@ export type SynoraSnapshot = {
   [key: string]: unknown;
 };
 
+export type SynoraIncident = {
+  id: string;
+  status: "new" | "viewed" | "acknowledged" | "resolved" | string;
+  created_at: string;
+  updated_at: string;
+  started_at: string;
+  last_event_at: string;
+  security_state: string;
+  severity?: string;
+  score: number;
+  camera_id?: string;
+  node_id?: string;
+  identity_kind: "resident" | "unknown" | "uncertain" | "none" | string;
+  resident_id?: string;
+  entity_id?: string;
+  track_id?: string;
+  event_ids?: string[];
+  clip_ids?: string[];
+  cause?: { event_type?: string; decision_type?: string; reason?: string; contributors?: string[]; evidence?: string[] };
+};
+
+export type SynoraClip = {
+  id: string;
+  camera_id: string;
+  node_id?: string;
+  created_at: string;
+  updated_at: string;
+  status: "receiving" | "ready" | "processing" | "processed" | "failed" | "missing" | "expired" | string;
+  size_bytes: number;
+  duration?: number;
+  incident_ids?: string[];
+  failure_code?: string;
+};
+
 export type SynoraWsMessage = {
   type?: string;
   topic?: string;
