@@ -222,7 +222,7 @@ func (s *Store) Ready(now time.Time, limit int) []contract.DeliveryRecord {
 	result := make([]contract.DeliveryRecord, 0, min(limit, len(s.order)))
 	for _, key := range s.order {
 		record, ok := s.records[key]
-		if !ok || record.State == contract.DeliveryAcknowledged || record.State == contract.DeliveryFailed || record.State == contract.DeliveryQuarantined {
+		if !ok || record.State == contract.DeliveryInFlight || record.State == contract.DeliveryAcknowledged || record.State == contract.DeliveryFailed || record.State == contract.DeliveryQuarantined {
 			continue
 		}
 		if record.State == contract.DeliveryRetryWait && record.NextAttemptAt.After(now) {

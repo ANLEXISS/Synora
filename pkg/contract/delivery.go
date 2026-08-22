@@ -141,7 +141,7 @@ func NextDeliveryState(current DeliveryState, next DeliveryState) error {
 			return nil
 		}
 	case DeliveryRetryWait:
-		if next == DeliveryInFlight || next == DeliveryFailed || next == DeliveryQuarantined {
+		if next == DeliveryInFlight || next == DeliveryAcknowledged || next == DeliveryFailed || next == DeliveryQuarantined {
 			return nil
 		}
 	}
