@@ -434,7 +434,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		log.Printf(
 			"%s %s %s",
 			r.Method,
-			r.URL.Path,
+			security.RedactSupportText(r.URL.Path),
 			time.Since(started),
 		)
 	})
