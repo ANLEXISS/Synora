@@ -11,6 +11,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	"synora/pkg/contract"
@@ -19,10 +20,15 @@ import (
 const clientWriteTimeout = 2 * time.Second
 
 func NewServer(address string) *Server {
+	allowed := make(map[string]struct{})
+	for _, service := range []string{"actions", "api", "connectivity", "core", "core-2", "discovery", "lab", "runtime-manager", "vision"} {
+		allowed[service] = struct{}{}
+	}
 	return &Server{
-		address: address,
-		clients: make(map[string]*ClientConn),
-		debug:   os.Getenv("SYNORA_BUS_DEBUG") == "1",
+		address:         address,
+		clients:         make(map[string]*ClientConn),
+		allowedServices: allowed,
+		debug:           os.Getenv("SYNORA_BUS_DEBUG") == "1",
 	}
 }
 
@@ -95,6 +101,7 @@ func (s *Server) Close() error {
 func (s *Server) handle(conn net.Conn) {
 	decoder := json.NewDecoder(conn)
 	var service string
+	peerAllowed := peerOwnedByProcess(conn)
 
 	for {
 		var msg contract.Message
@@ -117,6 +124,16 @@ func (s *Server) handle(conn net.Conn) {
 			if err := validateRegistration(msg, service); err != nil {
 				log.Printf("bus service rejected: %s reason=%v", messageActor(service, msg.Source), err)
 				s.disconnect(service, conn, "invalid registration")
+				return
+			}
+			if !peerAllowed {
+				log.Printf("bus service rejected: %s reason=peer credentials not authorized", messageActor(service, msg.Source))
+				s.disconnect(service, conn, "unauthorized peer")
+				return
+			}
+			if _, ok := s.allowedServices[msg.Source]; !ok {
+				log.Printf("bus service rejected: %s reason=service not allowlisted", msg.Source)
+				s.disconnect(service, conn, "service not allowlisted")
 				return
 			}
 			service = msg.Source
@@ -149,6 +166,33 @@ func (s *Server) handle(conn net.Conn) {
 		}
 		s.debugf("bus route ok: source=%s target=%s type=%s", msg.Source, msg.Target, msg.Type)
 	}
+}
+
+func peerOwnedByProcess(conn net.Conn) bool {
+	unixConn, ok := conn.(*net.UnixConn)
+	if !ok {
+		// net.Pipe and other in-process transports have no peer credentials;
+		// keeping them usable preserves hermetic unit tests while production
+		// Unix sockets remain subject to the OS credential check.
+		return true
+	}
+	raw, err := unixConn.SyscallConn()
+	if err != nil {
+		return false
+	}
+	var uid uint32
+	var controlErr error
+	if err := raw.Control(func(fd uintptr) {
+		credentials, err := syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
+		if err != nil {
+			controlErr = err
+			return
+		}
+		uid = credentials.Uid
+	}); err != nil {
+		return false
+	}
+	return controlErr == nil && uid == uint32(os.Getuid())
 }
 
 func (s *Server) register(service string, conn net.Conn) {

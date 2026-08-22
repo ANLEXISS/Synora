@@ -134,7 +134,7 @@ func DefaultServerConfig() ServerConfig {
 		HTTPSAddr:           ":8443",
 		TLSCertFile:         "/etc/synora/tls/synora.crt",
 		TLSKeyFile:          "/etc/synora/tls/synora.key",
-		RedirectHTTPToHTTPS: false,
+		RedirectHTTPToHTTPS: true,
 	}
 }
 

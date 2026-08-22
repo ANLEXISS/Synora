@@ -242,6 +242,18 @@ func TestHandleSystemVersionReturnsManifestAndRuntimeFields(t *testing.T) {
 	}
 }
 
+func TestHTTPRedirectUsesConfiguredHTTPSAuthority(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "http://synora.local:8080/api/state?view=full", nil)
+	redirectHTTPToHTTPS(http.NotFoundHandler(), ":18443").ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusPermanentRedirect {
+		t.Fatalf("redirect status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Location"); got != "https://synora.local:18443/api/state?view=full" {
+		t.Fatalf("redirect location=%q", got)
+	}
+}
+
 type connectivityRequesterTest struct {
 	response *contract.Message
 	err      error

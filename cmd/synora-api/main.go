@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -90,7 +91,7 @@ func main() {
 	tlsKeyFile := getenv("SYNORA_TLS_KEY_FILE", serverConfig.TLSKeyFile)
 	httpsEnabled := httpsConfigured && regularFile(tlsCertFile) && regularFile(tlsKeyFile)
 	if httpsConfigured && !httpsEnabled {
-		log.Printf("synora-api https degraded: TLS certificate or key missing; HTTP remains available")
+		log.Fatalf("synora-api refuses insecure startup: HTTPS is enabled but TLS certificate or key is missing")
 	}
 
 	sessionTTL := getenvDuration("SYNORA_SESSION_TTL", webapi.DefaultSessionTTL)
@@ -259,6 +260,9 @@ func main() {
 		auth,
 		getenvBool("SYNORA_WS_QUERY_TOKEN", false),
 	)
+	if httpsEnabled {
+		handler = redirectHTTPToHTTPS(handler, httpsAddr)
+	}
 	httpServer := &http.Server{
 		Addr:              httpAddr,
 		Handler:           handler,
@@ -324,6 +328,24 @@ func websocketOriginAllowed(r *http.Request, cfg *security.Config) bool {
 		return true
 	}
 	return sameOriginRequest(r, cfg)
+}
+
+func redirectHTTPToHTTPS(next http.Handler, httpsAddr string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if hostname, _, err := net.SplitHostPort(host); err == nil {
+			host = hostname
+		}
+		port := strings.TrimPrefix(strings.TrimSpace(httpsAddr), ":")
+		if _, configuredPort, err := net.SplitHostPort(httpsAddr); err == nil {
+			port = configuredPort
+		}
+		if port != "" {
+			host = net.JoinHostPort(host, port)
+		}
+		location := "https://" + host + r.URL.RequestURI()
+		http.Redirect(w, r, location, http.StatusPermanentRedirect)
+	})
 }
 
 func regularFile(path string) bool {

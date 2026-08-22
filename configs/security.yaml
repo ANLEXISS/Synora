@@ -11,7 +11,7 @@ server:
   https_addr: ":8443"
   tls_cert_file: "/etc/synora/tls/synora.crt"
   tls_key_file: "/etc/synora/tls/synora.key"
-  redirect_http_to_https: false
+  redirect_http_to_https: true
 
 vision:
   face_data_root: "/var/lib/synora/vision/face"

@@ -59,6 +59,24 @@ func TestValidateMessageRejectsSourceMismatch(t *testing.T) {
 	}
 }
 
+func TestServerRejectsUnknownProducerService(t *testing.T) {
+	server := NewServer("net-pipe-test")
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	go server.handle(serverConn)
+	registration := contract.Message{Type: "bus.register", Kind: contract.KindCommand, Source: "spoofed-producer"}
+	if err := json.NewEncoder(clientConn).Encode(registration); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := server.getClient("spoofed-producer"); ok {
+			t.Fatal("unknown producer was registered")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func registeredPipe(t *testing.T, server *Server, service string) (net.Conn, *json.Decoder) {
 	t.Helper()
 	serverConn, clientConn := net.Pipe()
