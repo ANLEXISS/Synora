@@ -92,6 +92,9 @@ func mkdirNoSymlink(path string, mode os.FileMode) error {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return fmt.Errorf("unsafe face storage directory")
 		}
+		if err := os.Chmod(clean, mode.Perm()); err != nil {
+			return err
+		}
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -113,6 +116,13 @@ func mkdirNoSymlink(path string, mode os.FileMode) error {
 		return fmt.Errorf("unsafe face storage directory")
 	}
 	return nil
+}
+
+// EnsurePrivateDirectory creates or hardens a local Synora data directory.
+// Ownership is managed by the service installer; runtime code refuses links
+// and removes group/other write access without changing ownership.
+func EnsurePrivateDirectory(path string) error {
+	return mkdirNoSymlink(path, 0o750)
 }
 
 func (s *Store) SourcePath(residentID, storageKey string) (string, error) {
@@ -285,6 +295,61 @@ func (s *Store) RemoveSource(photo contract.FacePhoto) error {
 		return err
 	}
 	return nil
+}
+
+// RemoveResidentSources removes only the canonical source directory for a
+// resident. It never follows a symlink and never touches dataset versions;
+// dataset removal is coordinated by the discovery activation transaction.
+func (s *Store) RemoveResidentSources(residentID string) error {
+	if s == nil || !SafeComponent(residentID) {
+		return contract.NewAPIError(contract.ErrorValidationFailed, "invalid resident id")
+	}
+	if err := s.Init(); err != nil {
+		return err
+	}
+	path := filepath.Join(s.sourceDir(), residentID)
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("unsafe resident source directory")
+	}
+	if err := removeTreeNoSymlink(path); err != nil {
+		return err
+	}
+	syncDir(s.sourceDir())
+	return nil
+}
+
+func removeTreeNoSymlink(path string) error {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		child := filepath.Join(path, entry.Name())
+		info, err := os.Lstat(child)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("unsafe face storage symlink")
+		}
+		if info.IsDir() {
+			if err := removeTreeNoSymlink(child); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.Remove(child); err != nil {
+			return err
+		}
+	}
+	return os.Remove(path)
 }
 
 // OrphanSourceKeys reports source files which have no Core metadata. It never

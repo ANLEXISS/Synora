@@ -641,6 +641,14 @@ func (c *Client) DeleteResident(id string) (map[string]any, error) {
 	return result, nil
 }
 
+func (c *Client) ExportResidentPrivacy(id string) (map[string]any, error) {
+	var result map[string]any
+	if err := c.call("resident.privacy.export", idPayload(id), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (c *Client) ResidentPhotos(residentID string, limit int) ([]contract.FacePhoto, error) {
 	var result []contract.FacePhoto
 	if err := c.call("residents.photos.list", map[string]any{"resident_id": strings.TrimSpace(residentID), "limit": limit}, &result); err != nil {

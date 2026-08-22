@@ -358,6 +358,11 @@ func (m *Manager) syncFaceDataset() {
 			log.Printf("face metadata removal confirmation failed photo=%s err=%v", photoID, err)
 		}
 	}
+	if len(activationResult.RemovedPhotoIDs) > 0 {
+		if _, err := m.faceBuilder.PurgeObsolete(); err != nil {
+			log.Printf("face dataset sensitive purge deferred err=%v", err)
+		}
+	}
 	if _, err := m.faceBuilder.PruneObsolete(7 * 24 * time.Hour); err != nil {
 		log.Printf("face dataset obsolete version purge deferred err=%v", err)
 	}

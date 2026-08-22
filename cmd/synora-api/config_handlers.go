@@ -65,6 +65,10 @@ type residentConfigurationProvider interface {
 	DeleteResident(string) (map[string]any, error)
 }
 
+type residentPrivacyExportProvider interface {
+	ExportResidentPrivacy(string) (map[string]any, error)
+}
+
 func registerResidentRoutes(mux *http.ServeMux, core residentConfigurationProvider, faces *faceStore) {
 	mux.HandleFunc("/api/residents", handleResidentCollection(core, faces))
 	mux.HandleFunc("/api/residents/", handleResidentRoute(core, faces))
@@ -325,10 +329,43 @@ func handleResidentItem(core residentConfigurationProvider, faceStores ...*faceS
 				writeError(w, err)
 				return
 			}
+			if faces != nil {
+				if err := faces.deleteResidentData(id); err != nil {
+					writeError(w, contract.NewAPIError(contract.ErrorInternal, "resident sensitive data cleanup failed"))
+					return
+				}
+			}
 			writeJSON(w, http.StatusOK, item)
 		default:
 			writeMethodNotAllowed(w, http.MethodGet, http.MethodPatch, http.MethodDelete)
 		}
+	}
+}
+
+func handleResidentPrivacyExport(core residentConfigurationProvider) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !isAdminRequest(r) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return
+		}
+		parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/residents/"))
+		if len(parts) != 3 || parts[1] != "privacy" || parts[2] != "export" {
+			writeRouteNotFound(w, "resident privacy export")
+			return
+		}
+		id, ok := decodePathPart(parts[0])
+		provider, providerOK := core.(residentPrivacyExportProvider)
+		if !ok || !safeStorageSegment(id) || !providerOK {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return
+		}
+		export, err := provider.ExportResidentPrivacy(id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		w.Header().Set("Content-Disposition", `attachment; filename="synora-resident-export.json"`)
+		writeJSON(w, http.StatusOK, export)
 	}
 }
 

@@ -47,6 +47,10 @@ func handleResidentRoute(core residentConfigurationProvider, faces *faceStore) h
 	return func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.URL.Path, "/api/residents/")
 		parts := splitPath(rest)
+		if len(parts) == 3 && parts[1] == "privacy" && parts[2] == "export" {
+			handleResidentPrivacyExport(core).ServeHTTP(w, r)
+			return
+		}
 		if len(parts) >= 2 && parts[1] == "photos" {
 			handleResidentPhotoRoute(core, faces).ServeHTTP(w, r)
 			return
@@ -281,11 +285,59 @@ func (s *faceStore) ensureResidentDirs(residentID string) error {
 		return contract.NewAPIError(contract.ErrorValidationFailed, "invalid resident id")
 	}
 	for _, name := range []string{"base", "auto", "review"} {
-		if err := os.MkdirAll(filepath.Join(s.root, residentID, name), 0o750); err != nil {
+		if err := facestore.EnsurePrivateDirectory(filepath.Join(s.root, residentID, name)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (s *faceStore) deleteResidentData(residentID string) error {
+	if s == nil || !safeStorageSegment(residentID) {
+		return contract.NewAPIError(contract.ErrorValidationFailed, "invalid resident id")
+	}
+	if s.physical != nil {
+		if err := s.physical.RemoveResidentSources(residentID); err != nil {
+			return err
+		}
+	}
+	path := filepath.Join(s.root, residentID)
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return contract.NewAPIError(contract.ErrorValidationFailed, "unsafe resident face directory")
+	}
+	return removeFaceTree(path)
+}
+
+func removeFaceTree(path string) error {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		child := filepath.Join(path, entry.Name())
+		info, err := os.Lstat(child)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return contract.NewAPIError(contract.ErrorValidationFailed, "unsafe resident face symlink")
+		}
+		if info.IsDir() {
+			if err := removeFaceTree(child); err != nil {
+				return err
+			}
+		} else if err := os.Remove(child); err != nil {
+			return err
+		}
+	}
+	return os.Remove(path)
 }
 
 func (s *faceStore) reconcileProfile(profile *contract.FaceProfile, residentID string) error {

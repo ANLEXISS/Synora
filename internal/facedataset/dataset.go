@@ -273,6 +273,13 @@ func (b *Builder) PruneObsolete(keepAge time.Duration) (int, error) {
 	if b == nil || b.Store == nil || keepAge <= 0 {
 		return 0, nil
 	}
+	return b.pruneObsolete(keepAge, false)
+}
+
+func (b *Builder) pruneObsolete(keepAge time.Duration, purgeAll bool) (int, error) {
+	if b == nil || b.Store == nil {
+		return 0, nil
+	}
 	current, err := ReadCurrent(b.Store.Root)
 	if err != nil {
 		return 0, nil
@@ -291,7 +298,7 @@ func (b *Builder) PruneObsolete(keepAge time.Duration) (int, error) {
 		if err != nil {
 			return removed, err
 		}
-		if now.Sub(info.ModTime().UTC()) < keepAge {
+		if !purgeAll && now.Sub(info.ModTime().UTC()) < keepAge {
 			continue
 		}
 		path := filepath.Join(b.Store.Root, "datasets", "versions", entry.Name())
@@ -307,6 +314,13 @@ func (b *Builder) PruneObsolete(keepAge time.Duration) (int, error) {
 		syncDir(filepath.Join(b.Store.Root, "datasets", "versions"))
 	}
 	return removed, nil
+}
+
+// PurgeObsolete removes every immutable version except datasets/current. It
+// is reserved for explicit biometric deletion; normal retention continues to
+// use PruneObsolete with its configured grace period.
+func (b *Builder) PurgeObsolete() (int, error) {
+	return b.pruneObsolete(0, true)
 }
 
 func verifySource(path string, size int64, checksum string) error {

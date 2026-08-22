@@ -400,6 +400,35 @@ func (s *Server) residentConfigGet(msg contract.Message) (any, error) {
 	return item.ConfigView(), nil
 }
 
+// residentPrivacyExport is deliberately metadata-only. Source photos,
+// embeddings, storage keys and absolute paths never cross the RPC boundary.
+func (s *Server) residentPrivacyExport(msg contract.Message) (any, error) {
+	var req cgeIDRequest
+	if err := decodePayload(msg.Payload, &req); err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(req.ID)
+	s.snapshot.Mu.RLock()
+	resident, ok := topology.GetResident(s.snapshot.Residents, id)
+	s.snapshot.Mu.RUnlock()
+	if !ok || resident == nil {
+		return nil, contract.NewAPIError(contract.ErrorNotFound, "resident not found")
+	}
+	photos := []map[string]any{}
+	if s.state != nil {
+		for _, photo := range s.state.FacePhotosList(id, 200) {
+			photos = append(photos, facePhotoPublicJSON(photo))
+		}
+	}
+	return map[string]any{
+		"schema_version": 1,
+		"exported_at":    time.Now().UTC(),
+		"resident":       resident.ConfigView(),
+		"face_photos":    photos,
+		"biometric_data": "excluded_by_policy",
+	}, nil
+}
+
 func (s *Server) residentConfigCreate(msg contract.Message) (any, error) {
 	if err := validateObjectFields(msg.Payload,
 		"id", "name", "first_name", "last_name", "display_name", "role", "admin", "enabled", "trusted",

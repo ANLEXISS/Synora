@@ -275,6 +275,7 @@ func (s *Server) register() {
 	s.handlers["residents.create"] = s.residentConfigCreate
 	s.handlers["resident.update"] = s.residentConfigUpdate
 	s.handlers["resident.delete"] = s.residentConfigDelete
+	s.handlers["resident.privacy.export"] = s.residentPrivacyExport
 	s.handlers["residents.photos.list"] = s.facePhotoList
 	s.handlers["residents.photos.get"] = s.facePhotoGet
 	s.handlers["residents.photos.register"] = s.facePhotoRegister

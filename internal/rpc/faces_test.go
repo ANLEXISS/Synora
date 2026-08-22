@@ -63,4 +63,21 @@ func TestFacePhotoDeletionRequiresDatasetExclusionBeforeRemoved(t *testing.T) {
 	}
 }
 
+func TestResidentPrivacyExportExcludesStorageFields(t *testing.T) {
+	store := state.NewStore()
+	server := NewServer(Config{State: store, Snapshot: &snapshot.Builder{Mu: &sync.RWMutex{}, Residents: map[string]*topology.Resident{"alexis": {ID: "alexis", Name: "Alexis"}}}})
+	photo := contract.FacePhoto{ID: "photo-export", ResidentID: "alexis", StorageKey: "alexis/photo-export.png", Path: "/var/lib/synora/vision/face/sources/alexis/photo-export.png", Status: string(contract.FacePhotoStored), SizeBytes: 10, Checksum: "sha-export", MediaType: "image/png"}
+	if _, err := server.Handler("residents.photos.register")(messageWithPayload(photo)); err != nil {
+		t.Fatal(err)
+	}
+	value, err := server.Handler("resident.privacy.export")(rpcMessage(`{"id":"alexis"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := string(mustJSON(value))
+	if containsString(encoded, "storage_key") || containsString(encoded, "var/lib") || !containsString(encoded, "biometric_data") {
+		t.Fatalf("privacy export leaked internal data: %s", encoded)
+	}
+}
+
 func mustJSON(value any) []byte { data, _ := json.Marshal(value); return data }

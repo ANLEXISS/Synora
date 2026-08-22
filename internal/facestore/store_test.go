@@ -90,3 +90,30 @@ func TestCleanupPartsIsBoundedAndDeterministic(t *testing.T) {
 		t.Fatalf("old part still exists: %v", err)
 	}
 }
+
+func TestRemoveResidentSourcesIsScopedAndRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	store := New(root, Limits{})
+	if err := store.Init(); err != nil {
+		t.Fatal(err)
+	}
+	path, err := store.SourcePath("resident-1", "resident-1/photo.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("photo"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RemoveResidentSources("resident-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("resident source remains: %v", err)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(root, "sources", "resident-2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RemoveResidentSources("resident-2"); err == nil {
+		t.Fatal("symlink resident source accepted")
+	}
+}
