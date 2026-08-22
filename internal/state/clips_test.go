@@ -50,6 +50,16 @@ func TestClipStateRegisterTransitionReconcileAndDefensiveCopies(t *testing.T) {
 	}
 }
 
+func TestClipStorageReferencesSnapshotIsDefensive(t *testing.T) {
+	store := NewStore()
+	store.SetClip(&ClipState{ID: "clip-1", CameraID: "cam-1", Path: "/spool/cam-1/clip-1.mp4"})
+	references := store.ClipStorageReferences()
+	delete(references, "/spool/cam-1/clip-1.mp4")
+	if len(store.ClipStorageReferences()) != 1 {
+		t.Fatal("storage references must be returned as a defensive snapshot")
+	}
+}
+
 func TestClipStateRetentionProtectsActiveIncidentEvidence(t *testing.T) {
 	root := t.TempDir()
 	old := time.Now().UTC().Add(-2 * time.Hour)

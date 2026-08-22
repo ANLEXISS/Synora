@@ -3,11 +3,13 @@ package clipstore
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func SafeComponent(value string) bool {
@@ -111,4 +113,56 @@ func VerifyRegularFile(path string, expectedSize int64, expectedChecksum string)
 		return false, err
 	}
 	return strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), strings.TrimSpace(expectedChecksum)), nil
+}
+
+// ReconcileOrphans removes old finalized clip files that have no durable
+// metadata reference. A file younger than maxAge is retained so a crash
+// between rename and publication can still be recovered by the next state
+// load. Symlinks and non-MP4 files are never touched.
+func ReconcileOrphans(root string, referenced map[string]struct{}, now time.Time, maxAge time.Duration) (int, error) {
+	root = strings.TrimSpace(root)
+	if root == "" || maxAge <= 0 {
+		return 0, nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	info, err := os.Stat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if !info.IsDir() {
+		return 0, fmt.Errorf("clip storage root is not a directory")
+	}
+	removed := 0
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if !strings.HasSuffix(entry.Name(), ".mp4") {
+			return nil
+		}
+		if _, ok := referenced[filepath.Clean(path)]; ok {
+			return nil
+		}
+		stat, statErr := entry.Info()
+		if statErr != nil {
+			return statErr
+		}
+		if now.Sub(stat.ModTime().UTC()) < maxAge {
+			return nil
+		}
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return removeErr
+		}
+		removed++
+		return nil
+	})
+	return removed, err
 }

@@ -3,6 +3,7 @@ package state
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -372,6 +373,24 @@ func (s *Store) Clip(id string) (*ClipState, bool) {
 	}
 	cloned := cloneClip(value)
 	return &cloned, true
+}
+
+// ClipStorageReferences returns the internal paths that remain owned by
+// durable clip metadata. Callers use the snapshot to reconcile files without
+// holding the StateStore lock during filesystem operations.
+func (s *Store) ClipStorageReferences() map[string]struct{} {
+	references := make(map[string]struct{})
+	if s == nil {
+		return references
+	}
+	s.mu.RLock()
+	for _, value := range s.Clips {
+		if value != nil && strings.TrimSpace(value.Path) != "" {
+			references[filepath.Clean(value.Path)] = struct{}{}
+		}
+	}
+	s.mu.RUnlock()
+	return references
 }
 
 const (

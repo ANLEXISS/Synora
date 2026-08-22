@@ -132,10 +132,17 @@ func (a *coreApp) reconcileClips() {
 	if a == nil || a.state == nil {
 		return
 	}
-	if changed := a.state.ReconcileClipFiles(time.Now().UTC()); changed > 0 {
+	now := time.Now().UTC()
+	if changed := a.state.ReconcileClipFiles(now); changed > 0 {
 		log.Printf("core: reconciled clips changed=%d", changed)
 	}
-	removed, err := a.state.PurgeClips(time.Now().UTC(), clipRetentionConfig())
+	retention := clipRetentionConfig()
+	if removed, err := clipstore.ReconcileOrphans(clipStorageRoot(), a.state.ClipStorageReferences(), now, retention.MaxAge); err != nil {
+		log.Printf("core: orphan clip reconciliation warning err=%v", err)
+	} else if removed > 0 {
+		log.Printf("core: orphan clips removed count=%d", removed)
+	}
+	removed, err := a.state.PurgeClips(now, retention)
 	if err != nil {
 		log.Printf("core: clip retention warning err=%v", err)
 	} else if len(removed) > 0 {
