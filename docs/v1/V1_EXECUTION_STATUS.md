@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 04 — Dispatcher, ACK et reconnexion
+- Jalon : 05 — Replay, ordre et intégration outbox
 - Groupe : 01–05
-- État : validé et intégré dans la branche d’exécution
+- État : validé ; gate groupe prête pour checkpoint
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -67,10 +67,43 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - État : branche dédiée poussée, fast-forward dans
   `integration/synora-v1-execution`
 
+## Jalon 05
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j05-outbox-integration`
+- Branche dédiée : `codex/v1-j05-outbox-integration`
+- Commits : `69851aef9d6194b7ee9137484cbdfc1f4dc28816` et
+  `ff2e61c21607dab0c751b4537670e0f8cd145f52`
+- Validations ciblées : `go test ./internal/delivery ./internal/dispatcher
+  ./internal/outbox -count=1`, vet ciblé et race ciblé — PASS
+- Intégration réelle : bus Unix, ACK `delivery.ack` limité aux métadonnées,
+  ordre `incident.created → clip.available`, replay après arrêt avant ACK,
+  identité conservée, anciennes epochs et doublons rejetés/idempotents
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`
+
+## Gate groupe 01–05
+
+- `go test ./... -count=1` — PASS
+- `go test ./... -shuffle=on -count=3` — PASS
+- `go vet ./...` — PASS
+- `timeout 300s go test -race ./... -count=1` — PASS à la seconde exécution
+  globale ; la première a subi un timeout de contention isolé, puis le test
+  concerné a passé trois fois sous race
+- Tests Python Vision — PASS (21 tests)
+- `go list ./...` — bloqué par l’environnement Go : le worktree est détecté
+  sous le répertoire parent `/home/rock`, qui contient un répertoire `.git`
+  vide et non-repository ; la variante strictement équivalente
+  `GOFLAGS=-buildvcs=false go list ./...` — PASS et énumère tous les packages.
+  Aucun fichier ni configuration du dépôt n’a été modifié pour contourner ce
+  problème.
+- `git diff --check` et worktree — PASS/propre
+- Limites : aucune qualification matérielle effectuée sur cette machine
+- Checkpoint : tag annoté `v1-checkpoint-05` à créer et pousser après ce commit
+
 ## Prochain jalon
 
-Jalon 05 — Replay, ordre et intégration outbox, uniquement après commit,
-validation et push du jalon 04.
+Jalon 06 — États de récupération Core, uniquement après confirmation explicite
+du groupe 01–05.
 
 ## Historique
 
