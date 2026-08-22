@@ -1583,6 +1583,19 @@ func (s *Store) PersistedState() *PersistedState {
 	return s.persistedStateLocked(time.Now().UTC())
 }
 
+// RestorePersistedState replaces the durable state from a verified local
+// snapshot. The caller is responsible for checksum and schema validation.
+func (s *Store) RestorePersistedState(persisted *PersistedState) error {
+	if s == nil || persisted == nil {
+		return errors.New("persisted state is required")
+	}
+	s.applyPersistedState(persisted)
+	s.mu.Lock()
+	s.revision.Add(1)
+	s.mu.Unlock()
+	return s.SaveNow()
+}
+
 func (s *Store) applyPersistedState(persisted *PersistedState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
