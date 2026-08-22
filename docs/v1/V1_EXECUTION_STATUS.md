@@ -2,9 +2,9 @@
 
 ## Jalon courant
 
-- Jalon : 13 — Sécurité API et webapp
+- Jalon : 14 — WireGuard, révocation, reset et transfert de propriété
 - Groupe : 11–15
-- État : validé et intégré ; poursuite automatique vers J14
+- État : validé et intégré ; poursuite automatique vers J15
 - Branche : `integration/synora-v1-execution`
 - Worktree : `/home/rock/Synora-worktrees/v1-execution`
 - Base consolidée : `integration/synora-v1`
@@ -243,6 +243,24 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 - Limites : le rate limiter est local au processus et ne constitue pas une
   quota distribué ; la qualification navigateur réelle reste à exécuter
 
+## Jalon 14
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-j14-connectivity`
+- Branche dédiée : `codex/v1-j14-connectivity`
+- Commits : `febd9c9` (registre d’accès signé) et `b7aaa03` (architecture)
+- Validations ciblées après intégration : `go test ./internal/connectivity
+  ./internal/security ./internal/discovery/network ./cmd/synora-api
+  -count=1`, vet ciblé et race ciblé — PASS
+- Garanties démontrées : frontière WireGuard directe/relais sans broker de
+  données privées, rendez-vous limité aux métadonnées publiques et expirées,
+  registre atomique `0600`, autorisations signées par génération, rotation,
+  révocation immédiate, transfert de propriété et factory reset d’accès
+- État : branche dédiée poussée, fast-forward dans
+  `integration/synora-v1-execution`; intégration finale dans
+  `integration/synora-v1` après ce compte rendu
+- Limites : l’adaptateur WireGuard/netlink réel, le débit, la radio et la
+  qualification Rock 5/Zero 3W restent hors validation locale
+
 ## Gate groupe 06–10
 
 - `git diff --check` — PASS
@@ -271,7 +289,7 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
 
 ## Prochain jalon
 
-Jalon 14 — WireGuard, révocation, reset et transfert de propriété.
+Jalon 15 — Fuzzing, permissions, audit, support et gate groupe 11–15.
 
 ## Historique
 
