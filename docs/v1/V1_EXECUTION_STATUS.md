@@ -98,7 +98,8 @@ produit n’a été modifié pendant cette qualification. Le commit est poussé 
   problème.
 - `git diff --check` et worktree — PASS/propre
 - Limites : aucune qualification matérielle effectuée sur cette machine
-- Checkpoint : tag annoté `v1-checkpoint-05` à créer et pousser après ce commit
+- Checkpoint : tag annoté `v1-checkpoint-05` créé et poussé sur `origin`, pointant
+  sur le commit terminal `f3db7b9bb149b208e168e77ba6057c61bc7e148c`
 
 ## Prochain jalon
 
