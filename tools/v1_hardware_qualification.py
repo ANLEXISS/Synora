@@ -39,8 +39,10 @@ def digest_file(path):
 
 def atomic_json(path, value):
     path = Path(path)
+    parent_exists = path.parent.exists()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.parent.chmod(0o700)
+    if not parent_exists:
+        path.parent.chmod(0o700)
     temporary = path.with_name("." + path.name + ".tmp")
     data = json.dumps(value, sort_keys=True, indent=2).encode("utf-8") + b"\n"
     with temporary.open("wb") as stream:
