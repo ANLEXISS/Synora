@@ -781,6 +781,38 @@ Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentai
 
 Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
 
+## Jalon M013 — Présence résidente cohérente
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m013-presence`
+- Branche dédiée : `codex/v1-m013-presence`
+- Commit fonctionnel : `f49c145`
+- Livrables : seuils d’hystérésis centralisés (`enter=0.60`, `exit=0.40`),
+  présence par résident et emplacement, provenance additive de confiance dans
+  StateStore (`confidence_source`), decay de 15 minutes à la frontière de
+  contexte en lecture seule, et conservation de `last_seen` lors d’une caméra
+  muette ou d’une expiration.
+- Compatibilité : la vue legacy `residents` reste inchangée ; la provenance
+  est exposée uniquement dans la collection publique runtime `presence` et
+  persiste avec le StateStore. Une identité incertaine ne devient jamais une
+  présence certaine, et les identités faibles restent classées uncertain dans
+  les incidents.
+- Tests déterministes ajoutés : entrée/sortie et oscillation aux seuils,
+  refus d’une identité incertaine, decay sans mutation de la source, source de
+  confiance dans snapshot read-only, caméra muette avec dernier signal et
+  restauration de la provenance après redémarrage.
+- Validations : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./...`, `timeout 300s env GOFLAGS=-buildvcs=false go test -race ./... -count=1`
+  et tests Python Vision (22) — PASS.
+- Note de qualification race : une première passe a reproduit l’échec
+  intermittent connu de `internal/cge/shadowworkflow`; la relance ciblée et
+  la seconde passe globale sont vertes, sans rapport de data race.
+- Limite environnement : la qualification Web n’a pas été relancée, car les
+  dépendances locales de `synora-web` sont absentes et leur installation est
+  hors périmètre autorisé.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon M012 — Tracks, clusters et fenêtres temporelles
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m012-tracks`
