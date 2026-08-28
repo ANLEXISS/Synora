@@ -54,18 +54,19 @@ type coreMetrics struct {
 type coreApp struct {
 	mu sync.RWMutex
 
-	snapshotPending  atomic.Bool
-	coreRevision     atomic.Uint64
-	realtimeMu       sync.Mutex
-	realtimeEpoch    string
-	realtimeSequence atomic.Uint64
-	eventMu          sync.Mutex
-	processMu        sync.Mutex
-	processedEvents  map[string]struct{}
-	clipAvailable    map[string]struct{}
-	inputEpoch       string
-	inputSequence    uint64
-	inputReceivedAt  time.Time
+	snapshotPending            atomic.Bool
+	coreRevision               atomic.Uint64
+	realtimeMu                 sync.Mutex
+	realtimeEpoch              string
+	realtimeSequence           atomic.Uint64
+	eventMu                    sync.Mutex
+	processMu                  sync.Mutex
+	processedEvents            map[string]struct{}
+	processedEventFingerprints map[string]string
+	clipAvailable              map[string]struct{}
+	inputEpoch                 string
+	inputSequence              uint64
+	inputReceivedAt            time.Time
 
 	bus        coreBus
 	engine     *engine.Engine
@@ -291,6 +292,11 @@ func main() {
 	app.ingest = &ingest.Queue{
 		Parser: ingest.Parser{Devices: app.device},
 		Rate:   app.rate,
+		Timestamp: ingest.TimestampPolicy{
+			Now:           time.Now,
+			MaxFutureSkew: 5 * time.Minute,
+			MaxPastAge:    24 * time.Hour,
+		},
 		High:   app.highPriority,
 		Normal: app.normalQueue,
 	}
@@ -500,6 +506,10 @@ func (a *coreApp) processLoop() {
 func (a *coreApp) processEvent(event *contract.Event) {
 
 	if event == nil {
+		return
+	}
+	if err := a.validateIngressEvent(event); err != nil {
+		log.Printf("core: event rejected before mutation id=%s type=%s reason=%v", event.ID, event.Type, err)
 		return
 	}
 	if !a.acceptEvent(event) {

@@ -74,14 +74,17 @@ func (c *RateController) Accept(event *contract.Event) bool {
 		fingerprint += "|" + suffix
 	}
 
-	if lastSeen, ok := c.fingerprints[fingerprint]; ok {
-
-		if now.Sub(lastSeen) <= c.dedupeWindow {
-			return false
+	// An explicit transport ID is Core's idempotence key. Let it reach Core so
+	// a retry can be distinguished from an ID collision with another payload.
+	// The rate controller still deduplicates legacy messages that have no ID.
+	if event.ID == "" {
+		if lastSeen, ok := c.fingerprints[fingerprint]; ok {
+			if now.Sub(lastSeen) <= c.dedupeWindow {
+				return false
+			}
 		}
+		c.fingerprints[fingerprint] = now
 	}
-
-	c.fingerprints[fingerprint] = now
 
 	// ------------------------------------------------
 	// THROTTLE GROUP

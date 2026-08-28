@@ -49,6 +49,18 @@ func TestRateControllerAcceptsDistinctSimulatedSteps(t *testing.T) {
 	}
 }
 
+func TestRateControllerLeavesExplicitIDsToCoreIdempotenceGate(t *testing.T) {
+	controller := NewRateController(2*time.Second, 750*time.Millisecond)
+	now := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	first := &contract.Event{ID: "same-id", Type: contract.EventVisionUnknown, Source: "vision", Timestamp: now, Priority: contract.PriorityCritical, GroupKey: "first"}
+	second := *first
+	second.Payload = map[string]any{"confidence": .1}
+	second.Timestamp = now.Add(time.Second)
+	if !controller.Accept(first) || !controller.Accept(&second) {
+		t.Fatal("explicitly identified events must reach Core for idempotence/collision validation")
+	}
+}
+
 func simulatedUnknownEvent(at time.Time, instanceID string) *contract.Event {
 	return &contract.Event{
 		Type:      contract.EventVisionUnknown,

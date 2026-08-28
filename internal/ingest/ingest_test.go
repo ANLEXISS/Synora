@@ -103,3 +103,55 @@ func TestParserPreservesTransportIdentityAndCaptureTimestamp(t *testing.T) {
 		t.Fatalf("received timestamp should be after capture timestamp: %#v", event)
 	}
 }
+
+func TestQueueRejectsFutureAndTooOldEventsWithDeterministicClock(t *testing.T) {
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	policy := TimestampPolicy{
+		Now:           func() time.Time { return now },
+		MaxFutureSkew: 5 * time.Minute,
+		MaxPastAge:    10 * time.Minute,
+	}
+	high := make(chan *contract.Event, 2)
+	normal := make(chan *contract.Event, 2)
+	queue := &Queue{Parser: Parser{Now: func() time.Time { return now }}, Timestamp: policy, High: high, Normal: normal}
+
+	for name, timestamp := range map[string]time.Time{
+		"future": now.Add(6 * time.Minute),
+		"old":    now.Add(-11 * time.Minute),
+	} {
+		_, accepted := queue.Ingest(contract.Message{
+			ID: "event-" + name, Type: contract.EventVisionMotion, Kind: contract.KindEvent,
+			Source: "vision", Timestamp: timestamp,
+		})
+		if accepted {
+			t.Fatalf("%s event should be rejected", name)
+		}
+	}
+	if len(normal) != 0 || len(high) != 0 {
+		t.Fatal("timestamp-rejected events must not reach a processing queue")
+	}
+
+	_, accepted := queue.Ingest(contract.Message{
+		ID: "event-current", Type: contract.EventVisionMotion, Kind: contract.KindEvent,
+		Source: "vision", Timestamp: now,
+	})
+	if !accepted {
+		t.Fatal("current event should be accepted")
+	}
+}
+
+func TestQueueAllowsExplicitlyHistoricalSimulation(t *testing.T) {
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	queue := &Queue{
+		Parser:    Parser{Now: func() time.Time { return now }},
+		Timestamp: TimestampPolicy{Now: func() time.Time { return now }, MaxPastAge: time.Minute},
+		Normal:    make(chan *contract.Event, 1),
+	}
+	_, accepted := queue.Ingest(contract.Message{
+		ID: "historical-simulation", Type: contract.EventVisionMotion, Kind: contract.KindEvent,
+		Source: "lab", SourceType: contract.SourceSimulator, Timestamp: now.Add(-24 * time.Hour),
+	})
+	if !accepted {
+		t.Fatal("explicitly simulated historical event should be accepted")
+	}
+}

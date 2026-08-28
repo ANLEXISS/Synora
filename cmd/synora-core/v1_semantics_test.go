@@ -1,9 +1,11 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
+	"synora/internal/state"
 	"synora/pkg/contract"
 )
 
@@ -38,4 +40,71 @@ func TestV1FallbackKeyIgnoresReceiveTimeButSeparatesObservations(t *testing.T) {
 	if canonicalEventKey(first) == canonicalEventKey(&second) {
 		t.Fatal("distinct captured observations were merged")
 	}
+}
+
+func TestV1RejectsEventIDCollisionBeforeMutation(t *testing.T) {
+	app, _ := newTestCoreApp(t)
+	at := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	app.processEvent(&contract.Event{
+		ID: "collision", Type: contract.EventVisionMotion, Source: "vision-worker",
+		DeviceID: "cam_01", Timestamp: at, Payload: map[string]any{"motion": true},
+	})
+	app.processEvent(&contract.Event{
+		ID: "collision", Type: contract.EventVisionMotion, Source: "vision-worker",
+		DeviceID: "cam_01", Timestamp: at, Payload: map[string]any{"motion": false},
+	})
+	if events := app.state.RecentEventsList(); len(events) != 1 {
+		t.Fatalf("ID collision must not apply a second event: %#v", events)
+	}
+	if app.metrics.metricsSnapshotEventProcessed() != 1 {
+		t.Fatal("ID collision must not increment processed-event metric")
+	}
+}
+
+func TestV1RejectsPoisonAndMissingClipBeforeMutation(t *testing.T) {
+	app, _ := newTestCoreApp(t)
+	at := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	app.processEvent(&contract.Event{
+		ID: "poison", Type: contract.EventActionResult, Source: "actions", Timestamp: at,
+		Payload: map[string]any{"status": ""},
+	})
+	app.processEvent(&contract.Event{
+		ID: "missing-clip", Type: contract.EventClipProcessed, Source: "discovery",
+		DeviceID: "cam_01", ClipID: "clip-does-not-exist", Timestamp: at,
+	})
+	if events := app.state.RecentEventsList(); len(events) != 0 {
+		t.Fatalf("invalid ingress events must not mutate the state journal: %#v", events)
+	}
+}
+
+func TestV1ReplayAfterRestartIsDeduplicatedFromDurableRecentEvents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	first, _ := newTestCoreApp(t)
+	first.state.SetPersistence(state.NewFilePersistence(path))
+	at := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	event := &contract.Event{
+		ID: "durable-replay", Type: contract.EventVisionMotion, Source: "vision-worker",
+		DeviceID: "cam_01", Timestamp: at, Payload: map[string]any{"motion": true},
+	}
+	first.processEvent(event)
+
+	restarted, _ := newTestCoreApp(t)
+	restarted.state.SetPersistence(state.NewFilePersistence(path))
+	if _, err := restarted.state.LoadPersisted(); err != nil {
+		t.Fatalf("restore persisted recent events: %v", err)
+	}
+	restarted.eventStore.Load(restarted.state.RecentEventsList())
+	restarted.processEvent(&contract.Event{
+		ID: "durable-replay", Type: contract.EventVisionMotion, Source: "vision-worker",
+		DeviceID: "cam_01", Timestamp: at, Payload: map[string]any{"motion": true},
+	})
+	if len(restarted.state.RecentEventsList()) != 1 || restarted.metrics.metricsSnapshotEventProcessed() != 0 {
+		t.Fatal("durable replay should not reapply or count the event")
+	}
+}
+
+func (m *coreMetrics) metricsSnapshotEventProcessed() int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.eventProcessed
 }

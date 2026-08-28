@@ -3,6 +3,8 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -27,7 +29,14 @@ func (a *coreApp) acceptEvent(event *contract.Event) bool {
 	if a.processedEvents == nil {
 		a.processedEvents = make(map[string]struct{})
 	}
-	if _, exists := a.processedEvents[key]; exists || a.persistedEventSeen(event) {
+	fingerprint := eventFingerprint(event)
+	if _, exists := a.processedEvents[key]; exists {
+		if previous, ok := a.processedEventFingerprints[key]; ok && previous != fingerprint {
+			log.Printf("core: event id collision rejected id=%s", event.ID)
+		}
+		return false
+	}
+	if a.persistedEventSeen(event) {
 		return false
 	}
 	if event.Epoch != "" {
@@ -54,6 +63,10 @@ func (a *coreApp) acceptEvent(event *contract.Event) bool {
 		}
 	}
 	a.processedEvents[key] = struct{}{}
+	if a.processedEventFingerprints == nil {
+		a.processedEventFingerprints = make(map[string]string)
+	}
+	a.processedEventFingerprints[key] = fingerprint
 	if event.Epoch != "" && a.state != nil {
 		a.state.SetInputCursor(a.inputEpoch, a.inputSequence)
 	}
@@ -62,10 +75,39 @@ func (a *coreApp) acceptEvent(event *contract.Event) bool {
 		// in-memory map is only a bounded hot-path cache.
 		for candidate := range a.processedEvents {
 			delete(a.processedEvents, candidate)
+			delete(a.processedEventFingerprints, candidate)
 			break
 		}
 	}
 	return true
+}
+
+func eventFingerprint(event *contract.Event) string {
+	if event == nil {
+		return ""
+	}
+	copy := *event
+	copy.ReceivedAt = time.Time{}
+	copy.GroupKey = ""
+	copy.ValidationRequired = false
+	copy.ValidationReason = ""
+	if copy.Payload != nil {
+		payload := make(map[string]any, len(copy.Payload))
+		for key, value := range copy.Payload {
+			switch key {
+			case "security", "occupancy", "manual_risk", "current_state", "danger_source":
+				continue
+			}
+			payload[key] = value
+		}
+		copy.Payload = payload
+	}
+	data, err := json.Marshal(&copy)
+	if err != nil {
+		return "marshal-error"
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
 }
 
 func (a *coreApp) persistedEventSeen(event *contract.Event) bool {

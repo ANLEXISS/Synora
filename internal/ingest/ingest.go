@@ -3,6 +3,7 @@ package ingest
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"math"
 	"strconv"
@@ -31,6 +32,10 @@ func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
 		payload["source_type"] = msg.SourceType
 	}
 
+	now := time.Now().UTC()
+	if p.Now != nil {
+		now = p.Now().UTC()
+	}
 	parsed := &contract.Event{
 		ID:         strings.TrimSpace(msg.ID),
 		Type:       contract.NormalizeEventType(msg.Type),
@@ -40,7 +45,7 @@ func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
 		Priority:   msg.Priority,
 		Epoch:      strings.TrimSpace(msg.Epoch),
 		Sequence:   msg.Sequence,
-		ReceivedAt: time.Now().UTC(),
+		ReceivedAt: now,
 	}
 	if parsed.ID == "" {
 		parsed.ID = idgen.New("evt")
@@ -87,6 +92,9 @@ func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
 	}, "|")
 	if suffix := controlledGroupKeySuffix(payload); suffix != "" {
 		parsed.GroupKey += "|" + suffix
+	}
+	if err := parsed.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid event contract: %w", err)
 	}
 
 	return parsed, nil
@@ -165,10 +173,40 @@ func (p Parser) resolveTimestamp(messageTS time.Time, raw any) time.Time {
 }
 
 type Queue struct {
-	Parser Parser
-	Rate   *event.RateController
-	High   chan<- *contract.Event
-	Normal chan<- *contract.Event
+	Parser    Parser
+	Rate      *event.RateController
+	Timestamp TimestampPolicy
+	High      chan<- *contract.Event
+	Normal    chan<- *contract.Event
+}
+
+// TimestampPolicy validates source capture time at the Core ingress boundary.
+// Historical simulator messages are explicitly exempt because their clock is
+// controlled by the qualification scenario, not by the host clock.
+type TimestampPolicy struct {
+	Now           func() time.Time
+	MaxFutureSkew time.Duration
+	MaxPastAge    time.Duration
+}
+
+func (p TimestampPolicy) Validate(event *contract.Event) error {
+	if event == nil || (p.MaxFutureSkew <= 0 && p.MaxPastAge <= 0) {
+		return nil
+	}
+	if isHistoricalSimulation(event) {
+		return nil
+	}
+	now := time.Now().UTC()
+	if p.Now != nil {
+		now = p.Now().UTC()
+	}
+	if p.MaxFutureSkew > 0 && event.Timestamp.After(now.Add(p.MaxFutureSkew)) {
+		return fmt.Errorf("event timestamp is too far in the future")
+	}
+	if p.MaxPastAge > 0 && now.Sub(event.Timestamp) > p.MaxPastAge {
+		return fmt.Errorf("event timestamp is too old")
+	}
+	return nil
 }
 
 func (q *Queue) Ingest(msg contract.Message) (*contract.Event, bool) {
@@ -176,6 +214,17 @@ func (q *Queue) Ingest(msg contract.Message) (*contract.Event, bool) {
 	if err != nil {
 		log.Println("core: invalid event payload", err)
 		return nil, false
+	}
+	if err := q.Timestamp.Validate(parsed); err != nil {
+		log.Println("core: event timestamp rejected", err)
+		return parsed, false
+	}
+	legacyGeneratedID := strings.TrimSpace(msg.ID) == ""
+	if _, hasEventID := parsed.Payload["event_id"]; hasEventID {
+		legacyGeneratedID = false
+	}
+	if legacyGeneratedID {
+		parsed.ID = ""
 	}
 
 	log.Printf(
@@ -195,6 +244,9 @@ func (q *Queue) Ingest(msg contract.Message) (*contract.Event, bool) {
 	if q.Rate != nil && !q.Rate.Accept(parsed) {
 		return parsed, false
 	}
+	if parsed.ID == "" {
+		parsed.ID = idgen.New("evt")
+	}
 
 	if parsed.Priority >= contract.PriorityHigh {
 		select {
@@ -213,6 +265,21 @@ func (q *Queue) Ingest(msg contract.Message) (*contract.Event, bool) {
 		log.Println("core: event queue full, dropping event", parsed.Type)
 		return parsed, false
 	}
+}
+
+func isHistoricalSimulation(event *contract.Event) bool {
+	if event == nil || event.Payload == nil {
+		return false
+	}
+	if sourceType, ok := event.Payload["source_type"].(string); ok && sourceType == contract.SourceSimulator {
+		return true
+	}
+	metadata, ok := event.Payload["metadata"].(map[string]any)
+	if !ok {
+		return false
+	}
+	simulated, ok := metadata["simulated"].(bool)
+	return ok && simulated
 }
 
 func resolveDeviceIDFromPayload(source string, payload map[string]any) string {
