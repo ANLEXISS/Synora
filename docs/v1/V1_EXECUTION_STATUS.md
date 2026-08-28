@@ -83,6 +83,31 @@
 - Validation complète et intégration : validé ; commit `e00a570` atteignable
   depuis `integration/synora-v1`
 
+## MASTER_PLAN — M005
+
+- Jalon : M005 — bus robuste sous concurrence
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m005-bus`
+- Branche dédiée : `codex/v1-m005-bus`
+- Commits : `5b9e05d` (framing/concurrence/déconnexion), `017e3e2` (ACK de
+  registration), `17c72cb` (oracle Vision déterministe)
+- Modifications : frames JSON bornées à 1 MiB côté serveur et client,
+  écriture complète sous writer sérialisé, fermeture propre des pending RPC
+  avec erreur de déconnexion, registration acquittée et suppression de la
+  course sur `lastSeen`
+- Tests dédiés : fragmentation/concaténation, frame trop grande, 32 écritures
+  concurrentes, RPC pending à la fermeture, reconnexion après restart et
+  Delivery/Dispatcher/CoreClient répétés — PASS, y compris sous race
+- Preuves : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go test -race ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`,
+  `GOFLAGS=-buildvcs=false go build ./cmd/...`, 22 tests Python Vision et
+  `git diff --check` — PASS
+- Diagnostics réparés pendant la qualification : l’ACK de registration
+  supprime une perte de première livraison sous concurrence ; l’oracle
+  `worker.crashed` attend désormais sa publication après la transition
+  `backoff`. Aucun test n’a été supprimé ni affaibli.
+- Validation complète et intégration : validé ; intégration en cours
+
 ## Jalon courant
 
 - Historique conservé : jalons 01–25 de l’ancien plan V1 (non substitutif au
