@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"synora/internal/discovery/network"
+	"synora/internal/runtimeconfig"
 )
 
 type StreamDescriptor struct {
@@ -71,9 +72,10 @@ func isCameraDevice(item map[string]any) bool {
 
 func streamDescriptor(deviceID string) StreamDescriptor {
 	cfg, _ := network.LoadConfig(os.Getenv("SYNORA_NETWORK_CONFIG"))
+	runtime, _ := runtimeconfig.Load(os.Getenv)
 	baseRTSP := cfg.SynoraNet.Services.RTSPURL
 	if baseRTSP == "" {
-		baseRTSP = "rtsp://10.77.0.1:8554"
+		baseRTSP = runtime.Endpoints.MediaMTXRTSPURL
 	}
 	baseWebRTC := cfg.SynoraNet.Services.WebRTCBaseURL
 	baseHLS := cfg.SynoraNet.Services.HLSBaseURL

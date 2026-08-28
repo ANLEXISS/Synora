@@ -12,17 +12,20 @@ import (
 
 	"synora/internal/facedataset"
 	"synora/internal/idgen"
+	"synora/internal/runtimeconfig"
 	"synora/pkg/contract"
 )
 
 const (
-	SocketPath      = "/run/synora/vision-worker.sock"
+	SocketPath      = runtimeconfig.DefaultVisionWorkerSocket
 	connectAttempts = 5
 	connectDelay    = 100 * time.Millisecond
 )
 
 type Runtime struct {
-	manager *WorkerManager
+	manager       *WorkerManager
+	socketPath    string
+	workerTimeout time.Duration
 
 	conn net.Conn
 
@@ -123,7 +126,7 @@ func (v *Runtime) ReloadFaceDataset(ctx context.Context, version, root string) (
 		return facedataset.ReloadResult{}, err
 	}
 	conn := v.conn
-	if err := conn.SetDeadline(time.Now().UTC().Add(WorkerTimeout)); err != nil {
+	if err := conn.SetDeadline(time.Now().UTC().Add(v.workerTimeout)); err != nil {
 		v.closeConn()
 		return facedataset.ReloadResult{}, err
 	}
@@ -170,7 +173,7 @@ func (v *Runtime) Embed(ctx context.Context, path string, photo contract.FacePho
 		return nil, "", err
 	}
 	conn := v.conn
-	if err := conn.SetDeadline(time.Now().UTC().Add(WorkerTimeout)); err != nil {
+	if err := conn.SetDeadline(time.Now().UTC().Add(v.workerTimeout)); err != nil {
 		v.closeConn()
 		return nil, "", err
 	}
@@ -211,8 +214,31 @@ func NewRuntime() *Runtime {
 func NewRuntimeWithManager(
 	manager *WorkerManager,
 ) *Runtime {
+	return NewRuntimeWithManagerAndSocketTimeout(manager, SocketPath, WorkerTimeout)
+}
+
+func NewRuntimeWithManagerAndSocket(
+	manager *WorkerManager,
+	socketPath string,
+) *Runtime {
+	return NewRuntimeWithManagerAndSocketTimeout(manager, socketPath, WorkerTimeout)
+}
+
+func NewRuntimeWithManagerAndSocketTimeout(
+	manager *WorkerManager,
+	socketPath string,
+	workerTimeout time.Duration,
+) *Runtime {
+	if strings.TrimSpace(socketPath) == "" {
+		socketPath = SocketPath
+	}
+	if workerTimeout <= 0 {
+		workerTimeout = WorkerTimeout
+	}
 	return &Runtime{
-		manager: manager,
+		manager:       manager,
+		socketPath:    socketPath,
+		workerTimeout: workerTimeout,
 	}
 }
 
@@ -245,7 +271,7 @@ func (v *Runtime) connect() error {
 
 		conn, err = net.Dial(
 			"unix",
-			SocketPath,
+			v.socketPath,
 		)
 
 		if err == nil {
@@ -326,7 +352,7 @@ func (v *Runtime) processLocked(
 		return nil, err
 	}
 	conn := v.conn
-	if err := conn.SetDeadline(time.Now().UTC().Add(WorkerTimeout)); err != nil {
+	if err := conn.SetDeadline(time.Now().UTC().Add(v.workerTimeout)); err != nil {
 		v.closeConn()
 		return nil, fmt.Errorf("set vision worker deadline: %w", err)
 	}

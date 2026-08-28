@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"time"
 
 	"synora/internal/backup"
+	"synora/internal/runtimeconfig"
 	"synora/internal/state"
 )
 
@@ -18,14 +18,12 @@ func main() {
 	if len(os.Args) < 2 {
 		log.Fatal("usage: synora-backup create|restore|expire")
 	}
-	root := strings.TrimSpace(os.Getenv("SYNORA_BACKUP_ROOT"))
-	if root == "" {
-		root = "/var/lib/synora/backups"
+	runtime, err := runtimeconfig.Load(os.Getenv)
+	if err != nil {
+		log.Fatal("invalid runtime configuration: ", err)
 	}
-	statePath := strings.TrimSpace(os.Getenv("SYNORA_STATE_PATH"))
-	if statePath == "" {
-		statePath = state.DefaultStatePath()
-	}
+	root := runtime.Paths.BackupRoot
+	statePath := runtime.Paths.State
 	manager := backup.New(root, 512<<20)
 	switch os.Args[1] {
 	case "create":

@@ -26,6 +26,7 @@ import (
 	"synora/internal/ingest"
 	"synora/internal/recovery"
 	corerpc "synora/internal/rpc"
+	"synora/internal/runtimeconfig"
 	snapshotpkg "synora/internal/snapshot"
 	"synora/internal/state"
 	"synora/internal/stateapply"
@@ -104,19 +105,21 @@ type coreBus interface {
 func main() {
 	log.Println("starting synora core")
 
-	busPath := getenv("SYNORA_BUS", "/run/synora/bus.sock")
-	topologyPath := getenv("SYNORA_TOPOLOGY", "/etc/synora/topology.yaml")
-	residentsPath := getenv("SYNORA_RESIDENTS", "/etc/synora/residents.yaml")
-	devicePath := getenv("SYNORA_DEVICE", "/etc/synora/devices.yaml")
-	automationPath := getenv("SYNORA_AUTOMATION", "/etc/synora/automations.yaml")
-	securityPath := getenv("SYNORA_SECURITY", "/etc/synora/security.yaml")
-	cgeProfilePath := getenv("SYNORA_CGE_PROFILE", defaultCGEProfilePath)
-	cgeFeedbackPath := getenv("SYNORA_CGE_FEEDBACK", defaultCGEFeedbackPath)
-	actionPolicyPath := getenv("SYNORA_ACTION_POLICY", defaultActionPolicyPath)
-	statePath := getenv("SYNORA_STATE_PATH", "")
-	if statePath == "" {
-		statePath = state.DefaultStatePath()
+	runtime, err := runtimeconfig.Load(os.Getenv)
+	if err != nil {
+		log.Fatal("invalid runtime configuration: ", err)
 	}
+	paths := runtime.Paths
+	busPath := paths.BusSocket
+	topologyPath := paths.Topology
+	residentsPath := paths.Residents
+	devicePath := paths.Devices
+	automationPath := paths.Automations
+	securityPath := paths.Security
+	cgeProfilePath := paths.CGEProfile
+	cgeFeedbackPath := paths.CGEFeedback
+	actionPolicyPath := paths.ActionPolicy
+	statePath := paths.State
 
 	busClient, err := bus.NewClient(busPath, "core")
 	if err != nil {
@@ -155,7 +158,7 @@ func main() {
 	} else if exists {
 		engineInstance.SetSecurityProfile(&profile)
 	}
-	if loadedPath, err := loadCGECriticalChains(engineInstance); err != nil {
+	if loadedPath, err := engineInstance.LoadCriticalSeedsFirstExisting(paths.CGEChains, developmentCGECriticalChainsPath); err != nil {
 		log.Println("cge critical chains load warning:", err)
 	} else if loadedPath == "" {
 		log.Println("cge critical chains load warning: no configuration file found")

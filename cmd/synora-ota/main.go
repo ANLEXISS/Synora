@@ -12,12 +12,18 @@ import (
 	"time"
 
 	"synora/internal/ota"
+	"synora/internal/runtimeconfig"
 )
 
 func main() {
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
+	}
+	runtime, runtimeErr := runtimeconfig.Load(os.Getenv)
+	if runtimeErr != nil {
+		fmt.Fprintln(os.Stderr, "synora-ota: invalid runtime configuration:", runtimeErr)
+		os.Exit(1)
 	}
 	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
 	rauc := fs.String("rauc", envOr("SYNORA_RAUC_BIN", "rauc"), "RAUC executable")
@@ -26,7 +32,7 @@ func main() {
 	publicKeyPath := fs.String("public-key", envOr("SYNORA_OTA_PUBLIC_KEY", ""), "Ed25519 public key file")
 	currentVersion := fs.String("current-version", envOr("SYNORA_CORE_VERSION", "0.0.0"), "currently running Core version")
 	hardware := fs.String("hardware", envOr("SYNORA_HARDWARE", "rock-5b"), "hardware compatibility identifier")
-	journal := fs.String("journal", envOr("SYNORA_OTA_JOURNAL", "/var/lib/synora/ota/update.json"), "OTA transaction journal")
+	journal := fs.String("journal", runtime.Paths.OTAJournal, "OTA transaction journal")
 	timeout := fs.Duration("timeout", 10*time.Minute, "operation timeout")
 	_ = fs.Parse(os.Args[2:])
 	controller := ota.NewController(commandRunner, *rauc, *healthcheck)

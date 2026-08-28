@@ -5,15 +5,20 @@ import (
 	"os"
 
 	"synora/internal/bus"
+	"synora/internal/runtimeconfig"
 )
 
 func main() {
 
-	server := bus.NewServer(getenv("SYNORA_BUS", "/run/synora/bus.sock"))
+	runtime, err := runtimeconfig.Load(os.Getenv)
+	if err != nil {
+		log.Fatal("invalid runtime configuration: ", err)
+	}
+	server := bus.NewServer(runtime.Paths.BusSocket)
 
 	log.Println("starting synora bus")
 
-	err := server.Start()
+	err = server.Start()
 	if err != nil {
 		log.Fatal(err)
 	}

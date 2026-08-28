@@ -33,7 +33,7 @@ var healthState = &discoveryHealth{
 	VisionIngressStatus: "unknown",
 }
 
-func startHealthServer() {
+func startHealthServer(address string) {
 
 	mux := http.NewServeMux()
 
@@ -85,7 +85,7 @@ func startHealthServer() {
 	})
 
 	go http.ListenAndServe(
-		HealthAddr,
+		address,
 		mux,
 	)
 }

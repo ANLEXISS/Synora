@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"synora/internal/cameraota"
+	"synora/internal/runtimeconfig"
 )
 
 func main() {
@@ -20,8 +21,13 @@ func main() {
 	case "version":
 		fmt.Printf("camera-ota manifest_schema=%d\n", cameraota.ManifestSchemaVersion)
 	case "doctor":
+		runtime, err := runtimeconfig.Load(os.Getenv)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "camera OTA doctor: invalid runtime configuration")
+			os.Exit(1)
+		}
 		set := flag.NewFlagSet("doctor", flag.ExitOnError)
-		root := set.String("root", "/var/lib/synora/camera-ota", "camera OTA state root")
+		root := set.String("root", runtime.Paths.CameraOTARoot, "camera OTA state root")
 		_ = set.Parse(os.Args[2:])
 		info, err := os.Stat(*root)
 		if err != nil || !info.IsDir() {

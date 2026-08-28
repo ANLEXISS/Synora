@@ -19,6 +19,7 @@ import (
 	"synora/internal/bus"
 	"synora/internal/coreclient"
 	"synora/internal/discovery/network"
+	"synora/internal/runtimeconfig"
 	"synora/internal/security"
 	"synora/internal/version"
 	"synora/pkg/contract"
@@ -74,8 +75,13 @@ type pairingProvider interface {
 
 func main() {
 
-	securityPath := getenv("SYNORA_SECURITY", security.DefaultPath)
-	authPath := getenv("SYNORA_AUTH", webapi.DefaultAuthConfigPath)
+	runtime, err := runtimeconfig.Load(os.Getenv)
+	if err != nil {
+		log.Fatal("invalid runtime configuration: ", err)
+	}
+	paths := runtime.Paths
+	securityPath := paths.Security
+	authPath := paths.Auth
 	securityConfig, err := security.Load(securityPath)
 	if err != nil {
 		log.Fatal(err)
@@ -84,11 +90,23 @@ func main() {
 		log.Fatal("security config requires api_token_hash or api_token")
 	}
 	serverConfig := securityConfig.Server
-	httpAddr := getenv("SYNORA_HTTP_ADDR", serverConfig.HTTPAddr)
+	httpAddr := runtime.Endpoints.HTTP
+	if strings.TrimSpace(os.Getenv("SYNORA_HTTP_ADDR")) == "" && serverConfig.HTTPAddr != "" {
+		httpAddr = serverConfig.HTTPAddr
+	}
 	httpsConfigured := getenvBool("SYNORA_HTTPS_ENABLED", serverConfig.HTTPSEnabled)
-	httpsAddr := getenv("SYNORA_HTTPS_ADDR", serverConfig.HTTPSAddr)
-	tlsCertFile := getenv("SYNORA_TLS_CERT_FILE", serverConfig.TLSCertFile)
-	tlsKeyFile := getenv("SYNORA_TLS_KEY_FILE", serverConfig.TLSKeyFile)
+	httpsAddr := runtime.Endpoints.HTTPS
+	if strings.TrimSpace(os.Getenv("SYNORA_HTTPS_ADDR")) == "" && serverConfig.HTTPSAddr != "" {
+		httpsAddr = serverConfig.HTTPSAddr
+	}
+	tlsCertFile := runtime.Paths.TLSCert
+	if strings.TrimSpace(os.Getenv("SYNORA_TLS_CERT_FILE")) == "" && serverConfig.TLSCertFile != "" {
+		tlsCertFile = serverConfig.TLSCertFile
+	}
+	tlsKeyFile := runtime.Paths.TLSKey
+	if strings.TrimSpace(os.Getenv("SYNORA_TLS_KEY_FILE")) == "" && serverConfig.TLSKeyFile != "" {
+		tlsKeyFile = serverConfig.TLSKeyFile
+	}
 	httpsEnabled := httpsConfigured && regularFile(tlsCertFile) && regularFile(tlsKeyFile)
 	if httpsConfigured && !httpsEnabled {
 		log.Fatalf("synora-api refuses insecure startup: HTTPS is enabled but TLS certificate or key is missing")
@@ -102,7 +120,7 @@ func main() {
 		}
 	}
 	sessions, err := webapi.NewSessionStore(
-		getenv("SYNORA_SESSION_STORE", webapi.DefaultSessionPath),
+		paths.SessionStore,
 		sessionTTL,
 		sessionFingerprint,
 	)
@@ -122,7 +140,7 @@ func main() {
 	log.Printf("auth users loaded=%d path=%s", authUsers.Count(), authPath)
 
 	busClient, err := bus.NewClient(
-		getenv("SYNORA_BUS", "/run/synora/bus.sock"),
+		paths.BusSocket,
 		"api",
 	)
 
@@ -140,16 +158,13 @@ func main() {
 	go wsHub.observeBus(busClient)
 	simulationRunner := newSimulationRunner(busClient, wsHub)
 	webEnabled := getenvBool("SYNORA_WEB_ENABLED", true)
-	webRoot := defaultWebRoot()
-	if configuredWebRoot := strings.TrimSpace(os.Getenv("SYNORA_WEB_ROOT")); configuredWebRoot != "" {
-		webRoot = configuredWebRoot
-	}
+	webRoot := paths.WebRoot
 	webServer := &webapi.Server{
 		WebEnabled: webEnabled,
 		WebRoot:    webRoot,
 	}
-	faceRoot := strings.TrimSpace(getenv("SYNORA_FACE_DATA_ROOT", ""))
-	if faceRoot == "" {
+	faceRoot := paths.FaceDataRoot
+	if strings.TrimSpace(os.Getenv("SYNORA_FACE_DATA_ROOT")) == "" && strings.TrimSpace(securityConfig.Vision.FaceDataRoot) != "" {
 		faceRoot = strings.TrimSpace(securityConfig.Vision.FaceDataRoot)
 	}
 	faceFiles := newFaceStore(faceRoot)
@@ -214,7 +229,7 @@ func main() {
 	apiMux.HandleFunc("/api/streams/", handleStreams(core))
 	apiMux.HandleFunc("/api/devices/pairing/start", handlePairingStart(core))
 	apiMux.HandleFunc("/api/devices/pairing/complete", handlePairingComplete(core))
-	identityRegistry := security.NewIdentityRegistry(getenv("SYNORA_IDENTITY_REGISTRY", "/var/lib/synora/security/identities.json"))
+	identityRegistry := security.NewIdentityRegistry(paths.IdentityRegistry)
 	if err := identityRegistry.Load(); err != nil {
 		log.Fatal("camera identity registry: ", err)
 	}
@@ -245,7 +260,7 @@ func main() {
 		TLSKeyPresent:  regularFile(tlsKeyFile),
 	}
 	apiMux.HandleFunc("/api/system/health", handleSystemHealth(core, webServer, serverHealth))
-	apiMux.HandleFunc("/api/system/version", handleSystemVersion(getenv("SYNORA_VERSION_FILE", version.DefaultPath)))
+	apiMux.HandleFunc("/api/system/version", handleSystemVersion(paths.VersionFile))
 	apiMux.HandleFunc("/api/system/connectivity", handleConnectivityStatus(busClient))
 	apiMux.HandleFunc("/api/intrusion/reset", handleIntrusionReset(core))
 	apiMux.HandleFunc("/api/system/state/reset", handleSystemStateReset(core))
@@ -273,10 +288,10 @@ func main() {
 	httpServer := &http.Server{
 		Addr:              httpAddr,
 		Handler:           handler,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       30 * time.Second,
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       runtime.Timeouts.HTTPRead,
+		WriteTimeout:      runtime.Timeouts.HTTPWrite,
+		IdleTimeout:       runtime.Timeouts.HTTPIdle,
+		ReadHeaderTimeout: runtime.Timeouts.HTTPReadHeader,
 	}
 
 	log.Printf("synora-api http listening addr=%s", httpAddr)
@@ -292,10 +307,10 @@ func main() {
 		httpsServer = &http.Server{
 			Addr:              httpsAddr,
 			Handler:           handler,
-			ReadTimeout:       10 * time.Second,
-			WriteTimeout:      10 * time.Second,
-			IdleTimeout:       30 * time.Second,
-			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       runtime.Timeouts.HTTPRead,
+			WriteTimeout:      runtime.Timeouts.HTTPWrite,
+			IdleTimeout:       runtime.Timeouts.HTTPIdle,
+			ReadHeaderTimeout: runtime.Timeouts.HTTPReadHeader,
 		}
 	}
 
@@ -319,7 +334,7 @@ func main() {
 	case err := <-errCh:
 		log.Fatal(err)
 	case <-stop:
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), runtime.Timeouts.Shutdown)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdownCtx)
 		if httpsServer != nil {
@@ -393,13 +408,6 @@ func handleSystemVersion(path string) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, version.Current(path))
 	}
-}
-
-func defaultWebRoot() string {
-	if info, err := os.Stat("/opt/synora/web"); err == nil && info.IsDir() {
-		return "/opt/synora/web"
-	}
-	return "/var/lib/synora/web"
 }
 
 func writeJSON(

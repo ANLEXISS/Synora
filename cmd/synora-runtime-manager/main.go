@@ -9,15 +9,18 @@ import (
 
 	"synora/internal/bus"
 	"synora/internal/manager"
+	"synora/internal/runtimeconfig"
 	"synora/pkg/contract"
 )
 
 func main() {
+	runtime, err := runtimeconfig.Load(os.Getenv)
+	if err != nil {
+		log.Fatal("invalid runtime configuration: ", err)
+	}
 	busClient := connectBus(
-		getenv(
-			"SYNORA_BUS",
-			"/run/synora/bus.sock",
-		),
+		runtime.Paths.BusSocket,
+		runtime.Timeouts.BusConnect,
 	)
 
 	runtimeManager := manager.New(
@@ -39,12 +42,14 @@ func main() {
 			busClient,
 			runtimeManager,
 			msg,
+			runtime.Timeouts.BusRPC,
 		)
 	}
 }
 
 func connectBus(
 	socketPath string,
+	retryDelay time.Duration,
 ) *bus.Client {
 	for {
 		client, err := bus.NewClient(
@@ -65,9 +70,7 @@ func connectBus(
 			err,
 		)
 
-		time.Sleep(
-			2 * time.Second,
-		)
+		time.Sleep(retryDelay)
 	}
 }
 
@@ -75,10 +78,11 @@ func handleMessage(
 	busClient *bus.Client,
 	runtimeManager *manager.Manager,
 	msg contract.Message,
+	timeout time.Duration,
 ) {
 	ctx, cancel := context.WithTimeout(
 		context.Background(),
-		15*time.Second,
+		timeout,
 	)
 	defer cancel()
 
@@ -125,18 +129,4 @@ func handleMessage(
 			err,
 		)
 	}
-}
-
-func getenv(
-	key string,
-	fallback string,
-) string {
-	value := os.Getenv(
-		key,
-	)
-	if value == "" {
-		return fallback
-	}
-
-	return value
 }

@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"synora/internal/connectivity"
+	"synora/internal/runtimeconfig"
 )
 
 func main() {
@@ -37,9 +37,13 @@ func parseOptions(name string, args []string) (options, error) {
 	set := flag.NewFlagSet(name, flag.ContinueOnError)
 	set.SetOutput(os.Stderr)
 	opts := options{}
-	set.StringVar(&opts.config, "config", envOr("SYNORA_CONNECTIVITY_CONFIG", connectivity.DefaultConfigPath), "connectivity config path")
-	set.StringVar(&opts.data, "data-dir", envOr("SYNORA_CONNECTIVITY_DIR", "/var/lib/synora/connectivity"), "persistent connectivity directory")
-	set.StringVar(&opts.bus, "bus", envOr("SYNORA_BUS", "/run/synora/bus.sock"), "local Synora bus Unix socket")
+	runtime, err := runtimeconfig.Load(os.Getenv)
+	if err != nil {
+		return options{}, err
+	}
+	set.StringVar(&opts.config, "config", runtime.Paths.NetworkConfig, "connectivity config path")
+	set.StringVar(&opts.data, "data-dir", runtime.Paths.ConnectivityRoot, "persistent connectivity directory")
+	set.StringVar(&opts.bus, "bus", runtime.Paths.BusSocket, "local Synora bus Unix socket")
 	if err := set.Parse(args); err != nil {
 		return options{}, err
 	}
@@ -125,12 +129,6 @@ func presence(value bool) string {
 		return "present"
 	}
 	return "absent"
-}
-func envOr(key, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-		return value
-	}
-	return fallback
 }
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: synora-connect run|status|explain [--config PATH] [--data-dir DIR] [--bus SOCKET]")

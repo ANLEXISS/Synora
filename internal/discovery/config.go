@@ -1,12 +1,14 @@
 package discovery
 
+import "synora/internal/runtimeconfig"
+
 const (
-	VisionClipDir   = "/var/lib/synora/clips"
-	HealthAddr      = ":8091"
-	VisionHTTPSAddr = ":7070"
+	VisionClipDir   = runtimeconfig.DefaultClipRoot
+	HealthAddr      = runtimeconfig.DefaultVisionHealth
+	VisionHTTPSAddr = runtimeconfig.DefaultVisionHTTPS
 
 	MaxClipSize = 50 << 20
 
-	CertFile = "/etc/synora/certs/server.crt"
-	KeyFile  = "/etc/synora/certs/server.key"
+	CertFile = runtimeconfig.DefaultConfigDir + "/tls/synora.crt"
+	KeyFile  = runtimeconfig.DefaultConfigDir + "/tls/synora.key"
 )

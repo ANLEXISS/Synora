@@ -6,13 +6,18 @@ import (
 	"time"
 
 	"synora/internal/bus"
+	"synora/internal/runtimeconfig"
 )
 
-const DefaultBusSocket = "/run/synora/bus.sock"
+const DefaultBusSocket = runtimeconfig.DefaultBusSocket
 
 func Run() error {
+	runtime, err := runtimeconfig.Load(os.Getenv)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(
-		VisionClipDir,
+		runtime.Paths.ClipRoot,
 		0755,
 	); err != nil {
 		return err
@@ -20,7 +25,7 @@ func Run() error {
 
 	manager := NewManager(
 		connectBus(
-			DefaultBusSocket,
+			runtime.Paths.BusSocket,
 		),
 	)
 

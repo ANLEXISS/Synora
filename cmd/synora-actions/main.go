@@ -13,13 +13,18 @@ import (
 	actionrecorder "synora/internal/actions/recorder"
 	actionwhatsapp "synora/internal/actions/whatsapp"
 	"synora/internal/bus"
+	"synora/internal/runtimeconfig"
 	"synora/pkg/contract"
 )
 
 func main() {
 	log.Println("starting synora actions")
 
-	busClient, err := bus.NewClient(getenv("SYNORA_BUS", "/run/synora/bus.sock"), "actions")
+	runtime, err := runtimeconfig.Load(os.Getenv)
+	if err != nil {
+		log.Fatal("invalid runtime configuration: ", err)
+	}
+	busClient, err := bus.NewClient(runtime.Paths.BusSocket, "actions")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -46,7 +51,7 @@ func main() {
 	if broker := os.Getenv("SYNORA_ACTIONS_MQTT_BROKER"); broker != "" {
 		publisher, err := actionmqtt.NewPahoPublisher(
 			broker,
-			getenv("SYNORA_ACTIONS_MQTT_CLIENT_ID", "synora-actions"),
+			actionMQTTClientID(),
 		)
 		if err != nil {
 			log.Fatal(err)
@@ -77,10 +82,9 @@ func main() {
 	}
 }
 
-func getenv(key, fallback string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
+func actionMQTTClientID() string {
+	if value := os.Getenv("SYNORA_ACTIONS_MQTT_CLIENT_ID"); value != "" {
+		return value
 	}
-	return value
+	return "synora-actions"
 }

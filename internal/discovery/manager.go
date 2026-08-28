@@ -20,6 +20,7 @@ import (
 	"synora/internal/discovery/vision"
 	"synora/internal/facedataset"
 	"synora/internal/facestore"
+	"synora/internal/runtimeconfig"
 	"synora/internal/security"
 	"synora/pkg/contract"
 )
@@ -49,11 +50,12 @@ type Manager struct {
 func NewManager(
 	busClient *bus.Client,
 ) *Manager {
-
-	securityPath := os.Getenv("SYNORA_SECURITY")
-	if securityPath == "" {
-		securityPath = security.DefaultPath
+	runtime, err := runtimeconfig.Load(os.Getenv)
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	securityPath := runtime.Paths.Security
 	cfg, err := security.Load(
 		securityPath,
 	)
@@ -62,10 +64,7 @@ func NewManager(
 
 		log.Fatal(err)
 	}
-	devicePath := os.Getenv("SYNORA_DEVICE")
-	if devicePath == "" {
-		devicePath = "/etc/synora/devices.yaml"
-	}
+	devicePath := runtime.Paths.Devices
 
 	log.Printf(
 		"loaded device secrets=%d",
@@ -105,8 +104,10 @@ func NewManager(
 
 		workerManager: workerManager,
 
-		vision: vision.NewRuntimeWithManager(
+		vision: vision.NewRuntimeWithManagerAndSocketTimeout(
 			workerManager,
+			runtime.Paths.VisionWorkerSocket,
+			runtime.Timeouts.VisionWorker,
 		),
 
 		devices: discoveryruntime.NewRegistry(
@@ -115,8 +116,8 @@ func NewManager(
 
 		auth: auth,
 	}
-	faceRoot := strings.TrimSpace(os.Getenv("SYNORA_FACE_DATA_ROOT"))
-	if faceRoot == "" {
+	faceRoot := runtime.Paths.FaceDataRoot
+	if strings.TrimSpace(os.Getenv("SYNORA_FACE_DATA_ROOT")) == "" && strings.TrimSpace(cfg.Vision.FaceDataRoot) != "" {
 		faceRoot = strings.TrimSpace(cfg.Vision.FaceDataRoot)
 	}
 	m.faceStore = facestore.New(faceRoot, facestore.Limits{})
@@ -144,9 +145,14 @@ func (m *Manager) Start() {
 		m.bus,
 	)
 
-	startHealthServer()
+	runtime, err := runtimeconfig.Load(os.Getenv)
+	if err != nil {
+		log.Printf("runtime configuration unavailable: %v", err)
+		return
+	}
+	startHealthServer(runtime.Endpoints.VisionHealth)
 
-	err := m.network.Start()
+	err = m.network.Start()
 
 	if err != nil {
 
@@ -185,14 +191,11 @@ func (m *Manager) Start() {
 	healthState.setSuccess(0)
 	go m.monitorVisionHealth()
 
-	clipDir := strings.TrimSpace(os.Getenv("SYNORA_CLIP_DIR"))
-	if clipDir == "" {
-		clipDir = VisionClipDir
-	}
+	clipDir := runtime.Paths.ClipRoot
 	ingress.StartServer(ingress.Config{
-		Addr:          VisionHTTPSAddr,
-		CertFile:      CertFile,
-		KeyFile:       KeyFile,
+		Addr:          runtime.Endpoints.VisionHTTPS,
+		CertFile:      runtime.Paths.TLSCert,
+		KeyFile:       runtime.Paths.TLSKey,
 		ClipDir:       clipDir,
 		MaxClipSize:   MaxClipSize,
 		MaxClipCount:  clipLimitInt("SYNORA_CLIP_MAX_COUNT", 500),
