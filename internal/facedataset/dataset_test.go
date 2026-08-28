@@ -3,6 +3,7 @@ package facedataset
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/color"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"synora/internal/facestore"
 	"synora/pkg/contract"
@@ -61,6 +63,29 @@ func TestBuildManifestAndAtomicCurrentAfterReload(t *testing.T) {
 	}
 	if _, err := ReadManifest(filepath.Join(store.Root, "datasets", "versions", "v-1")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestManifestContractVersionExposesOnlyBoundaryMetadata(t *testing.T) {
+	manifest := Manifest{
+		SchemaVersion: 1, Version: "dataset-1", DesiredRevision: 4,
+		BuiltAt:          time.Date(2026, 7, 4, 10, 11, 12, 0, time.UTC),
+		ModelFingerprint: "model-fingerprint", EmbeddingDimension: 512,
+		Checksum: "manifest-checksum", Entries: []Entry{{StorageKey: "resident-1/photo-1.png"}},
+	}
+	value := manifest.ContractVersion()
+	if err := value.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if value.Version != manifest.Version || value.ManifestChecksum != manifest.Checksum || value.EmbeddingDimension != manifest.EmbeddingDimension {
+		t.Fatalf("unexpected boundary contract: %#v", value)
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("storage_key")) || bytes.Contains(encoded, []byte(`"embedding"`)) {
+		t.Fatalf("internal dataset fields crossed boundary: %s", encoded)
 	}
 }
 

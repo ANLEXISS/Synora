@@ -1,0 +1,1 @@
+{"id":"evt-1","type":"vision.identity","source":"vision-worker","timestamp":"2026-07-04T10:11:12.013Z","received_at":"0001-01-01T00:00:00Z","payload":{"confidence":0.9},"device_id":"camera-1","node_id":"entry","track_id":"track-1","clip_id":"clip-1"}

@@ -56,6 +56,23 @@
   npm `test` ni répertoire `automation/codex-loop/tests` n’est présent
 - Intégration : à effectuer après validation de ce rapport
 
+## MASTER_PLAN — M004
+
+- Jalon : M004 — contrats V1 canoniques et compatibles
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m004-contracts`
+- Branche dédiée : `codex/v1-m004-contracts`
+- Décision humaine validée : le package canonique est `pkg/contract`, les
+  timestamps restent RFC3339/RFC3339Nano et aucune migration cassante vers Unix
+  ms n’est autorisée
+- Modifications : validations V1 non destructives pour les contrats partagés,
+  `FaceDatasetVersion` pour la frontière Discovery/Vision, adaptateur depuis le
+  manifeste interne et fixtures JSON courantes/legacy
+- Types internes conservés : `Track`, `Presence` et `ObservationRef` ne
+  traversent pas une frontière interservice V1 et ne sont pas promus
+- Preuves ciblées : `GOFLAGS=-buildvcs=false go test ./pkg/contract
+  ./internal/facedataset` — PASS ; `git diff --check` — PASS
+- Validation complète et intégration : en cours
+
 ## Jalon courant
 
 - Historique conservé : jalons 01–25 de l’ancien plan V1 (non substitutif au

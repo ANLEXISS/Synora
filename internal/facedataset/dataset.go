@@ -45,6 +45,21 @@ type Manifest struct {
 	Checksum           string    `json:"checksum"`
 }
 
+// ContractVersion exposes only the immutable metadata that crosses the
+// Discovery/Vision boundary. Embeddings and storage paths remain internal to
+// the dataset builder and are intentionally not promoted into pkg/contract.
+func (m Manifest) ContractVersion() contract.FaceDatasetVersion {
+	return contract.FaceDatasetVersion{
+		SchemaVersion:      m.SchemaVersion,
+		Version:            m.Version,
+		DesiredRevision:    m.DesiredRevision,
+		BuiltAt:            m.BuiltAt,
+		ManifestChecksum:   m.Checksum,
+		ModelFingerprint:   m.ModelFingerprint,
+		EmbeddingDimension: m.EmbeddingDimension,
+	}
+}
+
 type Embedder interface {
 	Embed(context.Context, string, contract.FacePhoto) ([]float32, string, error)
 }
