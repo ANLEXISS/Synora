@@ -225,6 +225,42 @@
 - Base consolidée : `integration/synora-v1`
 - HEAD initial : `864a379801bc1537f39624f102b9f9a57c4509c0`
 
+## Jalon M024 — Corrélation Vision vers incident
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m024-vision-incident`
+- Branche dédiée : `codex/v1-m024-vision-incident`
+- Commit fonctionnel : `05c9708`
+- Livrables : le parcours `clip → vision → Bus → Core → StateStore → Engine`
+  conserve les identifiants physiques du clip, de la caméra, du track, de
+  l’activation et de la séquence. Chaque événement Vision possède un ID stable
+  dérivé du clip et son média est attaché à l’incident correspondant.
+- Fiabilité : les tentatives Vision retryables ne publient pas d’échec terminal
+  intermédiaire ; `clip.failed` est réservé à l’épuisement des retries. Le
+  lifecycle reprend ainsi de `processing` vers `processed` sans état empoisonné.
+  `vision.end` est publié après `clip.processed` et Core ne purge les tracks
+  qu’après la terminaison de tous les clips connus de l’activation, en
+  conservant le comportement legacy des événements directs sans clip.
+- Compatibilité : les replays et messages tardifs restent idempotents par ID
+  stable ; les payloads Vision ne peuvent pas réécrire le clip ou la caméra
+  acceptés par l’ingress. Une identité résident n’est acceptée qu’après
+  validation du résident et des seuils de présence ; les événements unknown ou
+  uncertain ne rebondissent pas sur un track déjà lié à un résident.
+- Tests déterministes ajoutés : parcours multi-clips d’une activation,
+  corrélation de deux médias au même incident, échec transitoire puis retry
+  complet, publication d’un échec terminal après épuisement, et ordre
+  `clip.processed`/`vision.end`.
+- Validations : `GOFLAGS=-buildvcs=false go test ./...`,
+  `GOFLAGS=-buildvcs=false go vet ./...`,
+  `GOFLAGS=-buildvcs=false go build ./...`,
+  `GOFLAGS=-buildvcs=false go test -race ./...`, tests Python Vision 35 et
+  `git diff --check` — PASS. Les deux premières races globales ont exposé des
+  échecs intermittents préexistants dans `shadowworkflow`; les tests ciblés
+  M024 passent sous race et la troisième race globale complète est verte. La
+  qualification Web n’a pas été relancée, ses dépendances locales étant
+  absentes et leur installation hors périmètre autorisé.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon M023 — Reconnaissance faciale locale
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m023-face-recognition`
