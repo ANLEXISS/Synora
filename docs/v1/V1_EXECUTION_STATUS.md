@@ -157,6 +157,33 @@
   restent inchangés par ce jalon.
 - État : validé sur branche dédiée ; intégration à effectuer
 
+## MASTER_PLAN — M008
+
+- Jalon : M008 — persistance atomique et migrations
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m008-persistence`
+- Branche dédiée : `codex/v1-m008-persistence`
+- Modifications : les écritures d’état passent par un fichier temporaire du
+  même filesystem, écriture complète, fsync, rename puis fsync du répertoire.
+  Une seule copie `.bak` conserve le dernier état valide avant remplacement ;
+  une copie courante tronquée ou dont le checksum SHA-256 est faux est
+  quarantainée puis restaurée depuis cette copie. Les fichiers sans checksum
+  restent acceptés pour la migration rétrocompatible des versions précédentes.
+- Migration : la version 1 reste migrable vers la version 2 ; une version
+  future est refusée sans écrasement silencieux. Le checksum est additif et
+  ne change aucune sémantique de contrat ou de timestamp existante.
+- Tests dédiés : récupération sur fichier tronqué/checksum faux, copie de
+  récupération bornée, absence et migration de fichier, refus de version
+  future, et simulation déterministe d’une coupure à chaque étape de l’écriture
+  atomique sans perte du dernier état valide.
+- Preuves : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go test -race ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./cmd/...`, 22 tests Python Vision et `git diff --check` — PASS. La
+  qualification WebApp précédemment validée reste inchangée, ses dépendances
+  locales n’étant pas présentes dans ce worktree.
+- Commits : `29fb88f` (implémentation et tests), commit de statut ci-dessous
+- État : validé sur branche dédiée ; intégration à effectuer
+
 ## Jalon courant
 
 - Historique conservé : jalons 01–25 de l’ancien plan V1 (non substitutif au
