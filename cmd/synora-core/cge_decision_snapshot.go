@@ -152,5 +152,5 @@ func (s *coreDecisionPublicationSink) PublishDecision(ctx context.Context, decis
 	if err != nil {
 		return err
 	}
-	return s.bus.Send(contract.Message{ID: decision.DecisionID, Version: cge.DecisionEnvelopeSchemaVersion, Type: "cge.decision.advisory", Kind: contract.KindEvent, Source: "synora-core", Target: "synora-core", Timestamp: decision.CreatedAt, Priority: decision.Priority, CorrelationID: decision.SituationID, Payload: payload})
+	return s.bus.Send(contract.Message{ID: decision.DecisionID, Version: cge.DecisionEnvelopeSchemaVersion, Type: "cge.decision.advisory", Kind: contract.KindEvent, Source: "core", Target: "core", Timestamp: decision.CreatedAt, Priority: decision.Priority, CorrelationID: decision.SituationID, Payload: payload})
 }

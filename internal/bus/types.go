@@ -22,6 +22,7 @@ type pendingResponse struct {
 type Client struct {
 	address string
 	service string
+	auth    AuthConfig
 
 	mu          sync.Mutex
 	writeMu     sync.Mutex
@@ -44,15 +45,32 @@ type ClientConn struct {
 	name    string
 	conn    net.Conn
 	encoder *json.Encoder
+	auth    AuthConfig
 	mu      sync.Mutex
+}
+
+type ServerConfig struct {
+	Auth         AuthConfig
+	ReplayWindow time.Duration
+	Now          func() time.Time
 }
 
 type Server struct {
 	address         string
 	debug           bool
 	allowedServices map[string]struct{}
+	auth            AuthConfig
+	replayWindow    time.Duration
+	now             func() time.Time
 
-	mu       sync.RWMutex
-	clients  map[string]*ClientConn
-	listener net.Listener
+	mu           sync.RWMutex
+	clients      map[string]*ClientConn
+	seenNonces   map[string]time.Time
+	seenMessages map[string]messageReplay
+	listener     net.Listener
+}
+
+type messageReplay struct {
+	seenAt      time.Time
+	fingerprint string
 }

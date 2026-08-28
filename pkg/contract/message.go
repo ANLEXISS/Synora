@@ -37,6 +37,9 @@ type Message struct {
 	TrackID       string          `json:"track_id,omitempty"`
 	CorrelationID string          `json:"correlation_id,omitempty"`
 	RequestID     string          `json:"request_id,omitempty"`
+	AuthKeyID     string          `json:"auth_key_id,omitempty"`
+	AuthNonce     string          `json:"auth_nonce,omitempty"`
+	AuthSignature string          `json:"auth_signature,omitempty"`
 	Payload       json.RawMessage `json:"payload,omitempty"`
 }
 
@@ -56,6 +59,9 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		TrackID       string          `json:"track_id,omitempty"`
 		CorrelationID string          `json:"correlation_id,omitempty"`
 		RequestID     string          `json:"request_id,omitempty"`
+		AuthKeyID     string          `json:"auth_key_id,omitempty"`
+		AuthNonce     string          `json:"auth_nonce,omitempty"`
+		AuthSignature string          `json:"auth_signature,omitempty"`
 		Payload       json.RawMessage `json:"payload,omitempty"`
 		Timestamp     any             `json:"timestamp,omitempty"`
 	}{
@@ -73,6 +79,9 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		TrackID:       m.TrackID,
 		CorrelationID: m.CorrelationID,
 		RequestID:     m.RequestID,
+		AuthKeyID:     m.AuthKeyID,
+		AuthNonce:     m.AuthNonce,
+		AuthSignature: m.AuthSignature,
 		Payload:       m.Payload,
 	}
 	if !m.Timestamp.IsZero() {
@@ -97,6 +106,9 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 		TrackID       string          `json:"track_id,omitempty"`
 		CorrelationID string          `json:"correlation_id,omitempty"`
 		RequestID     string          `json:"request_id,omitempty"`
+		AuthKeyID     string          `json:"auth_key_id,omitempty"`
+		AuthNonce     string          `json:"auth_nonce,omitempty"`
+		AuthSignature string          `json:"auth_signature,omitempty"`
 		Payload       json.RawMessage `json:"payload,omitempty"`
 		Timestamp     any             `json:"timestamp,omitempty"`
 	}{}
@@ -118,6 +130,9 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 		TrackID:       aux.TrackID,
 		CorrelationID: aux.CorrelationID,
 		RequestID:     aux.RequestID,
+		AuthKeyID:     aux.AuthKeyID,
+		AuthNonce:     aux.AuthNonce,
+		AuthSignature: aux.AuthSignature,
 		Payload:       aux.Payload,
 	}
 	m.Timestamp = parseMessageTimestamp(aux.Timestamp)

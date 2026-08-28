@@ -759,6 +759,30 @@ func TestDocumentedEventTypesNormalize(t *testing.T) {
 	}
 }
 
+func TestMessageJSONRoundTripPreservesBusAuthenticationMetadata(t *testing.T) {
+	message := Message{
+		ID: "msg-auth", Type: "health.check", Kind: KindRPC, Source: "api", Target: "core",
+		Timestamp: time.Date(2026, 8, 28, 17, 0, 0, 123456789, time.UTC),
+		AuthKeyID: "key-2026", AuthNonce: "nonce-1", AuthSignature: "signature-1",
+		Payload: []byte(`{"probe":"health"}`),
+	}
+	data, err := json.Marshal(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"id":"msg-auth","type":"health.check","kind":"rpc","source":"api","target":"core","auth_key_id":"key-2026","auth_nonce":"nonce-1","auth_signature":"signature-1","payload":{"probe":"health"},"timestamp":"2026-08-28T17:00:00.123456789Z"}`
+	if string(data) != want {
+		t.Fatalf("non-deterministic bus JSON:\n got %s\nwant %s", data, want)
+	}
+	var decoded Message
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.AuthKeyID != message.AuthKeyID || decoded.AuthNonce != message.AuthNonce || decoded.AuthSignature != message.AuthSignature || !decoded.Timestamp.Equal(message.Timestamp) {
+		t.Fatalf("authentication metadata was not preserved: %#v", decoded)
+	}
+}
+
 func assertJSONField(t *testing.T, data []byte, field string) {
 	t.Helper()
 

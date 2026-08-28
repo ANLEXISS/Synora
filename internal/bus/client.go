@@ -14,9 +14,21 @@ import (
 )
 
 func NewClient(path string, service string) (*Client, error) {
+	return NewClientWithConfig(path, service, ClientConfig{Auth: AuthConfigFromEnv()})
+}
+
+type ClientConfig struct {
+	Auth AuthConfig
+}
+
+func NewClientWithConfig(path string, service string, cfg ClientConfig) (*Client, error) {
+	if err := cfg.Auth.validate(); err != nil {
+		return nil, err
+	}
 	c := &Client{
 		address:  path,
 		service:  service,
+		auth:     cfg.Auth,
 		pending:  make(map[string]chan pendingResponse),
 		incoming: make(chan contract.Message, 100),
 		closeCh:  make(chan struct{}),
@@ -103,6 +115,10 @@ func (c *Client) readLoop(conn net.Conn) error {
 			log.Printf("bus decode error for %s: %v", c.service, err)
 			return err
 		}
+		if err := verifyMessageAuthentication(msg, c.auth, time.Now().UTC(), 5*time.Minute); err != nil {
+			log.Printf("bus authentication failed for %s: %v", c.service, err)
+			return err
+		}
 
 		if c.deliverPending(msg) {
 			continue
@@ -137,9 +153,16 @@ func (c *Client) Send(msg contract.Message) error {
 	if msg.Kind == "" {
 		msg.Kind = contract.KindEvent
 	}
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now().UTC()
+	}
 
 	if msg.SourceType == "" {
 		msg.SourceType = inferSourceType(msg.Source)
+	}
+	msg, err := authenticateMessage(msg, c.auth, time.Now().UTC())
+	if err != nil {
+		return err
 	}
 
 	data, err := json.Marshal(msg)
@@ -336,6 +359,12 @@ func (c *Client) register(conn net.Conn) error {
 		Kind:       contract.KindCommand,
 		Source:     c.service,
 		SourceType: contract.SourceSystem,
+		Timestamp:  time.Now().UTC(),
+	}
+	var err error
+	reg, err = authenticateMessage(reg, c.auth, time.Now().UTC())
+	if err != nil {
+		return err
 	}
 
 	data, err := json.Marshal(reg)
@@ -363,6 +392,9 @@ func (c *Client) register(conn net.Conn) error {
 	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
 	var ack contract.Message
 	if err := json.NewDecoder(conn).Decode(&ack); err != nil {
+		return err
+	}
+	if err := verifyMessageAuthentication(ack, c.auth, time.Now().UTC(), 5*time.Minute); err != nil {
 		return err
 	}
 	if ack.Type != "bus.registered" || ack.Target != c.service || ack.CorrelationID != reg.ID {
