@@ -1,5 +1,33 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M025
+
+- Jalon : M025 — Discovery et registre caméras
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m025-camera-registry`
+- Branche dédiée : `codex/v1-m025-camera-registry`
+- Commits fonctionnels : `f56f760` (contrat `CameraObservation`), `8ee76b6`
+  (registre Discovery, projection Core et tests de compatibilité)
+- Décisions : Discovery reste propriétaire de la découverte technique et de la
+  santé locale ; Core applique une projection durable. Les observations sont
+  idempotentes par identifiant stable, les capacités sont canonisées, les
+  collisions d’identité matérielle sont refusées et les changements d’endpoint
+  sont acceptés sans changer l’identité caméra. Les timestamps restent RFC3339.
+- Compatibilité : les événements historiques `discovery.camera.online` et
+  `discovery.camera.offline` sont conservés ; aucune migration de champ existant
+  vers Unix ms n’est effectuée.
+- Couverture : trois caméras, doublon d’observation, changement d’adresse,
+  collision matérielle, flapping réseau, observation inconnue appliquée par Core,
+  reprise de publication et sérialisation JSON déterministe.
+- Preuves : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go test -race ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`,
+  `GOFLAGS=-buildvcs=false go build ./cmd/...`, 35 tests Python,
+  qualification fonctionnelle locale (8 tests), et `git diff --check` — PASS.
+- Réserve d’environnement : le worktree ne contient pas les dépendances Web
+  (`synora-web/node_modules` est explicitement hors périmètre), donc lint/build
+  Web non exécutés sur ce jalon.
+- Intégration : à effectuer après validation de ce rapport
+
 ## MASTER_PLAN — M001
 
 - Jalon : M001 — baseline compilable et inventaire V1
