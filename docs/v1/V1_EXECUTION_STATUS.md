@@ -1,5 +1,35 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M026
+
+- Jalon : M026 — Supervision des flux MediaMTX
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m026-mediamtx`
+- Branche dédiée : `codex/v1-m026-mediamtx`
+- Commits fonctionnels : `26f8740` (client, allowlist et réconciliation),
+  `4ccd49d` (configuration runtime et sonde HTTP), `e291eb3` (statut API),
+  `b131793` (supervision périodique Discovery)
+- Modifications : MediaMTX démarre avec un ensemble de chemins explicite,
+  Discovery réconcilie les caméras activées par créations/suppressions
+  idempotentes, et les changements de caméra sont reflétés sans wildcard.
+  L’API `/api/streams` expose `ready`, `degraded` ou `unknown` sans publier de
+  credentials ; les URLs de supervision et les erreurs n’exposent pas de secret.
+- Invariants : MediaMTX est injectable dans les tests, son indisponibilité ne
+  bloque pas l’ingestion ou l’analyse des clips déjà reçus, et les décisions de
+  sécurité ne dépendent pas du live.
+- Couverture : client factice, timeout, configuration partielle, doublons,
+  caméra renommée, reprise après redémarrage et continuité d’ingestion clips.
+- Preuves : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go test -race ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`,
+  `GOFLAGS=-buildvcs=false go build ./cmd/...`, 35 tests Python,
+  qualification fonctionnelle locale (8 tests), et `git diff --check` — PASS.
+  Un échec race intermittent de Dispatcher a été reproduit isolément 5/5 sans
+  reproduction, puis la suite race globale a été relancée avec succès.
+- Réserve d’environnement : le worktree ne contient pas les dépendances Web
+  (`synora-web/node_modules` est explicitement hors périmètre), donc lint/build
+  Web non exécutés sur ce jalon.
+- Intégration : à effectuer après validation de ce rapport
+
 ## MASTER_PLAN — M025
 
 - Jalon : M025 — Discovery et registre caméras

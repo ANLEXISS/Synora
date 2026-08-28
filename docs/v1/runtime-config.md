@@ -15,9 +15,10 @@ de `SYNORA_CONFIG_DIR` sauf surcharge explicite par leur variable dédiée.
 
 Les endpoints sont `SYNORA_HTTP_ADDR`, `SYNORA_HTTPS_ADDR`,
 `SYNORA_VISION_HEALTH_ADDR`, `SYNORA_VISION_HTTPS_ADDR` et
-`SYNORA_MEDIAMTX_RTSP_URL`. Les ports peuvent être éphémères (`:0` ou
+`SYNORA_MEDIAMTX_RTSP_URL`, ainsi que `SYNORA_MEDIAMTX_API_URL` pour l'API
+locale de supervision. Les ports peuvent être éphémères (`:0` ou
 `127.0.0.1:0`) dans les tests ; l’URL MediaMTX doit rester une URL `rtsp` avec
-un hôte.
+un hôte et l’API MediaMTX une URL HTTP(S) sans credentials.
 
 Les délais acceptent la syntaxe Go de `time.ParseDuration` :
 `SYNORA_BUS_CONNECT_TIMEOUT`, `SYNORA_BUS_RPC_TIMEOUT`,
