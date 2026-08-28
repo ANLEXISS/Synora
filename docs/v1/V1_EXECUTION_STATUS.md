@@ -780,3 +780,29 @@ Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentai
 ## Historique
 
 Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
+
+## Jalon M010 — Cycle de vie propre des services Go
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m010-lifecycle`
+- Branche dédiée : `codex/v1-m010-lifecycle`
+- Commit fonctionnel : `64de094`
+- Livrables : arrêt SIGTERM/context déterministe du Core, arrêt des boucles
+  périodiques et attente des goroutines avant persistance finale, fermeture
+  idempotente des ressources Discovery, supervision et serveurs HTTP
+  annulables, retries de connexion Bus bornés et annulables pour Core, API,
+  Actions, Discovery et Runtime Manager.
+- Compatibilité : les wrappers sans contexte restent disponibles pour les
+  appelants et tests existants ; aucun contrat V1 n’a été modifié.
+- Tests ajoutés : annulation déterministe du raccordement Bus, arrêt du loop
+  Core et arrêt du loop runtime Discovery.
+- Validations : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./...`, tests Python Vision (22) — PASS.
+- Race : la passe globale a rencontré deux échecs intermittents déjà connus
+  dans `internal/cge/shadowworkflow` et `internal/delivery` ; chacun passe
+  isolément sous race. Aucun rapport de data race n’a été produit.
+- Limite environnement : la qualification Web n’a pas été relancée, car les
+  dépendances locales de `synora-web` sont absentes et leur installation est
+  hors périmètre autorisé.
+- État : commit poussé sur la branche du jalon ; intégration dans
+  `integration/synora-v1` à effectuer après la vérification finale.
