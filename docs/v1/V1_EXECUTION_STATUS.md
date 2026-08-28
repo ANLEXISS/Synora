@@ -34,6 +34,28 @@
   package ne définit toujours pas de script npm `test`
 - Intégration : à effectuer après validation de ce rapport
 
+## MASTER_PLAN — M003
+
+- Jalon : M003 — configuration et chemins injectables
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m003-config`
+- Branche dédiée : `codex/v1-m003-config`
+- Commits : `1f24287` (contrat et câblage runtime), `8a2514e` (oracle E2E
+  tolérant à l’instrumentation)
+- Résultat : validé ; chemins, ports, endpoints MediaMTX et timeouts sont
+  centralisés, surchargeables sans mutation de l’environnement de test, et
+  validés avant démarrage
+- Composants câblés : Core, API, Bus, Discovery/Vision, Actions, Backup, OTA,
+  Camera OTA, Runtime Manager et Connect
+- Preuves : `GOFLAGS=-buildvcs=false go test ./...`,
+  `GOFLAGS=-buildvcs=false go test -race ./...`, vet/build Go, compile/tests
+  Vision, lint/build WebApp et `git diff --check` — PASS
+- Régressions de baseline durcies : simulation API et E2E Core/CGE attendent
+  désormais leurs états terminaux avec des délais bornés adaptés à `-race`
+- Réserves : `GOFLAGS=-buildvcs=false` reste requis par l’environnement de
+  worktree ; lint WebApp conserve 7 avertissements React-hooks ; aucun script
+  npm `test` ni répertoire `automation/codex-loop/tests` n’est présent
+- Intégration : à effectuer après validation de ce rapport
+
 ## Jalon courant
 
 - Historique conservé : jalons 01–25 de l’ancien plan V1 (non substitutif au
