@@ -507,6 +507,10 @@ func (s *Store) RegisterClip(value *ClipState) (contract.Clip, bool, error) {
 		s.mu.Unlock()
 		return result, false, nil
 	}
+	if conflictingID := s.clipIndexCollisionLocked(&cloned); conflictingID != "" {
+		s.mu.Unlock()
+		return contract.Clip{}, false, contract.NewAPIError(contract.ErrorConflict, "clip index collision with %s", conflictingID)
+	}
 	if cloned.Revision == 0 {
 		cloned.Revision = 1
 	}
@@ -679,13 +683,38 @@ func sameClipContent(left, right *ClipState) bool {
 	if left == nil || right == nil {
 		return false
 	}
-	if left.CameraID != right.CameraID || left.SizeBytes != right.SizeBytes {
+	if left.CameraID != right.CameraID || left.ActivationID != right.ActivationID ||
+		left.ClipIndex != right.ClipIndex || left.SequenceKey != right.SequenceKey ||
+		left.TrackID != right.TrackID || left.NodeID != right.NodeID || left.SizeBytes != right.SizeBytes {
 		return false
 	}
 	if left.Checksum != "" && right.Checksum != "" {
 		return left.Checksum == right.Checksum
 	}
-	return left.ActivationID == right.ActivationID && left.ClipIndex == right.ClipIndex
+	return true
+}
+
+func (s *Store) clipIndexCollisionLocked(candidate *ClipState) string {
+	if s == nil || candidate == nil || strings.TrimSpace(candidate.CameraID) == "" {
+		return ""
+	}
+	activationID := strings.TrimSpace(candidate.ActivationID)
+	sequenceKey := strings.TrimSpace(candidate.SequenceKey)
+	if activationID == "" && sequenceKey == "" {
+		return ""
+	}
+	for id, existing := range s.Clips {
+		if existing == nil || id == candidate.ID || existing.CameraID != candidate.CameraID || existing.ClipIndex != candidate.ClipIndex {
+			continue
+		}
+		if activationID != "" && existing.ActivationID == activationID {
+			return id
+		}
+		if activationID == "" && sequenceKey != "" && existing.ActivationID == "" && existing.SequenceKey == sequenceKey {
+			return id
+		}
+	}
+	return ""
 }
 
 func (s *Store) DeleteClip(id string) {

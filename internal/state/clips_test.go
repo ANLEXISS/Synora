@@ -50,6 +50,74 @@ func TestClipStateRegisterTransitionReconcileAndDefensiveCopies(t *testing.T) {
 	}
 }
 
+func TestClipRegisterRejectsDivergentDuplicateAndIndexCollision(t *testing.T) {
+	store := NewStore()
+	base := &ClipState{
+		ID: "clip-1", CameraID: "cam-1", NodeID: "entry", ActivationID: "activation-1",
+		SequenceKey: "sequence-1", ClipIndex: 0, Status: contract.ClipStatusReceiving,
+		SizeBytes: 10, Checksum: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		CreatedAt: time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC),
+	}
+	if _, created, err := store.RegisterClip(base); err != nil || !created {
+		t.Fatalf("initial clip register created=%t err=%v", created, err)
+	}
+	divergent := *base
+	divergent.Checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if _, _, err := store.RegisterClip(&divergent); contract.APIErrorCode(err) != contract.ErrorConflict {
+		t.Fatalf("divergent duplicate should conflict: %v", err)
+	}
+	collision := *base
+	collision.ID = "clip-2"
+	if _, _, err := store.RegisterClip(&collision); contract.APIErrorCode(err) != contract.ErrorConflict {
+		t.Fatalf("same activation/index should conflict: %v", err)
+	}
+	otherActivation := collision
+	otherActivation.ID = "clip-3"
+	otherActivation.ActivationID = "activation-2"
+	if _, created, err := store.RegisterClip(&otherActivation); err != nil || !created {
+		t.Fatalf("different activation should remain registerable created=%t err=%v", created, err)
+	}
+}
+
+func TestClipStateLifecycleTransitionsAreExplicitAndIdempotent(t *testing.T) {
+	store := NewStore()
+	if _, _, err := store.TransitionClip("missing", contract.ClipStatusReady, ""); contract.APIErrorCode(err) != contract.ErrorNotFound {
+		t.Fatalf("missing clip transition should be not found: %v", err)
+	}
+	if _, _, err := store.RegisterClip(&ClipState{ID: "clip-lifecycle", CameraID: "cam-1", Status: contract.ClipStatusReceiving}); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []contract.ClipStatus{contract.ClipStatusReady, contract.ClipStatusProcessing, contract.ClipStatusProcessed, contract.ClipStatusExpired} {
+		if _, changed, err := store.TransitionClip("clip-lifecycle", target, ""); err != nil || !changed {
+			t.Fatalf("transition to %s changed=%t err=%v", target, changed, err)
+		}
+	}
+	if _, changed, err := store.TransitionClip("clip-lifecycle", contract.ClipStatusExpired, ""); err != nil || changed {
+		t.Fatalf("expired transition should be idempotent changed=%t err=%v", changed, err)
+	}
+	if _, _, err := store.TransitionClip("clip-lifecycle", contract.ClipStatusReady, ""); contract.APIErrorCode(err) != contract.ErrorConflict {
+		t.Fatalf("expired clip should not transition back: %v", err)
+	}
+}
+
+func TestClipRegisterBackfillsIncidentReferences(t *testing.T) {
+	store := NewStore()
+	store.SetIncident(&contract.Incident{
+		ID: "incident-existing", EventIDs: []string{"event-existing"}, ClipIDs: []string{"clip-late"},
+		Status: contract.IncidentStatusNew,
+	})
+	if _, created, err := store.RegisterClip(&ClipState{
+		ID: "clip-late", CameraID: "cam-1", ActivationID: "activation-1", ClipIndex: 2,
+		Status: contract.ClipStatusReady,
+	}); err != nil || !created {
+		t.Fatalf("late clip register created=%t err=%v", created, err)
+	}
+	clip, ok := store.Clip("clip-late")
+	if !ok || len(clip.IncidentIDs) != 1 || clip.IncidentIDs[0] != "incident-existing" || len(clip.EventIDs) != 1 || clip.EventIDs[0] != "event-existing" {
+		t.Fatalf("incident references were not backfilled: %#v ok=%t", clip, ok)
+	}
+}
+
 func TestClipStorageReferencesSnapshotIsDefensive(t *testing.T) {
 	store := NewStore()
 	store.SetClip(&ClipState{ID: "clip-1", CameraID: "cam-1", Path: "/spool/cam-1/clip-1.mp4"})
