@@ -781,6 +781,27 @@ Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentai
 
 Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
 
+## Jalon M011 — Machine de sécurité déterministe
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m011-security`
+- Branche dédiée : `codex/v1-m011-security`
+- Commit fonctionnel : `01fcf22`
+- Livrables : sérialisation concurrente de l’état temporel de
+  `DangerRuntime`, reset explicite de l’hystérésis lors d’un reset Core
+  autorisé, et matrice table-driven des entrées de sécurité.
+- Couverture déterministe : résident connu, inconnu avec intrusion immédiate,
+  disparition caméra, répétition, reset, événement hors ordre ; les timelines
+  existantes couvrent decay, verrou de 15 secondes et redémarrage pendant le
+  verrou.
+- Validations : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./...`, `timeout 300s env GOFLAGS=-buildvcs=false go test -race ./... -count=1`
+  et tests Python Vision (22) — PASS.
+- Invariant conservé : une disparition caméra dans une zone de contrôle reste
+  un signal de sécurité `suspicious` (niveau 3), conformément au scoring V1
+  existant ; aucune sémantique n’a été modifiée silencieusement.
+- État : validation complète verte ; intégration fast-forward autorisée.
+
 ## Jalon M010 — Cycle de vie propre des services Go
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m010-lifecycle`
