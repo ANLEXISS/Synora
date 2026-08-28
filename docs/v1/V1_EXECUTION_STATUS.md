@@ -781,6 +781,31 @@ Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentai
 
 Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
 
+## Jalon M016 — Contrat et store Clips V1
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m016-clips`
+- Branche dédiée : `codex/v1-m016-clips`
+- Commit fonctionnel : `e06836f`
+- Livrables : cycle de vie durable `receiving/ready/processing/processed`,
+  ainsi que `failed/missing/expired`, transitions autorisées et idempotentes,
+  conservation des métadonnées canoniques et compatibilité des enregistrements
+  existants.
+- Correctifs d’intégrité : collision d’identifiant avec métadonnées divergentes
+  refusée, collision `(camera_id, activation_id, clip_index)` refusée, et
+  rattachement incident↔clip complété lors d’un enregistrement tardif.
+- Tests déterministes ajoutés : matrice complète des transitions, idempotence,
+  collisions d’identité et d’index, et restauration des références
+  incident/événement.
+- Validations : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./...`, `timeout 360s env GOFLAGS=-buildvcs=false go test -race ./... -count=1`
+  et tests Python Vision (22) — PASS.
+- Limite environnement : la qualification Web n’a pas été relancée, car les
+  dépendances locales de `synora-web` sont absentes et leur installation est
+  hors périmètre autorisé.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon M015 — API et temps réel des incidents
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m015-incident-api`
