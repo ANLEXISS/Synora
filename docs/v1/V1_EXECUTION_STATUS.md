@@ -781,6 +781,37 @@ Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentai
 
 Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
 
+## Jalon M014 — Incidents V1 durables
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m014-incidents`
+- Branche dédiée : `codex/v1-m014-incidents`
+- Commit fonctionnel : `1028f79`
+- Livrables : regroupement borné à une fenêtre d’une minute et à la même
+  caméra/au même lieu, déduplication d’événements rejoués, conservation des
+  statuts `new/viewed/acknowledged/resolved`, références d’événements/clips
+  bornées et enrichissement par clip arrivé tardivement.
+- Correctifs d’intégrité : une intrusion indépendante sur une autre caméra ou
+  un autre lieu ne fusionne plus via une `sequence_key`, une `activation_id`,
+  un track ou un entity ID réutilisé ; un incident résolu ne peut pas être
+  rouvert par une nouvelle observation ; l’acquittement reste durable.
+- Tests déterministes ajoutés : frontières caméra/lieu, résolution sans
+  réouverture, clip tardif et concurrence de doublons. Les tests existants
+  couvrent idempotence, transitions de statut, références manquantes,
+  persistance/reprise et rétention.
+- Validations : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./...`, `timeout 300s env GOFLAGS=-buildvcs=false go test -race ./... -count=1`
+  et tests Python Vision (22) — PASS.
+- Note de qualification race : deux premières passes ont exposé
+  successivement les flaky connus de `internal/cge/shadowworkflow` et
+  `internal/dispatcher`; les relances ciblées et la troisième passe globale
+  sont vertes, sans rapport de data race.
+- Limite environnement : la qualification Web n’a pas été relancée, car les
+  dépendances locales de `synora-web` sont absentes et leur installation est
+  hors périmètre autorisé.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon M013 — Présence résidente cohérente
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m013-presence`
