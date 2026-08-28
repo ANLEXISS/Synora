@@ -781,6 +781,33 @@ Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentai
 
 Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
 
+## Jalon M015 — API et temps réel des incidents
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m015-incident-api`
+- Branche dédiée : `codex/v1-m015-incident-api`
+- Commit fonctionnel : `4fb12a7`
+- Livrables validés sur l’existant : liste/détail/statut des incidents par API
+  protégée, contrats realtime versionnés `connection.ready`, `snapshot`,
+  `security_state.changed`, `incident.created`, `incident.updated` et
+  `resync_required`, avec curseur epoch/séquence/révision.
+- Tests déterministes ajoutés : déduplication des messages Bus, détection des
+  trous de séquence et changement d’epoch avec resynchronisation avant delta ;
+  les tests existants couvrent ordre snapshot/delta, reconnexion, cursor trop
+  ancien, client lent, clients multiples, Bus Unix et contrôle d’accès.
+- Invariants conservés : l’abonnement `api` ne lit que le client Bus dédié,
+  les messages Core sont filtrés par source, les publications sont sérialisées
+  avec le snapshot initial et aucun delta n’est envoyé avant la resynchronisation
+  requise.
+- Validations : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./...`, `timeout 300s env GOFLAGS=-buildvcs=false go test -race ./... -count=1`
+  et tests Python Vision (22) — PASS.
+- Limite environnement : la qualification Web n’a pas été relancée, car les
+  dépendances locales de `synora-web` sont absentes et leur installation est
+  hors périmètre autorisé.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon M014 — Incidents V1 durables
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m014-incidents`
