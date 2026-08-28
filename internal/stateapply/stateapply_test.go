@@ -164,6 +164,46 @@ func TestEventAnalyzeThenStateApply(t *testing.T) {
 	}
 }
 
+func TestCameraObservationCompatibilityAppliesTechnicalState(t *testing.T) {
+	devices := device.NewRegistry()
+	store := state.NewStore()
+	seenAt := time.Date(2026, 8, 28, 12, 0, 0, 123456789, time.UTC)
+	observation := contract.CameraObservation{
+		CameraID: "cam-discovered", HardwareID: "hw-1", Endpoint: "10.0.0.8",
+		Firmware: "4.2.0", Capabilities: []string{"weapon", "person"}, Online: true, LastSeen: seenAt,
+	}
+	if err := observation.EnsureID(); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parser := ingest.Parser{Devices: devices, Now: func() time.Time { return seenAt.Add(time.Second) }}
+	event, err := parser.Parse(contract.Message{
+		ID: "event-observation-1", Type: contract.EventDiscoveryCameraObserved, Kind: contract.KindEvent,
+		Source: "discovery", Timestamp: seenAt, Payload: payload,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateapply.TouchDeviceState(store, devices, event)
+	camera, ok := store.CameraState("cam-discovered")
+	if !ok || camera == nil {
+		t.Fatal("discovered camera state was not created")
+	}
+	if camera.Endpoint != "10.0.0.8" || camera.HardwareID != "hw-1" || camera.Firmware != "4.2.0" || !camera.LastSeen.Equal(seenAt) || camera.ObservationID != observation.ObservationID {
+		t.Fatalf("unexpected camera state: %#v", camera)
+	}
+	if len(camera.Capabilities) != 2 || camera.Capabilities[0] != "person" || camera.Capabilities[1] != "weapon" {
+		t.Fatalf("capabilities were not canonicalized: %#v", camera.Capabilities)
+	}
+	deviceState, ok := store.DeviceState("cam-discovered")
+	if !ok || deviceState == nil || !deviceState.Online {
+		t.Fatalf("unexpected device state: %#v", deviceState)
+	}
+}
+
 func TestApplyCreatesPendingValidationRequest(t *testing.T) {
 	store := state.NewStore()
 	at := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)

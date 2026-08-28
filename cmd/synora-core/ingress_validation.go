@@ -16,6 +16,14 @@ func (a *coreApp) validateIngressEvent(event *contract.Event) error {
 		return err
 	}
 	switch contract.NormalizeEventType(event.Type) {
+	case contract.EventDiscoveryCameraObserved:
+		observation, err := contract.CameraObservationFromPayload(event.Payload)
+		if err != nil {
+			return fmt.Errorf("camera observation payload: %w", err)
+		}
+		if event.DeviceID != "" && observation.CameraID != event.DeviceID {
+			return fmt.Errorf("camera observation device mismatch: %q versus %q", observation.CameraID, event.DeviceID)
+		}
 	case contract.EventActionResult:
 		var result contract.ActionResult
 		if err := json.Unmarshal(mustPayloadJSON(event.Payload), &result); err != nil {

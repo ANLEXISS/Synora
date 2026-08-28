@@ -24,6 +24,13 @@ checksums, empreinte du modèle et dimension d’embedding. Les embeddings et le
 chemins de stockage restent internes. `internal/facedataset.Manifest.ContractVersion`
 est l’adaptateur explicite vers cette vue.
 
+`CameraObservation` est promu additivement pour la frontière Discovery/Core de
+M025. Il transporte uniquement l’identité technique, l’endpoint, le firmware,
+les capacités, l’état de santé et `last_seen`. Son identifiant stable sert à
+dédupliquer les observations ; Core en conserve la projection dans `CameraState`.
+Les événements historiques `discovery.camera.online` et
+`discovery.camera.offline` restent compatibles.
+
 `Track`, `Presence` et `ObservationRef` restent internes : aucun échange
 interservice V1 ne justifie leur promotion. Les futures promotions devront fournir
 un adaptateur et des tests de compatibilité avant migration des consommateurs.

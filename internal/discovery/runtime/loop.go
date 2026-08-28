@@ -49,6 +49,9 @@ func StartLoopContext(
 		case <-ticker.C:
 			now := time.Now().UTC()
 
+			if registry == nil {
+				continue
+			}
 			registry.ForEachLocked(func(device *Device) {
 
 				if !device.Online {
@@ -85,15 +88,17 @@ func StartLoopContext(
 					return
 				}
 
-				err = publisher.Send(contract.Message{
-					ID:        idgen.New("msg"),
-					Type:      contract.EventDeviceOffline,
-					Kind:      contract.KindEvent,
-					Source:    "discovery",
-					Target:    "core",
-					Timestamp: now,
-					Payload:   payload,
-				})
+				if publisher != nil {
+					err = publisher.Send(contract.Message{
+						ID:        idgen.New("msg"),
+						Type:      contract.EventDeviceOffline,
+						Kind:      contract.KindEvent,
+						Source:    "discovery",
+						Target:    "core",
+						Timestamp: now,
+						Payload:   payload,
+					})
+				}
 
 				if err != nil {
 

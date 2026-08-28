@@ -52,6 +52,7 @@ const (
 	EventDeviceOffline = "device.offline"
 
 	// Discovery events
+	EventDiscoveryCameraObserved          = "discovery.camera.observed"
 	EventDiscoveryCameraOnline            = "discovery.camera.online"
 	EventDiscoveryCameraOffline           = "discovery.camera.offline"
 	EventDiscoveryWorkerStarted           = "discovery.worker.started"
@@ -267,6 +268,7 @@ func EventCategory(eventType string) string {
 		EventClipProcessing,
 		EventClipProcessed,
 		EventClipFailed,
+		EventDiscoveryCameraObserved,
 		EventDiscoveryCameraOnline,
 		EventDiscoveryCameraOffline,
 		EventDeviceOffline,
@@ -342,6 +344,7 @@ func NormalizeEventType(raw string) string {
 		EventVisionMotion,
 		EventDeviceTrigger,
 		EventDeviceOffline,
+		EventDiscoveryCameraObserved,
 		EventDiscoveryCameraOnline,
 		EventDiscoveryCameraOffline,
 		EventDiscoveryWorkerStarted,
@@ -418,6 +421,7 @@ func EventPriority(eventType string) int {
 		EventVisionIdentity,
 		EventVisionMotion,
 		EventDeviceTrigger,
+		EventDiscoveryCameraObserved,
 		EventDiscoveryCameraOnline,
 		EventDiscoveryWorkerStarted,
 		EventDiscoveryWorkerStopped,
