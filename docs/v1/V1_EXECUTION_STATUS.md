@@ -15,6 +15,25 @@
   définit pas de script npm `test`
 - Intégration : à effectuer après validation de ce rapport
 
+## MASTER_PLAN — M002
+
+- Jalon : M002 — harnais de tests hermétique
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m002-test-harness`
+- Branche dédiée : `codex/v1-m002-test-harness`
+- Commits : `933315b` (helpers communs), `49976d8` (attente d’état terminal
+  dans le test de simulation)
+- Résultat : validé ; horloge, IDs, chemins temporaires, bus mémoire, stockage
+  temporaire, serveur HTTP et faux Vision sont couverts par des oracles
+  déterministes et sans dépendance système
+- Preuves : `GOFLAGS=-buildvcs=false go test ./...`,
+  `GOFLAGS=-buildvcs=false go test -race ./...`, vet/build Go, 22 tests Vision,
+  compile Python, lint et build WebApp — PASS
+- Régression corrigée : le test API attend désormais explicitement l’état
+  terminal de la simulation après l’envoi asynchrone
+- Réserves : lint WebApp conserve 7 avertissements React-hooks existants ; le
+  package ne définit toujours pas de script npm `test`
+- Intégration : à effectuer après validation de ce rapport
+
 ## Jalon courant
 
 - Historique conservé : jalons 01–25 de l’ancien plan V1 (non substitutif au
