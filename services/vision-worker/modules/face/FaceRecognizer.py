@@ -20,8 +20,8 @@ class FaceRecognizer:
         self,
         model_path="/var/lib/synora/models/arcface_w600k_r50.rknn",
         faces_dir="/opt/synora/services/vision-worker/data/faces",
-        match_threshold=0.35,
-        uncertain_threshold=0.20,
+        match_threshold=0.58,
+        uncertain_threshold=0.45,
         debug_dir="/var/lib/synora/debug/arcface_runtime"
     ):
 

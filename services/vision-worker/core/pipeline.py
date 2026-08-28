@@ -28,6 +28,8 @@ class VisionPipeline:
 
     RECOGNITION_BUFFER = 10
 
+    IDENTITY_CACHE_TTL_SECONDS = 10.0
+
     IDENTITY_STABILITY_THRESHOLD = 0.60
 
     DETECT_SCALE = 1
@@ -38,7 +40,7 @@ class VisionPipeline:
 
     MAX_FACE_CANDIDATES = 10
 
-    FACE_MIN_SIZE = 60
+    FACE_MIN_SIZE = 80
 
     FACE_PADDING = 0.20
 
@@ -126,6 +128,8 @@ class VisionPipeline:
         self.track_recognition_buffers = {}
 
         self.track_last_arcface = {}
+
+        self.identity_dataset_version = ""
 
         self.frame_traces = {}
 
@@ -312,6 +316,13 @@ class VisionPipeline:
             track_id
         )
 
+        if not memory:
+            return True
+
+        cached_at = memory.get("cached_at")
+        if cached_at is None or time.monotonic() - float(cached_at) >= self.IDENTITY_CACHE_TTL_SECONDS:
+            return True
+
         interval = (
             self.ARCFACE_INTERVAL_KNOWN
             if memory and memory.get("status") == "match"
@@ -326,6 +337,21 @@ class VisionPipeline:
         return (
             self.frame_id - last
         ) >= interval
+
+    def _invalidate_identity_cache_on_dataset_change(self):
+        active_dataset = getattr(self.face_recognizer, "active_dataset", None)
+        if not callable(active_dataset):
+            return
+        snapshot = active_dataset()
+        version = str(snapshot.get("version", "") or "") if isinstance(snapshot, dict) else ""
+        if not version:
+            return
+        previous = getattr(self, "identity_dataset_version", "")
+        if previous and previous != version:
+            self.track_identity_memory.clear()
+            self.track_recognition_buffers.clear()
+            self.track_last_arcface.clear()
+        self.identity_dataset_version = version
 
     def recognition_buffer(
         self,
@@ -1015,6 +1041,8 @@ class VisionPipeline:
     ):
         events = []
 
+        self._invalidate_identity_cache_on_dataset_change()
+
         if scene_id is None:
             scene_id = (
                 f"scene-{int(time.time())}"
@@ -1317,6 +1345,7 @@ class VisionPipeline:
                     "best_score": best_score,
                     "consistency": consistency,
                     "status": status,
+                    "cached_at": time.monotonic(),
                 }
 
             self.metrics.identity(
@@ -1440,28 +1469,28 @@ class VisionPipeline:
             {
                 "name": "fast",
                 "target_fps": 5,
-                "face_min": 60,
+                "face_min": 80,
                 "padding": 0.15,
                 "all_frames": False,
             },
             {
                 "name": "balanced",
                 "target_fps": 10,
-                "face_min": 45,
+                "face_min": 80,
                 "padding": 0.20,
                 "all_frames": False,
             },
             {
                 "name": "aggressive",
                 "target_fps": 15,
-                "face_min": 35,
+                "face_min": 80,
                 "padding": 0.25,
                 "all_frames": False,
             },
             {
                 "name": "forensic",
                 "target_fps": 0,
-                "face_min": 30,
+                "face_min": 80,
                 "padding": 0.30,
                 "all_frames": True,
             },
@@ -1493,6 +1522,8 @@ class VisionPipeline:
             self.track_recognition_buffers.clear()
 
             self.track_last_arcface.clear()
+
+            self.identity_dataset_version = ""
 
             self.last_detections.clear()
 
@@ -1647,6 +1678,8 @@ class VisionPipeline:
         self.track_recognition_buffers.clear()
 
         self.track_last_arcface.clear()
+
+        self.identity_dataset_version = ""
 
         self.last_detections.clear()
 

@@ -42,19 +42,25 @@ class DummyDebugStore:
 
 class MockRecognizer:
 
-    match_threshold = 0.35
-    uncertain_threshold = 0.20
+    match_threshold = 0.58
+    uncertain_threshold = 0.45
 
     def __init__(self, status, identity, score):
         self.status = status
         self.identity = identity
         self.score = score
+        self.identify_calls = 0
+        self.dataset_version = "v-1"
 
     def embed(self, face):
         return np.ones(512, dtype=np.float32)
 
     def identify_embedding(self, embedding):
+        self.identify_calls += 1
         return self.status, self.identity, self.score
+
+    def active_dataset(self):
+        return {"version": self.dataset_version}
 
 
 class MockModelRunner:
@@ -245,6 +251,36 @@ class EventContractTests(unittest.TestCase):
             self.assertFalse(recognizer.available)
             self.assertEqual(recognizer.capability()["status"], "unavailable")
             self.assertIsNone(recognizer.embed(np.zeros((112, 112, 3), dtype=np.uint8)))
+            self.assertEqual(recognizer.match_threshold, 0.58)
+            self.assertEqual(recognizer.uncertain_threshold, 0.45)
+
+    def test_identity_cache_expires_after_ten_seconds(self):
+        self.assertEqual(VisionPipeline.FACE_MIN_SIZE, 80)
+        pipeline = make_pipeline("match", "alexis", 0.95, faces=True)
+        pipeline.run_recognition("cam_01", scene_id="clip_01")
+        pipeline.frame_id = 2
+        self.assertFalse(pipeline.should_run_arcface(7))
+        pipeline.track_identity_memory[7]["cached_at"] -= 10.001
+        self.assertTrue(pipeline.should_run_arcface(7))
+
+    def test_uncertain_identity_is_not_promoted_by_cache(self):
+        pipeline = make_pipeline("uncertain", "alexis", 0.46, faces=True)
+        first = pipeline.run_recognition("cam_01", scene_id="clip_01")
+        pipeline.frame_id = 2
+        second = pipeline.run_recognition("cam_01", scene_id="clip_01")
+        self.assertEqual(first[0]["type"], "vision.uncertain")
+        self.assertEqual(second[0]["type"], "vision.uncertain")
+        self.assertNotEqual(second[0]["type"], "vision.identity")
+
+    def test_dataset_swap_invalidates_track_identity_cache(self):
+        pipeline = make_pipeline("match", "alexis", 0.95, faces=True)
+        pipeline.run_recognition("cam_01", scene_id="clip_01")
+        self.assertEqual(len(pipeline.track_recognition_buffers[7]), 1)
+        pipeline.face_recognizer.dataset_version = "v-2"
+        pipeline.frame_id = 2
+        pipeline.run_recognition("cam_01", scene_id="clip_01")
+        self.assertEqual(pipeline.face_recognizer.identify_calls, 2)
+        self.assertEqual(len(pipeline.track_recognition_buffers[7]), 1)
 
     def test_missing_flask_disables_debug_api_without_crashing_worker(self):
         worker = VisionWorker.__new__(VisionWorker)

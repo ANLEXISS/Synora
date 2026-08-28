@@ -27,7 +27,7 @@ class VisionPipeline:
     MAX_TRACK_CONTEXTS = 32
     MAX_FACE_CANDIDATES = 8
 
-    FACE_MIN_SIZE = 60
+    FACE_MIN_SIZE = 80
 
     CROP_DIR = os.path.expanduser("~/Synora/vision_faces")
 
