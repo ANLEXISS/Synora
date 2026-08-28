@@ -184,6 +184,36 @@
 - Commits : `29fb88f` (implémentation et tests), commit de statut ci-dessous
 - État : validé sur branche dédiée ; intégration à effectuer
 
+## MASTER_PLAN — M009
+
+- Jalon : M009 — ingress Core validé et idempotent
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m009-ingress`
+- Branche dédiée : `codex/v1-m009-ingress`
+- Modifications : la frontière d’ingestion valide le contrat Event avant toute
+  mutation, contrôle les payloads `action.result` et les transitions de clips,
+  refuse les références clip absentes pour ces transitions, applique une
+  fenêtre de timestamps configurable (futur toléré 5 minutes, passé par défaut
+  24 heures), et garde les scénarios simulés explicitement historiques. Les
+  IDs de transport sont laissés à la déduplication Core ; une collision d’ID
+  avec un payload divergent est rejetée avant Engine, StateStore, incident ou
+  publication. Les corrélations clip optionnelles des événements vision restent
+  compatibles lorsqu’un clip n’est pas encore disponible.
+- Compatibilité : les messages legacy sans ID continuent d’être régulés par le
+  RateController ; les retries identifiés traversent la frontière pour que Core
+  distingue retry et collision. Le journal récent restauré sert de barrière de
+  rejeu après redémarrage.
+- Tests dédiés : payload poison sans mutation, référence clip absente, timestamps
+  futur/ancien avec horloge déterministe, simulation historique explicite,
+  collision d’ID, retry après redémarrage et ordre de traitement existant.
+- Preuves : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go test -race ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./cmd/...`, 22 tests Python Vision et `git diff --check` — PASS. La
+  qualification WebApp précédemment validée reste inchangée, ses dépendances
+  locales n’étant pas présentes dans ce worktree.
+- Commits : `127498b` (implémentation et tests), commit de statut ci-dessous
+- État : validé sur branche dédiée ; intégration à effectuer
+
 ## Jalon courant
 
 - Historique conservé : jalons 01–25 de l’ancien plan V1 (non substitutif au
