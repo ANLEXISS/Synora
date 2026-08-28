@@ -781,6 +781,39 @@ Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentai
 
 Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
 
+## Jalon M020 — Protocole du runtime Vision
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m020-vision-protocol`
+- Branche dédiée : `codex/v1-m020-vision-protocol`
+- Commit fonctionnel : `52460f7`
+- Livrables : handshake JSON-lines obligatoire `protocol.hello`, version de
+  protocole `synora.vision.v1`, corrélation par `request_id`, annonce du
+  backend, des modèles, de la dimension ArcFace et de l’état du dataset chargé.
+  Les requêtes clip utilisent explicitement `clip.process`.
+- Fiabilité : les réponses malformées ou désynchronisées sont rejetées et la
+  connexion est fermée ; une capacité dégradée, un modèle requis absent, un
+  backend RKNN indisponible ou une dimension autre que 512 ne produisent aucun
+  résultat Vision. L’état `degraded` remonte dans le health de Discovery et les
+  délais existants restent bornés.
+- Compatibilité : le transport JSON-lines et les opérations dataset existantes
+  sont conservés ; les réponses clip retournent désormais leur identifiant de
+  requête pour valider la compatibilité Go/Python. Aucun contrat public V1 ni
+  sémantique de timestamp n’a été modifié.
+- Tests déterministes ajoutés : sérialisation hello, fragmentation des
+  réponses, corrélation incorrecte, handshake obligatoire, capacités
+  dégradées, refus sans faux résultat et compatibilité JSON côté Python.
+- Validations : `GOFLAGS=-buildvcs=false go test ./...`, `GOFLAGS=-buildvcs=false
+  go vet ./...`, `GOFLAGS=-buildvcs=false go build ./...`,
+  `GOFLAGS=-buildvcs=false go test -race ./...` et tests Python Vision (26) —
+  PASS. Une première course globale a exposé le flaky connu
+  `internal/cge/shadowworkflow/TestQualificationCorruptMiddleWALFailsClosed` ;
+  il passe 3/3 isolément et la seconde course globale complète est verte.
+- Limite environnement : la qualification Web n’a pas été relancée, car les
+  dépendances locales de `synora-web` sont absentes et leur installation est
+  hors périmètre autorisé.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon M019 — Rétention, quota et accès média
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m019-media-retention`
