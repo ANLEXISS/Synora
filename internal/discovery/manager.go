@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -128,7 +129,7 @@ func NewManager(
 	workerManager.SetEnvironment("SYNORA_FACE_DATA_ROOT", m.faceStore.Root)
 	m.faceBuilder = facedataset.NewBuilder(m.faceStore)
 
-	m.pool = vision.NewWorkerPool(
+	m.pool = vision.NewWorkerPoolWithConfig(
 		4,
 		func(job *vision.ClipJob) error {
 			return vision.RunClipWorker(
@@ -136,6 +137,14 @@ func NewManager(
 				m.bus,
 				job,
 			)
+		},
+		vision.WorkerPoolConfig{
+			PersistencePath: filepath.Join(runtime.Paths.ClipRoot, ".vision-queue.json"),
+			OnPermanentFailure: func(job *vision.ClipJob, err error) {
+				if m.bus != nil {
+					_ = vision.PublishClipFailure(m.bus, job, "vision_processing_failed")
+				}
+			},
 		},
 	)
 

@@ -171,6 +171,16 @@ func publishClipLifecycle(publisher Publisher, eventType string, job *ClipJob, f
 	return publisher.Send(contract.Message{ID: id, Type: eventType, Kind: contract.KindEvent, Source: "discovery", Target: "core", Timestamp: time.Now().UTC(), Payload: payload})
 }
 
+// PublishClipFailure lets the queue report a terminal timeout or delivery
+// failure when the normal worker callback could not produce the lifecycle
+// event itself.
+func PublishClipFailure(publisher Publisher, job *ClipJob, failureCode string) error {
+	if job == nil {
+		return errors.New("invalid clip job")
+	}
+	return publishClipLifecycle(publisher, contract.EventClipFailed, job, failureCode, job.ID+":failed")
+}
+
 func firstNonEmpty(values ...any) string {
 	for _, value := range values {
 		if text, ok := value.(string); ok && text != "" {
