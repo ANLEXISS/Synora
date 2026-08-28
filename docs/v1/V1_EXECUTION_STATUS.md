@@ -106,7 +106,36 @@
   supprime une perte de première livraison sous concurrence ; l’oracle
   `worker.crashed` attend désormais sa publication après la transition
   `backoff`. Aucun test n’a été supprimé ni affaibli.
-- Validation complète et intégration : validé ; intégration en cours
+- Validation complète et intégration : validé ; commit `22a9132` atteignable
+  depuis `integration/synora-v1`
+
+## MASTER_PLAN — M006
+
+- Jalon : M006 — identité, ACL et anti-rejeu du Bus
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m006-bus-identity`
+- Branche dédiée : `codex/v1-m006-bus-identity`
+- Décisions conservées : l’identité d’un producteur ne vient jamais du champ
+  `Source` seul ; l’horodatage reste RFC3339/RFC3339Nano ; la protection
+  cryptographique est additive et ne change pas la sémantique des messages
+  existants
+- Modifications : contrôle `SO_PEERCRED` complété par l’exécutable attendu,
+  ACL explicite producteur/type/cible, nonce HMAC avec identifiant de clé et
+  fenêtre temporelle lorsqu’un secret est provisionné, anti-rejeu par
+  identifiant et empreinte pour les messages privilégiés sans secret, et
+  rejet fail-closed des clés tournées ou payloads modifiés
+- Compatibilité : `NewServer`/`NewClient` conservent leur API ; la clé du Bus
+  est optionnelle et provisionnée hors dépôt via `SYNORA_BUS_KEY_ID` et
+  `SYNORA_BUS_SECRET_FILE` (ou le fallback local `SYNORA_BUS_SECRET`)
+- Tests déterministes : spoof de source, mauvaise cible, type non autorisé,
+  timestamp expiré, rejeu de nonce, collision d’identifiant avec payload
+  modifié, rotation de clé et sérialisation JSON des métadonnées d’authentification.
+- Preuves finales : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./cmd/...`, `GOFLAGS=-buildvcs=false go test -race ./... -count=1`, et les
+  22 tests Python Vision — PASS. La WebApp n’a pas pu être relancée dans ce
+  worktree : ses dépendances locales `oxlint`/`tsc` sont absentes ; la
+  qualification lint/build WebApp de M005 reste PASS et intégrée.
+- État : implémentation en cours de validation sur branche dédiée
 
 ## Jalon courant
 
