@@ -63,3 +63,36 @@ func TestTrackingRejectsDelayedClusterAndPresenceUpdates(t *testing.T) {
 		t.Fatalf("delayed presence overwrote current state: %#v", presence)
 	}
 }
+
+func TestEntityTrackIDSeparatesCameraAndActivationBoundaries(t *testing.T) {
+	base := EntityTrackID("track-reused", "sequence-a", "activation-a", "camera-a", "entry")
+	if base == "" {
+		t.Fatal("expected a stable entity track identifier")
+	}
+	for name, candidate := range map[string]string{
+		"camera":     EntityTrackID("track-reused", "sequence-a", "activation-a", "camera-b", "entry"),
+		"activation": EntityTrackID("track-reused", "sequence-a", "activation-b", "camera-a", "entry"),
+	} {
+		if candidate == base {
+			t.Fatalf("reused track merged across %s boundary: %q", name, candidate)
+		}
+	}
+	if moved := EntityTrackID("track-reused", "sequence-a", "activation-a", "camera-a", "hall"); moved != base {
+		t.Fatalf("track identity changed during a valid node movement: %q != %q", moved, base)
+	}
+}
+
+func TestTrackingTTLsExpireClustersBeforeTracks(t *testing.T) {
+	store := NewStore()
+	at := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
+	store.SetEntityTrack(&EntityTrack{ID: "entity", LastSeen: at, UpdatedAt: at, ExpiresAt: at.Add(DefaultExpirationConfig().Tracks)})
+	store.SetCluster(&Cluster{ID: "cluster", UpdatedAt: at, ExpiresAt: at.Add(DefaultExpirationConfig().Clusters)})
+	first := store.Cleanup(at.Add(10*time.Second+time.Millisecond), DefaultExpirationConfig())
+	if len(first.Deleted["clusters"]) != 1 || len(first.Deleted["entity_tracks"]) != 0 {
+		t.Fatalf("unexpected cluster/track expiration order: %#v", first.Deleted)
+	}
+	second := store.Cleanup(at.Add(20*time.Second+time.Millisecond), DefaultExpirationConfig())
+	if len(second.Deleted["entity_tracks"]) != 1 {
+		t.Fatalf("track did not expire at its TTL: %#v", second.Deleted)
+	}
+}

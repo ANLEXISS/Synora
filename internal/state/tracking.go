@@ -98,10 +98,18 @@ func (s *Store) DeleteEntityTracksByActivation(activationID string) []string {
 }
 
 func EntityTrackID(trackID, sequenceKey, activationID, deviceID, nodeID string) string {
-	if strings.TrimSpace(trackID) != "" {
-		return "entity-" + strings.TrimSpace(trackID)
+	trackID = strings.TrimSpace(trackID)
+	sequenceKey = strings.TrimSpace(sequenceKey)
+	activationID = strings.TrimSpace(activationID)
+	deviceID = strings.TrimSpace(deviceID)
+	nodeID = strings.TrimSpace(nodeID)
+	// Detector track identifiers are only locally stable. Camera and
+	// activation boundaries are part of the identity so a reused detector ID
+	// cannot merge two subjects or two cameras into one durable entity.
+	material := strings.Join([]string{trackID, activationID, deviceID}, "|")
+	if trackID == "" {
+		material = strings.Join([]string{sequenceKey, activationID, deviceID, nodeID}, "|")
 	}
-	material := strings.Join([]string{sequenceKey, activationID, deviceID, nodeID}, "|")
 	if strings.Trim(material, "|") == "" {
 		return ""
 	}

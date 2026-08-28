@@ -77,6 +77,14 @@ func (a *coreApp) updateVisionTracking(event *contract.Event) {
 			return
 		}
 		residentID := strings.TrimSpace(event.ResidentID)
+		entityID := state.EntityTrackID(event.TrackID, event.SequenceKey, event.ActivationID, event.DeviceID, event.NodeID)
+		if entityID != "" {
+			if entity, exists := a.state.EntityTrack(entityID); exists && entity != nil && entity.ResidentID != "" && entity.ResidentID != residentID {
+				// A detector track cannot be rebound to a second resident within
+				// the same camera/activation boundary without a new track.
+				return
+			}
+		}
 		if current, ok := a.state.ResidentTrack(residentID); ok && current != nil && !a.validTrackMovement(current.LastNodeID, event.NodeID) {
 			// Keep the last valid location. The observation is retained in the
 			// event journal but cannot teleport a resident across the topology.
@@ -99,14 +107,18 @@ func (a *coreApp) updateVisionTracking(event *contract.Event) {
 			ExpiresAt: now.Add(state.DefaultExpirationConfig().Tracks),
 		}
 		a.state.SetResidentTrack(track)
-		if entityID := state.EntityTrackID(event.TrackID, event.SequenceKey, event.ActivationID, event.DeviceID, event.NodeID); entityID != "" {
-			if entity, ok := a.state.EntityTrack(entityID); ok && entity != nil {
-				entity.ResidentID = residentID
-				entity.Kind = "resident"
-				entity.UpdatedAt, entity.LastSeen = now, now
-				entity.ExpiresAt = now.Add(state.DefaultExpirationConfig().Tracks)
-				a.state.SetEntityTrack(entity)
+		if entityID != "" {
+			entity, ok := a.state.EntityTrack(entityID)
+			if !ok || entity == nil {
+				entity = &state.EntityTrack{ID: entityID, CreatedAt: now}
 			}
+			entity.TrackID = strings.TrimSpace(event.TrackID)
+			entity.NodeID, entity.DeviceID = strings.TrimSpace(event.NodeID), strings.TrimSpace(event.DeviceID)
+			entity.ActivationID, entity.SequenceKey, entity.Epoch = strings.TrimSpace(event.ActivationID), strings.TrimSpace(event.SequenceKey), strings.TrimSpace(event.Epoch)
+			entity.ResidentID, entity.Kind = residentID, "resident"
+			entity.Confidence, entity.UpdatedAt, entity.LastSeen = event.Confidence, now, now
+			entity.ExpiresAt = now.Add(state.DefaultExpirationConfig().Tracks)
+			a.state.SetEntityTrack(entity)
 		}
 	case contract.EventVisionUnknown, contract.EventVisionUncertain:
 		a.updateAnonymousTrack(event, now)
@@ -121,6 +133,10 @@ func (a *coreApp) updateAnonymousTrack(event *contract.Event, now time.Time) {
 	current, exists := a.state.EntityTrack(id)
 	if !exists || current == nil {
 		current = &state.EntityTrack{ID: id, TrackID: strings.TrimSpace(event.TrackID), CreatedAt: now}
+	} else if current.ResidentID != "" {
+		// Once a track is bound to a resident, an anonymous/uncertain update
+		// cannot silently turn it into a second person.
+		return
 	}
 	kind := "unknown"
 	if contract.NormalizeEventType(event.Type) == contract.EventVisionUncertain {

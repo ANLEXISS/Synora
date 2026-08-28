@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -112,6 +113,49 @@ func TestUncertainThenIdentityBindsOneEntity(t *testing.T) {
 	entity, ok := app.state.EntityTrack(entityID)
 	if !ok || entity == nil || entity.ResidentID != "alexis" || entity.Kind != "resident" {
 		t.Fatalf("anonymous entity was not bound to resident: %#v", entity)
+	}
+}
+
+func TestTrackDoesNotMixCamerasActivationsOrResidents(t *testing.T) {
+	app, _ := newTestCoreApp(t)
+	at := time.Date(2026, 8, 11, 12, 5, 0, 0, time.UTC)
+	app.processEvent(&contract.Event{ID: "camera-a", Type: contract.EventVisionUnknown, Source: "vision-worker", DeviceID: "cam_01", NodeID: "entry", TrackID: "reused", ActivationID: "activation-a", SequenceKey: "sequence-a", Confidence: .8, Timestamp: at})
+	app.processEvent(&contract.Event{ID: "camera-b", Type: contract.EventVisionUnknown, Source: "vision-worker", DeviceID: "cam_02", NodeID: "entry", TrackID: "reused", ActivationID: "activation-a", SequenceKey: "sequence-a", Confidence: .8, Timestamp: at.Add(time.Second)})
+	app.processEvent(&contract.Event{ID: "activation-b", Type: contract.EventVisionUnknown, Source: "vision-worker", DeviceID: "cam_01", NodeID: "entry", TrackID: "reused", ActivationID: "activation-b", SequenceKey: "sequence-b", Confidence: .8, Timestamp: at.Add(2 * time.Second)})
+	ids := []string{
+		state.EntityTrackID("reused", "sequence-a", "activation-a", "cam_01", "entry"),
+		state.EntityTrackID("reused", "sequence-a", "activation-a", "cam_02", "entry"),
+		state.EntityTrackID("reused", "sequence-b", "activation-b", "cam_01", "entry"),
+	}
+	for _, id := range ids {
+		if _, ok := app.state.EntityTrack(id); !ok {
+			t.Fatalf("track reuse merged camera or activation boundaries: missing %s", id)
+		}
+	}
+
+	app.processEvent(&contract.Event{ID: "bound-a", Type: contract.EventVisionIdentity, Source: "vision-worker", ResidentID: "alexis", DeviceID: "cam_01", NodeID: "entry", TrackID: "bound", ActivationID: "bound-activation", SequenceKey: "bound-sequence", Confidence: .95, Timestamp: at.Add(3 * time.Second)})
+	app.processEvent(&contract.Event{ID: "bound-b", Type: contract.EventVisionIdentity, Source: "vision-worker", ResidentID: "carole", DeviceID: "cam_01", NodeID: "entry", TrackID: "bound", ActivationID: "bound-activation", SequenceKey: "bound-sequence", Confidence: .95, Timestamp: at.Add(4 * time.Second)})
+	entityID := state.EntityTrackID("bound", "bound-sequence", "bound-activation", "cam_01", "entry")
+	entity, ok := app.state.EntityTrack(entityID)
+	if !ok || entity == nil || entity.ResidentID != "alexis" {
+		t.Fatalf("track was rebound to a second resident: %#v", entity)
+	}
+}
+
+func TestUnknownTrackBurstKeepsOneBoundedCluster(t *testing.T) {
+	app, _ := newTestCoreApp(t)
+	at := time.Date(2026, 8, 11, 12, 6, 0, 0, time.UTC)
+	for i := 0; i < 2000; i++ {
+		app.processEvent(&contract.Event{
+			ID: "burst-" + fmt.Sprint(i), Type: contract.EventVisionUnknown, Source: "vision-worker",
+			DeviceID: "cam_01", NodeID: "entry", TrackID: "burst-track", ActivationID: "burst-activation",
+			SequenceKey: "burst-sequence", Confidence: .8, Timestamp: at.Add(time.Duration(i) * time.Millisecond),
+		})
+	}
+	id := state.EntityTrackID("burst-track", "burst-sequence", "burst-activation", "cam_01", "entry")
+	cluster, ok := app.state.Cluster("unknown_presence:" + id)
+	if !ok || cluster == nil || len(cluster.EventIDs) != 100 {
+		t.Fatalf("burst cluster was not bounded/fused: %#v", cluster)
 	}
 }
 
