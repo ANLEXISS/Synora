@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"testing"
@@ -51,6 +53,7 @@ func TestClipIngressFinalizesBeforeReadyAndQueuesMetadata(t *testing.T) {
 	handler := NewHandler(Config{ClipDir: root, Queue: queue, Publisher: publisher, MaxClipSize: 1024})
 
 	recorder, contentType := multipartRequest(t, "cam-1", "clip-1", []byte("video-bytes"))
+	recorder.ContentLength = -1 // exercise chunked transfer without buffering the body in the handler
 	recorder.Header.Set("X-Synora-Device", "cam-1")
 	recorder.Header.Set("X-Synora-Clip-ID", "clip-1")
 	recorder.Header.Set("X-Synora-Activation-ID", "activation-1")
@@ -212,6 +215,77 @@ func TestClipIngressRejectsEmptyPayload(t *testing.T) {
 	}
 }
 
+func TestClipIngressRejectsDurationMediaContainerAndChecksum(t *testing.T) {
+	cases := []struct {
+		name       string
+		mediaType  string
+		container  string
+		duration   string
+		checksum   string
+		statusCode int
+	}{
+		{name: "duration", duration: "60.1", statusCode: http.StatusRequestEntityTooLarge},
+		{name: "media", mediaType: "text/plain", statusCode: http.StatusUnsupportedMediaType},
+		{name: "container", container: "webm", statusCode: http.StatusUnsupportedMediaType},
+		{name: "checksum", checksum: "0000000000000000000000000000000000000000000000000000000000000000", statusCode: http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			handler := NewHandler(Config{ClipDir: root, Queue: &clipTestQueue{}, Publisher: &clipTestPublisher{root: root}})
+			var recorder *http.Request
+			var contentType string
+			if tc.mediaType != "" {
+				recorder, contentType = multipartRequestWithMedia(t, "cam-1", tc.name, []byte("video"), tc.mediaType)
+			} else {
+				recorder, contentType = multipartRequest(t, "cam-1", tc.name, []byte("video"))
+			}
+			recorder.Header.Set("X-Synora-Device", "cam-1")
+			recorder.Header.Set("X-Synora-Clip-ID", tc.name)
+			recorder.Header.Set("Content-Type", contentType)
+			if tc.container != "" {
+				recorder.Header.Set("X-Synora-Clip-Container", tc.container)
+			}
+			if tc.duration != "" {
+				recorder.Header.Set("X-Synora-Clip-Duration", tc.duration)
+			}
+			if tc.checksum != "" {
+				recorder.Header.Set("X-Synora-Clip-Checksum", tc.checksum)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, recorder)
+			if response.Code != tc.statusCode {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if _, err := os.Stat(filepath.Join(root, "cam-1", tc.name+".mp4")); !os.IsNotExist(err) {
+				t.Fatalf("rejected upload left final file: %v", err)
+			}
+		})
+	}
+}
+
+func TestClipIngressRejectsUnpairedCameraAndCleansTemporaryFile(t *testing.T) {
+	root := t.TempDir()
+	handler := NewHandler(Config{
+		ClipDir: root, Queue: &clipTestQueue{},
+		Authenticator: rejectingAuthenticator{},
+	})
+	recorder, contentType := multipartRequest(t, "cam-1", "unpaired", []byte("video"))
+	recorder.Header.Set("X-Synora-Device", "cam-1")
+	recorder.Header.Set("X-Synora-Clip-ID", "unpaired")
+	recorder.Header.Set("Content-Type", contentType)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, recorder)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	for _, name := range []string{"unpaired.mp4", ".unpaired.part"} {
+		if _, err := os.Stat(filepath.Join(root, "cam-1", name)); !os.IsNotExist(err) {
+			t.Fatalf("rejected upload left %s: %v", name, err)
+		}
+	}
+}
+
 func TestClipIngressCleansPartialUpload(t *testing.T) {
 	root := t.TempDir()
 	handler := NewHandler(Config{ClipDir: root, Queue: &clipTestQueue{}, Publisher: &clipTestPublisher{root: root}})
@@ -235,6 +309,35 @@ func TestClipIngressCleansPartialUpload(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "cam-1", "partial.mp4")); !os.IsNotExist(err) {
 		t.Fatalf("partial upload left final file: %v", err)
+	}
+}
+
+func TestReconcileStorageKeepsValidatedClip(t *testing.T) {
+	root := t.TempDir()
+	cameraDir := filepath.Join(root, "cam-1")
+	if err := os.MkdirAll(cameraDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	finalPath := filepath.Join(cameraDir, "validated.mp4")
+	partPath := filepath.Join(cameraDir, ".orphan.part")
+	if err := os.WriteFile(finalPath, []byte("validated"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(partPath, []byte("orphan"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(partPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReconcileStorage(root, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(partPath); !os.IsNotExist(err) {
+		t.Fatalf("orphan part remains: %v", err)
+	}
+	if _, err := os.Stat(finalPath); err != nil {
+		t.Fatalf("validated clip was removed: %v", err)
 	}
 }
 
@@ -277,11 +380,24 @@ type failingPublisher struct{ err error }
 
 func (p failingPublisher) Send(contract.Message) error { return p.err }
 
+type rejectingAuthenticator struct{}
+
+func (rejectingAuthenticator) VerifyCameraRequest(*http.Request, string) error {
+	return errors.New("unknown or unpaired camera")
+}
+
 func multipartRequest(t *testing.T, cameraID, clipID string, data []byte) (*http.Request, string) {
+	return multipartRequestWithMedia(t, cameraID, clipID, data, "video/mp4")
+}
+
+func multipartRequestWithMedia(t *testing.T, cameraID, clipID string, data []byte, mediaType string) (*http.Request, string) {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("clip", clipID+".mp4")
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="clip"; filename="%s.mp4"`, clipID))
+	header.Set("Content-Type", mediaType)
+	part, err := writer.CreatePart(header)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -47,12 +49,13 @@ type Config struct {
 	CertFile string
 	KeyFile  string
 
-	ClipDir      string
-	MaxClipSize  int64
-	MaxClipCount int
-	MaxClipBytes int64
-	MinFreeBytes int64
-	TempMaxAge   time.Duration
+	ClipDir         string
+	MaxClipSize     int64
+	MaxClipDuration time.Duration
+	MaxClipCount    int
+	MaxClipBytes    int64
+	MinFreeBytes    int64
+	TempMaxAge      time.Duration
 
 	Authenticator Authenticator
 	Devices       DeviceTracker
@@ -65,11 +68,28 @@ type Config struct {
 
 const defaultTempMaxAge = time.Hour
 
+const (
+	defaultMaxClipDuration = 60 * time.Second
+	multipartOverheadLimit = 1 << 20
+	multipartFieldLimit    = 64 << 10
+)
+
+var (
+	errUploadTooLarge    = errors.New("clip upload too large")
+	errUploadIncomplete  = errors.New("clip upload incomplete")
+	errUploadStorage     = errors.New("clip upload storage unavailable")
+	errUnsupportedMedia  = errors.New("unsupported clip media")
+	errDuplicateClipPart = errors.New("duplicate clip part")
+)
+
 // NewHandler exposes the real upload handler for integration tests and keeps
 // the physical storage path independent from the HTTP server lifecycle.
 func NewHandler(cfg Config) http.Handler {
 	if cfg.MaxClipSize <= 0 {
 		cfg.MaxClipSize = 50 << 20
+	}
+	if cfg.MaxClipDuration <= 0 {
+		cfg.MaxClipDuration = defaultMaxClipDuration
 	}
 	if cfg.TempMaxAge <= 0 {
 		cfg.TempMaxAge = defaultTempMaxAge
@@ -97,19 +117,46 @@ func NewHandler(cfg Config) http.Handler {
 			http.Error(w, "valid device required", http.StatusBadRequest)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, cfg.MaxClipSize)
-		file, header, err := r.FormFile("clip")
-		if err != nil {
-			status := http.StatusBadRequest
-			if strings.Contains(strings.ToLower(err.Error()), "too large") {
-				status = http.StatusRequestEntityTooLarge
-			}
-			http.Error(w, "clip required", status)
+		bodyLimit := cfg.MaxClipSize + multipartOverheadLimit
+		if bodyLimit < cfg.MaxClipSize {
+			bodyLimit = cfg.MaxClipSize
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, bodyLimit)
+		headerClipID := firstNonEmpty(r.Header.Get("X-Synora-Clip-ID"))
+		if headerClipID != "" && !clipstore.SafeComponent(headerClipID) {
+			http.Error(w, "invalid clip id", http.StatusBadRequest)
 			return
 		}
-		defer file.Close()
 
-		clipID := firstNonEmpty(r.Header.Get("X-Synora-Clip-ID"), r.FormValue("clip_id"))
+		uploadMu.Lock()
+		defer uploadMu.Unlock()
+		cameraDir, err := clipstore.EnsureCameraDir(cfg.ClipDir, deviceID)
+		if err != nil {
+			http.Error(w, "clip storage unavailable", http.StatusInsufficientStorage)
+			return
+		}
+		upload, err := receiveMultipartUpload(r, cameraDir, cfg.MaxClipSize)
+		if err != nil {
+			status := http.StatusBadRequest
+			message := "invalid clip upload"
+			if errors.Is(err, errUploadTooLarge) {
+				status = http.StatusRequestEntityTooLarge
+				message = "clip too large"
+			} else if errors.Is(err, errUploadIncomplete) {
+				message = "incomplete clip upload"
+			} else if errors.Is(err, errUnsupportedMedia) {
+				status = http.StatusUnsupportedMediaType
+				message = "unsupported clip media"
+			} else if errors.Is(err, errUploadStorage) {
+				status = http.StatusInsufficientStorage
+				message = "clip storage unavailable"
+			}
+			http.Error(w, message, status)
+			return
+		}
+		defer os.Remove(upload.tempPath)
+
+		clipID := firstNonEmpty(headerClipID, upload.fields["clip_id"])
 		if clipID == "" {
 			clipID = idgen.New("clip")
 		}
@@ -117,18 +164,30 @@ func NewHandler(cfg Config) http.Handler {
 			http.Error(w, "invalid clip id", http.StatusBadRequest)
 			return
 		}
-		clipIndex, err := parseOptionalInt(firstNonEmpty(r.Header.Get("X-Synora-Clip-Index"), r.FormValue("clip_index")))
-		if err != nil {
+		clipIndex, err := parseOptionalInt(firstNonEmpty(r.Header.Get("X-Synora-Clip-Index"), upload.fields["clip_index"]))
+		if err != nil || clipIndex < 0 {
 			http.Error(w, "invalid clip index", http.StatusBadRequest)
 			return
 		}
-		activationID := firstNonEmpty(r.Header.Get("X-Synora-Activation-ID"), r.FormValue("activation_id"))
-		sequenceKey := firstNonEmpty(r.Header.Get("X-Synora-Sequence-Key"), r.FormValue("sequence_key"))
-		trackID := firstNonEmpty(r.Header.Get("X-Synora-Track-ID"), r.FormValue("track_id"))
-		nodeID := firstNonEmpty(r.Header.Get("X-Synora-Node-ID"), r.FormValue("node_id"))
-
-		uploadMu.Lock()
-		defer uploadMu.Unlock()
+		activationID := firstNonEmpty(r.Header.Get("X-Synora-Activation-ID"), upload.fields["activation_id"])
+		sequenceKey := firstNonEmpty(r.Header.Get("X-Synora-Sequence-Key"), upload.fields["sequence_key"])
+		trackID := firstNonEmpty(r.Header.Get("X-Synora-Track-ID"), upload.fields["track_id"])
+		nodeID := firstNonEmpty(r.Header.Get("X-Synora-Node-ID"), upload.fields["node_id"])
+		container := strings.ToLower(firstNonEmpty(r.Header.Get("X-Synora-Clip-Container"), upload.fields["container"]))
+		if container != "" && container != "mp4" {
+			http.Error(w, "unsupported clip container", http.StatusUnsupportedMediaType)
+			return
+		}
+		duration, err := parseClipDuration(firstNonEmpty(r.Header.Get("X-Synora-Clip-Duration"), upload.fields["duration"]))
+		if err != nil || duration > cfg.MaxClipDuration.Seconds() {
+			http.Error(w, "clip duration exceeds limit", http.StatusRequestEntityTooLarge)
+			return
+		}
+		expectedChecksum := firstNonEmpty(r.Header.Get("X-Synora-Clip-Checksum"), upload.fields["checksum"])
+		if expectedChecksum != "" && (!isSHA256Hex(expectedChecksum) || !strings.EqualFold(expectedChecksum, upload.checksum)) {
+			http.Error(w, "clip checksum mismatch", http.StatusBadRequest)
+			return
+		}
 		now := time.Now().UTC()
 		finalPath, err := clipstore.FinalPath(cfg.ClipDir, deviceID, clipID)
 		if err != nil {
@@ -140,10 +199,6 @@ func NewHandler(cfg Config) http.Handler {
 			http.Error(w, "invalid clip path", http.StatusBadRequest)
 			return
 		}
-		if _, err := clipstore.EnsureCameraDir(cfg.ClipDir, deviceID); err != nil {
-			http.Error(w, "clip storage unavailable", http.StatusInsufficientStorage)
-			return
-		}
 		if info, err := os.Lstat(partPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
 			http.Error(w, "unsafe clip temporary path", http.StatusConflict)
 			return
@@ -152,34 +207,12 @@ func NewHandler(cfg Config) http.Handler {
 			return
 		}
 
-		part, err := os.OpenFile(partPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-		if err != nil {
+		if err := os.Rename(upload.tempPath, partPath); err != nil {
+			_ = os.Remove(partPath)
 			http.Error(w, "clip temporary storage unavailable", http.StatusInsufficientStorage)
 			return
 		}
-		hash := sha256.New()
-		size, copyErr := io.Copy(io.MultiWriter(part, hash), file)
-		syncErr := part.Sync()
-		closeErr := part.Close()
-		if copyErr != nil || syncErr != nil || closeErr != nil {
-			_ = os.Remove(partPath)
-			status := http.StatusInternalServerError
-			if strings.Contains(strings.ToLower(fmt.Sprint(copyErr)), "too large") {
-				status = http.StatusRequestEntityTooLarge
-			}
-			http.Error(w, "clip write failed", status)
-			return
-		}
-		if size <= 0 || size > cfg.MaxClipSize {
-			_ = os.Remove(partPath)
-			status := http.StatusBadRequest
-			if size > cfg.MaxClipSize {
-				status = http.StatusRequestEntityTooLarge
-			}
-			http.Error(w, "empty or oversized clip", status)
-			return
-		}
-		checksum := hex.EncodeToString(hash.Sum(nil))
+		size, checksum := upload.size, upload.checksum
 		if cfg.Authenticator != nil {
 			if err := cfg.Authenticator.VerifyCameraRequest(r, checksum); err != nil {
 				_ = os.Remove(partPath)
@@ -246,13 +279,12 @@ func NewHandler(cfg Config) http.Handler {
 			return
 		}
 
-		mediaType := strings.TrimSpace(header.Header.Get("Content-Type"))
 		clip := contract.Clip{
 			ID: clipID, ActivationID: activationID, ClipIndex: clipIndex,
 			SequenceKey: sequenceKey, TrackID: trackID,
 			CameraID: deviceID, NodeID: nodeID, CreatedAt: now, ReceivedAt: now,
 			ReadyAt: now, Status: contract.ClipStatusReady, SizeBytes: size,
-			Checksum: checksum, MediaType: mediaType, Container: "mp4",
+			Checksum: checksum, MediaType: upload.mediaType, Container: "mp4", Duration: duration,
 			UpdatedAt: now, Revision: 1,
 		}
 		if cfg.Devices != nil {
@@ -326,6 +358,138 @@ func StartServer(cfg Config) *http.Server {
 		}
 	}()
 	return server
+}
+
+type receivedUpload struct {
+	tempPath  string
+	fields    map[string]string
+	filename  string
+	mediaType string
+	size      int64
+	checksum  string
+}
+
+func receiveMultipartUpload(r *http.Request, cameraDir string, maxSize int64) (receivedUpload, error) {
+	if r == nil || r.Body == nil || maxSize <= 0 {
+		return receivedUpload{}, errUploadIncomplete
+	}
+	temp, err := os.CreateTemp(cameraDir, ".upload-*.part")
+	if err != nil {
+		return receivedUpload{}, fmt.Errorf("%w: %v", errUploadStorage, err)
+	}
+	tempPath := temp.Name()
+	keep := false
+	defer func() {
+		_ = temp.Close()
+		if !keep {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	multipartReader, err := r.MultipartReader()
+	if err != nil {
+		return receivedUpload{}, errUploadIncomplete
+	}
+	fields := make(map[string]string)
+	result := receivedUpload{tempPath: tempPath, fields: fields}
+	clipSeen := false
+	for {
+		part, nextErr := multipartReader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			return receivedUpload{}, errUploadIncomplete
+		}
+		name := strings.TrimSpace(part.FormName())
+		if name == "clip" {
+			if clipSeen {
+				return receivedUpload{}, errDuplicateClipPart
+			}
+			clipSeen = true
+			filename := strings.TrimSpace(part.FileName())
+			if filename == "" || filepath.Base(filename) != filename || strings.ToLower(filepath.Ext(filename)) != ".mp4" {
+				return receivedUpload{}, errUnsupportedMedia
+			}
+			mediaType := strings.TrimSpace(part.Header.Get("Content-Type"))
+			if !supportedClipMediaType(mediaType) {
+				return receivedUpload{}, errUnsupportedMedia
+			}
+			hash := sha256.New()
+			size, copyErr := io.Copy(io.MultiWriter(temp, hash), io.LimitReader(part, maxSize+1))
+			if copyErr != nil {
+				return receivedUpload{}, errUploadIncomplete
+			}
+			if size > maxSize {
+				return receivedUpload{}, errUploadTooLarge
+			}
+			if size == 0 {
+				return receivedUpload{}, errUploadIncomplete
+			}
+			result.filename = filename
+			result.mediaType = mediaType
+			result.size = size
+			result.checksum = hex.EncodeToString(hash.Sum(nil))
+			continue
+		}
+		if name == "" {
+			return receivedUpload{}, errUploadIncomplete
+		}
+		value, readErr := io.ReadAll(io.LimitReader(part, multipartFieldLimit+1))
+		if readErr != nil {
+			return receivedUpload{}, errUploadIncomplete
+		}
+		if int64(len(value)) > multipartFieldLimit {
+			return receivedUpload{}, errUploadTooLarge
+		}
+		fields[name] = strings.TrimSpace(string(value))
+	}
+	if !clipSeen {
+		return receivedUpload{}, errUploadIncomplete
+	}
+	if err := temp.Sync(); err != nil {
+		return receivedUpload{}, fmt.Errorf("%w: %v", errUploadStorage, err)
+	}
+	if err := temp.Close(); err != nil {
+		return receivedUpload{}, fmt.Errorf("%w: %v", errUploadStorage, err)
+	}
+	keep = true
+	return result, nil
+}
+
+func supportedClipMediaType(raw string) bool {
+	if strings.TrimSpace(raw) == "" {
+		return true
+	}
+	mediaType, _, err := mime.ParseMediaType(raw)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(mediaType) {
+	case "video/mp4", "application/mp4", "application/octet-stream":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseClipDuration(raw string) (float64, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, nil
+	}
+	duration, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || duration < 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		return 0, errors.New("invalid clip duration")
+	}
+	return duration, nil
+}
+
+func isSHA256Hex(raw string) bool {
+	if len(strings.TrimSpace(raw)) != sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(strings.TrimSpace(raw))
+	return err == nil
 }
 
 func publishLifecycle(publisher Publisher, eventType string, clip contract.Clip, failureCode, eventID string) error {
