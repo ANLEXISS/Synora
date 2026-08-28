@@ -781,6 +781,33 @@ Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentai
 
 Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
 
+## Jalon M017 — Ingress vidéo borné et sûr
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m017-video-ingress`
+- Branche dédiée : `codex/v1-m017-video-ingress`
+- Commit fonctionnel : `3177ad7`
+- Livrables : lecture multipart en streaming vers un temporaire borné, puis
+  renommage atomique avant publication `clip.ready`; la taille et le transfert
+  sans longueur déclarée restent strictement bornés.
+- Contrôles V1 : durée maximale de 60 secondes, extension/conteneur MP4 et
+  média supporté, checksum SHA-256 annoncé, identifiant sûr, authentification
+  caméra, quotas disque et nettoyage systématique des temporaires.
+- Résilience : retries identiques acceptés, doublons divergents refusés,
+  upload interrompu nettoyé, erreurs de stockage exposées en `507`, et clip
+  final validé préservé par la réconciliation.
+- Tests déterministes ajoutés : transfert chunked, coupure de flux, taille,
+  durée, média/conteneur, checksum, caméra non autorisée, quotas, symlinks,
+  publication Core défaillante et nettoyage sans suppression du clip validé.
+- Validations : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./...`, `timeout 360s env GOFLAGS=-buildvcs=false go test -race ./... -count=1`
+  et tests Python Vision (22) — PASS.
+- Limite environnement : la qualification Web n’a pas été relancée, car les
+  dépendances locales de `synora-web` sont absentes et leur installation est
+  hors périmètre autorisé.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon M016 — Contrat et store Clips V1
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m016-clips`
