@@ -353,7 +353,22 @@ func (c *Client) register(conn net.Conn) error {
 	err = writeFrame(conn, data)
 	_ = conn.SetWriteDeadline(time.Time{})
 	c.writeMu.Unlock()
-	return err
+	if err != nil {
+		return err
+	}
+
+	if err := conn.SetReadDeadline(time.Now().Add(clientWriteTimeout)); err != nil {
+		return err
+	}
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
+	var ack contract.Message
+	if err := json.NewDecoder(conn).Decode(&ack); err != nil {
+		return err
+	}
+	if ack.Type != "bus.registered" || ack.Target != c.service || ack.CorrelationID != reg.ID {
+		return errors.New("invalid bus registration ACK")
+	}
+	return nil
 }
 
 func (c *Client) invalidateConn(conn net.Conn) {

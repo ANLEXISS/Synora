@@ -130,6 +130,11 @@ func (s *Server) handle(conn net.Conn) {
 			}
 			service = msg.Source
 			s.register(service, conn)
+			if err := s.ackRegistration(service, conn, msg.ID); err != nil {
+				log.Printf("bus registration ACK failed for %s: %v", service, err)
+				s.disconnect(service, conn, "registration ACK failure")
+				return
+			}
 			continue
 		}
 
@@ -239,6 +244,21 @@ func (s *Server) getClient(service string) (*ClientConn, bool) {
 	defer s.mu.RUnlock()
 	client, ok := s.clients[service]
 	return client, ok
+}
+
+func (s *Server) ackRegistration(service string, conn net.Conn, registrationID string) error {
+	client, ok := s.getClient(service)
+	if !ok || client.conn != conn {
+		return errors.New("registration was replaced before ACK")
+	}
+	return client.send(contract.Message{
+		ID:            registrationID,
+		Type:          "bus.registered",
+		Kind:          contract.KindRPC,
+		Source:        "bus",
+		Target:        service,
+		CorrelationID: registrationID,
+	})
 }
 
 func (s *Server) broadcast(msg contract.Message) {

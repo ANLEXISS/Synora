@@ -89,6 +89,13 @@ func registeredPipe(t *testing.T, server *Server, service string) (net.Conn, *js
 	if err := json.NewEncoder(clientConn).Encode(registration); err != nil {
 		t.Fatalf("register %s: %v", service, err)
 	}
+	var ack contract.Message
+	if err := json.NewDecoder(clientConn).Decode(&ack); err != nil {
+		t.Fatalf("registration ACK %s: %v", service, err)
+	}
+	if ack.Type != "bus.registered" || ack.Target != service {
+		t.Fatalf("invalid registration ACK for %s: %#v", service, ack)
+	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if _, ok := server.getClient(service); ok {
