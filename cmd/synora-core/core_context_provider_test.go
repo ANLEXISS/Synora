@@ -54,6 +54,22 @@ func TestBuildCoreContextSnapshotRedactsAndClassifiesLiveFacts(t *testing.T) {
 	}
 }
 
+func TestBuildCoreContextSnapshotAppliesPresenceDecayWithoutMutatingSource(t *testing.T) {
+	at := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	source := state.ContextSourceSnapshot{Presence: []state.PresenceState{{
+		ID: "presence-alexis", ResidentID: "alexis", State: "present", Location: "entry",
+		Confidence: .8, LastSeen: at.Add(-state.PresenceDecayTau),
+	}}}
+
+	snapshot := buildCoreContextSnapshot(at, source, []string{"alexis"}, nil, cgecontext.CoreTopologyContext{}, cgecontext.DefaultContextFreshnessPolicy())
+	if len(snapshot.Residents) != 1 || snapshot.Residents[0].ConfidencePermille != 294 {
+		t.Fatalf("presence decay was not applied at read-only context boundary: %+v", snapshot.Residents)
+	}
+	if source.Presence[0].Confidence != .8 {
+		t.Fatalf("presence decay mutated StateStore source snapshot: %+v", source.Presence[0])
+	}
+}
+
 func TestCoreTopologySnapshotIsCanonicalAndRequestNeighborsAreBounded(t *testing.T) {
 	topology := testCoreTopology()
 	value := coreTopologySnapshot(topology)

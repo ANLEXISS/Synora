@@ -8,6 +8,7 @@ import (
 	"synora/internal/event"
 	"synora/internal/state"
 	"synora/internal/topology"
+	"synora/pkg/contract"
 )
 
 func testResidentBuilder(store *state.Store) *Builder {
@@ -77,6 +78,26 @@ func TestResidentSnapshotDoesNotClearLastSeen(t *testing.T) {
 	lastSeen, ok := second["last_seen"].(time.Time)
 	if !ok || !lastSeen.Equal(seenAt) {
 		t.Fatalf("second snapshot cleared last_seen: %#v", second)
+	}
+}
+
+func TestResidentSnapshotExposesConfidenceSourceReadOnly(t *testing.T) {
+	seenAt := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
+	store := state.NewStore()
+	store.SetPresence(&state.PresenceState{
+		ID: "alexis", ResidentID: "alexis", State: "present", Location: "entry",
+		Confidence: 0.91, ConfidenceSource: "vision-worker", LastSeen: seenAt,
+	})
+
+	payload := testResidentBuilder(store).StatePayload()
+	public := contract.PublicSnapshotFromCoreState(payload)
+	if len(public.Presence) != 1 || public.Presence[0]["confidence_source"] != "vision-worker" {
+		t.Fatalf("snapshot omitted confidence provenance: %#v", public.Presence)
+	}
+	public.Presence[0]["confidence_source"] = "mutated-by-consumer"
+	stored, ok := store.PresenceState("alexis")
+	if !ok || stored == nil || stored.ConfidenceSource != "vision-worker" {
+		t.Fatalf("snapshot exposed mutable StateStore data: %#v", stored)
 	}
 }
 

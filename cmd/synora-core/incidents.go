@@ -91,7 +91,7 @@ func (a *coreApp) incidentIdentity(event *contract.Event) (contract.IncidentIden
 		return contract.IncidentIdentityUncertain, ""
 	}
 	if identity != "" && a.residents != nil {
-		if resident, ok := a.residents[identity]; ok && resident != nil && event.Confidence >= stateapply.MinResidentIdentityConfidence {
+		if resident, ok := a.residents[identity]; ok && resident != nil && event.Confidence >= stateapply.ResidentPresenceEnterConfidence {
 			return contract.IncidentIdentityResident, identity
 		}
 	}

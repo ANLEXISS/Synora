@@ -113,15 +113,16 @@ type IdentityState struct {
 }
 
 type PresenceState struct {
-	ID         string    `json:"id"`
-	ResidentID string    `json:"resident_id"`
-	Location   string    `json:"location,omitempty"`
-	Confidence float64   `json:"confidence"`
-	State      string    `json:"state,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-	LastSeen   time.Time `json:"last_seen"`
-	ExpiresAt  time.Time `json:"expires_at"`
+	ID               string    `json:"id"`
+	ResidentID       string    `json:"resident_id"`
+	Location         string    `json:"location,omitempty"`
+	Confidence       float64   `json:"confidence"`
+	ConfidenceSource string    `json:"confidence_source,omitempty"`
+	State            string    `json:"state,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	LastSeen         time.Time `json:"last_seen"`
+	ExpiresAt        time.Time `json:"expires_at"`
 }
 
 type ClipState = contract.Clip

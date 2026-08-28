@@ -17,7 +17,14 @@ type Callbacks struct {
 	SyncPresence func(*state.PresenceState)
 }
 
-const MinResidentIdentityConfidence = 0.50
+const (
+	ResidentPresenceEnterConfidence = 0.60
+	ResidentPresenceExitConfidence  = 0.40
+	// MinResidentIdentityConfidence is the lowest confidence accepted for a
+	// resident presence update. Entry still requires the higher hysteresis
+	// threshold below.
+	MinResidentIdentityConfidence = ResidentPresenceExitConfidence
+)
 
 // ApplyVisionIdentity is the runtime presence boundary for known vision
 // identities. It deliberately does not touch the residents configuration map.
@@ -29,7 +36,16 @@ func ApplyVisionIdentity(store *state.Store, event *contract.Event) *state.Prese
 	if identity == "" {
 		identity = strings.TrimSpace(event.ResidentID)
 	}
-	if identity == "" || strings.EqualFold(identity, "unknown") || strings.EqualFold(identity, "uncertain") || event.Confidence < MinResidentIdentityConfidence {
+	if identity == "" || strings.EqualFold(identity, "unknown") || strings.EqualFold(identity, "uncertain") {
+		return nil
+	}
+	current, currentOK := store.PresenceState(identity)
+	entering := !currentOK || current == nil || current.State != "present"
+	threshold := ResidentPresenceExitConfidence
+	if entering {
+		threshold = ResidentPresenceEnterConfidence
+	}
+	if event.Confidence < threshold {
 		return nil
 	}
 	now := event.Timestamp.UTC()
@@ -41,15 +57,16 @@ func ApplyVisionIdentity(store *state.Store, event *contract.Event) *state.Prese
 		createdAt = current.CreatedAt
 	}
 	presence := &state.PresenceState{
-		ID:         identity,
-		ResidentID: identity,
-		Location:   strings.TrimSpace(event.NodeID),
-		Confidence: event.Confidence,
-		State:      "present",
-		CreatedAt:  createdAt,
-		UpdatedAt:  now,
-		LastSeen:   now,
-		ExpiresAt:  now.Add(state.DefaultPresenceTTL),
+		ID:               identity,
+		ResidentID:       identity,
+		Location:         strings.TrimSpace(event.NodeID),
+		Confidence:       event.Confidence,
+		ConfidenceSource: strings.TrimSpace(event.Source),
+		State:            "present",
+		CreatedAt:        createdAt,
+		UpdatedAt:        now,
+		LastSeen:         now,
+		ExpiresAt:        now.Add(state.DefaultPresenceTTL),
 	}
 	store.SetPresence(presence)
 
@@ -99,10 +116,10 @@ func ApplyVisionIdentityForResidents(store *state.Store, event *contract.Event, 
 	}
 	current, currentOK := store.PresenceState(residentID)
 	entering := !currentOK || current == nil || current.State != "present"
-	if entering && event.Confidence < 0.60 {
+	if entering && event.Confidence < ResidentPresenceEnterConfidence {
 		return nil
 	}
-	if !entering && event.Confidence < 0.40 {
+	if !entering && event.Confidence < ResidentPresenceExitConfidence {
 		return nil
 	}
 	copy := *event

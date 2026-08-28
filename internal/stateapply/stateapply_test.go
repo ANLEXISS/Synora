@@ -20,6 +20,7 @@ func TestVisionIdentitySetsLastSeen(t *testing.T) {
 	seenAt := time.Date(2026, 7, 11, 17, 3, 56, 742582666, time.UTC)
 	event := &contract.Event{
 		Type:       contract.EventVisionIdentity,
+		Source:     "vision-worker",
 		Identity:   "alexis",
 		NodeID:     "zoneA.L1.chambre_enfant",
 		Confidence: 0.9,
@@ -37,6 +38,57 @@ func TestVisionIdentitySetsLastSeen(t *testing.T) {
 	stored, ok := store.PresenceState("alexis")
 	if !ok || stored == nil || !stored.LastSeen.Equal(seenAt) {
 		t.Fatalf("last_seen was not stored: %#v", stored)
+	}
+	if stored.ConfidenceSource != "vision-worker" {
+		t.Fatalf("confidence source was not retained: %#v", stored)
+	}
+}
+
+func TestResidentPresenceHysteresisAndUncertainIdentity(t *testing.T) {
+	store := state.NewStore()
+	residents := map[string]*topology.Resident{"alexis": {ID: "alexis", Name: "Alexis"}}
+	base := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
+
+	for _, confidence := range []float64{0.59, 0.50} {
+		if got := stateapply.ApplyVisionIdentityForResidents(store, &contract.Event{
+			Type: contract.EventVisionIdentity, ResidentID: "alexis", Source: "vision-worker",
+			NodeID: "entry", Confidence: confidence, Timestamp: base,
+		}, residents); got != nil {
+			t.Fatalf("confidence %.2f entered presence below enter threshold: %#v", confidence, got)
+		}
+	}
+
+	entered := stateapply.ApplyVisionIdentityForResidents(store, &contract.Event{
+		Type: contract.EventVisionIdentity, ResidentID: "alexis", Source: "vision-worker",
+		NodeID: "entry", Confidence: 0.60, Timestamp: base.Add(time.Second),
+	}, residents)
+	if entered == nil || entered.State != "present" || entered.Location != "entry" {
+		t.Fatalf("confidence at enter threshold did not establish presence: %#v", entered)
+	}
+
+	if got := stateapply.ApplyVisionIdentityForResidents(store, &contract.Event{
+		Type: contract.EventVisionIdentity, ResidentID: "alexis", Source: "vision-worker",
+		NodeID: "hall", Confidence: 0.39, Timestamp: base.Add(2 * time.Second),
+	}, residents); got != nil {
+		t.Fatalf("confidence below exit threshold changed presence: %#v", got)
+	}
+	retained, ok := store.PresenceState("alexis")
+	if !ok || retained == nil || retained.Location != "entry" || retained.Confidence != 0.60 {
+		t.Fatalf("low-confidence observation changed retained presence: %#v", retained)
+	}
+
+	updated := stateapply.ApplyVisionIdentityForResidents(store, &contract.Event{
+		Type: contract.EventVisionIdentity, ResidentID: "alexis", Source: "vision-worker",
+		NodeID: "hall", Confidence: 0.40, Timestamp: base.Add(3 * time.Second),
+	}, residents)
+	if updated == nil || updated.Location != "hall" || updated.Confidence != 0.40 {
+		t.Fatalf("confidence at exit threshold did not retain/update presence: %#v", updated)
+	}
+	if got := stateapply.ApplyVisionIdentityForResidents(store, &contract.Event{
+		Type: contract.EventVisionUncertain, ResidentID: "alexis", Source: "vision-worker",
+		NodeID: "hall", Confidence: 0.99, Timestamp: base.Add(4 * time.Second),
+	}, residents); got != nil {
+		t.Fatalf("uncertain identity acquired certain presence: %#v", got)
 	}
 }
 

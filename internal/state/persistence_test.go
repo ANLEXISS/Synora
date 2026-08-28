@@ -102,15 +102,16 @@ func TestPersistentStoreSavesAndReloadsRuntimePresence(t *testing.T) {
 	now := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 	first := NewStore(WithPersistencePath(path))
 	first.SetPresence(&PresenceState{
-		ID:         "alexis",
-		ResidentID: "alexis",
-		Location:   "zoneA.L0.entree",
-		Confidence: 0.92,
-		State:      "present",
-		CreatedAt:  now,
-		UpdatedAt:  now,
-		LastSeen:   now,
-		ExpiresAt:  now.Add(DefaultPresenceTTL),
+		ID:               "alexis",
+		ResidentID:       "alexis",
+		Location:         "zoneA.L0.entree",
+		Confidence:       0.92,
+		ConfidenceSource: "vision-worker",
+		State:            "present",
+		CreatedAt:        now,
+		UpdatedAt:        now,
+		LastSeen:         now,
+		ExpiresAt:        now.Add(DefaultPresenceTTL),
 	})
 
 	second := NewStore(WithPersistencePath(path))
@@ -121,7 +122,7 @@ func TestPersistentStoreSavesAndReloadsRuntimePresence(t *testing.T) {
 	if !ok || presence == nil {
 		t.Fatal("runtime presence should reload")
 	}
-	if presence.State != "present" || presence.Location != "zoneA.L0.entree" || !presence.LastSeen.Equal(now) {
+	if presence.State != "present" || presence.Location != "zoneA.L0.entree" || presence.ConfidenceSource != "vision-worker" || !presence.LastSeen.Equal(now) {
 		t.Fatalf("unexpected reloaded runtime presence: %#v", presence)
 	}
 }

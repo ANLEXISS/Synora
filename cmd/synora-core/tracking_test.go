@@ -193,3 +193,30 @@ func TestResidentTrackRejectsImpossibleTopologyMovement(t *testing.T) {
 		t.Fatalf("impossible movement changed ResidentTrack: %#v", track)
 	}
 }
+
+func TestPresenceCameraMuteExpiresWithoutErasingLastSeen(t *testing.T) {
+	app, _ := newTestCoreApp(t)
+	seenAt := time.Date(2026, 8, 28, 11, 0, 0, 0, time.UTC)
+	app.processEvent(&contract.Event{
+		ID: "presence-seen", Type: contract.EventVisionIdentity, Source: "vision-worker",
+		ResidentID: "alexis", DeviceID: "cam_01", NodeID: "entry", Confidence: .91,
+		Timestamp: seenAt,
+	})
+
+	result := app.state.Cleanup(seenAt.Add(state.DefaultPresenceTTL+time.Second), state.DefaultExpirationConfig())
+	if len(result.Deleted["presence"]) != 1 || result.Deleted["presence"][0] != "alexis" {
+		t.Fatalf("camera mute did not expire presence: %#v", result.Deleted)
+	}
+	for _, residentID := range result.Deleted["presence"] {
+		app.clearResidentPresence(residentID)
+	}
+	presence, ok := app.state.PresenceState("alexis")
+	if !ok || presence == nil || presence.State != "absent" || !presence.LastSeen.Equal(seenAt) {
+		t.Fatalf("camera mute lost deterministic absent/last_seen state: %#v", presence)
+	}
+	public := contract.PublicSnapshotFromCoreState(app.snapshotBuilder.CoreState())
+	resident := findByID(public.Residents, "alexis")
+	if resident == nil || resident["state"] != "absent" || resident["node_id"] != "" {
+		t.Fatalf("camera mute was not exposed as absent in read-only snapshot: %#v", resident)
+	}
+}
