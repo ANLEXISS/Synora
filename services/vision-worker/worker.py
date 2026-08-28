@@ -16,6 +16,10 @@ from face_dataset import FaceDatasetError, FaceDatasetManager, safe_component, _
 
 
 SOCKET_PATH = "/run/synora/vision-worker.sock"
+PROTOCOL_VERSION = "synora.vision.v1"
+PROTOCOL_HELLO = "protocol.hello"
+CLIP_PROCESS = "clip.process"
+ARCFACE_EMBEDDING_DIMENSION = 512
 FACE_DATA_ROOT = os.path.abspath(os.path.realpath(os.getenv("SYNORA_FACE_DATA_ROOT", "/var/lib/synora/vision/face")))
 MODEL_ROOT = os.getenv("SYNORA_MODEL_ROOT", "/var/lib/synora/models")
 ARCFACE_MODEL = os.getenv("SYNORA_ARCFACE_MODEL", os.path.join(MODEL_ROOT, "arcface_w600k_r50.rknn"))
@@ -107,7 +111,7 @@ class VisionWorker:
         @app.get("/healthz")
         def healthz():
             capabilities = self.capabilities()
-            available = any(item.get("status") == "available" for item in capabilities["capabilities"].values())
+            available = capabilities.get("status") == "normal"
             return jsonify({
                 "service": "vision-worker",
                 "status": "ok" if available else "degraded",
@@ -137,6 +141,9 @@ class VisionWorker:
             available = {"status": "available", "mode": "dry_run"}
             return {
                 "mode": "dry_run",
+                "status": "normal",
+                "backend": "dry_run",
+                "embedding_dimension": ARCFACE_EMBEDDING_DIMENSION,
                 "capabilities": {
                     "face_detection": dict(available),
                     "face_recognition": dict(available),
@@ -145,6 +152,7 @@ class VisionWorker:
                     "fall_detection": dict(available),
                 },
                 "models": {},
+                "face_dataset": {"status": "not_configured", "dimension": ARCFACE_EMBEDDING_DIMENSION},
             }
 
         models = {
@@ -166,8 +174,17 @@ class VisionWorker:
         face_detection = {"status": "unavailable", "error": "face detector unavailable"}
         if self.pipeline is not None:
             face_detection = self.pipeline.face_detection_capability()
+        backend = "unavailable"
+        for component in (self.face_recognizer, self.person_detector):
+            runner = getattr(component, "runner", None)
+            if runner is not None and getattr(runner, "backend", None):
+                backend = runner.backend
+                break
         result = {
-            "mode": "degraded" if self.pipeline_error or not any(item.get("status") == "available" for item in (face_capability, object_capability, face_detection)) else "normal",
+            "mode": "degraded" if self.pipeline_error or not all(item.get("status") == "available" for item in (face_capability, object_capability, face_detection)) else "normal",
+            "status": "degraded" if self.pipeline_error or not all(item.get("status") == "available" for item in (face_capability, object_capability, face_detection)) else "normal",
+            "backend": backend,
+            "embedding_dimension": getattr(self.face_recognizer, "embedding_dim", ARCFACE_EMBEDDING_DIMENSION),
             "debug_http": {
                 "status": "unavailable" if self.debug_http_error else "ok",
                 "reason": self.debug_http_error,
@@ -188,6 +205,30 @@ class VisionWorker:
             result["face_dataset_error"] = self.face_dataset_startup_error
         return result
 
+    def protocol_hello(self, req):
+        requested = req.get("protocol_version")
+        if requested != PROTOCOL_VERSION:
+            return self._with_request_id(req.get("request_id", ""), {
+                "operation": PROTOCOL_HELLO,
+                "protocol_version": PROTOCOL_VERSION,
+                "status": "degraded",
+                "backend": "unavailable",
+                "embedding_dimension": ARCFACE_EMBEDDING_DIMENSION,
+                "error": "unsupported protocol version",
+                "failure_code": "protocol_version_unsupported",
+            })
+        details = self.capabilities()
+        return self._with_request_id(req.get("request_id", ""), {
+            "operation": PROTOCOL_HELLO,
+            "protocol_version": PROTOCOL_VERSION,
+            "status": details["status"],
+            "backend": details["backend"],
+            "embedding_dimension": details["embedding_dimension"],
+            "models": details.get("models", {}),
+            "capabilities": details.get("capabilities", {}),
+            "face_dataset": details.get("face_dataset", {"status": "unavailable"}),
+        })
+
     # ------------------------------------------------
 
     def process_request(
@@ -197,10 +238,17 @@ class VisionWorker:
 
         request_id = req.get("request_id") or req.get("id") or ""
         operation = req.get("operation")
+        if operation == PROTOCOL_HELLO:
+            return self.protocol_hello(req)
         if operation == "face_dataset.embed":
             return self._with_request_id(request_id, self.process_face_embed(req))
         if operation == "face_dataset.reload":
             return self._with_request_id(request_id, self.process_face_reload(req))
+        if operation and operation != CLIP_PROCESS:
+            return self._with_request_id(request_id, {
+                "error": "unsupported worker operation",
+                "failure_code": "unsupported_operation",
+            })
 
         clip_path = req.get(
             "clip_path"
@@ -230,20 +278,19 @@ class VisionWorker:
         )
 
         if not clip_path:
+            return self._with_request_id(request_id, {
+                "error": "missing clip_path",
+                "failure_code": "invalid_request",
+            })
 
-            return {
-                "error": "missing clip_path"
-            }
-
-        if not self.dry_run and (
-            self.pipeline is None or
-            not any(item.get("status") == "available" for item in self.capabilities()["capabilities"].values())
-        ):
-            return {
+        details = self.capabilities()
+        if not self.dry_run and details["status"] != "normal":
+            return self._with_request_id(request_id, {
                 "error": "no_models_available",
+                "failure_code": "worker_degraded",
                 "message": self.pipeline_error or "vision pipeline unavailable",
-                "capabilities": self.capabilities(),
-            }
+                "capabilities": details,
+            })
 
         log.info(
             "PROCESS CLIP camera=%s clip_id=%s",
@@ -462,6 +509,7 @@ class VisionWorker:
         with conn:
             reader = conn.makefile("r")
             writer = conn.makefile("w")
+            hello_complete = False
             while True:
                 line = reader.readline(MAX_REQUEST_BYTES + 1)
                 if not line:
@@ -470,14 +518,28 @@ class VisionWorker:
                     writer.write(json.dumps({"error": "request too large", "failure_code": "request_too_large"}) + "\n")
                     writer.flush()
                     continue
+                req = None
                 try:
                     req = json.loads(line)
                     if not isinstance(req, dict):
                         raise ValueError("request must be an object")
-                    resp = self.process_request(req)
+                    if not hello_complete and req.get("operation") != PROTOCOL_HELLO:
+                        resp = {
+                            "request_id": req.get("request_id") or req.get("id") or "",
+                            "error": "protocol hello required before worker requests",
+                            "failure_code": "protocol_handshake_required",
+                        }
+                    else:
+                        resp = self.process_request(req)
+                        if req.get("operation") == PROTOCOL_HELLO and "error" not in resp:
+                            hello_complete = resp.get("protocol_version") == PROTOCOL_VERSION
                 except Exception:
                     log.exception("PROCESS ERROR")
-                    resp = {"error": "invalid worker request", "failure_code": "invalid_request"}
+                    resp = {
+                        "request_id": req.get("request_id") if isinstance(req, dict) else "",
+                        "error": "invalid worker request",
+                        "failure_code": "invalid_request",
+                    }
                 writer.write(json.dumps(resp) + "\n")
                 writer.flush()
 

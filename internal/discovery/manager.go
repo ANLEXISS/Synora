@@ -657,6 +657,13 @@ func (m *Manager) monitorVisionHealth(ctx context.Context) {
 func classifyVisionWorkerStatus(snapshot vision.WorkerSnapshot, modelsMissing bool) (string, string) {
 	switch snapshot.Status {
 	case vision.WorkerStatusRunning:
+		if snapshot.CapabilityStatus == "degraded" {
+			reason := snapshot.CapabilityError
+			if reason == "" {
+				reason = "worker capabilities are degraded"
+			}
+			return "degraded", reason
+		}
 		if modelsMissing {
 			return "degraded", "running with missing models"
 		}

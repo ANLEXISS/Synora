@@ -24,3 +24,14 @@ func TestClassifyVisionWorkerStoppedIsUnavailable(t *testing.T) {
 		t.Fatalf("status=%q reason=%q", status, reason)
 	}
 }
+
+func TestClassifyVisionWorkerDegradedCapabilitiesIsDegraded(t *testing.T) {
+	status, reason := classifyVisionWorkerStatus(vision.WorkerSnapshot{
+		Status:           vision.WorkerStatusRunning,
+		CapabilityStatus: "degraded",
+		CapabilityError:  "ArcFace unavailable",
+	}, false)
+	if status != "degraded" || reason != "ArcFace unavailable" {
+		t.Fatalf("status=%q reason=%q", status, reason)
+	}
+}

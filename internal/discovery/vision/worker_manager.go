@@ -138,6 +138,11 @@ type WorkerSnapshot struct {
 	Status string
 
 	BackoffUntil time.Time
+
+	ProtocolVersion  string
+	Backend          string
+	CapabilityStatus string
+	CapabilityError  string
 }
 
 type WorkerManager struct {

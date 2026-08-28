@@ -31,10 +31,16 @@ type Runtime struct {
 
 	reader *bufio.Reader
 
+	capabilityStatus string
+	capabilityError  string
+	capabilities     ProtocolHelloResponse
+
 	mu sync.Mutex
 }
 
 type Request struct {
+	RequestID    string `json:"request_id"`
+	Operation    string `json:"operation"`
 	ID           string `json:"id"`
 	ActivationID string `json:"activation_id,omitempty"`
 	ClipIndex    int    `json:"clip_index,omitempty"`
@@ -64,7 +70,8 @@ type Event struct {
 }
 
 type WorkerResponse struct {
-	Events []Event `json:"events"`
+	RequestID string  `json:"request_id"`
+	Events    []Event `json:"events"`
 
 	Error string `json:"error,omitempty"`
 }
@@ -151,6 +158,9 @@ func (v *Runtime) ReloadFaceDataset(ctx context.Context, version, root string) (
 	if response.RequestID != requestID || response.Version == "" || (response.LoadedVersion != "" && response.LoadedVersion != response.Version) {
 		return facedataset.ReloadResult{}, fmt.Errorf("vision face dataset reload returned no version")
 	}
+	if response.Dimension != 0 && response.Dimension != ArcFaceEmbeddingDimension {
+		return facedataset.ReloadResult{}, fmt.Errorf("%w: dataset dimension=%d want=%d", ErrVisionWorkerDegraded, response.Dimension, ArcFaceEmbeddingDimension)
+	}
 	fingerprint := response.ModelFingerprint
 	if fingerprint == "" {
 		fingerprint = response.Fingerprint
@@ -198,6 +208,9 @@ func (v *Runtime) Embed(ctx context.Context, path string, photo contract.FacePho
 	}
 	if response.RequestID != requestID {
 		return nil, "", fmt.Errorf("vision face embedding response correlation mismatch")
+	}
+	if len(response.Embedding) != ArcFaceEmbeddingDimension {
+		return nil, "", fmt.Errorf("%w: embedding dimension=%d want=%d", ErrVisionWorkerDegraded, len(response.Embedding), ArcFaceEmbeddingDimension)
 	}
 	return append([]float32(nil), response.Embedding...), response.ModelFingerprint, nil
 }
@@ -294,7 +307,44 @@ func (v *Runtime) connect() error {
 	v.reader = bufio.NewReader(
 		conn,
 	)
+	if err := v.negotiate(); err != nil {
+		if v.capabilityStatus == "" {
+			v.capabilityStatus = "degraded"
+			v.capabilityError = err.Error()
+		}
+		v.closeConn()
+		return err
+	}
 
+	return nil
+}
+
+func (v *Runtime) negotiate() error {
+	requestID := idgen.New("vision-hello")
+	if err := v.conn.SetDeadline(time.Now().UTC().Add(v.workerTimeout)); err != nil {
+		return fmt.Errorf("set vision hello deadline: %w", err)
+	}
+	defer func() { _ = v.conn.SetDeadline(time.Time{}) }()
+	request := ProtocolHelloRequest{
+		RequestID:       requestID,
+		Operation:       VisionProtocolHello,
+		ProtocolVersion: VisionProtocolVersion,
+	}
+	if err := json.NewEncoder(v.conn).Encode(request); err != nil {
+		return fmt.Errorf("send vision protocol hello: %w", err)
+	}
+	var response ProtocolHelloResponse
+	if err := json.NewDecoder(v.reader).Decode(&response); err != nil {
+		return fmt.Errorf("receive vision protocol hello: %w", err)
+	}
+	if err := validateProtocolHello(requestID, response); err != nil {
+		v.capabilityStatus = "degraded"
+		v.capabilityError = err.Error()
+		return err
+	}
+	v.capabilities = response
+	v.capabilityStatus = response.Status
+	v.capabilityError = response.degradedReason()
 	return nil
 }
 
@@ -302,7 +352,14 @@ func (v *Runtime) Snapshot() WorkerSnapshot {
 	if v == nil || v.manager == nil {
 		return WorkerSnapshot{Status: WorkerStatusStopped}
 	}
-	return v.manager.Snapshot()
+	snapshot := v.manager.Snapshot()
+	v.mu.Lock()
+	snapshot.ProtocolVersion = v.capabilities.ProtocolVersion
+	snapshot.Backend = v.capabilities.Backend
+	snapshot.CapabilityStatus = v.capabilityStatus
+	snapshot.CapabilityError = v.capabilityError
+	v.mu.Unlock()
+	return snapshot
 }
 
 func (v *Runtime) PublishUnavailable(reason string) {
@@ -364,6 +421,9 @@ func (v *Runtime) processLocked(
 	if err := v.connect(); err != nil {
 		return nil, err
 	}
+	if v.capabilityStatus == "degraded" {
+		return nil, fmt.Errorf("%w: %s", ErrVisionWorkerDegraded, v.capabilityError)
+	}
 	conn := v.conn
 	if err := conn.SetDeadline(time.Now().UTC().Add(v.workerTimeout)); err != nil {
 		v.closeConn()
@@ -372,6 +432,8 @@ func (v *Runtime) processLocked(
 	defer func() { _ = conn.SetDeadline(time.Time{}) }()
 
 	req := Request{
+		RequestID:    job.ID,
+		Operation:    VisionClipProcess,
 		ID:           job.ID,
 		ActivationID: job.ActivationID,
 		ClipIndex:    job.ClipIndex,
@@ -394,16 +456,23 @@ func (v *Runtime) processLocked(
 		return nil, err
 	}
 
-	var resp WorkerResponse
-
-	err = json.NewDecoder(
-		v.reader,
-	).Decode(&resp)
+	var raw json.RawMessage
+	err = json.NewDecoder(v.reader).Decode(&raw)
 
 	if err != nil {
 		v.closeConn()
 
 		return nil, err
+	}
+
+	resp, err := decodeWorkerResponse(raw)
+	if err != nil {
+		v.closeConn()
+		return nil, err
+	}
+	if resp.RequestID != req.RequestID {
+		v.closeConn()
+		return nil, fmt.Errorf("%w: response correlation mismatch", ErrVisionMalformedResponse)
 	}
 
 	if resp.Error != "" {
@@ -420,6 +489,10 @@ func (v *Runtime) processLocked(
 func (v *Runtime) closeConn() {
 	if v.conn != nil {
 		_ = v.conn.Close()
+	}
+	if v.capabilityStatus == "normal" {
+		v.capabilityStatus = "degraded"
+		v.capabilityError = "worker connection unavailable"
 	}
 
 	v.conn = nil
