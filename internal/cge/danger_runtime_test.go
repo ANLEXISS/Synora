@@ -2,6 +2,7 @@ package cge
 
 import (
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -114,5 +115,33 @@ func TestDangerRuntimeRestartRecomputeDropsExpiredDanger(t *testing.T) {
 	result := runtime.Recompute(store, chains, t0.Add(31*time.Minute), true)
 	if result.CurrentScore != 0 || result.CurrentLevel != string(contract.DangerNone) || result.CurrentState != "idle" {
 		t.Fatalf("restart restored expired danger: %#v", result)
+	}
+}
+
+func TestDangerRuntimeResetClearsTemporalHysteresis(t *testing.T) {
+	runtime := NewDangerRuntime(runtimeTestConfig())
+	runtime.belowSince = time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	runtime.idleSince = runtime.belowSince
+	runtime.Reset()
+	if !runtime.belowSince.IsZero() || !runtime.idleSince.IsZero() {
+		t.Fatalf("reset retained temporal hysteresis below=%v idle=%v", runtime.belowSince, runtime.idleSince)
+	}
+}
+
+func TestDangerRuntimeConcurrentRecomputeIsSerialized(t *testing.T) {
+	store := state.NewStore()
+	runtime := NewDangerRuntime(runtimeTestConfig())
+	start := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	var group sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		group.Add(1)
+		go func(offset int) {
+			defer group.Done()
+			runtime.Recompute(store, nil, start.Add(time.Duration(offset)*time.Second), offset == 0)
+		}(i)
+	}
+	group.Wait()
+	if got := store.SystemState(); !got.DangerKnown {
+		t.Fatalf("concurrent recompute did not publish a known danger state: %#v", got)
 	}
 }

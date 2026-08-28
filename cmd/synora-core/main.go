@@ -588,6 +588,9 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	if event.Type == "incident.created" || event.Type == "incident.updated" || event.Type == "clip.available" {
 		return
 	}
+	if contract.NormalizeEventType(event.Type) == contract.EventSystemStateReset && a.danger != nil {
+		a.danger.Reset()
+	}
 	a.canonicalizeVisionIdentifiers(event)
 	a.coreRevision.Add(1)
 	// Capture the boundary DTO before the historical engine can normalize or

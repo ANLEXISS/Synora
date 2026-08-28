@@ -92,6 +92,48 @@ func TestDangerScoringUncertainLowConfidenceCreatesValidation(t *testing.T) {
 	}
 }
 
+func TestSecurityMachineGoldenTimelineInputs(t *testing.T) {
+	now := testTime(12)
+	cases := []struct {
+		name       string
+		eventType  string
+		role       string
+		repetition int
+		eventAt    time.Time
+		wantLevel  int
+		wantState  string
+		wantReason string
+	}{
+		{name: "known resident", eventType: contract.EventVisionIdentity, role: "access_control", wantLevel: 1, wantState: "activity", wantReason: "known_resident"},
+		{name: "unknown intrusion", eventType: contract.EventVisionUnknown, role: "access_control", wantLevel: 5, wantState: "intrusion", wantReason: "unknown_identity"},
+		{name: "camera disappearance", eventType: contract.EventDiscoveryCameraOffline, role: "access_control", wantLevel: 3, wantState: "suspicious", wantReason: "device_offline"},
+		{name: "repeated motion", eventType: contract.EventVisionMotion, role: "access_control", repetition: 3, wantLevel: 2, wantState: "activity", wantReason: "repeated_motion_sensitive_zone"},
+		{name: "authorized reset", eventType: contract.EventSystemStateReset, role: "access_control", wantLevel: 0, wantState: "idle", wantReason: "informational_event"},
+		{name: "out of order observation", eventType: contract.EventVisionUnknown, role: "access_control", eventAt: now.Add(-time.Minute), wantLevel: 5, wantState: "intrusion", wantReason: "unknown_identity"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			at := tc.eventAt
+			if at.IsZero() {
+				at = now
+			}
+			event := testEvent(tc.eventType, "entry", 0.9)
+			event.Timestamp = at
+			assessment := AssessEvent(event, Context{
+				DeviceRole:      tc.role,
+				RepetitionCount: tc.repetition,
+				Now:             now,
+			})
+			if assessment.Level != tc.wantLevel || assessment.ExpectedState != tc.wantState {
+				t.Fatalf("assessment level/state=(%d,%q), want (%d,%q): %#v", assessment.Level, assessment.ExpectedState, tc.wantLevel, tc.wantState, assessment)
+			}
+			if !containsString(assessment.Reasons, tc.wantReason) {
+				t.Fatalf("assessment reasons=%v, want %q", assessment.Reasons, tc.wantReason)
+			}
+		})
+	}
+}
+
 func TestSimulatedAssessmentMarked(t *testing.T) {
 	event := testEvent(contract.EventVisionUnknown, "entry", 0.72)
 	event.Payload["metadata"] = map[string]any{"simulated": true, "dry_run": true}
@@ -173,4 +215,13 @@ func assertAction(t *testing.T, assessment contract.DangerAssessment, actionType
 		}
 	}
 	t.Fatalf("assessment missing action %s: %#v", actionType, assessment.RecommendedSystemActions)
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

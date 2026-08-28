@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	eventpkg "synora/internal/event"
@@ -19,6 +20,8 @@ const IntrusionLockDuration = 15 * time.Second
 // system state. It deliberately reads immutable-ish chain projections and
 // never rewrites events or chain evaluations.
 type DangerRuntime struct {
+	mu sync.RWMutex
+
 	config contract.DangerDecayConfig
 	now    func() time.Time
 	debug  bool
@@ -46,12 +49,16 @@ func NewDangerRuntime(config contract.DangerDecayConfig) *DangerRuntime {
 
 func (r *DangerRuntime) SetNow(now func() time.Time) {
 	if r != nil && now != nil {
+		r.mu.Lock()
+		defer r.mu.Unlock()
 		r.now = now
 	}
 }
 
 func (r *DangerRuntime) SetDebug(enabled bool) {
 	if r != nil {
+		r.mu.Lock()
+		defer r.mu.Unlock()
 		r.debug = enabled
 	}
 }
@@ -60,13 +67,30 @@ func (r *DangerRuntime) Config() contract.DangerDecayConfig {
 	if r == nil {
 		return contract.DefaultDangerDecayConfig()
 	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.config
 }
 
 func (r *DangerRuntime) SetConfig(config contract.DangerDecayConfig) {
 	if r != nil {
+		r.mu.Lock()
+		defer r.mu.Unlock()
 		r.config = contract.NormalizeDangerDecayConfig(config)
 	}
+}
+
+// Reset clears only temporal hysteresis state. Durable operational state
+// remains owned by StateStore and must be reset through the authorized Core
+// reset path.
+func (r *DangerRuntime) Reset() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.belowSince = time.Time{}
+	r.idleSince = time.Time{}
 }
 
 // Recompute projects all active and recent closed chains at now. initial is
@@ -75,6 +99,8 @@ func (r *DangerRuntime) Recompute(store *state.Store, chains *eventpkg.ChainMana
 	if r == nil || store == nil {
 		return DangerRuntimeResult{}
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if now.IsZero() {
 		now = r.now().UTC()
 	}
