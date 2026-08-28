@@ -781,6 +781,30 @@ Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentai
 
 Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
 
+## Jalon M019 — Rétention, quota et accès média
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m019-media-retention`
+- Branche dédiée : `codex/v1-m019-media-retention`
+- Commit fonctionnel : `c073d2b`
+- Livrables : endpoint protégé `/api/clips/{id}/media`, dérivation du chemin
+  canonique sans exposition de chemin interne, support GET/HEAD et Range via
+  HTTP, avec accès limité aux clips `ready`/`processed`.
+- Contrôles V1 : rejet des clips `missing`/`expired` ou non prêts, refus des
+  symlinks et traversals, vérification de taille et checksum SHA-256 juste
+  avant lecture, et conservation de la politique de purge/quota existante.
+- Tests déterministes ajoutés : Range valide, checksum falsifié, états
+  expired/missing, symlink, traversal et purge pendant une lecture déjà
+  ouverte ; la rétention conserve les associations et les métadonnées expirées.
+- Validations : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./...`, `timeout 360s env GOFLAGS=-buildvcs=false go test -race ./... -count=1`
+  et tests Python Vision (22) — PASS.
+- Limite environnement : la qualification Web n’a pas été relancée, car les
+  dépendances locales de `synora-web` sont absentes et leur installation est
+  hors périmètre autorisé.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon M018 — Queue clips, retry et reprise
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m018-clip-queue`
