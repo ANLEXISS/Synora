@@ -66,7 +66,7 @@ class Tracker:
 
     def update(self, detections):
 
-        detections = np.asarray(detections, dtype=float)
+        detections = self._normalize_detections(detections)
 
         log.debug(
             "TRACKER UPDATE detections=%d tracks=%d",
@@ -204,6 +204,29 @@ class Tracker:
             self._create_track(det)
 
         return self.tracks
+
+    @staticmethod
+    def _normalize_detections(detections):
+        try:
+            detections = np.asarray(detections, dtype=float)
+        except (TypeError, ValueError):
+            return np.empty((0, 4), dtype=float)
+        if detections.size == 0:
+            return np.empty((0, 4), dtype=float)
+        if detections.ndim == 1 and detections.size == 4:
+            detections = detections.reshape(1, 4)
+        if detections.ndim != 2 or detections.shape[1] != 4:
+            return np.empty((0, 4), dtype=float)
+        finite = np.all(np.isfinite(detections), axis=1)
+        ordered = detections[finite]
+        if len(ordered) == 0:
+            return np.empty((0, 4), dtype=float)
+        valid = (ordered[:, 2] > ordered[:, 0]) & (ordered[:, 3] > ordered[:, 1])
+        return ordered[valid]
+
+    def visible_tracks(self):
+        """Return tracks backed by a detection in the current frame."""
+        return [track for track in self.tracks if track.missed == 0]
 
     # ------------------------------------------------
 

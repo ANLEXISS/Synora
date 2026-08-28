@@ -605,6 +605,8 @@ class VisionPipeline:
         source_frame_id=None,
     ):
 
+        frame = self.normalize_frame(frame)
+
         self.frame_id += 1
         frame_start = time.perf_counter()
         self.metrics.mark_processed()
@@ -697,21 +699,23 @@ class VisionPipeline:
                 detections
             )
 
+        visible_tracks = self.tracker.visible_tracks()
+
         log.info(
             "TRACKS=%d",
             len(tracks),
         )
 
-        if tracks:
+        if visible_tracks:
             self.person_seen = True
 
         self.active_tracks_seen.update(
-            t.id for t in tracks
+            t.id for t in visible_tracks
         )
 
         h, w = frame.shape[:2]
 
-        for track in tracks:
+        for track in visible_tracks:
 
             x1, y1, x2, y2 = map(
                 int,
@@ -985,6 +989,22 @@ class VisionPipeline:
         )
 
         return trace
+
+    @staticmethod
+    def normalize_frame(frame):
+        if not isinstance(frame, np.ndarray) or frame.size == 0:
+            raise ValueError("frame must be a non-empty NumPy array")
+        if frame.ndim == 2:
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        elif frame.ndim == 3 and frame.shape[2] == 4:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+        elif frame.ndim != 3 or frame.shape[2] != 3:
+            raise ValueError("frame must have one, three or four channels")
+        if frame.shape[0] == 0 or frame.shape[1] == 0:
+            raise ValueError("frame dimensions must be positive")
+        if frame.dtype != np.uint8:
+            frame = np.clip(frame, 0, 255).astype(np.uint8)
+        return np.ascontiguousarray(frame)
 
     # ------------------------------------------------
 

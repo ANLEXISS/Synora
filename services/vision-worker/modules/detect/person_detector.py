@@ -228,7 +228,14 @@ class PersonDetector:
         frame,
     ):
 
-        if not self.available or self.runner is None:
+        if (
+            not self.available or
+            self.runner is None or
+            not isinstance(frame, np.ndarray) or
+            frame.ndim != 3 or
+            frame.shape[0] == 0 or
+            frame.shape[1] == 0
+        ):
             return []
 
         blob, meta = self.preprocess(
@@ -292,13 +299,17 @@ class PersonDetector:
 
             return []
 
-        if not outputs:
-
+        if outputs is None:
             return []
 
-        outputs = np.asarray(
-            outputs[0]
-        )
+        try:
+            outputs = self._normalize_outputs(outputs)
+        except (TypeError, ValueError):
+            log.exception("YOLO output normalization failed")
+            return []
+
+        if outputs is None:
+            return []
 
         with open(DEBUG_LOG, "a") as f:
 
@@ -319,31 +330,6 @@ class PersonDetector:
             outputs.shape,
         )
 
-        if outputs.ndim == 3:
-
-            outputs = outputs[0]
-
-        if outputs.shape[0] < outputs.shape[1]:
-
-            outputs = outputs.transpose()
-            with open(DEBUG_LOG, "a") as f:
-
-                f.write(
-                    f"\nTRANSPOSED_SHAPE={outputs.shape}\n"
-                )
-
-                for idx in [0, 1, 10, 100, 1000]:
-
-                    if idx < len(outputs):
-
-                        f.write(
-                            f"\nDETECTION {idx}\n"
-                        )
-
-                        f.write(
-                            f"{outputs[idx][:20].tolist()}\n"
-                        )
-
         boxes = []
 
         scores = []
@@ -357,13 +343,6 @@ class PersonDetector:
         orig_w = meta["orig_w"]
 
         orig_h = meta["orig_h"]
-
-        print("\nROWS TO PARSE")
-        print("outputs.shape =", outputs.shape)
-
-        if len(outputs) > 0:
-            print("first row sample:")
-            print(outputs[0][:20])
 
         row_debug = 0
         for row in outputs:
@@ -387,7 +366,7 @@ class PersonDetector:
 
                 row_debug += 1
 
-            if len(row) < 6:
+            if len(row) < 6 or not np.all(np.isfinite(row)):
                 continue
 
             cx, cy, bw, bh = row[:4]
@@ -583,8 +562,6 @@ class PersonDetector:
             )
 
         if not boxes:
-            print("\nNO BOXES AFTER FILTERING")
-            print("conf_threshold =", self.conf_threshold)
             return []
 
         nms_boxes = []
@@ -608,6 +585,8 @@ class PersonDetector:
         )
 
         results = []
+
+        indices = np.asarray(indices).reshape(-1)
 
         if len(indices) > 0:
 
@@ -664,6 +643,30 @@ class PersonDetector:
             :self.MAX_PERSONS
         ]
 
+    @staticmethod
+    def _normalize_outputs(outputs):
+        """Normalize common RKNN YOLO layouts to one row per candidate."""
+        if isinstance(outputs, (list, tuple)):
+            if len(outputs) == 0:
+                return None
+            outputs = outputs[0]
+        array = np.asarray(outputs, dtype=np.float32)
+        if array.ndim == 3:
+            if array.shape[0] != 1:
+                return None
+            array = array[0]
+        if array.ndim != 2:
+            return None
+        if array.shape[1] >= 6 and array.shape[0] < 6:
+            return array
+        if array.shape[0] >= 6 and array.shape[1] < 6:
+            return array.transpose()
+        if array.shape[0] < 6 and array.shape[1] < 6:
+            return None
+        if array.shape[0] <= 128 and array.shape[1] > array.shape[0]:
+            return array.transpose()
+        return array
+
     def _score_value(
         self,
         value,
@@ -674,10 +677,7 @@ class PersonDetector:
         if 0.0 <= value <= 1.0:
             return value
 
-        return float(
-            1.0 /
-            (1.0 + np.exp(-value))
-        )
+        return float(1.0 / (1.0 + np.exp(-np.clip(value, -60.0, 60.0))))
 
     def _score_values(
         self,
