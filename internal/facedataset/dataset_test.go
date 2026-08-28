@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,16 +28,30 @@ func (e testEmbedder) Embed(context.Context, string, contract.FacePhoto) ([]floa
 }
 
 type testLoader struct {
-	fail  bool
-	calls int
+	mu      sync.Mutex
+	fail    bool
+	calls   int
+	version string
 }
 
 func (l *testLoader) ReloadFaceDataset(context.Context, string, string) (ReloadResult, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.calls++
 	if l.fail {
 		return ReloadResult{}, errors.New("reload failed")
 	}
-	return ReloadResult{Version: "v-1"}, nil
+	version := l.version
+	if version == "" {
+		version = "v-1"
+	}
+	return ReloadResult{Version: version}, nil
+}
+
+func (l *testLoader) callCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.calls
 }
 
 func TestBuildManifestAndAtomicCurrentAfterReload(t *testing.T) {
@@ -105,6 +120,87 @@ func TestFailedBuildOrReloadDoesNotPublishCurrent(t *testing.T) {
 	}
 	if _, err := builder.BuildAndActivate(context.Background(), []contract.FacePhoto{received.Photo}, 1, testEmbedder{fail: true}, &testLoader{}); err == nil {
 		t.Fatal("embedding failure accepted")
+	}
+}
+
+func TestRetryReusesCommittedVersionAfterActivationInterruption(t *testing.T) {
+	store := facestore.New(t.TempDir(), facestore.Limits{})
+	received, err := store.Receive("resident-1", bytes.NewReader(bytesForDataset(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := NewBuilder(store)
+	loader := &testLoader{}
+	if _, err := builder.BuildAndActivate(context.Background(), []contract.FacePhoto{received.Photo}, 1, testEmbedder{}, loader); err != nil {
+		t.Fatal(err)
+	}
+	failedLoader := &testLoader{fail: true}
+	if _, err := builder.BuildAndActivate(context.Background(), []contract.FacePhoto{received.Photo}, 1, testEmbedder{}, failedLoader); err == nil {
+		t.Fatal("failed retry accepted")
+	}
+	if failedLoader.callCount() != 1 {
+		t.Fatalf("existing committed version was not reloaded, calls=%d", failedLoader.callCount())
+	}
+	if _, err := builder.BuildAndActivate(context.Background(), []contract.FacePhoto{received.Photo}, 1, testEmbedder{}, &testLoader{}); err != nil {
+		t.Fatalf("retry after loader recovery failed: %v", err)
+	}
+}
+
+func TestFailedReloadPreservesPreviousCurrentVersion(t *testing.T) {
+	store := facestore.New(t.TempDir(), facestore.Limits{})
+	received, err := store.Receive("resident-1", bytes.NewReader(bytesForDataset(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := NewBuilder(store)
+	if _, err := builder.BuildAndActivate(context.Background(), []contract.FacePhoto{received.Photo}, 1, testEmbedder{}, &testLoader{}); err != nil {
+		t.Fatal(err)
+	}
+	loader := &testLoader{fail: true, version: "v-2"}
+	if _, err := builder.BuildAndActivate(context.Background(), []contract.FacePhoto{received.Photo}, 2, testEmbedder{}, loader); err == nil {
+		t.Fatal("failed reload accepted")
+	}
+	current, err := ReadCurrent(store.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Version != "v-1" {
+		t.Fatalf("failed activation replaced current version: %s", current.Version)
+	}
+	if _, err := os.Stat(filepath.Join(store.Root, "datasets", "versions", "v-2")); err != nil {
+		t.Fatalf("staged immutable version was not retained for retry: %v", err)
+	}
+}
+
+func TestConcurrentBuildsReuseSameImmutableVersion(t *testing.T) {
+	store := facestore.New(t.TempDir(), facestore.Limits{})
+	received, err := store.Receive("resident-1", bytes.NewReader(bytesForDataset(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := NewBuilder(store)
+	loader := &testLoader{}
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, buildErr := builder.BuildAndActivate(context.Background(), []contract.FacePhoto{received.Photo}, 1, testEmbedder{}, loader)
+			errs <- buildErr
+		}()
+	}
+	close(start)
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent build failed: %v", err)
+		}
+	}
+	current, err := ReadCurrent(store.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Version != "v-1" {
+		t.Fatalf("unexpected current version: %s", current.Version)
 	}
 }
 

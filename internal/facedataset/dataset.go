@@ -127,14 +127,32 @@ func (b *Builder) BuildAndActivate(ctx context.Context, photos []contract.FacePh
 	final := filepath.Join(b.Store.Root, "datasets", "versions", version)
 	if _, statErr := os.Lstat(final); statErr == nil {
 		old, readErr := ReadManifest(final)
-		if readErr == nil && old.Checksum == manifest.Checksum {
-			return b.reloadAndPoint(ctx, final, manifest, loader)
+		if readErr != nil {
+			return Manifest{}, fmt.Errorf("dataset version collision: %s: %w", version, readErr)
 		}
-		return Manifest{}, fmt.Errorf("dataset version collision: %s", version)
+		// desiredRevision is the Core snapshot identity. A retry after a
+		// crash may rebuild the same revision with a different BuiltAt; the
+		// already committed immutable version is still the authoritative one.
+		if old.DesiredRevision != desiredRevision {
+			return Manifest{}, fmt.Errorf("dataset version collision: %s", version)
+		}
+		return b.reloadAndPoint(ctx, final, old, loader)
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return Manifest{}, statErr
 	}
 	if err := os.Rename(staging, final); err != nil {
+		// Another worker may have committed the same immutable revision between
+		// our existence check and the rename. Reuse that committed version.
+		if _, statErr := os.Lstat(final); statErr == nil {
+			old, readErr := ReadManifest(final)
+			if readErr != nil || old.DesiredRevision != desiredRevision {
+				if readErr != nil {
+					return Manifest{}, fmt.Errorf("dataset version collision: %s: %w", version, readErr)
+				}
+				return Manifest{}, fmt.Errorf("dataset version collision: %s", version)
+			}
+			return b.reloadAndPoint(ctx, final, old, loader)
+		}
 		return Manifest{}, err
 	}
 	syncDir(filepath.Dir(final))
