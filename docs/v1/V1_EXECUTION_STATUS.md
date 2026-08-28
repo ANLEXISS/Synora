@@ -1,8 +1,24 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M001
+
+- Jalon : M001 — baseline compilable et inventaire V1
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m001-baseline`
+- Branche dédiée : `codex/v1-m001-baseline`
+- Commits : `7c1f74e` (formatage Go), `2e5fb9a` (inventaire)
+- Résultat : validé ; aucune modification fonctionnelle volontaire
+- Preuves : `git diff --check`, `go test ./...`, `go test -race ./...`,
+  `go vet ./...`, `go build ./cmd/...`, compile/tests Vision et build WebApp
+- Réserves d’environnement : les commandes Go nécessitent
+  `GOFLAGS=-buildvcs=false` à cause du `.git` parent non exploitable ; le
+  répertoire `automation/codex-loop/tests` est absent et le package WebApp ne
+  définit pas de script npm `test`
+- Intégration : à effectuer après validation de ce rapport
+
 ## Jalon courant
 
-- Jalon : 25 — release candidate et audit final
+- Historique conservé : jalons 01–25 de l’ancien plan V1 (non substitutif au
+  `MASTER_PLAN.json` maître)
 - Groupe : 21–25
 - État : validé sur branche dédiée ; intégration dans le groupe 21–25 en cours
 - Branche : `integration/synora-v1-execution`
