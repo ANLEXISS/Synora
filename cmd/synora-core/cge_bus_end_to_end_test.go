@@ -231,7 +231,10 @@ func (h *busCoreE2EHarness) publish(t *testing.T, eventType string, payload map[
 
 func waitE2EStep(t *testing.T, step string, condition func() bool) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	// The same deterministic sequence is intentionally exercised under the
+	// race detector; allow its instrumented Core loop to reach the terminal
+	// commit without turning a scheduler delay into a false regression.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
