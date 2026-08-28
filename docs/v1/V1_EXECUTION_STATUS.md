@@ -69,9 +69,19 @@
   manifeste interne et fixtures JSON courantes/legacy
 - Types internes conservés : `Track`, `Presence` et `ObservationRef` ne
   traversent pas une frontière interservice V1 et ne sont pas promus
-- Preuves ciblées : `GOFLAGS=-buildvcs=false go test ./pkg/contract
-  ./internal/facedataset` — PASS ; `git diff --check` — PASS
-- Validation complète et intégration : en cours
+- Preuves : `GOFLAGS=-buildvcs=false go test ./... -p 1 -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`,
+  `GOFLAGS=-buildvcs=false go build ./cmd/...`,
+  `GOFLAGS=-buildvcs=false go test -race ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go test -race ./pkg/contract
+  ./internal/facedataset ./internal/discovery/vision -count=1`, et les 22
+  tests Python Vision — PASS ; `git diff --check` — PASS
+- Diagnostic de suite : un premier lancement normal parallèle a exposé une
+  flakiness de `internal/delivery`, reproduite isolément 5/5 et non reproduite
+  ensuite ; un lancement race séquentiel a dépassé 300 s dans les tests CGE
+  lourds, puis la même suite race parallèle a terminé entièrement avec PASS.
+- Validation complète et intégration : validé ; commit `e00a570` atteignable
+  depuis `integration/synora-v1`
 
 ## Jalon courant
 
