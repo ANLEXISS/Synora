@@ -10,17 +10,17 @@ import (
 
 func parseConfig(args []string) (Config, error) {
 	cfg := Config{
-		BusPath:           defaultBusPath,
-		APIURL:            defaultAPIURL,
-		Token:             os.Getenv("SYNORA_API_TOKEN"),
-		DeviceID:          defaultDevice,
-		CameraID:          defaultDevice,
-		Identity:          defaultIdentity,
-		Confidence:        defaultConfidence,
-		ExpectDangerLevel: -1,
+		BusPath:              defaultBusPath,
+		APIURL:               defaultAPIURL,
+		Token:                os.Getenv("SYNORA_API_TOKEN"),
+		DeviceID:             defaultDevice,
+		CameraID:             defaultDevice,
+		Identity:             defaultIdentity,
+		Confidence:           defaultConfidence,
+		ExpectDangerLevel:    -1,
 		ExpectMinDangerLevel: -1,
-		LearningMode:      "simulation",
-		Repeat:            1,
+		LearningMode:         "simulation",
+		Repeat:               1,
 	}
 
 	fs := flag.NewFlagSet("synora-lab", flag.ContinueOnError)

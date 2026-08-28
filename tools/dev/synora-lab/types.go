@@ -15,37 +15,37 @@ const (
 )
 
 type Config struct {
-	BusPath            string
-	APIURL             string
-	HealthURL          string
-	Token              string
-	DeviceID           string
-	CameraID           string
-	NodeID             string
-	Identity           string
-	Confidence         float64
-	SendType           string
-	Scenario           string
-	Watch              bool
-	NoTUI              bool
-	ListScenarios      bool
-	DryRunActions      bool
-	Verbose            bool
-	ShowCGE            bool
-	ShowDanger         bool
-	ShowDangerAll      bool
-	InspectLearning    bool
-	ExpectSequence     string
-	ExpectDangerLevel  int
-	ExpectMinDangerLevel int
-	ExpectCategory     string
-	ExpectSystemAction string
-	ExpectSystemState  string
+	BusPath               string
+	APIURL                string
+	HealthURL             string
+	Token                 string
+	DeviceID              string
+	CameraID              string
+	NodeID                string
+	Identity              string
+	Confidence            float64
+	SendType              string
+	Scenario              string
+	Watch                 bool
+	NoTUI                 bool
+	ListScenarios         bool
+	DryRunActions         bool
+	Verbose               bool
+	ShowCGE               bool
+	ShowDanger            bool
+	ShowDangerAll         bool
+	InspectLearning       bool
+	ExpectSequence        string
+	ExpectDangerLevel     int
+	ExpectMinDangerLevel  int
+	ExpectCategory        string
+	ExpectSystemAction    string
+	ExpectSystemState     string
 	ExpectEmergencyActive bool
 	ExpectIntrusionActive bool
-	LearningMode       string
-	Repeat             int
-	DangerRunIDs       []string
+	LearningMode          string
+	Repeat                int
+	DangerRunIDs          []string
 
 	identityExplicit bool
 }

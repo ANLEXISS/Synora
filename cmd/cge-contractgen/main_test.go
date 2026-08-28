@@ -155,12 +155,18 @@ func TestGenerateRenderingDoesNotTouchBaseline(t *testing.T) {
 func TestBaselineV3CannotBeOverwritten(t *testing.T) {
 	root := t.TempDir()
 	set, err := contractcatalog.Validate(contractgenRoot(t))
-	if err != nil { t.Fatal(err) }
-	if err := writeBaselineAt(root, set, baselineV3Path); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeBaselineAt(root, set, baselineV3Path); err != nil {
+		t.Fatal(err)
+	}
 	if err := writeBaselineAt(root, set, baselineV3Path); err == nil {
 		t.Fatal("baseline v3 overwrite was accepted")
 	}
-	if err := checkCompatibilityAt(root, set, "v3"); err != nil { t.Fatal(err) }
+	if err := checkCompatibilityAt(root, set, "v3"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCompatibilityClassificationIsDeterministic(t *testing.T) {

@@ -8,7 +8,6 @@ import (
 )
 
 type SimilarityResult struct {
-
 	EventSimilarity float64
 
 	SubjectSimilarity float64
@@ -95,32 +94,23 @@ func ComputeDivergence(
 		)
 
 	return SimilarityResult{
-		EventSimilarity:
-			eventSimilarity,
+		EventSimilarity: eventSimilarity,
 
-		SubjectSimilarity:
-			subjectSimilarity,
+		SubjectSimilarity: subjectSimilarity,
 
-		TargetSimilarity:
-			targetSimilarity,
+		TargetSimilarity: targetSimilarity,
 
-		TopologySimilarity:
-			topologySimilarity,
+		TopologySimilarity: topologySimilarity,
 
-		ContextSimilarity:
-			contextSimilarity,
+		ContextSimilarity: contextSimilarity,
 
-		TimeSimilarity:
-			timeSimilarity,
+		TimeSimilarity: timeSimilarity,
 
-		StatisticalSimilarity:
-			statisticalSimilarity,
+		StatisticalSimilarity: statisticalSimilarity,
 
-		Similarity:
-			similarity,
+		Similarity: similarity,
 
-		Divergence:
-			1.0 - similarity,
+		Divergence: 1.0 - similarity,
 	}
 }
 
@@ -466,8 +456,6 @@ func ComputeExperienceWeight(
 	)
 }
 
-
-
 func clamp(
 	value float64,
 	min float64,
@@ -484,4 +472,3 @@ func clamp(
 
 	return value
 }
-

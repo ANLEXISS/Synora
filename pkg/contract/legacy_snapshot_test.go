@@ -9,10 +9,16 @@ import (
 func TestLegacySnapshotClosedVariantsPreserveJSON(t *testing.T) {
 	input := []byte(`{"id":"node-1","name":"entry","type":"zone","dynamic_score":0,"connect":[],"children":[]}`)
 	value, err := NewLegacyTopologyNodeJSON(input)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	encoded, err := json.Marshal(value)
-	if err != nil { t.Fatal(err) }
-	if !bytes.Equal(encoded, input) { t.Fatalf("legacy bytes changed: %s != %s", encoded, input) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(encoded, input) {
+		t.Fatalf("legacy bytes changed: %s != %s", encoded, input)
+	}
 }
 
 func TestLegacySnapshotRejectsUnknownVariantField(t *testing.T) {
