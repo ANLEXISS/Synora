@@ -781,6 +781,32 @@ Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentai
 
 Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
 
+## Jalon M018 — Queue clips, retry et reprise
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m018-clip-queue`
+- Branche dédiée : `codex/v1-m018-clip-queue`
+- Commit fonctionnel : `af15405`
+- Livrables : queue Vision bornée et dédupliquée par identifiant logique,
+  journal JSON durable sous le spool clips, reprise des jobs non acquittés,
+  timeout de traitement, retries plafonnés et backoff exponentiel borné.
+- Fiabilité : le job reste dans le journal jusqu’au succès du callback ou à la
+  notification d’échec terminal ; un timeout terminal publie `clip.failed` avec
+  un `failure_code` exploitable, et les identifiants de job sont clonés à la
+  frontière de queue.
+- Tests déterministes ajoutés : restauration/ack du journal, borne de queue,
+  déduplication des pending jobs, timeout après retries et échec permanent ;
+  les tests existants de retry, fermeture et indisponibilité restent verts.
+- Validations : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./...`, `timeout 360s env GOFLAGS=-buildvcs=false go test -race ./... -count=1`
+  et tests Python Vision (22) — PASS après une première flakiness fonctionnelle
+  isolée dans CGE, passée 3/3 isolément puis lors de la seconde passe globale.
+- Limite environnement : la qualification Web n’a pas été relancée, car les
+  dépendances locales de `synora-web` sont absentes et leur installation est
+  hors périmètre autorisé.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon M017 — Ingress vidéo borné et sûr
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m017-video-ingress`
