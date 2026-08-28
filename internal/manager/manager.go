@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"synora/internal/discovery/network"
+	"synora/internal/runtimeconfig"
 	"synora/pkg/contract"
 )
 
@@ -671,15 +673,35 @@ func missingMediaMTXProbe(context.Context) error {
 }
 
 func defaultMediaMTXProbe(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:9997/v3/paths/list", nil)
+	apiURL := strings.TrimRight(strings.TrimSpace(os.Getenv("SYNORA_MEDIAMTX_API_URL")), "/")
+	if apiURL == "" {
+		apiURL = runtimeconfig.Defaults().Endpoints.MediaMTXAPIURL
+	}
+	parsed, err := url.Parse(apiURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
+		return errors.New("MediaMTX API URL is invalid")
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return probeMediaMTXEndpoint(ctx, strings.TrimRight(parsed.String(), "/")+"/v3/paths/list", &http.Client{})
+}
+
+func probeMediaMTXEndpoint(ctx context.Context, endpoint string, client *http.Client) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return err
 	}
-	response, err := (&http.Client{}).Do(req)
+	if client == nil {
+		client = &http.Client{}
+	}
+	response, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("MediaMTX API returned status %d", response.StatusCode)
+	}
 	return nil
 }
 

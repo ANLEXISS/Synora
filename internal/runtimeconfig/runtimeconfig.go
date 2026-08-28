@@ -69,6 +69,7 @@ type Endpoints struct {
 	VisionHealth    string
 	VisionHTTPS     string
 	MediaMTXRTSPURL string
+	MediaMTXAPIURL  string
 }
 
 type Timeouts struct {
@@ -128,6 +129,7 @@ func Defaults() Config {
 			VisionHealth:    DefaultVisionHealth,
 			VisionHTTPS:     DefaultVisionHTTPS,
 			MediaMTXRTSPURL: DefaultMediaMTXRTSPURL,
+			MediaMTXAPIURL:  "http://127.0.0.1:9997",
 		},
 		Timeouts: Timeouts{
 			BusConnect:     2 * time.Second,
@@ -206,6 +208,7 @@ func Load(getenv func(string) string) (Config, error) {
 	set("SYNORA_VISION_HEALTH_ADDR", &cfg.Endpoints.VisionHealth)
 	set("SYNORA_VISION_HTTPS_ADDR", &cfg.Endpoints.VisionHTTPS)
 	set("SYNORA_MEDIAMTX_RTSP_URL", &cfg.Endpoints.MediaMTXRTSPURL)
+	set("SYNORA_MEDIAMTX_API_URL", &cfg.Endpoints.MediaMTXAPIURL)
 
 	for key, destination := range map[string]*time.Duration{
 		"SYNORA_BUS_CONNECT_TIMEOUT": &cfg.Timeouts.BusConnect,
@@ -256,6 +259,10 @@ func (c Config) Validate() error {
 	u, err := url.Parse(c.Endpoints.MediaMTXRTSPURL)
 	if err != nil || u.Scheme != "rtsp" || u.Host == "" || u.Path == "." {
 		return fmt.Errorf("runtime endpoint mediamtx_rtsp_url must be an rtsp URL")
+	}
+	apiURL, err := url.Parse(c.Endpoints.MediaMTXAPIURL)
+	if err != nil || (apiURL.Scheme != "http" && apiURL.Scheme != "https") || apiURL.Host == "" || apiURL.User != nil {
+		return fmt.Errorf("runtime endpoint mediamtx_api_url must be an HTTP(S) URL without credentials")
 	}
 	for name, timeout := range map[string]time.Duration{"bus_connect": c.Timeouts.BusConnect, "bus_rpc": c.Timeouts.BusRPC, "http_read": c.Timeouts.HTTPRead, "http_write": c.Timeouts.HTTPWrite, "http_idle": c.Timeouts.HTTPIdle, "http_header": c.Timeouts.HTTPReadHeader, "shutdown": c.Timeouts.Shutdown, "vision": c.Timeouts.VisionWorker} {
 		if timeout <= 0 {
