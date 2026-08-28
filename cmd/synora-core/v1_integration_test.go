@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -123,5 +124,69 @@ func TestV1IntegrationUncertainThenIdentityBindsSameTrack(t *testing.T) {
 	entity, ok = app.state.EntityTrack(entityID)
 	if !ok || entity.Kind != "resident" || entity.ResidentID != "alexis" {
 		t.Fatalf("identity should bind the existing anonymous track: %#v", entity)
+	}
+}
+
+func TestV1IntegrationMultiClipActivationFinalizesOnlyAfterLastClip(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("SYNORA_CLIP_DIR", root)
+	app, bus := newTestCoreApp(t)
+	queue := &integrationClipQueue{}
+	cursor := 0
+	first := uploadIntegrationClip(t, app, bus, queue, &cursor, "activation-clip-0")
+	second := uploadIntegrationClip(t, app, bus, queue, &cursor, "activation-clip-1")
+	activationID := "activation-multi"
+	sequenceKey := "sequence-multi"
+	for index, job := range []*vision.ClipJob{first, second} {
+		job.ActivationID, job.SequenceKey, job.ClipIndex = activationID, sequenceKey, index
+		clip, ok := app.state.Clip(job.ID)
+		if !ok {
+			t.Fatalf("clip %s was not registered", job.ID)
+		}
+		clip.ActivationID, clip.SequenceKey, clip.ClipIndex = activationID, sequenceKey, index
+		app.state.SetClip(clip)
+	}
+	runDeterministicVision(t, app, bus, first, &cursor, vision.Event{Type: contract.EventVisionUnknown, TrackID: "multi-track", Payload: map[string]any{"confidence": 0.9}})
+	entityID := app.entityIDForEvent(&contract.Event{TrackID: "multi-track", ActivationID: activationID, SequenceKey: sequenceKey, DeviceID: first.CameraID, NodeID: "entry"})
+	if entity, ok := app.state.EntityTrack(entityID); !ok || entity == nil || entity.Kind != "unknown" {
+		t.Fatalf("first clip ended the multi-clip activation too early: %#v ok=%t", entity, ok)
+	}
+	runDeterministicVision(t, app, bus, second, &cursor, vision.Event{Type: contract.EventVisionWeapon, TrackID: "multi-track", Payload: map[string]any{"confidence": 0.95, "weapon_type": "knife"}})
+	if _, ok := app.state.EntityTrack(entityID); ok {
+		t.Fatal("last clip should finalize the activation entity track")
+	}
+	incidents := app.state.IncidentsList(10)
+	if len(incidents) != 1 || len(incidents[0].ClipIDs) != 2 {
+		t.Fatalf("multi-clip incident lost media correlation: %#v", incidents)
+	}
+}
+
+func TestV1IntegrationTransientVisionFailureRetriesWithoutTerminalPoisoning(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("SYNORA_CLIP_DIR", root)
+	app, bus := newTestCoreApp(t)
+	queue := &integrationClipQueue{}
+	cursor := 0
+	job := uploadIntegrationClip(t, app, bus, queue, &cursor, "retry-clip")
+	transient := errors.New("temporary vision failure")
+	if err := vision.RunClipWorkerAttempt(visionProcessorFunc(func(*vision.ClipJob) (*vision.WorkerResponse, error) {
+		return nil, transient
+	}), bus, job); !errors.Is(err, transient) {
+		t.Fatalf("first attempt error=%v", err)
+	}
+	processDiscoveryMessages(app, bus, &cursor)
+	clip, ok := app.state.Clip(job.ID)
+	if !ok || clip.Status != contract.ClipStatusProcessing {
+		t.Fatalf("transient failure poisoned clip lifecycle: %#v ok=%t", clip, ok)
+	}
+	if err := vision.RunClipWorkerAttempt(visionProcessorFunc(func(*vision.ClipJob) (*vision.WorkerResponse, error) {
+		return &vision.WorkerResponse{Events: []vision.Event{{Type: contract.EventVisionUnknown, Payload: map[string]any{"confidence": 0.9}}}}, nil
+	}), bus, job); err != nil {
+		t.Fatal(err)
+	}
+	processDiscoveryMessages(app, bus, &cursor)
+	clip, _ = app.state.Clip(job.ID)
+	if clip.Status != contract.ClipStatusProcessed || len(app.state.IncidentsList(10)) != 1 {
+		t.Fatalf("retry did not complete correlated clip: clip=%#v incidents=%#v", clip, app.state.IncidentsList(10))
 	}
 }

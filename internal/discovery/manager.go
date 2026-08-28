@@ -132,7 +132,7 @@ func NewManager(
 	m.pool = vision.NewWorkerPoolWithConfig(
 		4,
 		func(job *vision.ClipJob) error {
-			return vision.RunClipWorker(
+			return vision.RunClipWorkerAttempt(
 				m.vision,
 				m.bus,
 				job,

@@ -248,6 +248,28 @@ func (a *coreApp) finalizeVisionActivation(event *contract.Event) {
 		}
 	}
 	if activationID != "" {
+		clips := a.state.ClipsList(0)
+		found := false
+		for _, clip := range clips {
+			if strings.TrimSpace(clip.ActivationID) != activationID {
+				continue
+			}
+			found = true
+			switch clip.Status {
+			case contract.ClipStatusProcessed, contract.ClipStatusFailed, contract.ClipStatusMissing, contract.ClipStatusExpired:
+				continue
+			default:
+				// An activation may contain more than one clip. Do not discard
+				// its entity tracks while another clip is still in flight.
+				return
+			}
+		}
+		if !found {
+			// Preserve the legacy direct-event behavior for callers that do not
+			// have clip lifecycle state.
+			a.state.DeleteEntityTracksByActivation(activationID)
+			return
+		}
 		a.state.DeleteEntityTracksByActivation(activationID)
 	}
 }

@@ -27,6 +27,26 @@ func RunClipWorker(
 	publisher Publisher,
 	job *ClipJob,
 ) error {
+	return runClipWorker(processor, publisher, job, true)
+}
+
+// RunClipWorkerAttempt executes one retryable attempt. It does not publish a
+// terminal clip.failed event when processing fails; the pool publishes that
+// event only after all attempts are exhausted.
+func RunClipWorkerAttempt(
+	processor Processor,
+	publisher Publisher,
+	job *ClipJob,
+) error {
+	return runClipWorker(processor, publisher, job, false)
+}
+
+func runClipWorker(
+	processor Processor,
+	publisher Publisher,
+	job *ClipJob,
+	publishFailure bool,
+) error {
 	if job == nil || job.ID == "" || job.CameraID == "" {
 		return errors.New("invalid clip job")
 	}
@@ -40,11 +60,15 @@ func RunClipWorker(
 	result, err := processor.Process(job)
 
 	if err != nil {
-		_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_processing_failed", job.ID+":failed")
+		if publishFailure {
+			_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_processing_failed", job.ID+":failed")
+		}
 		return err
 	}
 	if result == nil {
-		_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_empty_result", job.ID+":failed")
+		if publishFailure {
+			_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_empty_result", job.ID+":failed")
+		}
 		return errors.New("vision worker returned no result")
 	}
 
@@ -125,13 +149,13 @@ func RunClipWorker(
 			job.ID,
 		)
 	}
+	if err := publishClipLifecycle(publisher, contract.EventClipProcessed, job, "", job.ID+":processed"); err != nil {
+		return err
+	}
 	if job.ActivationID != "" {
 		if err := publishVisionEnd(publisher, job); err != nil {
 			return err
 		}
-	}
-	if err := publishClipLifecycle(publisher, contract.EventClipProcessed, job, "", job.ID+":processed"); err != nil {
-		return err
 	}
 	return nil
 }
@@ -178,7 +202,13 @@ func PublishClipFailure(publisher Publisher, job *ClipJob, failureCode string) e
 	if job == nil {
 		return errors.New("invalid clip job")
 	}
-	return publishClipLifecycle(publisher, contract.EventClipFailed, job, failureCode, job.ID+":failed")
+	if err := publishClipLifecycle(publisher, contract.EventClipFailed, job, failureCode, job.ID+":failed"); err != nil {
+		return err
+	}
+	if job.ActivationID != "" {
+		return publishVisionEnd(publisher, job)
+	}
+	return nil
 }
 
 func firstNonEmpty(values ...any) string {

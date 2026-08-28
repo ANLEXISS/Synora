@@ -34,7 +34,7 @@ func TestRunClipWorkerPublishesLifecycleAndStableVisionEventID(t *testing.T) {
 	if err := RunClipWorker(processor, publisher, job); err != nil {
 		t.Fatal(err)
 	}
-	if len(publisher.messages) != 4 || publisher.messages[0].Type != contract.EventClipProcessing || publisher.messages[1].Type != contract.EventVisionUnknown || publisher.messages[2].Type != contract.EventVisionEnd || publisher.messages[3].Type != contract.EventClipProcessed {
+	if len(publisher.messages) != 4 || publisher.messages[0].Type != contract.EventClipProcessing || publisher.messages[1].Type != contract.EventVisionUnknown || publisher.messages[2].Type != contract.EventClipProcessed || publisher.messages[3].Type != contract.EventVisionEnd {
 		t.Fatalf("unexpected lifecycle messages: %#v", publisher.messages)
 	}
 	var payload map[string]any
@@ -43,6 +43,25 @@ func TestRunClipWorkerPublishesLifecycleAndStableVisionEventID(t *testing.T) {
 	}
 	if payload["clip_id"] != "clip-1" || payload["event_id"] != "clip-1:event:0:vision.unknown" || payload["activation_id"] != "activation-1" {
 		t.Fatalf("vision metadata not stable: %#v", payload)
+	}
+}
+
+func TestRunClipWorkerAttemptDefersTerminalFailureUntilPoolExhaustion(t *testing.T) {
+	publisher := &clipMessagePublisher{}
+	wantErr := errors.New("transient")
+	if err := RunClipWorkerAttempt(clipProcessorFunc(func(*ClipJob) (*WorkerResponse, error) {
+		return nil, wantErr
+	}), publisher, &ClipJob{ID: "clip-retry", CameraID: "cam-1", ActivationID: "activation-1"}); !errors.Is(err, wantErr) {
+		t.Fatalf("attempt error=%v", err)
+	}
+	if len(publisher.messages) != 1 || publisher.messages[0].Type != contract.EventClipProcessing {
+		t.Fatalf("retryable attempt published terminal failure: %#v", publisher.messages)
+	}
+	if err := PublishClipFailure(publisher, &ClipJob{ID: "clip-retry", CameraID: "cam-1", ActivationID: "activation-1"}, "vision_processing_failed"); err != nil {
+		t.Fatal(err)
+	}
+	if len(publisher.messages) != 3 || publisher.messages[1].Type != contract.EventClipFailed || publisher.messages[2].Type != contract.EventVisionEnd {
+		t.Fatalf("permanent failure lifecycle=%#v", publisher.messages)
 	}
 }
 
