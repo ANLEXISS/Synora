@@ -798,11 +798,12 @@ Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
 - Validations : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
   `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
   ./...`, tests Python Vision (22) — PASS.
-- Race : la passe globale a rencontré deux échecs intermittents déjà connus
-  dans `internal/cge/shadowworkflow` et `internal/delivery` ; chacun passe
-  isolément sous race. Aucun rapport de data race n’a été produit.
+- Race : `timeout 300s env GOFLAGS=-buildvcs=false go test -race ./... -count=1`
+  — PASS, exit 0, après une première passe ayant exposé deux flaky connus
+  dans `internal/cge/shadowworkflow` et `internal/delivery` ; aucun rapport
+  de data race n’a été produit.
 - Limite environnement : la qualification Web n’a pas été relancée, car les
   dépendances locales de `synora-web` sont absentes et leur installation est
   hors périmètre autorisé.
-- État : commit poussé sur la branche du jalon ; intégration dans
-  `integration/synora-v1` à effectuer après la vérification finale.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
