@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -1025,10 +1026,14 @@ func (s *Store) DecisionSnapshot(kind, id string) (uint64, SystemState, bool) {
 }
 
 func (s *Store) systemStateLocked() SystemState {
-	if s.System == nil {
+	return cloneSystemState(s.System)
+}
+
+func cloneSystemState(value *SystemState) SystemState {
+	if value == nil {
 		return SystemState{LastState: "idle", DangerLevel: "unknown", DangerSource: "unknown", Security: contract.DefaultSecurityModeState(time.Now().UTC())}
 	}
-	cloned := *s.System
+	cloned := *value
 	if cloned.LastState == "" {
 		cloned.LastState = "idle"
 	}
@@ -1040,21 +1045,43 @@ func (s *Store) systemStateLocked() SystemState {
 	}
 	if cloned.DegradationReasons == nil {
 		cloned.DegradationReasons = []string{}
+	} else {
+		cloned.DegradationReasons = append([]string(nil), value.DegradationReasons...)
 	}
 	if cloned.RuntimeComponents == nil {
 		cloned.RuntimeComponents = map[string]string{}
+	} else {
+		cloned.RuntimeComponents = cloneStringMap(value.RuntimeComponents)
 	}
 	if cloned.RuntimeComponentInfo == nil {
 		cloned.RuntimeComponentInfo = map[string]string{}
+	} else {
+		cloned.RuntimeComponentInfo = cloneStringMap(value.RuntimeComponentInfo)
 	}
 	if cloned.BlockingReasons == nil {
 		cloned.BlockingReasons = []string{}
+	} else {
+		cloned.BlockingReasons = append([]string(nil), value.BlockingReasons...)
 	}
 	if cloned.RuntimeModels == nil {
 		cloned.RuntimeModels = map[string]string{}
+	} else {
+		cloned.RuntimeModels = cloneStringMap(value.RuntimeModels)
 	}
 	if cloned.BlockedActionsRecent == nil {
 		cloned.BlockedActionsRecent = []map[string]any{}
+	} else {
+		cloned.BlockedActionsRecent = make([]map[string]any, 0, len(value.BlockedActionsRecent))
+		for _, item := range value.BlockedActionsRecent {
+			cloned.BlockedActionsRecent = append(cloned.BlockedActionsRecent, cloneMap(item))
+		}
+	}
+	cloned.DangerDecay = cloneMap(value.DangerDecay)
+	cloned.DangerReasonsCurrent = append([]string(nil), value.DangerReasonsCurrent...)
+	cloned.DangerDecayDebug = cloneMap(value.DangerDecayDebug)
+	if value.Security.ExpiresAt != nil {
+		expiresAt := *value.Security.ExpiresAt
+		cloned.Security.ExpiresAt = &expiresAt
 	}
 	cloned.Security = contract.NormalizeSecurityModeState(cloned.Security, time.Now().UTC())
 	return cloned
@@ -1063,35 +1090,7 @@ func (s *Store) systemStateLocked() SystemState {
 func (s *Store) SetSystemState(value SystemState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cloned := value
-	if cloned.LastState == "" {
-		cloned.LastState = "idle"
-	}
-	if cloned.DangerLevel == "" {
-		cloned.DangerLevel = "unknown"
-	}
-	if cloned.DangerSource == "" {
-		cloned.DangerSource = "unknown"
-	}
-	if cloned.DegradationReasons == nil {
-		cloned.DegradationReasons = []string{}
-	}
-	if cloned.RuntimeComponents == nil {
-		cloned.RuntimeComponents = map[string]string{}
-	}
-	if cloned.RuntimeComponentInfo == nil {
-		cloned.RuntimeComponentInfo = map[string]string{}
-	}
-	if cloned.BlockingReasons == nil {
-		cloned.BlockingReasons = []string{}
-	}
-	if cloned.RuntimeModels == nil {
-		cloned.RuntimeModels = map[string]string{}
-	}
-	if cloned.BlockedActionsRecent == nil {
-		cloned.BlockedActionsRecent = []map[string]any{}
-	}
-	cloned.Security = contract.NormalizeSecurityModeState(cloned.Security, time.Now().UTC())
+	cloned := cloneSystemState(&value)
 	s.System = &cloned
 	s.revision.Add(1)
 }
@@ -1767,7 +1766,8 @@ func (s *Store) applyPersistedState(persisted *PersistedState) {
 		s.trimIncidentsLocked(s.incidentLimit)
 	}
 	if persisted.System != nil {
-		s.System = persisted.System
+		cloned := cloneSystemState(persisted.System)
+		s.System = &cloned
 	}
 }
 
@@ -1901,13 +1901,81 @@ func cloneMap(source map[string]any) map[string]any {
 	}
 	out := make(map[string]any, len(source))
 	for key, value := range source {
-		if nested, ok := value.(map[string]any); ok {
-			out[key] = cloneMap(nested)
-			continue
-		}
+		out[key] = cloneAny(value)
+	}
+	return out
+}
+
+func cloneStringMap(source map[string]string) map[string]string {
+	if source == nil {
+		return nil
+	}
+	out := make(map[string]string, len(source))
+	for key, value := range source {
 		out[key] = value
 	}
 	return out
+}
+
+func cloneAny(value any) any {
+	if value == nil {
+		return nil
+	}
+	cloned := cloneReflect(reflect.ValueOf(value))
+	if !cloned.IsValid() {
+		return nil
+	}
+	return cloned.Interface()
+}
+
+func cloneReflect(value reflect.Value) reflect.Value {
+	if !value.IsValid() {
+		return reflect.Value{}
+	}
+	switch value.Kind() {
+	case reflect.Interface:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		cloned := cloneReflect(value.Elem())
+		out := reflect.New(value.Type()).Elem()
+		out.Set(cloned)
+		return out
+	case reflect.Map:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		out := reflect.MakeMapWithSize(value.Type(), value.Len())
+		iter := value.MapRange()
+		for iter.Next() {
+			out.SetMapIndex(iter.Key(), cloneReflect(iter.Value()))
+		}
+		return out
+	case reflect.Slice:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		out := reflect.MakeSlice(value.Type(), value.Len(), value.Len())
+		for i := 0; i < value.Len(); i++ {
+			out.Index(i).Set(cloneReflect(value.Index(i)))
+		}
+		return out
+	case reflect.Array:
+		out := reflect.New(value.Type()).Elem()
+		for i := 0; i < value.Len(); i++ {
+			out.Index(i).Set(cloneReflect(value.Index(i)))
+		}
+		return out
+	case reflect.Pointer:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		out := reflect.New(value.Type().Elem())
+		out.Elem().Set(cloneReflect(value.Elem()))
+		return out
+	default:
+		return value
+	}
 }
 
 func cloneEvents(source []*contract.Event) []*contract.Event {

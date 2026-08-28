@@ -2,6 +2,7 @@ package state
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,6 +43,104 @@ func TestSystemStateNormalizesMissingSystemAndSecurity(t *testing.T) {
 	}
 	if persisted := store.PersistedState(); persisted.System == nil || persisted.System.Security.Mode != contract.SecurityModeHome {
 		t.Fatalf("persisted system defaults missing: %#v", persisted.System)
+	}
+}
+
+func TestSystemStateCopiesNestedMutableValues(t *testing.T) {
+	state := SystemState{
+		LastState: "activity",
+		DangerDecay: map[string]any{
+			"contributions": []any{map[string]any{"score": 0.8}},
+		},
+		RuntimeComponents: map[string]string{"core": "ready"},
+		BlockingReasons:   []string{"reason-a"},
+		BlockedActionsRecent: []map[string]any{
+			{"action": "notify", "details": []any{"bounded"}},
+		},
+	}
+	store := NewStore()
+	store.SetSystemState(state)
+
+	state.RuntimeComponents["core"] = "mutated-input"
+	state.BlockingReasons[0] = "mutated-input"
+	state.DangerDecay["contributions"].([]any)[0].(map[string]any)["score"] = 0.1
+	state.BlockedActionsRecent[0]["details"].([]any)[0] = "mutated-input"
+
+	got := store.SystemState()
+	if got.RuntimeComponents["core"] != "ready" || got.BlockingReasons[0] != "reason-a" {
+		t.Fatalf("store retained mutable input aliases: %#v", got)
+	}
+	got.RuntimeComponents["core"] = "mutated-output"
+	got.BlockingReasons[0] = "mutated-output"
+	got.DangerDecay["contributions"].([]any)[0].(map[string]any)["score"] = 0.2
+	got.BlockedActionsRecent[0]["details"].([]any)[0] = "mutated-output"
+
+	again := store.SystemState()
+	if again.RuntimeComponents["core"] != "ready" || again.BlockingReasons[0] != "reason-a" || again.DangerDecay["contributions"].([]any)[0].(map[string]any)["score"] != 0.8 || again.BlockedActionsRecent[0]["details"].([]any)[0] != "bounded" {
+		t.Fatalf("system state accessor exposed mutable aliases: %#v", again)
+	}
+}
+
+func TestEventSnapshotCopiesNestedPayloadValues(t *testing.T) {
+	store := NewStore()
+	event := &contract.Event{ID: "event-copy", Type: contract.EventVisionUnknown, Payload: map[string]any{
+		"evidence": []any{map[string]any{"confidence": 0.9}},
+	}}
+	store.SetRecentEvents([]*contract.Event{event})
+	event.Payload["evidence"].([]any)[0].(map[string]any)["confidence"] = 0.1
+
+	first := store.RecentEventsList()
+	first[0].Payload["evidence"].([]any)[0].(map[string]any)["confidence"] = 0.2
+	second := store.RecentEventsList()
+	if second[0].Payload["evidence"].([]any)[0].(map[string]any)["confidence"] != 0.9 {
+		t.Fatalf("event snapshot exposed nested payload aliases: %#v", second[0].Payload)
+	}
+}
+
+func TestRestorePersistedStateTakesDefensiveOwnership(t *testing.T) {
+	store := NewStore()
+	input := &PersistedState{
+		System: &SystemState{
+			LastState:            "activity",
+			RuntimeComponents:    map[string]string{"core": "ready"},
+			BlockingReasons:      []string{"reason-a"},
+			DangerDecay:          map[string]any{"nested": []any{map[string]any{"value": "kept"}}},
+			BlockedActionsRecent: []map[string]any{{"action": "notify"}},
+		},
+	}
+	if err := store.RestorePersistedState(input); err != nil {
+		t.Fatal(err)
+	}
+	input.System.RuntimeComponents["core"] = "mutated-input"
+	input.System.BlockingReasons[0] = "mutated-input"
+	input.System.DangerDecay["nested"].([]any)[0].(map[string]any)["value"] = "mutated-input"
+
+	got := store.SystemState()
+	if got.RuntimeComponents["core"] != "ready" || got.BlockingReasons[0] != "reason-a" || got.DangerDecay["nested"].([]any)[0].(map[string]any)["value"] != "kept" {
+		t.Fatalf("restore retained caller aliases: %#v", got)
+	}
+}
+
+func TestStoreConcurrentWritesAndDefensiveReads(t *testing.T) {
+	store := NewStore()
+	var group sync.WaitGroup
+	for worker := 0; worker < 8; worker++ {
+		group.Add(1)
+		go func(worker int) {
+			defer group.Done()
+			for iteration := 0; iteration < 100; iteration++ {
+				at := time.Date(2026, 8, 28, 12, 0, iteration, 0, time.UTC)
+				store.SetPresence(&PresenceState{ID: fmt.Sprintf("resident-%d", worker), ResidentID: fmt.Sprintf("resident-%d", worker), LastSeen: at, UpdatedAt: at, State: "present"})
+				store.SetSystemState(SystemState{LastState: "activity", RuntimeComponents: map[string]string{"worker": "ready"}, DangerDecay: map[string]any{"iteration": iteration}})
+				_ = store.SystemState()
+				_ = store.ContextSnapshot()
+				_ = store.Snapshot("presence")
+			}
+		}(worker)
+	}
+	group.Wait()
+	if store.Revision() <= 1 {
+		t.Fatal("concurrent writes did not advance the store revision")
 	}
 }
 
