@@ -2,12 +2,22 @@ package bus
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"sync"
 	"time"
 
 	"synora/pkg/contract"
 )
+
+const maxFrameSize = 1024 * 1024
+
+var errClientClosed = errors.New("bus client closed")
+
+type pendingResponse struct {
+	message contract.Message
+	err     error
+}
 
 type Client struct {
 	address string
@@ -21,7 +31,7 @@ type Client struct {
 	lastReconnectAttempt time.Time
 	lastReconnectErr     error
 
-	pending map[string]chan contract.Message
+	pending map[string]chan pendingResponse
 
 	incoming     chan contract.Message
 	closeCh      chan struct{}
@@ -31,11 +41,10 @@ type Client struct {
 }
 
 type ClientConn struct {
-	name     string
-	conn     net.Conn
-	lastSeen time.Time
-	encoder  *json.Encoder
-	mu       sync.Mutex
+	name    string
+	conn    net.Conn
+	encoder *json.Encoder
+	mu      sync.Mutex
 }
 
 type Server struct {

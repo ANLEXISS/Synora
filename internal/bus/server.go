@@ -1,10 +1,10 @@
 package bus
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
@@ -99,24 +99,16 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) handle(conn net.Conn) {
-	decoder := json.NewDecoder(conn)
+	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxFrameSize)
 	var service string
 	peerAllowed := peerOwnedByProcess(conn)
 
-	for {
+	for scanner.Scan() {
 		var msg contract.Message
-		if err := decoder.Decode(&msg); err != nil {
-			reason := "connection closed"
-			switch {
-			case errors.Is(err, io.EOF), errors.Is(err, net.ErrClosed):
-			case service == "":
-				log.Printf("bus: closing unregistered connection: %v", err)
-				reason = err.Error()
-			default:
-				log.Printf("bus read error for %s: %v", service, err)
-				reason = err.Error()
-			}
-			s.disconnect(service, conn, reason)
+		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
+			log.Printf("bus frame decode error for %s: %v", messageActor(service, ""), err)
+			s.disconnect(service, conn, "invalid frame")
 			return
 		}
 
@@ -146,7 +138,6 @@ func (s *Server) handle(conn net.Conn) {
 			continue
 		}
 
-		s.touch(service, conn)
 		s.debugf("bus message received: source=%s target=%s kind=%s type=%s", msg.Source, msg.Target, msg.Kind, msg.Type)
 		if msg.Kind == contract.KindEvent && msg.Target == "" {
 			s.debugf("bus broadcast: source=%s type=%s", msg.Source, msg.Type)
@@ -166,6 +157,16 @@ func (s *Server) handle(conn net.Conn) {
 		}
 		s.debugf("bus route ok: source=%s target=%s type=%s", msg.Source, msg.Target, msg.Type)
 	}
+	reason := "connection closed"
+	if err := scanner.Err(); err != nil {
+		reason = err.Error()
+		if service == "" {
+			log.Printf("bus: closing unregistered connection: %v", err)
+		} else {
+			log.Printf("bus read error for %s: %v", service, err)
+		}
+	}
+	s.disconnect(service, conn, reason)
 }
 
 func peerOwnedByProcess(conn net.Conn) bool {
@@ -196,7 +197,7 @@ func peerOwnedByProcess(conn net.Conn) bool {
 }
 
 func (s *Server) register(service string, conn net.Conn) {
-	client := &ClientConn{name: service, conn: conn, lastSeen: time.Now(), encoder: json.NewEncoder(conn)}
+	client := &ClientConn{name: service, conn: conn, encoder: json.NewEncoder(conn)}
 	s.mu.Lock()
 	previous := s.clients[service]
 	s.clients[service] = client
@@ -231,16 +232,6 @@ func (s *Server) disconnect(service string, conn net.Conn, reason string) {
 		return
 	}
 	log.Printf("bus: closed stale connection for %s (%s)", service, reason)
-}
-
-func (s *Server) touch(service string, conn net.Conn) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	client, ok := s.clients[service]
-	if !ok || client.conn != conn {
-		return
-	}
-	client.lastSeen = time.Now()
 }
 
 func (s *Server) getClient(service string) (*ClientConn, bool) {
@@ -279,7 +270,6 @@ func (c *ClientConn) send(msg contract.Message) error {
 	if err := c.encoder.Encode(msg); err != nil {
 		return err
 	}
-	c.lastSeen = time.Now()
 	return nil
 }
 

@@ -17,7 +17,7 @@ func NewClient(path string, service string) (*Client, error) {
 	c := &Client{
 		address:  path,
 		service:  service,
-		pending:  make(map[string]chan contract.Message),
+		pending:  make(map[string]chan pendingResponse),
 		incoming: make(chan contract.Message, 100),
 		closeCh:  make(chan struct{}),
 		done:     make(chan struct{}),
@@ -83,6 +83,7 @@ func (c *Client) Close() error {
 		if conn != nil {
 			_ = conn.Close()
 		}
+		c.failPending(errClientClosed)
 	})
 	<-c.done
 	c.incomingOnce.Do(func() { close(c.incoming) })
@@ -93,14 +94,14 @@ func (c *Client) readLoop(conn net.Conn) error {
 	scanner := bufio.NewScanner(conn)
 
 	buf := make([]byte, 0, 1024*1024)
-	scanner.Buffer(buf, 1024*1024)
+	scanner.Buffer(buf, maxFrameSize)
 
 	for scanner.Scan() {
 		var msg contract.Message
 
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
 			log.Printf("bus decode error for %s: %v", c.service, err)
-			continue
+			return err
 		}
 
 		if c.deliverPending(msg) {
@@ -122,6 +123,9 @@ func (c *Client) readLoop(conn net.Conn) error {
 }
 
 func (c *Client) Send(msg contract.Message) error {
+	if c.isClosed() {
+		return errClientClosed
+	}
 	if msg.ID == "" {
 		msg.ID = uuid.New().String()
 	}
@@ -144,6 +148,9 @@ func (c *Client) Send(msg contract.Message) error {
 	}
 
 	data = append(data, '\n')
+	if len(data) > maxFrameSize {
+		return errors.New("bus message exceeds maximum frame size")
+	}
 
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
@@ -157,7 +164,7 @@ func (c *Client) Send(msg contract.Message) error {
 			c.writeMu.Unlock()
 			return deadlineErr
 		}
-		_, err = conn.Write(data)
+		err = writeFrame(conn, data)
 		_ = conn.SetWriteDeadline(time.Time{})
 		c.writeMu.Unlock()
 		if err == nil {
@@ -205,7 +212,7 @@ func (c *Client) RequestWithTimeout(
 		Payload: payload,
 	}
 
-	ch := make(chan contract.Message, 1)
+	ch := make(chan pendingResponse, 1)
 
 	c.mu.Lock()
 	c.pending[id] = ch
@@ -223,8 +230,11 @@ func (c *Client) RequestWithTimeout(
 	defer timer.Stop()
 
 	select {
-	case resp := <-ch:
-		return &resp, nil
+	case response := <-ch:
+		if response.err != nil {
+			return nil, response.err
+		}
+		return &response.message, nil
 	case <-timer.C:
 		return nil, errors.New("bus timeout")
 	}
@@ -235,6 +245,9 @@ func (c *Client) SubscribeChannel(_ string) <-chan contract.Message {
 }
 
 func (c *Client) ensureConn() (net.Conn, error) {
+	if c.isClosed() {
+		return nil, errClientClosed
+	}
 	c.mu.Lock()
 	conn := c.conn
 	c.mu.Unlock()
@@ -337,7 +350,7 @@ func (c *Client) register(conn net.Conn) error {
 		c.writeMu.Unlock()
 		return deadlineErr
 	}
-	_, err = conn.Write(data)
+	err = writeFrame(conn, data)
 	_ = conn.SetWriteDeadline(time.Time{})
 	c.writeMu.Unlock()
 	return err
@@ -349,12 +362,16 @@ func (c *Client) invalidateConn(conn net.Conn) {
 	}
 
 	c.mu.Lock()
+	current := c.conn == conn
 	if c.conn == conn {
 		c.conn = nil
 	}
 	c.mu.Unlock()
 
 	_ = conn.Close()
+	if current {
+		c.failPending(errors.New("bus disconnected"))
+	}
 }
 
 func (c *Client) deliverPending(msg contract.Message) bool {
@@ -369,11 +386,47 @@ func (c *Client) deliverPending(msg contract.Message) bool {
 	}
 
 	select {
-	case ch <- msg:
+	case ch <- pendingResponse{message: msg}:
 	default:
 	}
 
 	return true
+}
+
+func (c *Client) failPending(err error) {
+	c.mu.Lock()
+	pending := c.pending
+	c.pending = make(map[string]chan pendingResponse)
+	c.mu.Unlock()
+	for _, ch := range pending {
+		select {
+		case ch <- pendingResponse{err: err}:
+		default:
+		}
+	}
+}
+
+func (c *Client) isClosed() bool {
+	select {
+	case <-c.closeCh:
+		return true
+	default:
+		return false
+	}
+}
+
+func writeFrame(conn net.Conn, data []byte) error {
+	for len(data) > 0 {
+		written, err := conn.Write(data)
+		if err != nil {
+			return err
+		}
+		if written <= 0 || written > len(data) {
+			return io.ErrShortWrite
+		}
+		data = data[written:]
+	}
+	return nil
 }
 
 func (c *Client) removePending(id string) {
