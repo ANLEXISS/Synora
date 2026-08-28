@@ -271,7 +271,7 @@ func TestWorkerManagerBacksOffAfterQuickCrash(t *testing.T) {
 		t.Fatalf("Start() error=%v, want ErrWorkerBackoff", err)
 	}
 
-	assertPublished(
+	waitForPublished(
 		t,
 		publisher,
 		contract.EventDiscoveryWorkerCrashed,
@@ -447,6 +447,24 @@ func assertPublished(
 		eventType,
 		publisher.types(),
 	)
+}
+
+func waitForPublished(
+	t *testing.T,
+	publisher *fakePublisher,
+	eventType string,
+) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		for _, current := range publisher.types() {
+			if current == eventType {
+				return
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	assertPublished(t, publisher, eventType)
 }
 
 func waitForStatus(
