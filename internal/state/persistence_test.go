@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -307,6 +308,103 @@ func TestFilePersistenceAtomicSaveLeavesValidFinalFile(t *testing.T) {
 	if persisted.Version != PersistedStateVersion || persisted.Validations["validation-1"].ID != "validation-1" {
 		t.Fatalf("unexpected persisted file: %#v", persisted)
 	}
+}
+
+func TestFilePersistenceKeepsOneValidRecoveryCopy(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	persistence := NewFilePersistence(path)
+	first := &PersistedState{Version: PersistedStateVersion, Validations: map[string]contract.ValidationRequest{
+		"first": {ID: "first", Status: contract.ValidationStatusPending},
+	}}
+	second := &PersistedState{Version: PersistedStateVersion, Validations: map[string]contract.ValidationRequest{
+		"second": {ID: "second", Status: contract.ValidationStatusApproved},
+	}}
+	if err := persistence.Save(first); err != nil {
+		t.Fatalf("save first state: %v", err)
+	}
+	if err := persistence.Save(second); err != nil {
+		t.Fatalf("save second state: %v", err)
+	}
+	backupData, err := os.ReadFile(path + ".bak")
+	if err != nil {
+		t.Fatalf("read bounded recovery copy: %v", err)
+	}
+	backup, err := decodePersistedState(backupData)
+	if err != nil || backup.Validations["first"].ID != "first" {
+		t.Fatalf("recovery copy should contain the last valid state: %#v err=%v", backup, err)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"version":2,"checksum":"000000"`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := persistence.Load()
+	if err != nil {
+		t.Fatalf("recover from false checksum: %v", err)
+	}
+	if recovered.Validations["first"].ID != "first" {
+		t.Fatalf("recovery returned wrong state: %#v", recovered.Validations)
+	}
+	if _, err := decodePersistedState(mustReadFile(t, path)); err != nil {
+		t.Fatalf("recovered current file should be valid: %v", err)
+	}
+	corrupt, err := filepath.Glob(path + ".corrupt.*")
+	if err != nil || len(corrupt) != 1 {
+		t.Fatalf("corrupt current file should be quarantined: %#v err=%v", corrupt, err)
+	}
+}
+
+func TestFilePersistenceRecoveryCopyIsBounded(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	persistence := NewFilePersistence(path)
+	for i := 0; i < 4; i++ {
+		if err := persistence.Save(&PersistedState{Version: PersistedStateVersion, InputSequence: uint64(i)}); err != nil {
+			t.Fatalf("save %d: %v", i, err)
+		}
+	}
+	matches, err := filepath.Glob(path + ".bak*")
+	if err != nil || len(matches) != 1 || matches[0] != path+".bak" {
+		t.Fatalf("expected exactly one bounded recovery copy, got %#v err=%v", matches, err)
+	}
+}
+
+func TestFilePersistenceKeepsLastValidStateAcrossSimulatedCuts(t *testing.T) {
+	steps := []string{"before_temp_create", "after_temp_sync", "before_backup", "after_backup_rename", "after_backup_sync", "before_commit", "after_commit", "after_commit_sync"}
+	for _, cut := range steps {
+		t.Run(cut, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "state.json")
+			persistence := NewFilePersistence(path)
+			if err := persistence.Save(&PersistedState{Version: PersistedStateVersion, InputSequence: 1}); err != nil {
+				t.Fatalf("save baseline: %v", err)
+			}
+			persistence.beforeStep = func(step string) error {
+				if step == cut {
+					return errors.New("simulated power loss at " + step)
+				}
+				return nil
+			}
+			if err := persistence.Save(&PersistedState{Version: PersistedStateVersion, InputSequence: 2}); err == nil {
+				t.Fatal("simulated cut should fail the save")
+			}
+			loaded, err := persistence.Load()
+			if err != nil {
+				t.Fatalf("load after simulated cut: %v", err)
+			}
+			if loaded.InputSequence != 1 && loaded.InputSequence != 2 {
+				t.Fatalf("last valid state was lost: %#v", loaded)
+			}
+		})
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func TestRestoredStateVisibleInPublicSnapshot(t *testing.T) {
