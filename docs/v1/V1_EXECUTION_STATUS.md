@@ -137,6 +137,26 @@
   qualification lint/build WebApp de M005 reste PASS et intégrée.
 - État : implémentation en cours de validation sur branche dédiée
 
+## MASTER_PLAN — M007
+
+- Jalon : M007 — StateStore unique et snapshots défensifs
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m007-state-store`
+- Branche dédiée : `codex/v1-m007-state-store`
+- Modifications : les valeurs mutables de `SystemState` sont clonées à
+  l’entrée et à la sortie, les maps/slices imbriquées des payloads sont copiées
+  récursivement, et une restauration persistée ne conserve plus d’alias vers
+  l’entrée appelante
+- Tests dédiés : aliasing entrée/sortie de `SystemState`, payload événementiel
+  imbriqué, ownership après restauration, écritures/lectures concurrentes,
+  plus les tests existants de snapshots, révisions et invariants référentiels
+- Preuves : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go test -race ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`,
+  `GOFLAGS=-buildvcs=false go build ./cmd/...` et `git diff --check` — PASS.
+  Les 22 tests Python Vision et la qualification WebApp précédemment validée
+  restent inchangés par ce jalon.
+- État : validé sur branche dédiée ; intégration à effectuer
+
 ## Jalon courant
 
 - Historique conservé : jalons 01–25 de l’ancien plan V1 (non substitutif au
