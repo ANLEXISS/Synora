@@ -333,6 +333,10 @@ func TestSimulationRunDefaultsAndSendsEventsThroughBus(t *testing.T) {
 		t.Fatalf("unexpected simulation response: %#v", response)
 	}
 	waitFor(t, time.Second, func() bool { return sender.count() == 1 })
+	waitFor(t, time.Second, func() bool {
+		status, ok := runner.Status(response.TestRunID)
+		return ok && (status.Status == "completed" || status.Status == "failed")
+	})
 
 	msg, ok := sender.first()
 	if !ok {
