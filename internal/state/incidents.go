@@ -312,7 +312,7 @@ func (s *Store) incidentContainingEventLocked(eventID, timelineKey string) (*con
 func (s *Store) findActiveIncidentLocked(input IncidentObservation) *contract.Incident {
 	var best *contract.Incident
 	for _, incident := range s.Incidents {
-		if incident == nil || incident.Status == contract.IncidentStatusAcknowledged {
+		if incident == nil || incident.Status == contract.IncidentStatusAcknowledged || incident.Status == contract.IncidentStatusResolved {
 			continue
 		}
 		if incidentMatchesObservation(incident, input) {
@@ -330,6 +330,15 @@ func incidentMatchesObservation(incident *contract.Incident, input IncidentObser
 	}
 	withinWindow := func() bool {
 		return absDuration(input.Timestamp.Sub(incident.LastEventAt)) <= incidentGroupingWindow
+	}
+	// Correlation keys are only meaningful inside the same physical boundary.
+	// A reused activation/track/sequence must never bridge two cameras or two
+	// locations into one durable incident.
+	if input.CameraID != "" && incident.CameraID != "" && input.CameraID != incident.CameraID {
+		return false
+	}
+	if input.NodeID != "" && incident.NodeID != "" && input.NodeID != incident.NodeID {
+		return false
 	}
 	if input.SequenceKey != "" && incident.Cause.SequenceKey == input.SequenceKey {
 		return withinWindow()

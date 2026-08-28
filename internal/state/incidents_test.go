@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,6 +50,111 @@ func TestIncidentsRecordGroupsAndDeduplicatesEvidence(t *testing.T) {
 	_, created, _, err = store.RecordIncident(far)
 	if err != nil || !created {
 		t.Fatalf("same track outside grouping window should create a new incident: created=%t err=%v", created, err)
+	}
+}
+
+func TestIncidentGroupingNeverCrossesCameraOrLocation(t *testing.T) {
+	store := NewStore()
+	base := time.Date(2026, 8, 2, 10, 30, 0, 0, time.UTC)
+	firstInput := incidentObservation("boundary-1", base)
+	first, created, _, err := store.RecordIncident(firstInput)
+	if err != nil || !created {
+		t.Fatalf("first boundary observation created=%t err=%v", created, err)
+	}
+
+	otherCamera := incidentObservation("boundary-2", base.Add(5*time.Second))
+	otherCamera.CameraID = "cam-other"
+	otherCamera.SequenceKey = firstInput.SequenceKey
+	second, created, _, err := store.RecordIncident(otherCamera)
+	if err != nil || !created || second.ID == first.ID {
+		t.Fatalf("same sequence crossed camera boundary: first=%#v second=%#v created=%t err=%v", first, second, created, err)
+	}
+
+	otherNode := incidentObservation("boundary-3", base.Add(10*time.Second))
+	otherNode.NodeID = "hall"
+	otherNode.SequenceKey = firstInput.SequenceKey
+	third, created, _, err := store.RecordIncident(otherNode)
+	if err != nil || !created || third.ID == first.ID {
+		t.Fatalf("same sequence crossed location boundary: first=%#v third=%#v created=%t err=%v", first, third, created, err)
+	}
+}
+
+func TestResolvedIncidentIsNotReopenedByNewEvidence(t *testing.T) {
+	store := NewStore()
+	base := time.Date(2026, 8, 2, 10, 45, 0, 0, time.UTC)
+	first, _, _, err := store.RecordIncident(incidentObservation("resolved-1", base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.ResolveIncident(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	second, created, _, err := store.RecordIncident(incidentObservation("resolved-2", base.Add(10*time.Second)))
+	if err != nil || !created || second.ID == first.ID {
+		t.Fatalf("new evidence enriched/reopened resolved incident: first=%#v second=%#v created=%t err=%v", first, second, created, err)
+	}
+	restored, ok := store.Incident(first.ID)
+	if !ok || restored.Status != contract.IncidentStatusResolved || len(restored.EventIDs) != 1 {
+		t.Fatalf("resolved incident was changed by new evidence: %#v", restored)
+	}
+}
+
+func TestIncidentAcceptsLateClipReferenceWithinGroupingWindow(t *testing.T) {
+	store := NewStore()
+	base := time.Date(2026, 8, 2, 10, 55, 0, 0, time.UTC)
+	firstInput := incidentObservation("late-clip-1", base)
+	firstInput.ClipID = ""
+	first, created, _, err := store.RecordIncident(firstInput)
+	if err != nil || !created {
+		t.Fatalf("first incident created=%t err=%v", created, err)
+	}
+	secondInput := incidentObservation("late-clip-2", base.Add(10*time.Second))
+	secondInput.ClipID = "clip-arrived-late"
+	second, created, _, err := store.RecordIncident(secondInput)
+	if err != nil || created || second.ID != first.ID {
+		t.Fatalf("late clip did not enrich existing incident: first=%#v second=%#v created=%t err=%v", first, second, created, err)
+	}
+	if len(second.ClipIDs) != 1 || second.ClipIDs[0] != "clip-arrived-late" {
+		t.Fatalf("late clip reference missing: %#v", second)
+	}
+}
+
+func TestConcurrentDuplicateIncidentObservationIsIdempotent(t *testing.T) {
+	store := NewStore()
+	input := incidentObservation("concurrent", time.Date(2026, 8, 2, 11, 0, 0, 0, time.UTC))
+	const workers = 16
+	results := make(chan contract.Incident, workers)
+	errs := make(chan error, workers)
+	var group sync.WaitGroup
+	group.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer group.Done()
+			incident, _, _, err := store.RecordIncident(input)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- incident
+		}()
+	}
+	group.Wait()
+	close(results)
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	var incidentID string
+	for incident := range results {
+		if incidentID == "" {
+			incidentID = incident.ID
+		} else if incident.ID != incidentID {
+			t.Fatalf("concurrent duplicate created multiple incidents: %q and %q", incidentID, incident.ID)
+		}
+	}
+	items := store.IncidentsList(10)
+	if len(items) != 1 || len(items[0].EventIDs) != 1 || len(items[0].Timeline) != 1 {
+		t.Fatalf("concurrent duplicate was not idempotent: %#v", items)
 	}
 }
 
