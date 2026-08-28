@@ -158,6 +158,53 @@ func TestWebSocketRealtimeBusPublishesTypedCoreMutations(t *testing.T) {
 	}
 }
 
+func TestWebSocketBusGapEmitsResyncAndDropsDuplicate(t *testing.T) {
+	hub := newWebSocketHub(&dynamicStateCore{state: emptyPublicSnapshot()})
+	incident := contract.Incident{ID: "incident-gap", Status: contract.IncidentStatusNew}
+	message := func(sequence uint64, eventType string) contract.Message {
+		return contract.Message{
+			Type: eventType, Kind: contract.KindEvent, Source: "core",
+			Epoch: "core-gap-epoch", Sequence: sequence, Revision: sequence,
+			Payload: mustJSON(contract.RealtimeIncidentCreatedPayload{Incident: incident}),
+		}
+	}
+
+	hub.handleBusMessage(message(1, "incident.created"))
+	hub.handleBusMessage(message(1, "incident.created"))
+	if len(hub.journal) != 1 || hub.journal[0].Type != contract.RealtimeIncidentCreated {
+		t.Fatalf("duplicate source message was not suppressed: %#v", hub.journal)
+	}
+
+	hub.handleBusMessage(message(3, "incident.created"))
+	if len(hub.journal) != 3 || hub.journal[1].Type != contract.RealtimeResyncRequired || hub.journal[2].Type != contract.RealtimeIncidentCreated {
+		t.Fatalf("source gap did not produce resync before delta: %#v", hub.journal)
+	}
+	var payload contract.RealtimeResyncRequiredPayload
+	if err := json.Unmarshal(hub.journal[1].Payload, &payload); err != nil || payload.Reason != "source_sequence_gap" {
+		t.Fatalf("unexpected source gap payload: %#v err=%v", payload, err)
+	}
+}
+
+func TestWebSocketBusEpochChangeEmitsResyncBeforeNextDelta(t *testing.T) {
+	hub := newWebSocketHub(&dynamicStateCore{state: emptyPublicSnapshot()})
+	base := contract.Message{
+		Type: "incident.created", Kind: contract.KindEvent, Source: "core",
+		Epoch: "core-epoch-a", Sequence: 1, Revision: 1,
+		Payload: mustJSON(contract.RealtimeIncidentCreatedPayload{Incident: contract.Incident{ID: "incident-epoch"}}),
+	}
+	hub.handleBusMessage(base)
+	base.Epoch = "core-epoch-b"
+	base.Sequence = 1
+	hub.handleBusMessage(base)
+	if len(hub.journal) != 3 || hub.journal[1].Type != contract.RealtimeResyncRequired || hub.journal[2].Type != contract.RealtimeIncidentCreated {
+		t.Fatalf("epoch change did not require resync before delta: %#v", hub.journal)
+	}
+	var payload contract.RealtimeResyncRequiredPayload
+	if err := json.Unmarshal(hub.journal[1].Payload, &payload); err != nil || payload.Reason != "source_epoch_changed" {
+		t.Fatalf("unexpected epoch change payload: %#v err=%v", payload, err)
+	}
+}
+
 func TestWebSocketReconnectReplaysMessagesInOrder(t *testing.T) {
 	hub := newWebSocketHub(&dynamicStateCore{state: emptyPublicSnapshot()})
 	defer hub.Close()
