@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"synora/internal/discovery/network"
 	"synora/internal/runtimeconfig"
+	"synora/pkg/contract"
 )
 
 type StreamDescriptor struct {
@@ -30,6 +33,7 @@ func handleStreams(core deviceConfigurationProvider) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		status := mediaMTXStreamStatus(core)
 		pathID := strings.TrimPrefix(r.URL.Path, "/api/streams/")
 		if pathID == r.URL.Path {
 			pathID = ""
@@ -47,7 +51,7 @@ func handleStreams(core deviceConfigurationProvider) http.HandlerFunc {
 			if id == "" || (pathID == "" && !isCameraDevice(item)) || (pathID != "" && id != pathID) {
 				continue
 			}
-			result = append(result, streamDescriptor(id))
+			result = append(result, streamDescriptorWithStatus(id, status))
 		}
 		if pathID != "" && len(result) == 0 {
 			http.NotFound(w, r)
@@ -71,6 +75,10 @@ func isCameraDevice(item map[string]any) bool {
 }
 
 func streamDescriptor(deviceID string) StreamDescriptor {
+	return streamDescriptorWithStatus(deviceID, "unknown")
+}
+
+func streamDescriptorWithStatus(deviceID, status string) StreamDescriptor {
 	cfg, _ := network.LoadConfig(os.Getenv("SYNORA_NETWORK_CONFIG"))
 	runtime, _ := runtimeconfig.Load(os.Getenv)
 	baseRTSP := cfg.SynoraNet.Services.RTSPURL
@@ -85,16 +93,67 @@ func streamDescriptor(deviceID string) StreamDescriptor {
 	if value := strings.TrimSpace(os.Getenv("SYNORA_HLS_BASE_URL")); value != "" {
 		baseHLS = value
 	}
+	baseRTSP = publicStreamBase(baseRTSP)
+	baseWebRTC = publicStreamBase(baseWebRTC)
+	baseHLS = publicStreamBase(baseHLS)
 	path := url.PathEscape(deviceID)
-	descriptor := StreamDescriptor{DeviceID: deviceID, RTSPPublishURL: strings.TrimRight(baseRTSP, "/") + "/" + path, Status: "unknown"}
+	if status == "" {
+		status = "unknown"
+	}
+	descriptor := StreamDescriptor{DeviceID: deviceID, RTSPPublishURL: strings.TrimRight(baseRTSP, "/") + "/" + path, Status: status}
 	if baseWebRTC != "" {
 		descriptor.WebRTCURL = strings.TrimRight(baseWebRTC, "/") + "/" + path + "/whep"
 	}
 	if baseHLS != "" {
 		descriptor.HLSURL = strings.TrimRight(baseHLS, "/") + "/" + path + "/index.m3u8"
 	}
-	descriptor.LiveAvailable = descriptor.WebRTCURL != "" || descriptor.HLSURL != ""
+	descriptor.LiveAvailable = status != "degraded" && (descriptor.WebRTCURL != "" || descriptor.HLSURL != "")
 	return descriptor
+}
+
+func mediaMTXStreamStatus(core any) string {
+	provider, ok := core.(systemHealthProvider)
+	if !ok || provider == nil {
+		return "unknown"
+	}
+	result := make(chan *contract.RuntimeHealth, 1)
+	go func() {
+		health, err := provider.SystemHealth()
+		if err != nil {
+			result <- nil
+			return
+		}
+		result <- health
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)
+	defer cancel()
+	select {
+	case health := <-result:
+		if health == nil {
+			return "degraded"
+		}
+		switch health.MediaMTX.Status {
+		case "ok", "active", "ready":
+			return "ready"
+		case "degraded", "unavailable", "failed":
+			return "degraded"
+		default:
+			return "unknown"
+		}
+	case <-ctx.Done():
+		return "degraded"
+	}
+}
+
+func publicStreamBase(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return strings.TrimRight(parsed.String(), "/")
 }
 
 func streamStringValue(value any) string {

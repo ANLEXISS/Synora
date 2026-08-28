@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
+
+	"synora/pkg/contract"
 )
 
 type streamDevicesFake struct{ items []map[string]any }
@@ -38,5 +42,41 @@ func TestStreamsListsOnlyCamerasAndSupportsDeviceRoute(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/streams/cam_03", nil))
 	if recorder.Code != http.StatusOK || recorder.Body.String() == "" {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+type streamHealthFake struct {
+	streamDevicesFake
+	health *contract.RuntimeHealth
+}
+
+func (f streamHealthFake) SystemHealth() (*contract.RuntimeHealth, error) { return f.health, nil }
+
+func TestStreamsExposeReadyAndDegradedWithoutMakingMediaMTXAUnitDependency(t *testing.T) {
+	ready := &contract.RuntimeHealth{MediaMTX: contract.RuntimeMediaMTXHealth{Status: "ok"}}
+	handler := handleStreams(streamHealthFake{streamDevicesFake: streamDevicesFake{items: []map[string]any{{"id": "cam_03", "type": "camera"}}}, health: ready})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/streams/cam_03", nil))
+	var descriptor StreamDescriptor
+	if err := json.Unmarshal(recorder.Body.Bytes(), &descriptor); err != nil {
+		t.Fatal(err)
+	}
+	if descriptor.Status != "ready" {
+		t.Fatalf("ready descriptor=%#v status=%d", descriptor, recorder.Code)
+	}
+
+	degraded := &contract.RuntimeHealth{MediaMTX: contract.RuntimeMediaMTXHealth{Status: "degraded"}, Timestamp: time.Now().UTC()}
+	handler = handleStreams(streamHealthFake{streamDevicesFake: streamDevicesFake{items: []map[string]any{{"id": "cam_03", "type": "camera"}}}, health: degraded})
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/streams/cam_03", nil))
+	if !strings.Contains(recorder.Body.String(), `"status":"degraded"`) || strings.Contains(recorder.Body.String(), `"live_available":true`) {
+		t.Fatalf("degraded descriptor=%s", recorder.Body.String())
+	}
+}
+
+func TestPublicStreamBaseStripsCredentialsAndQuery(t *testing.T) {
+	value := publicStreamBase("rtsp://user:secret@example.test:8554/live?token=hidden")
+	if value != "rtsp://example.test:8554/live" || strings.Contains(value, "secret") || strings.Contains(value, "token") {
+		t.Fatalf("unsafe public base=%q", value)
 	}
 }

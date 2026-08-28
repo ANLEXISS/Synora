@@ -71,7 +71,8 @@ pathDefaults:
   overridePublisher: true
 
 ###############################################
-# Paths
+# Paths are reconciled by Discovery through the loopback API. Keeping an
+# explicit empty allowlist here prevents arbitrary/guessed camera paths from
+# being accepted during startup before reconciliation completes.
 
-paths:
-  all_others:
+paths: {}

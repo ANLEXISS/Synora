@@ -1,6 +1,9 @@
 # Streaming caméra
 
-Une caméra publie son flux vers MediaMTX, par exemple `rtsp://10.77.0.1:8554/cam_03`. La webapp ne lit jamais cette URL RTSP directement : les navigateurs n'ont pas de lecteur RTSP standard.
+Une caméra publie son flux vers un chemin MediaMTX explicitement autorisé, par
+exemple `rtsp://10.77.0.1:8554/cam_03`. Les chemins inconnus sont refusés : le
+wildcard `all_others` n'est pas utilisé. La webapp ne lit jamais cette URL RTSP
+directement : les navigateurs n'ont pas de lecteur RTSP standard.
 
 MediaMTX est configuré pour RTSP TCP (`8554`), HLS (`8888`) et WebRTC (`8889`). `GET /api/streams` et `GET /api/streams/{device_id}` retournent notamment :
 
@@ -10,4 +13,12 @@ MediaMTX est configuré pour RTSP TCP (`8554`), HLS (`8888`) et WebRTC (`8889`).
 
 Les bases WebRTC/HLS sont configurables dans `network.yaml` ou par `SYNORA_WEBRTC_BASE_URL` et `SYNORA_HLS_BASE_URL`. Si elles sont vides, l'UI affiche « Live indisponible : WebRTC/HLS non configuré ».
 
-L'authentification MediaMTX actuelle reste générique sur le réseau local. L'identité par caméra (username/password ou token) reste un TODO avant toute exposition hors SynoraNet. Une caméra connectée mais sans live indique souvent un mauvais chemin, un flux non publié, MediaMTX injoignable ou une URL live non configurée.
+Discovery réconcilie les chemins des caméras activées via l'API MediaMTX locale :
+les créations précèdent les suppressions, les doublons sont dédupliqués et un
+renommage supprime l'ancien chemin après création du nouveau. La supervision
+réessaie périodiquement après un redémarrage du processus et expose `ready` ou
+`degraded`; elle ne bloque jamais l'ingestion ni l'analyse des clips déjà reçus.
+Les URLs publiques retirent tout identifiant ou secret éventuel ; aucun secret
+d'URL n'est journalisé. Une caméra connectée mais sans live indique souvent un
+mauvais chemin, un flux non publié, MediaMTX injoignable ou une URL live non
+configurée.

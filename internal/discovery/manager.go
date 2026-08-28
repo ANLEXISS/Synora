@@ -22,6 +22,7 @@ import (
 	"synora/internal/discovery/vision"
 	"synora/internal/facedataset"
 	"synora/internal/facestore"
+	"synora/internal/mediamtx"
 	"synora/internal/runtimeconfig"
 	"synora/internal/security"
 	"synora/pkg/contract"
@@ -163,12 +164,12 @@ func (m *Manager) StartContext(ctx context.Context) {
 		m.devices,
 		m.bus,
 	)
-
 	runtime, err := runtimeconfig.Load(os.Getenv)
 	if err != nil {
 		log.Printf("runtime configuration unavailable: %v", err)
 		return
 	}
+	go m.superviseMediaMTX(ctx, runtime.Paths.Devices, runtime.Endpoints.MediaMTXAPIURL)
 	m.healthServer = startHealthServer(runtime.Endpoints.VisionHealth)
 
 	err = m.network.StartContext(ctx)
@@ -611,8 +612,60 @@ func (m *Manager) publishRuntimeStatus() {
 			"status": status.VisionIngressStatus,
 			"reason": status.VisionIngressError,
 		},
+		"mediamtx": map[string]any{
+			"status": status.MediaMTXStatus,
+			"reason": status.MediaMTXError,
+		},
 		"models": models,
 	})
+}
+
+func (m *Manager) superviseMediaMTX(ctx context.Context, devicePath, apiURL string) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	client, err := mediamtx.NewClient(apiURL, nil)
+	if err != nil {
+		healthState.setMediaMTX("degraded", err.Error())
+		return
+	}
+	check := func() {
+		configs, loadErr := device.Load(devicePath)
+		if loadErr != nil {
+			healthState.setMediaMTX("degraded", "camera configuration unavailable")
+			return
+		}
+		ids := make([]string, 0, len(configs))
+		for _, configured := range configs {
+			if configured.Enabled && configured.Type == contract.DeviceTypeCamera && configured.DeletedAt == nil {
+				ids = append(ids, configured.ID)
+			}
+		}
+		desired, desiredErr := mediamtx.DesiredPaths(ids)
+		if desiredErr != nil {
+			healthState.setMediaMTX("degraded", desiredErr.Error())
+			return
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer cancel()
+		report, reconcileErr := mediamtx.Reconcile(checkCtx, client, desired, time.Now().UTC())
+		if reconcileErr != nil {
+			healthState.setMediaMTX("degraded", report.Error)
+			return
+		}
+		healthState.setMediaMTX("ready", "")
+	}
+	check()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			check()
+		}
+	}
 }
 
 func regularFilePath(path string) bool {
@@ -624,7 +677,7 @@ func statusForDiscovery(status *discoveryHealth) string {
 	if status == nil {
 		return "degraded"
 	}
-	if status.NetworkStatus == "degraded" || status.VisionWorkerStatus != "ok" || status.VisionIngressStatus != "ok" {
+	if status.NetworkStatus == "degraded" || status.VisionWorkerStatus != "ok" || status.VisionIngressStatus != "ok" || status.MediaMTXStatus == "degraded" || status.MediaMTXStatus == "unavailable" || status.MediaMTXStatus == "error" {
 		return "degraded"
 	}
 	return "ok"

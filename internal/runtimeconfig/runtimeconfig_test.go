@@ -12,7 +12,7 @@ func TestLoadUsesProductionDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Paths.BusSocket != DefaultBusSocket || cfg.Paths.State != DefaultStatePath || cfg.Endpoints.HTTP != DefaultHTTPAddr || cfg.Endpoints.MediaMTXRTSPURL != DefaultMediaMTXRTSPURL || cfg.Timeouts.BusRPC != 15*time.Second {
+	if cfg.Paths.BusSocket != DefaultBusSocket || cfg.Paths.State != DefaultStatePath || cfg.Endpoints.HTTP != DefaultHTTPAddr || cfg.Endpoints.MediaMTXRTSPURL != DefaultMediaMTXRTSPURL || cfg.Endpoints.MediaMTXAPIURL != "http://127.0.0.1:9997" || cfg.Timeouts.BusRPC != 15*time.Second {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
 }
@@ -33,12 +33,13 @@ func TestLoadAcceptsInjectedHermeticPathsAndEphemeralPorts(t *testing.T) {
 		"SYNORA_VISION_HEALTH_ADDR": "127.0.0.1:0",
 		"SYNORA_VISION_HTTPS_ADDR":  "127.0.0.1:0",
 		"SYNORA_BUS_RPC_TIMEOUT":    "250ms",
+		"SYNORA_MEDIAMTX_API_URL":   "http://127.0.0.1:19997",
 	}
 	cfg, err := Load(func(key string) string { return values[key] })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Paths.State != values["SYNORA_STATE_PATH"] || cfg.Endpoints.HTTP != "127.0.0.1:0" || cfg.Timeouts.BusRPC != 250*time.Millisecond {
+	if cfg.Paths.State != values["SYNORA_STATE_PATH"] || cfg.Endpoints.HTTP != "127.0.0.1:0" || cfg.Endpoints.MediaMTXAPIURL != values["SYNORA_MEDIAMTX_API_URL"] || cfg.Timeouts.BusRPC != 250*time.Millisecond {
 		t.Fatalf("injected values were not applied: %+v", cfg)
 	}
 }
@@ -53,6 +54,7 @@ func TestLoadRejectsInvalidConfigurationEarly(t *testing.T) {
 		{name: "invalid endpoint", key: "SYNORA_HTTP_ADDR", value: "not-an-address"},
 		{name: "invalid duration", key: "SYNORA_BUS_RPC_TIMEOUT", value: "soon"},
 		{name: "invalid mediamtx URL", key: "SYNORA_MEDIAMTX_RTSP_URL", value: "https://example.test/stream"},
+		{name: "invalid mediamtx API URL", key: "SYNORA_MEDIAMTX_API_URL", value: "rtsp://example.test"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

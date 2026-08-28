@@ -25,12 +25,17 @@ type discoveryHealth struct {
 	VisionIngressStatus string `json:"vision_ingress_status"`
 
 	VisionIngressError string `json:"vision_ingress_error,omitempty"`
+
+	MediaMTXStatus string `json:"mediamtx_status"`
+
+	MediaMTXError string `json:"mediamtx_error,omitempty"`
 }
 
 var healthState = &discoveryHealth{
 	NetworkStatus:       "unknown",
 	VisionWorkerStatus:  "unknown",
 	VisionIngressStatus: "unknown",
+	MediaMTXStatus:      "unknown",
 }
 
 func startHealthServer(address string) *http.Server {
@@ -49,7 +54,10 @@ func startHealthServer(address string) *http.Server {
 				status.VisionWorkerStatus != "error" &&
 				status.VisionIngressStatus != "disabled" &&
 				status.VisionIngressStatus != "degraded" &&
-				status.VisionIngressStatus != "error"
+				status.VisionIngressStatus != "error" &&
+				status.MediaMTXStatus != "degraded" &&
+				status.MediaMTXStatus != "unavailable" &&
+				status.MediaMTXStatus != "error"
 
 		payload := map[string]any{
 			"service":       "discovery",
@@ -65,6 +73,9 @@ func startHealthServer(address string) *http.Server {
 			"vision_ingress": map[string]any{
 				"status": status.VisionIngressStatus,
 			},
+			"mediamtx": map[string]any{
+				"status": status.MediaMTXStatus,
+			},
 		}
 
 		if status.LastError != "" {
@@ -75,6 +86,9 @@ func startHealthServer(address string) *http.Server {
 		}
 		if status.VisionIngressError != "" {
 			payload["vision_ingress"].(map[string]any)["message"] = status.VisionIngressError
+		}
+		if status.MediaMTXError != "" {
+			payload["mediamtx"].(map[string]any)["message"] = status.MediaMTXError
 		}
 
 		if !healthy {
@@ -141,6 +155,16 @@ func (h *discoveryHealth) setVisionIngress(status, message string) bool {
 	return changed
 }
 
+func (h *discoveryHealth) setMediaMTX(status, message string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.MediaMTXStatus = status
+	h.MediaMTXError = message
+	if message != "" {
+		h.LastError = message
+	}
+}
+
 func (h *discoveryHealth) snapshot() discoveryHealth {
 
 	h.mu.RLock()
@@ -155,5 +179,7 @@ func (h *discoveryHealth) snapshot() discoveryHealth {
 		VisionWorkerError:   h.VisionWorkerError,
 		VisionIngressStatus: h.VisionIngressStatus,
 		VisionIngressError:  h.VisionIngressError,
+		MediaMTXStatus:      h.MediaMTXStatus,
+		MediaMTXError:       h.MediaMTXError,
 	}
 }

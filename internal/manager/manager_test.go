@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -399,6 +401,16 @@ func TestNewWiresProductionHealthDependencies(t *testing.T) {
 		if reflect.ValueOf(test.got).Pointer() != reflect.ValueOf(test.want).Pointer() {
 			t.Fatalf("%s dependency is not the production probe", test.name)
 		}
+	}
+}
+
+func TestMediaMTXProbeRequiresSuccessfulHTTPStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	if err := probeMediaMTXEndpoint(context.Background(), server.URL, server.Client()); err == nil {
+		t.Fatal("MediaMTX non-success status was reported as healthy")
 	}
 }
 
