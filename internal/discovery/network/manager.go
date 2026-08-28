@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -21,6 +22,13 @@ func NewManager() *Manager {
 }
 
 func (m *Manager) Start() error {
+	return m.StartContext(context.Background())
+}
+
+func (m *Manager) StartContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	log.Println("network manager starting")
 	path := os.Getenv("SYNORA_NETWORK_CONFIG")
 	cfg, err := LoadConfig(path)
@@ -134,15 +142,23 @@ func (m *Manager) Start() error {
 		failures = append(failures, writeErr)
 	}
 	log.Printf("SynoraNet status=%s band=%s", status.Status, status.ActiveBand)
-	go m.watchPairing(cfg.SynoraNet, devicePath)
+	go m.watchPairing(ctx, cfg.SynoraNet, devicePath)
 	return errors.Join(failures...)
 }
 
-func (m *Manager) watchPairing(cfg SynoraNetConfig, devicePath string) {
+func (m *Manager) watchPairing(ctx context.Context, cfg SynoraNetConfig, devicePath string) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	ticker := time.NewTicker(750 * time.Millisecond)
 	defer ticker.Stop()
 	lastKey := ""
-	for range ticker.C {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 		state, err := LoadPairingState("")
 		if err != nil {
 			continue

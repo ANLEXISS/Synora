@@ -284,7 +284,7 @@ func NewHandler(cfg Config) http.Handler {
 	return mux
 }
 
-func StartServer(cfg Config) {
+func StartServer(cfg Config) *http.Server {
 	certMissing := !regularFile(cfg.CertFile)
 	keyMissing := !regularFile(cfg.KeyFile)
 	if certMissing || keyMissing {
@@ -295,7 +295,7 @@ func StartServer(cfg Config) {
 		if !cfg.AllowInsecure {
 			setStatus(cfg, "disabled", reason)
 			log.Printf("vision ingress disabled status=disabled reason=%s cert=%s key=%s", reason, cfg.CertFile, cfg.KeyFile)
-			return
+			return nil
 		}
 		log.Printf("vision ingress insecure fallback enabled reason=%s", reason)
 	}
@@ -325,6 +325,7 @@ func StartServer(cfg Config) {
 			setStatus(cfg, "error", err.Error())
 		}
 	}()
+	return server
 }
 
 func publishLifecycle(publisher Publisher, eventType string, clip contract.Clip, failureCode, eventID string) error {

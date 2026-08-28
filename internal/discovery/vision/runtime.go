@@ -312,6 +312,19 @@ func (v *Runtime) PublishUnavailable(reason string) {
 	v.manager.PublishUnavailable(reason)
 }
 
+// Close releases the persistent worker connection. Worker process ownership
+// remains with WorkerManager so callers can stop it explicitly and observe
+// the bounded shutdown result.
+func (v *Runtime) Close() error {
+	if v == nil {
+		return nil
+	}
+	v.mu.Lock()
+	v.closeConn()
+	v.mu.Unlock()
+	return nil
+}
+
 func (v *Runtime) Process(
 	job *ClipJob,
 ) (*WorkerResponse, error) {

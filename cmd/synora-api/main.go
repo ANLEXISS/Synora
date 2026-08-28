@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -74,6 +75,8 @@ type pairingProvider interface {
 }
 
 func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 
 	runtime, err := runtimeconfig.Load(os.Getenv)
 	if err != nil {
@@ -139,13 +142,16 @@ func main() {
 	}
 	log.Printf("auth users loaded=%d path=%s", authUsers.Count(), authPath)
 
-	busClient, err := bus.NewClient(
+	busClient, err := bus.ConnectContext(ctx,
 		paths.BusSocket,
 		"api",
 	)
 
 	if err != nil {
-		log.Fatal(err)
+		if !errors.Is(err, context.Canceled) {
+			log.Printf("api bus connection stopped: %v", err)
+		}
+		return
 	}
 	publishNetworkPairingEvent = func(event string, payload map[string]any) {
 		sendNetworkPairingEvent(busClient, event, payload)
@@ -328,12 +334,10 @@ func main() {
 		}()
 	}
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	select {
 	case err := <-errCh:
 		log.Fatal(err)
-	case <-stop:
+	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), runtime.Timeouts.Shutdown)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdownCtx)

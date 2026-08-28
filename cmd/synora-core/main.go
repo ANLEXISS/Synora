@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"synora/internal/actionpolicy"
@@ -91,6 +93,7 @@ type coreApp struct {
 	normalQueue       chan *contract.Event
 	rpcQueue          chan contract.Message
 	processStop       <-chan struct{}
+	lifecycleWG       sync.WaitGroup
 	ingest            *ingest.Queue
 	rpc               *corerpc.Server
 	snapshotBuilder   *snapshotpkg.Builder
@@ -105,6 +108,8 @@ type coreBus interface {
 
 func main() {
 	log.Println("starting synora core")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	runtime, err := runtimeconfig.Load(os.Getenv)
 	if err != nil {
@@ -122,9 +127,12 @@ func main() {
 	actionPolicyPath := paths.ActionPolicy
 	statePath := paths.State
 
-	busClient, err := bus.NewClient(busPath, "core")
+	busClient, err := bus.ConnectContext(ctx, busPath, "core")
 	if err != nil {
-		log.Fatal(err)
+		if !errors.Is(err, context.Canceled) {
+			log.Printf("core bus connection stopped: %v", err)
+		}
+		return
 	}
 
 	topologyInstance := &topology.Topology{Nodes: map[string]*topology.Node{}}
@@ -225,6 +233,7 @@ func main() {
 		cognitive:    cognitiveEngine,
 		rate:         rateController,
 		metrics:      &coreMetrics{sourceLastSeen: map[string]time.Time{}},
+		processStop:  ctx.Done(),
 		highPriority: make(chan *contract.Event, 128),
 		normalQueue:  make(chan *contract.Event, 512),
 		rpcQueue:     make(chan contract.Message, 256),
@@ -389,14 +398,31 @@ func main() {
 		summary.Danger,
 	)
 	app.publishStateSnapshot()
-	go app.processLoop()
-	go app.manualRiskLoop()
-	go app.cleanupLoop()
-	go app.chainLoop()
-	go app.dangerLoop()
+	app.startBackgroundLoops()
 
-	if err := app.runBusLoop(); err != nil {
-		log.Fatal(err)
+	if err := app.runBusLoopContext(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		log.Printf("core bus loop stopped: %v", err)
+	}
+	app.lifecycleWG.Wait()
+	if err := app.state.SaveNow(); err != nil {
+		log.Printf("core shutdown persistence warning: %v", err)
+	}
+	_ = busClient.Close()
+}
+
+func (a *coreApp) startBackgroundLoops() {
+	for _, loop := range []func(){
+		a.processLoop,
+		a.manualRiskLoop,
+		a.cleanupLoop,
+		a.chainLoop,
+		a.dangerLoop,
+	} {
+		a.lifecycleWG.Add(1)
+		go func(run func()) {
+			defer a.lifecycleWG.Done()
+			run()
+		}(loop)
 	}
 }
 
@@ -446,40 +472,79 @@ func (a *coreApp) seedState() {
 }
 
 func (a *coreApp) runBusLoop() error {
+	return a.runBusLoopContext(context.Background())
+}
+
+func (a *coreApp) runBusLoopContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	log.Println("core bus loop started")
 	msgCh := a.bus.SubscribeChannel("core")
 	if a.rpcQueue == nil {
 		a.rpcQueue = make(chan contract.Message, 256)
 	}
-	go a.rpcLoop()
-	for msg := range msgCh {
-		log.Printf(
-			"core: received message type=%s kind=%s source=%s",
-			msg.Type,
-			msg.Kind,
-			msg.Source,
-		)
-		a.metrics.touchSource(msg.Source)
-		switch msg.Kind {
-		case contract.KindRPC, contract.KindCommand:
-			// Keep bus reads independent from filesystem-backed RPC handlers.
-			// The bounded queue backpressures instead of silently dropping RPCs.
-			a.rpcQueue <- msg
-		case contract.KindEvent:
-			a.ingest.Ingest(msg)
-		default:
-			log.Println("core: unknown message kind", msg.Kind)
+	if a.processStop == nil {
+		go a.rpcLoop()
+	} else {
+		a.lifecycleWG.Add(1)
+		go func() {
+			defer a.lifecycleWG.Done()
+			a.rpcLoop()
+		}()
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case msg, ok := <-msgCh:
+			if !ok {
+				return nil
+			}
+			log.Printf(
+				"core: received message type=%s kind=%s source=%s",
+				msg.Type,
+				msg.Kind,
+				msg.Source,
+			)
+			a.metrics.touchSource(msg.Source)
+			switch msg.Kind {
+			case contract.KindRPC, contract.KindCommand:
+				// Keep bus reads independent from filesystem-backed RPC handlers.
+				// The bounded queue backpressures instead of silently dropping RPCs.
+				select {
+				case a.rpcQueue <- msg:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			case contract.KindEvent:
+				a.ingest.Ingest(msg)
+			default:
+				log.Println("core: unknown message kind", msg.Kind)
+			}
 		}
 	}
-	return nil
 }
 
 func (a *coreApp) rpcLoop() {
 	if a == nil || a.rpc == nil || a.rpcQueue == nil {
 		return
 	}
-	for msg := range a.rpcQueue {
-		a.rpc.Handle(msg)
+	for {
+		if a.processStop == nil {
+			msg, ok := <-a.rpcQueue
+			if !ok {
+				return
+			}
+			a.rpc.Handle(msg)
+			continue
+		}
+		select {
+		case <-a.processStop:
+			return
+		case msg := <-a.rpcQueue:
+			a.rpc.Handle(msg)
+		}
 	}
 }
 
@@ -1039,20 +1104,25 @@ func manualRiskScore(level string) float64 {
 func (a *coreApp) manualRiskLoop() {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
-	for now := range ticker.C {
-		changed := a.expireManualRisk(now.UTC())
-		if changed {
-			if a.chains != nil {
-				a.publishChainUpdates(a.chains.CloseManualRiskChains(now.UTC()))
+	for {
+		select {
+		case <-a.processStop:
+			return
+		case now := <-ticker.C:
+			changed := a.expireManualRisk(now.UTC())
+			if changed {
+				if a.chains != nil {
+					a.publishChainUpdates(a.chains.CloseManualRiskChains(now.UTC()))
+				}
+				result := a.recomputeDanger(now.UTC(), false)
+				if !result.Changed {
+					a.publishEvent(contract.EventSystemStateChanged, a.state.SystemState(), contract.PriorityNormal)
+				}
+				a.triggerSnapshot()
 			}
-			result := a.recomputeDanger(now.UTC(), false)
-			if !result.Changed {
-				a.publishEvent(contract.EventSystemStateChanged, a.state.SystemState(), contract.PriorityNormal)
+			if a.expireSecurityMode(now.UTC()) {
+				a.triggerSnapshot()
 			}
-			a.triggerSnapshot()
-		}
-		if a.expireSecurityMode(now.UTC()) {
-			a.triggerSnapshot()
 		}
 	}
 }
@@ -1237,9 +1307,14 @@ func (a *coreApp) chainLoop() {
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	for now := range ticker.C {
-		a.publishChainUpdates(a.chains.CloseInactive(now.UTC()))
-		a.recomputeDanger(now.UTC(), false)
+	for {
+		select {
+		case <-a.processStop:
+			return
+		case now := <-ticker.C:
+			a.publishChainUpdates(a.chains.CloseInactive(now.UTC()))
+			a.recomputeDanger(now.UTC(), false)
+		}
 	}
 }
 
@@ -1254,8 +1329,13 @@ func (a *coreApp) dangerLoop() {
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	for now := range ticker.C {
-		a.recomputeDanger(now.UTC(), false)
+	for {
+		select {
+		case <-a.processStop:
+			return
+		case now := <-ticker.C:
+			a.recomputeDanger(now.UTC(), false)
+		}
 	}
 }
 
@@ -1383,18 +1463,23 @@ func (a *coreApp) cleanupLoop() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	cfg := state.DefaultExpirationConfig()
-	for range ticker.C {
-		a.reconcileClips()
-		a.applyRetention(time.Now().UTC())
-		result := a.state.Cleanup(time.Now().UTC(), cfg)
-		if len(result.Deleted) == 0 {
-			continue
+	for {
+		select {
+		case <-a.processStop:
+			return
+		case <-ticker.C:
+			a.reconcileClips()
+			a.applyRetention(time.Now().UTC())
+			result := a.state.Cleanup(time.Now().UTC(), cfg)
+			if len(result.Deleted) == 0 {
+				continue
+			}
+			for _, residentID := range result.Deleted["presence"] {
+				a.clearResidentPresence(residentID)
+			}
+			a.publishEvent("system.lifecycle.cleaned", result, contract.PriorityLow)
+			a.triggerSnapshot()
 		}
-		for _, residentID := range result.Deleted["presence"] {
-			a.clearResidentPresence(residentID)
-		}
-		a.publishEvent("system.lifecycle.cleaned", result, contract.PriorityLow)
-		a.triggerSnapshot()
 	}
 }
 

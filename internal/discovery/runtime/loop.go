@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"time"
@@ -23,6 +24,17 @@ func StartLoop(
 	registry *Registry,
 	publisher Publisher,
 ) {
+	StartLoopContext(context.Background(), registry, publisher)
+}
+
+func StartLoopContext(
+	ctx context.Context,
+	registry *Registry,
+	publisher Publisher,
+) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	ticker := time.NewTicker(
 		Tick,
@@ -30,70 +42,74 @@ func StartLoop(
 
 	defer ticker.Stop()
 
-	for range ticker.C {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
 
-		now := time.Now().UTC()
+			registry.ForEachLocked(func(device *Device) {
 
-		registry.ForEachLocked(func(device *Device) {
+				if !device.Online {
+					return
+				}
 
-			if !device.Online {
-				return
-			}
+				if now.Sub(device.LastSeen) < DeviceTimeout {
+					return
+				}
 
-			if now.Sub(device.LastSeen) < DeviceTimeout {
-				return
-			}
-
-			device.Online = false
-
-			log.Printf(
-				"device offline id=%s",
-				device.ID,
-			)
-
-			payload, err := json.Marshal(map[string]any{
-				"device_id": device.ID,
-				"camera_id": device.ID,
-				"type":      device.Type,
-				"online":    false,
-				"timestamp": now,
-			})
-
-			if err != nil {
+				device.Online = false
 
 				log.Printf(
-					"runtime payload error device=%s err=%v",
+					"device offline id=%s",
 					device.ID,
-					err,
 				)
 
-				return
-			}
+				payload, err := json.Marshal(map[string]any{
+					"device_id": device.ID,
+					"camera_id": device.ID,
+					"type":      device.Type,
+					"online":    false,
+					"timestamp": now,
+				})
 
-			err = publisher.Send(contract.Message{
-				ID:        idgen.New("msg"),
-				Type:      contract.EventDeviceOffline,
-				Kind:      contract.KindEvent,
-				Source:    "discovery",
-				Target:    "core",
-				Timestamp: now,
-				Payload:   payload,
+				if err != nil {
+
+					log.Printf(
+						"runtime payload error device=%s err=%v",
+						device.ID,
+						err,
+					)
+
+					return
+				}
+
+				err = publisher.Send(contract.Message{
+					ID:        idgen.New("msg"),
+					Type:      contract.EventDeviceOffline,
+					Kind:      contract.KindEvent,
+					Source:    "discovery",
+					Target:    "core",
+					Timestamp: now,
+					Payload:   payload,
+				})
+
+				if err != nil {
+
+					log.Printf(
+						"runtime publish failed device=%s err=%v",
+						device.ID,
+						err,
+					)
+				}
+
+				deviceID := device.ID
+				go registry.PublishCameraOffline(
+					deviceID,
+					now,
+				)
 			})
-
-			if err != nil {
-
-				log.Printf(
-					"runtime publish failed device=%s err=%v",
-					device.ID,
-					err,
-				)
-			}
-
-			deviceID := device.ID
-			go registry.PublishCameraOffline(
-				deviceID,
-				now,
-			)
-		})
+		}
 	}
 }

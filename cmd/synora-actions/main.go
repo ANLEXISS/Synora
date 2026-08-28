@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"synora/internal/actions"
@@ -19,14 +22,19 @@ import (
 
 func main() {
 	log.Println("starting synora actions")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	runtime, err := runtimeconfig.Load(os.Getenv)
 	if err != nil {
 		log.Fatal("invalid runtime configuration: ", err)
 	}
-	busClient, err := bus.NewClient(runtime.Paths.BusSocket, "actions")
+	busClient, err := bus.ConnectContext(ctx, runtime.Paths.BusSocket, "actions")
 	if err != nil {
-		log.Fatal(err)
+		if !errors.Is(err, context.Canceled) {
+			log.Printf("actions bus connection stopped: %v", err)
+		}
+		return
 	}
 	startupPayload, _ := json.Marshal(map[string]any{
 		"component": "actions",
@@ -73,12 +81,22 @@ func main() {
 		Deduper: actions.NewDeduper(),
 	}
 
-	for msg := range busClient.SubscribeChannel("actions") {
-		// TODO: remove automation.action once all deployed automations emit action.request.
-		if msg.Kind != contract.KindCommand || (msg.Type != contract.EventActionRequest && msg.Type != contract.EventAutomationAction) {
-			continue
+	messages := busClient.SubscribeChannel("actions")
+	for {
+		select {
+		case <-ctx.Done():
+			_ = busClient.Close()
+			return
+		case msg, ok := <-messages:
+			if !ok {
+				return
+			}
+			// TODO: remove automation.action once all deployed automations emit action.request.
+			if msg.Kind != contract.KindCommand || (msg.Type != contract.EventActionRequest && msg.Type != contract.EventAutomationAction) {
+				continue
+			}
+			service.HandleMessage(ctx, msg)
 		}
-		service.HandleMessage(context.Background(), msg)
 	}
 }
 

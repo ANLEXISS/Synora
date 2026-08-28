@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -39,6 +40,9 @@ type Manager struct {
 	auth *security.DeviceVerifier
 
 	network *network.Manager
+
+	healthServer  *http.Server
+	ingressServer *http.Server
 
 	faceStore     *facestore.Store
 	faceBuilder   *facedataset.Builder
@@ -139,8 +143,14 @@ func NewManager(
 }
 
 func (m *Manager) Start() {
+	m.StartContext(context.Background())
+}
 
-	go discoveryruntime.StartLoop(
+func (m *Manager) StartContext(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	go discoveryruntime.StartLoopContext(ctx,
 		m.devices,
 		m.bus,
 	)
@@ -150,9 +160,9 @@ func (m *Manager) Start() {
 		log.Printf("runtime configuration unavailable: %v", err)
 		return
 	}
-	startHealthServer(runtime.Endpoints.VisionHealth)
+	m.healthServer = startHealthServer(runtime.Endpoints.VisionHealth)
 
-	err = m.network.Start()
+	err = m.network.StartContext(ctx)
 
 	if err != nil {
 
@@ -189,10 +199,10 @@ func (m *Manager) Start() {
 		healthState.setVisionWorker("ok", "")
 	}
 	healthState.setSuccess(0)
-	go m.monitorVisionHealth()
+	go m.monitorVisionHealth(ctx)
 
 	clipDir := runtime.Paths.ClipRoot
-	ingress.StartServer(ingress.Config{
+	m.ingressServer = ingress.StartServer(ingress.Config{
 		Addr:          runtime.Endpoints.VisionHTTPS,
 		CertFile:      runtime.Paths.TLSCert,
 		KeyFile:       runtime.Paths.TLSKey,
@@ -215,25 +225,76 @@ func (m *Manager) Start() {
 			})
 		},
 	})
-	go m.resumePendingClips(clipDir)
+	go m.resumePendingClips(ctx, clipDir)
 	if err := m.faceStore.Init(); err != nil {
 		log.Printf("discovery face storage degraded err=%v", err)
 	}
-	go m.listenFaceMutations()
+	go m.listenFaceMutations(ctx)
 	m.requestFaceSync()
 	m.publishRuntimeStatus()
 }
 
-func (m *Manager) listenFaceMutations() {
+func (m *Manager) listenFaceMutations(ctx context.Context) {
 	if m == nil || m.bus == nil {
 		return
 	}
-	for msg := range m.bus.SubscribeChannel("discovery") {
-		switch msg.Type {
-		case "resident.face_photo.updated", "resident.face_photo.removal_pending", "resident.updated":
-			m.requestFaceSync()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	messages := m.bus.SubscribeChannel("discovery")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-messages:
+			if !ok {
+				return
+			}
+			switch msg.Type {
+			case "resident.face_photo.updated", "resident.face_photo.removal_pending", "resident.updated":
+				m.requestFaceSync()
+			}
 		}
 	}
+}
+
+func (m *Manager) Close(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var errs []error
+	if m.pool != nil {
+		m.pool.Close()
+	}
+	if m.vision != nil {
+		if err := m.vision.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if m.workerManager != nil {
+		if err := m.workerManager.Stop(""); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if m.healthServer != nil {
+		if err := m.healthServer.Shutdown(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if m.ingressServer != nil {
+		if err := m.ingressServer.Shutdown(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if m.bus != nil {
+		if err := m.bus.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (m *Manager) requestFaceSync() {
@@ -371,13 +432,21 @@ func (m *Manager) syncFaceDataset() {
 	}
 }
 
-func (m *Manager) resumePendingClips(root string) {
+func (m *Manager) resumePendingClips(ctx context.Context, root string) {
 	if m == nil || m.bus == nil || m.pool == nil {
 		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	var beforeUpdatedAt time.Time
 	var beforeID string
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 		payloadValue := map[string]any{"limit": contract.MaxClipListLimit}
 		if !beforeUpdatedAt.IsZero() {
 			payloadValue["before_updated_at"] = beforeUpdatedAt
@@ -387,11 +456,24 @@ func (m *Manager) resumePendingClips(root string) {
 		var response *contract.Message
 		var err error
 		for attempt := 0; attempt < 5; attempt++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			response, err = m.bus.Request("clips.list", "discovery", payload, "core")
 			if err == nil {
 				break
 			}
-			time.Sleep(time.Second)
+			timer := time.NewTimer(time.Second)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return
+			case <-timer.C:
+			}
 		}
 		if err != nil {
 			log.Printf("discovery clip resume page unavailable after retries err=%v", err)
@@ -539,18 +621,26 @@ func statusForDiscovery(status *discoveryHealth) string {
 	return "ok"
 }
 
-func (m *Manager) monitorVisionHealth() {
+func (m *Manager) monitorVisionHealth(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	for range ticker.C {
-		snapshot := m.vision.Snapshot()
-		status, reason := classifyVisionWorkerStatus(snapshot, missingVisionModel())
-		changed := healthState.setVisionWorker(status, reason)
-		if status == "unavailable" {
-			m.vision.PublishUnavailable(snapshot.Status)
-		}
-		if changed {
-			m.publishRuntimeStatus()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			snapshot := m.vision.Snapshot()
+			status, reason := classifyVisionWorkerStatus(snapshot, missingVisionModel())
+			changed := healthState.setVisionWorker(status, reason)
+			if status == "unavailable" {
+				m.vision.PublishUnavailable(snapshot.Status)
+			}
+			if changed {
+				m.publishRuntimeStatus()
+			}
 		}
 	}
 }

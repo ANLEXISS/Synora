@@ -2,6 +2,7 @@ package bus
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,6 +16,34 @@ import (
 
 func NewClient(path string, service string) (*Client, error) {
 	return NewClientWithConfig(path, service, ClientConfig{Auth: AuthConfigFromEnv()})
+}
+
+// ConnectContext retries startup connection failures at a bounded cadence and
+// stops promptly when the owning service is shutting down.
+func ConnectContext(ctx context.Context, path string, service string) (*Client, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		client, err := NewClient(path, service)
+		if err == nil {
+			return client, nil
+		}
+		timer := time.NewTimer(2 * time.Second)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 type ClientConfig struct {

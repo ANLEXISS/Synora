@@ -3,8 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 	"time"
 
 	"synora/internal/bus"
@@ -14,14 +18,24 @@ import (
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	runtime, err := runtimeconfig.Load(os.Getenv)
 	if err != nil {
 		log.Fatal("invalid runtime configuration: ", err)
 	}
-	busClient := connectBus(
+	busClient, err := connectBusContext(ctx,
 		runtime.Paths.BusSocket,
 		runtime.Timeouts.BusConnect,
 	)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			log.Printf("runtime-manager bus connection stopped: %v", err)
+		}
+		return
+	}
+	defer busClient.Close()
 
 	runtimeManager := manager.New(
 		manager.Config{},
@@ -31,19 +45,30 @@ func main() {
 		"synora-runtime-manager started",
 	)
 
-	for msg := range busClient.SubscribeChannel(
+	messages := busClient.SubscribeChannel(
 		manager.ServiceRuntimeManager,
-	) {
-		if msg.Kind != contract.KindRPC && msg.Kind != contract.KindCommand {
-			continue
-		}
+	)
+	var workers sync.WaitGroup
+	for {
+		select {
+		case <-ctx.Done():
+			workers.Wait()
+			return
+		case msg, ok := <-messages:
+			if !ok {
+				workers.Wait()
+				return
+			}
+			if msg.Kind != contract.KindRPC && msg.Kind != contract.KindCommand {
+				continue
+			}
 
-		go handleMessage(
-			busClient,
-			runtimeManager,
-			msg,
-			runtime.Timeouts.BusRPC,
-		)
+			workers.Add(1)
+			go func(message contract.Message) {
+				defer workers.Done()
+				handleMessage(ctx, busClient, runtimeManager, message, runtime.Timeouts.BusRPC)
+			}(msg)
+		}
 	}
 }
 
@@ -51,7 +76,27 @@ func connectBus(
 	socketPath string,
 	retryDelay time.Duration,
 ) *bus.Client {
+	client, _ := connectBusContext(context.Background(), socketPath, retryDelay)
+	return client
+}
+
+func connectBusContext(
+	ctx context.Context,
+	socketPath string,
+	retryDelay time.Duration,
+) (*bus.Client, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if retryDelay <= 0 {
+		retryDelay = 2 * time.Second
+	}
 	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 		client, err := bus.NewClient(
 			socketPath,
 			manager.ServiceRuntimeManager,
@@ -62,7 +107,7 @@ func connectBus(
 				"connected to synora bus",
 			)
 
-			return client
+			return client, nil
 		}
 
 		log.Println(
@@ -70,18 +115,27 @@ func connectBus(
 			err,
 		)
 
-		time.Sleep(retryDelay)
+		timer := time.NewTimer(retryDelay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
 }
 
 func handleMessage(
+	parent context.Context,
 	busClient *bus.Client,
 	runtimeManager *manager.Manager,
 	msg contract.Message,
 	timeout time.Duration,
 ) {
 	ctx, cancel := context.WithTimeout(
-		context.Background(),
+		parent,
 		timeout,
 	)
 	defer cancel()
