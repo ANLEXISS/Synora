@@ -781,6 +781,34 @@ Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentai
 
 Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
 
+## Jalon M021 — Détection personne et tracking réel
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m021-person-tracking`
+- Branche dédiée : `codex/v1-m021-person-tracking`
+- Commit fonctionnel : `19d68f5`
+- Livrables : normalisation des sorties YOLO RKNN (formats batch, transposé et
+  mono-détection), filtrage fail-closed des NaN/boîtes invalides, conversion
+  cohérente des coordonnées letterbox vers les résolutions source et NMS
+  bornée pour les personnes.
+- Tracking : les tracks gardent leur identifiant pendant une perte brève puis
+  une récupération ; seuls les tracks observés dans la frame courante alimentent
+  l’analyse visage, tandis que les tracks manqués restent disponibles pour la
+  continuité de reconnaissance. Les frames grayscale, BGRA et flottantes sont
+  normalisées avant traitement.
+- Compatibilité : les métadonnées `activation_id`, `clip_id`, `clip_index`,
+  `track_id` et `sequence_key` restent portées par le contexte d’événement ; les
+  limites existantes de détections/tracks restent inchangées.
+- Tests déterministes ajoutés : sorties synthétiques mono/transposées, NMS de
+  personnes multiples, absence et sorties malformées, perte/récupération de
+  track, boîtes invalides et normalisation de frames multi-résolutions.
+- Validations : `GOFLAGS=-buildvcs=false go test ./...`, `GOFLAGS=-buildvcs=false
+  go vet ./...`, `GOFLAGS=-buildvcs=false go build ./...`,
+  `GOFLAGS=-buildvcs=false go test -race ./...` et tests Python Vision (32) —
+  PASS. La qualification Web n’a pas été relancée, ses dépendances locales
+  étant absentes et leur installation hors périmètre autorisé.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon M020 — Protocole du runtime Vision
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m020-vision-protocol`
