@@ -781,6 +781,31 @@ Gate final groupe 21–25 puis candidate locale — aucun jalon V1 supplémentai
 
 Ce fichier est mis à jour après chaque jalon et après chaque gate de groupe.
 
+## Jalon M012 — Tracks, clusters et fenêtres temporelles
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m012-tracks`
+- Branche dédiée : `codex/v1-m012-tracks`
+- Commit fonctionnel : `b15b1af`
+- Livrables : identité de track explicitement bornée par caméra et activation,
+  conservation de l’identité lors d’un déplacement de nœud, refus des
+  réaffectations silencieuses entre résidents, expiration des tracks à 20 s et
+  des clusters à 10 s, et borne de 100 identifiants par cluster fusionné.
+- Tests déterministes ajoutés : séparation caméra/activation, mouvement de
+  nœud, refus de rebinding résident, ordre d’expiration TTL et rafale de 2 000
+  observations avec cluster borné.
+- Validations : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./...`, `timeout 300s env GOFLAGS=-buildvcs=false go test -race ./... -count=1`
+  et tests Python Vision (22) — PASS.
+- Note de qualification race : une première passe a exposé un échec
+  intermittent isolé dans `internal/cge/shadowworkflow`; la relance ciblée et
+  la seconde passe globale sont vertes, sans rapport de data race.
+- Invariants conservés : `sequence_key` reste une métadonnée de rejeu,
+  RFC3339 reste la représentation temporelle canonique et aucun contrat public
+  V1 n’a été modifié.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon M011 — Machine de sécurité déterministe
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m011-security`
