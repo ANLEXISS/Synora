@@ -225,6 +225,40 @@
 - Base consolidée : `integration/synora-v1`
 - HEAD initial : `864a379801bc1537f39624f102b9f9a57c4509c0`
 
+## Jalon M023 — Reconnaissance faciale locale
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m023-face-recognition`
+- Branche dédiée : `codex/v1-m023-face-recognition`
+- Commit fonctionnel : `7a3ce0b`
+- Livrables : SCRFD et ArcFace restent reliés à la base immuable chargée par
+  `FaceDatasetManager`, avec embeddings normalisés et dimension contractuelle
+  512. Les sorties restent strictement `match` (résident), `unknown` ou
+  `uncertain` et les événements ne divulguent ni embedding ni image.
+- Invariants V1 : seuil de match `0.58`, seuil uncertain `0.45`, seuil minimal
+  de visage `80 px` sur toutes les passes d’analyse, égalités de seuil
+  inclusives, rejet des dimensions incorrectes, valeurs non finies et vecteurs
+  nuls. Les cas zéro visage, plusieurs visages, visage trop petit et qualité
+  inutilisable restent refusés au build dataset.
+- Cache : la réutilisation track est bornée à 10 secondes avec horloge
+  monotone ; une identité `uncertain` ne peut pas devenir `match` par cache.
+  Le remplacement à chaud d’une version ou la suppression d’un résident
+  invalide les mémoires et buffers d’identité avant toute nouvelle émission.
+- Tests déterministes ajoutés : seuils et taille minimale, expiration du cache,
+  non-promotion de `uncertain`, invalidation sur remplacement de dataset,
+  normalisation/dimension des embeddings, égalités et non-divulgation des
+  données biométriques.
+- Validations : `GOFLAGS=-buildvcs=false go test ./...`,
+  `GOFLAGS=-buildvcs=false go vet ./...`,
+  `GOFLAGS=-buildvcs=false go build ./...`,
+  `GOFLAGS=-buildvcs=false go test -race ./...`, compilation Python et 35
+  tests Python Vision — PASS. Deux premières races globales ont exposé des
+  échecs intermittents préexistants dans `dispatcher` puis `shadowworkflow` ;
+  les tests concernés passent isolément et la troisième race globale complète
+  est verte. La qualification Web n’a pas été relancée, ses dépendances
+  locales étant absentes et leur installation hors périmètre autorisé.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon M022 — Dataset facial versionné
 
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m022-face-dataset`
