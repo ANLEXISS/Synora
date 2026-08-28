@@ -225,6 +225,44 @@
 - Base consolidée : `integration/synora-v1`
 - HEAD initial : `864a379801bc1537f39624f102b9f9a57c4509c0`
 
+## Jalon M022 — Dataset facial versionné
+
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m022-face-dataset`
+- Branche dédiée : `codex/v1-m022-face-dataset`
+- Commit fonctionnel : `a40943f`
+- Livrables : uploads bornés et validés sous `uploads`, sources canoniques
+  sous `sources/<resident_id>`, staging isolé, versions immuables sous
+  `datasets/versions` et pointeur `datasets/current` publié atomiquement
+  après rechargement Vision réussi. Les sources sont contrôlées par taille,
+  checksum, type MIME réel, dimensions, orientation, unicité et état du
+  résident ; les cas sans visage ou multi-visages sont refusés au build par
+  la frontière Vision.
+- Fiabilité : un build interrompu ou un reload refusé conserve la dernière
+  version courante ; une reprise réutilise la version immuable déjà publiée
+  pour la même `desired_revision`, y compris après `BuiltAt` différent. Une
+  collision de révision différente reste refusée. Les activations concurrentes
+  de la même version convergent vers un seul dataset immuable ; la rétention
+  et la purge ne suppriment jamais `current`.
+- Compatibilité : `FaceDatasetVersion` reste limité aux métadonnées traversant
+  la frontière Discovery/Vision ; embeddings, chemins et stockage restent
+  internes. Aucun champ RFC3339 existant n’est migré vers Unix ms et aucune
+  définition de `Track` ou `Presence` n’est promue en contrat public.
+- Tests déterministes ajoutés : reprise après publication interrompue,
+  conservation du pointeur précédent après reload échoué, activation
+  concurrente, validation de manifeste et exclusion des champs internes du
+  contrat public.
+- Validations : `GOFLAGS=-buildvcs=false go test ./...`,
+  `GOFLAGS=-buildvcs=false go vet ./...`,
+  `GOFLAGS=-buildvcs=false go build ./...`,
+  `GOFLAGS=-buildvcs=false go test -race ./...`, 32 tests Python Vision et
+  `git diff --check` — PASS. Une première race globale a exposé un échec
+  intermittent de `internal/dispatcher`; le test passe 3/3 isolément et la
+  seconde race globale complète est verte. La qualification Web n’a pas été
+  relancée, ses dépendances locales étant absentes et leur installation hors
+  périmètre autorisé.
+- État : validation complète verte ; intégration dans `integration/synora-v1`
+  autorisée.
+
 ## Jalon 01
 
 - Commit : `0146783f57ab8f26f3a7d99558efd3462ade0d57`
