@@ -616,7 +616,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 		return
 	}
 
-	if event.Type == contract.EventSystemStateChanged || event.Type == contract.EventSystemPresence {
+	if event.Type == contract.EventSystemStateChanged || event.Type == contract.EventSystemPresence || contract.NormalizeEventType(event.Type) == contract.EventDiscoveryCameraObserved {
 		log.Printf("core: stored lifecycle event=%s type=%s category=%s", event.ID, event.Type, contract.EventCategory(event.Type))
 		a.metrics.record(event.Source, 0)
 		a.triggerSnapshot()

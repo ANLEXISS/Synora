@@ -22,13 +22,18 @@ type DeviceState struct {
 }
 
 type CameraState struct {
-	ID         string    `json:"id"`
-	NodeID     string    `json:"node_id,omitempty"`
-	Online     bool      `json:"online"`
-	LastSeen   time.Time `json:"last_seen"`
-	LastClipID string    `json:"last_clip_id,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	NodeID        string    `json:"node_id,omitempty"`
+	Endpoint      string    `json:"endpoint,omitempty"`
+	HardwareID    string    `json:"hardware_id,omitempty"`
+	Firmware      string    `json:"firmware,omitempty"`
+	Capabilities  []string  `json:"capabilities,omitempty"`
+	ObservationID string    `json:"observation_id,omitempty"`
+	Online        bool      `json:"online"`
+	LastSeen      time.Time `json:"last_seen"`
+	LastClipID    string    `json:"last_clip_id,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type NodeState struct {

@@ -146,7 +146,7 @@ func TouchDeviceState(store *state.Store, registry *device.Registry, event *cont
 		// Vision may carry a camera identifier before the registry reload has
 		// completed. Keep only a bounded operational device/camera fact; no
 		// secret or image data is copied into StateStore.
-		if !contract.IsVisionEvent(event.Type) && event.Type != contract.EventClipReady && event.Type != contract.EventClipProcessing && event.Type != contract.EventClipProcessed && event.Type != contract.EventClipFailed {
+		if !contract.IsVisionEvent(event.Type) && event.Type != contract.EventDiscoveryCameraObserved && event.Type != contract.EventClipReady && event.Type != contract.EventClipProcessing && event.Type != contract.EventClipProcessed && event.Type != contract.EventClipFailed {
 			return
 		}
 		staticDevice = &device.DeviceConfig{ID: event.DeviceID, Type: "camera", NodeID: strings.TrimSpace(event.NodeID)}
@@ -166,6 +166,14 @@ func TouchDeviceState(store *state.Store, registry *device.Registry, event *cont
 	if event.Payload == nil {
 		event.Payload = map[string]any{}
 	}
+	var observation contract.CameraObservation
+	if contract.NormalizeEventType(event.Type) == contract.EventDiscoveryCameraObserved {
+		var err error
+		observation, err = contract.CameraObservationFromPayload(event.Payload)
+		if err != nil || observation.CameraID != event.DeviceID {
+			return
+		}
+	}
 	payloadNodeID, _ = event.Payload["node_id"].(string)
 	if strings.TrimSpace(payloadNodeID) == "" {
 		if alias, ok := event.Payload["node"].(string); ok {
@@ -178,6 +186,9 @@ func TouchDeviceState(store *state.Store, registry *device.Registry, event *cont
 	now := event.Timestamp
 	if now.IsZero() {
 		now = time.Now().UTC()
+	}
+	if contract.NormalizeEventType(event.Type) == contract.EventDiscoveryCameraObserved {
+		now = observation.LastSeen
 	}
 	current, _ := store.DeviceState(event.DeviceID)
 	if current == nil {
@@ -196,6 +207,9 @@ func TouchDeviceState(store *state.Store, registry *device.Registry, event *cont
 		current.Online = true
 		current.ActivityCount++
 	}
+	if contract.NormalizeEventType(event.Type) == contract.EventDiscoveryCameraObserved {
+		current.Online = observation.Online
+	}
 	store.SetDeviceState(current)
 
 	if staticDevice.Type == "camera" {
@@ -206,6 +220,15 @@ func TouchDeviceState(store *state.Store, registry *device.Registry, event *cont
 		cameraState.NodeID = staticDevice.NodeID
 		cameraState.Online = current.Online
 		cameraState.LastSeen = now
+		if contract.NormalizeEventType(event.Type) == contract.EventDiscoveryCameraObserved {
+			cameraState.Endpoint = observation.Endpoint
+			cameraState.HardwareID = observation.HardwareID
+			cameraState.Firmware = observation.Firmware
+			cameraState.Capabilities = append([]string(nil), observation.Capabilities...)
+			cameraState.ObservationID = observation.ObservationID
+			cameraState.Online = observation.Online
+			cameraState.LastSeen = observation.LastSeen
+		}
 		cameraState.UpdatedAt = now
 		store.SetCameraState(cameraState)
 	}
