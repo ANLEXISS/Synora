@@ -12,9 +12,13 @@ users:
     password_hash: "__SET_DURING_FIRST_BOOT__"
 ```
 
-Les mots de passe sont vérifiés avec bcrypt. Le compte initial est généré par
-`synora-bootstrap-config` et son mot de passe initial est conservé uniquement
-dans `/etc/synora/secrets/admin_initial_password`.
+Les mots de passe sont vérifiés avec bcrypt, un KDF moderne conservant un
+format versionné (`$2...`) qui permet une migration de coût/algorithme sans
+exposer le secret. Le compte initial peut être généré par
+`synora-bootstrap-config` ou créé une seule fois via `POST /api/auth/bootstrap`;
+son mot de passe initial est conservé uniquement dans
+`/etc/synora/secrets/admin_initial_password` lorsqu’il provient du bootstrap
+machine.
 
 ```bash
 make hash-password PASSWORD='mot-de-passe-local'
@@ -28,6 +32,14 @@ Git, les logs ou le build statique.
 Le login crée une session serveur dans `/var/lib/synora/auth/sessions.json`.
 Le navigateur ne reçoit qu'un cookie `synora_session` HttpOnly, SameSite Strict.
 Le disque ne conserve que le hash de l'identifiant de session.
+
+Le login et le bootstrap créent toujours un nouvel identifiant aléatoire ; un
+identifiant antérieur n’est jamais réutilisé. Le cookie de session est
+`HttpOnly`, `SameSite=Strict` et `Secure` sur HTTPS. Les mutations faites avec
+une session cookie sont acceptées uniquement depuis une origine/referer de
+même origine configuré ; un appel sans preuve d’origine reçoit `401`.
+Logout, expiration, changement de mot de passe et changement de rôle révoquent
+les sessions concernées.
 
 `GET /api/auth/me` renvoie `id`, `login`, `role`, `resident_id` et les
 permissions, jamais `password_hash`. Les claims sont revalidés depuis
@@ -48,6 +60,19 @@ Un appel non authentifié reçoit `401`; un appel authentifié mais interdit re�
 `403`. Tailscale ou WireGuard sécurisent le transport réseau mais ne remplacent
 pas les comptes applicatifs et le RBAC. HTTPS reste recommandé hors réseau
 local.
+
+## Administration des comptes
+
+`POST /api/auth/bootstrap` accepte `{login,password}` uniquement lorsqu’aucun
+administrateur activé n’existe et ouvre une session. Les appels suivants sont
+refusés. `POST /api/auth/password` exige la session locale courante et le mot
+de passe précédent. Les comptes sont administrables par un administrateur via
+`GET/POST /api/auth/users` et `GET/PATCH/DELETE /api/auth/users/:id`.
+
+Les écritures sont atomiques dans `auth.yaml`, conservé hors de
+`residents.yaml`, avec permissions `0640` et répertoire privé `0700`. Les
+réponses ne contiennent jamais de hash. Le dernier administrateur activé ne
+peut être supprimé, désactivé ou rétrogradé.
 
 ## Profils résidents et photos de reconnaissance
 
