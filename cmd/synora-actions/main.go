@@ -68,9 +68,14 @@ func main() {
 		mqttAdapter.Topic = os.Getenv("SYNORA_ACTIONS_MQTT_TOPIC")
 		log.Printf("actions: mqtt adapter enabled broker=%s", broker)
 	}
+	resultStore, err := actions.OpenFileResultStore(runtime.Paths.ActionResults)
+	if err != nil {
+		log.Fatal("invalid action result store: ", err)
+	}
 
 	service := &actions.Service{
-		Bus: busClient,
+		Bus:   busClient,
+		Store: resultStore,
 		Executor: actions.Router{
 			MQTT:      mqttAdapter,
 			DeviceCmd: devicecmd.Adapter{},

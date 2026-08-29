@@ -14,6 +14,10 @@ type Publisher interface {
 	Publish(topic string, payload []byte) error
 }
 
+type IdempotentPublisher interface {
+	PublishWithIdempotency(topic string, payload []byte, commandID string, idempotencyKey string) error
+}
+
 type Adapter struct {
 	Publisher Publisher
 	Topic     string
@@ -35,15 +39,20 @@ func (a Adapter) Execute(_ context.Context, request contract.ActionRequest) (act
 		topic = strings.TrimSpace(request.Action.Channel)
 	}
 	if topic == "" {
-		return actions.ExecutionResult{}, fmt.Errorf("mqtt topic not configured")
+		return actions.ExecutionResult{}, actions.PermanentError(fmt.Errorf("mqtt topic not configured"))
 	}
 
 	payload, err := json.Marshal(request.Action.Value)
 	if err != nil {
-		return actions.ExecutionResult{}, err
+		return actions.ExecutionResult{}, actions.PermanentError(err)
 	}
 
-	if err := a.Publisher.Publish(topic, payload); err != nil {
+	if publisher, ok := a.Publisher.(IdempotentPublisher); ok {
+		err = publisher.PublishWithIdempotency(topic, payload, request.CommandID, request.IdempotencyKey)
+	} else {
+		err = a.Publisher.Publish(topic, payload)
+	}
+	if err != nil {
 		return actions.ExecutionResult{}, err
 	}
 

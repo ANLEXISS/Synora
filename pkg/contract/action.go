@@ -16,6 +16,7 @@ type Action struct {
 
 type ActionRequest struct {
 	ID            string         `json:"id,omitempty"`
+	CommandID     string         `json:"command_id,omitempty"`
 	AutomationID  string         `json:"automation_id,omitempty"`
 	ActionID      string         `json:"action_id,omitempty"`
 	Type          string         `json:"type,omitempty"`
@@ -45,19 +46,30 @@ type ActionRequest struct {
 }
 
 type ActionResult struct {
-	ID           string         `json:"id,omitempty"`
-	RequestID    string         `json:"request_id,omitempty"`
-	AutomationID string         `json:"automation_id,omitempty"`
-	ActionID     string         `json:"action_id,omitempty"`
-	Type         string         `json:"type,omitempty"`
-	Target       string         `json:"target,omitempty"`
-	Status       string         `json:"status"`
-	Error        string         `json:"error,omitempty"`
-	StartedAt    time.Time      `json:"started_at,omitempty"`
-	FinishedAt   time.Time      `json:"finished_at,omitempty"`
-	DurationMs   int64          `json:"duration_ms,omitempty"`
-	Attempts     int            `json:"attempts,omitempty"`
-	Data         map[string]any `json:"data,omitempty"`
+	ID             string         `json:"id,omitempty"`
+	RequestID      string         `json:"request_id,omitempty"`
+	CommandID      string         `json:"command_id,omitempty"`
+	IdempotencyKey string         `json:"idempotency_key,omitempty"`
+	AutomationID   string         `json:"automation_id,omitempty"`
+	ActionID       string         `json:"action_id,omitempty"`
+	Type           string         `json:"type,omitempty"`
+	Target         string         `json:"target,omitempty"`
+	Status         string         `json:"status"`
+	Error          string         `json:"error,omitempty"`
+	StartedAt      time.Time      `json:"started_at,omitempty"`
+	FinishedAt     time.Time      `json:"finished_at,omitempty"`
+	TimeoutMs      int            `json:"timeout_ms,omitempty"`
+	Attempt        int            `json:"attempt,omitempty"`
+	DurationMs     int64          `json:"duration_ms,omitempty"`
+	Attempts       int            `json:"attempts,omitempty"`
+	ErrorClass     string         `json:"error_class,omitempty"`
+	Data           map[string]any `json:"data,omitempty"`
+	SourceEventID  string         `json:"source_event_id,omitempty"`
+	DecisionID     string         `json:"decision_id,omitempty"`
+	SituationID    string         `json:"situation_id,omitempty"`
+	ClipID         string         `json:"clip_id,omitempty"`
+	NodeID         string         `json:"node_id,omitempty"`
+	DeviceID       string         `json:"device_id,omitempty"`
 
 	// Legacy metadata fields retained for older snapshot/API consumers.
 	Version       string         `json:"version,omitempty"`

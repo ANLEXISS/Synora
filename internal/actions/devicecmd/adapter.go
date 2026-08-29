@@ -13,6 +13,10 @@ type Commander interface {
 	Command(ctx context.Context, deviceID string, command string, value any) error
 }
 
+type IdempotentCommander interface {
+	CommandWithIdempotency(ctx context.Context, deviceID string, command string, value any, commandID string, idempotencyKey string) error
+}
+
 type Adapter struct {
 	Commander Commander
 }
@@ -20,12 +24,12 @@ type Adapter struct {
 func (a Adapter) Execute(ctx context.Context, request contract.ActionRequest) (actions.ExecutionResult, error) {
 	deviceID := strings.TrimSpace(request.Action.Device)
 	if deviceID == "" {
-		return actions.ExecutionResult{}, fmt.Errorf("device id required")
+		return actions.ExecutionResult{}, actions.PermanentError(fmt.Errorf("device id required"))
 	}
 
 	command := strings.TrimSpace(request.Action.Command)
 	if command == "" {
-		return actions.ExecutionResult{}, fmt.Errorf("device command required")
+		return actions.ExecutionResult{}, actions.PermanentError(fmt.Errorf("device command required"))
 	}
 
 	if a.Commander == nil {
@@ -40,7 +44,13 @@ func (a Adapter) Execute(ctx context.Context, request contract.ActionRequest) (a
 		}, nil
 	}
 
-	if err := a.Commander.Command(ctx, deviceID, command, request.Action.Value); err != nil {
+	var err error
+	if commander, ok := a.Commander.(IdempotentCommander); ok {
+		err = commander.CommandWithIdempotency(ctx, deviceID, command, request.Action.Value, request.CommandID, request.IdempotencyKey)
+	} else {
+		err = a.Commander.Command(ctx, deviceID, command, request.Action.Value)
+	}
+	if err != nil {
 		return actions.ExecutionResult{}, err
 	}
 

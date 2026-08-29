@@ -13,6 +13,10 @@ type Recorder interface {
 	Record(ctx context.Context, channel string, residents []string, value any) (map[string]any, error)
 }
 
+type IdempotentRecorder interface {
+	RecordWithIdempotency(ctx context.Context, channel string, residents []string, value any, commandID string, idempotencyKey string) (map[string]any, error)
+}
+
 type Adapter struct {
 	Recorder Recorder
 }
@@ -23,7 +27,7 @@ func (a Adapter) Execute(ctx context.Context, request contract.ActionRequest) (a
 		channel = strings.TrimSpace(request.Action.Device)
 	}
 	if channel == "" {
-		return actions.ExecutionResult{}, fmt.Errorf("recorder channel required")
+		return actions.ExecutionResult{}, actions.PermanentError(fmt.Errorf("recorder channel required"))
 	}
 
 	if a.Recorder == nil {
@@ -37,7 +41,13 @@ func (a Adapter) Execute(ctx context.Context, request contract.ActionRequest) (a
 		}, nil
 	}
 
-	details, err := a.Recorder.Record(ctx, channel, request.Action.Residents, request.Action.Value)
+	var details map[string]any
+	var err error
+	if recorder, ok := a.Recorder.(IdempotentRecorder); ok {
+		details, err = recorder.RecordWithIdempotency(ctx, channel, request.Action.Residents, request.Action.Value, request.CommandID, request.IdempotencyKey)
+	} else {
+		details, err = a.Recorder.Record(ctx, channel, request.Action.Residents, request.Action.Value)
+	}
 	if err != nil {
 		return actions.ExecutionResult{}, err
 	}

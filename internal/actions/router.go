@@ -20,7 +20,8 @@ func (r Router) Execute(ctx context.Context, request contract.ActionRequest) (Ex
 	executor := r.executorFor(request.Action)
 	if executor == nil {
 		return ExecutionResult{
-			Status: StatusUnknownAction,
+			Status:     StatusUnknownAction,
+			ErrorClass: ErrorClassPermanent,
 			Details: map[string]any{
 				"reason": "no executor configured",
 			},

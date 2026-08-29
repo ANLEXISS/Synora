@@ -36,6 +36,13 @@ type timeoutExecutor struct {
 	calls int
 }
 
+type lateExecutor struct{}
+
+func (lateExecutor) Execute(ctx context.Context, _ contract.ActionRequest) (ExecutionResult, error) {
+	time.Sleep(5 * time.Millisecond)
+	return ExecutionResult{Status: StatusSuccess}, nil
+}
+
 func (e *timeoutExecutor) Execute(ctx context.Context, _ contract.ActionRequest) (ExecutionResult, error) {
 	e.calls++
 	<-ctx.Done()
@@ -212,6 +219,97 @@ func TestServicePublishesFailedResult(t *testing.T) {
 	result := decodeOnlyResult(t, bus)
 	if result.Status != StatusFailed || result.Error != "boom" {
 		t.Fatalf("unexpected failed result: %#v", result)
+	}
+}
+
+func TestServiceStopsRetryForPermanentError(t *testing.T) {
+	payload, err := json.Marshal(contract.ActionRequest{
+		ID:         "act-permanent",
+		RetryCount: 3,
+		Action:     contract.Action{Type: "mqtt.publish"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := &recordingExecutor{err: PermanentError(errors.New("bad configuration"))}
+	bus := &recordingBus{}
+	service := &Service{Bus: bus, Executor: executor, Deduper: NewDeduper()}
+	service.HandleMessage(context.Background(), contract.Message{ID: "msg-permanent", Type: contract.EventActionRequest, Kind: contract.KindCommand, Source: "core", Payload: payload})
+	if executor.calls != 1 {
+		t.Fatalf("permanent error should not retry, calls=%d", executor.calls)
+	}
+	result := decodeOnlyResult(t, bus)
+	if result.ErrorClass != string(ErrorClassPermanent) {
+		t.Fatalf("unexpected error class: %#v", result)
+	}
+}
+
+func TestServiceDoesNotRepeatConfirmedEffect(t *testing.T) {
+	payload, err := json.Marshal(contract.ActionRequest{
+		ID:         "act-confirmed",
+		RetryCount: 3,
+		Action:     contract.Action{Type: "device.command", Device: "light-1", Command: "on"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := &recordingExecutor{err: ConfirmedError(errors.New("response lost after effect"))}
+	bus := &recordingBus{}
+	service := &Service{Bus: bus, Executor: executor, Deduper: NewDeduper()}
+	service.HandleMessage(context.Background(), contract.Message{ID: "msg-confirmed", Type: contract.EventActionRequest, Kind: contract.KindCommand, Source: "core", Payload: payload})
+	if executor.calls != 1 {
+		t.Fatalf("confirmed effect must not retry, calls=%d", executor.calls)
+	}
+	result := decodeOnlyResult(t, bus)
+	if result.ErrorClass != string(ErrorClassConfirmed) || result.Status != StatusError {
+		t.Fatalf("unexpected confirmed result: %#v", result)
+	}
+}
+
+func TestServiceTreatsLateResponseAsTimeout(t *testing.T) {
+	payload, err := json.Marshal(contract.ActionRequest{
+		ID:        "act-late",
+		TimeoutMs: 1,
+		Action:    contract.Action{Type: "mqtt.publish"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := &recordingBus{}
+	service := &Service{Bus: bus, Executor: lateExecutor{}, Deduper: NewDeduper()}
+	service.HandleMessage(context.Background(), contract.Message{ID: "msg-late", Type: contract.EventActionRequest, Kind: contract.KindCommand, Source: "core", Payload: payload})
+	result := decodeOnlyResult(t, bus)
+	if result.Status != StatusTimeout || result.ErrorClass != string(ErrorClassTimeout) {
+		t.Fatalf("late response should be timeout: %#v", result)
+	}
+}
+
+func TestServiceReplaysPersistedResultWithoutExecuting(t *testing.T) {
+	store := NewMemoryResultStore()
+	payload, err := json.Marshal(contract.ActionRequest{
+		ID:             "act-restart",
+		IdempotencyKey: "idem-restart",
+		CommandID:      "cmd-restart",
+		Action:         contract.Action{Type: "device.command", Device: "light-1", Command: "on"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstBus := &recordingBus{}
+	firstExecutor := &recordingExecutor{result: ExecutionResult{Status: StatusSuccess}}
+	first := &Service{Bus: firstBus, Executor: firstExecutor, Store: store, Deduper: NewDeduper()}
+	msg := contract.Message{ID: "msg-restart", Type: contract.EventActionRequest, Kind: contract.KindCommand, Source: "core", Payload: payload}
+	first.HandleMessage(context.Background(), msg)
+	secondBus := &recordingBus{}
+	secondExecutor := &recordingExecutor{result: ExecutionResult{Status: StatusSuccess}}
+	second := &Service{Bus: secondBus, Executor: secondExecutor, Store: store, Deduper: NewDeduper()}
+	second.HandleMessage(context.Background(), msg)
+	if secondExecutor.calls != 0 {
+		t.Fatalf("persisted result should prevent execution after restart, calls=%d", secondExecutor.calls)
+	}
+	result := decodeOnlyResult(t, secondBus)
+	if result.Status != StatusSuccess || result.Data["duplicate"] != true {
+		t.Fatalf("unexpected replayed result: %#v", result)
 	}
 }
 

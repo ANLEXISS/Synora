@@ -22,6 +22,7 @@ const (
 	DefaultFaceDataRoot       = "/var/lib/synora/vision/face"
 	DefaultModelRoot          = "/var/lib/synora/models"
 	DefaultBackupRoot         = "/var/lib/synora/backups"
+	DefaultActionResultsPath  = "/var/lib/synora/actions/results.json"
 	DefaultWebRoot            = "/var/lib/synora/web"
 	DefaultMediaMTXRTSPURL    = "rtsp://10.77.0.1:8554"
 	DefaultHTTPAddr           = ":8080"
@@ -51,6 +52,7 @@ type Paths struct {
 	FaceDataRoot       string
 	ModelRoot          string
 	BackupRoot         string
+	ActionResults      string
 	WebRoot            string
 	MediaMTXConfig     string
 	OTAJournal         string
@@ -112,6 +114,7 @@ func Defaults() Config {
 			FaceDataRoot:       DefaultFaceDataRoot,
 			ModelRoot:          DefaultModelRoot,
 			BackupRoot:         DefaultBackupRoot,
+			ActionResults:      DefaultActionResultsPath,
 			WebRoot:            DefaultWebRoot,
 			MediaMTXConfig:     filepath.Join(configDir, "mediamtx.yml"),
 			OTAJournal:         filepath.Join("/var/lib/synora", "ota", "update.json"),
@@ -193,6 +196,7 @@ func Load(getenv func(string) string) (Config, error) {
 	set("SYNORA_FACE_DATA_ROOT", &cfg.Paths.FaceDataRoot)
 	set("SYNORA_MODEL_ROOT", &cfg.Paths.ModelRoot)
 	set("SYNORA_BACKUP_ROOT", &cfg.Paths.BackupRoot)
+	set("SYNORA_ACTION_RESULTS", &cfg.Paths.ActionResults)
 	set("SYNORA_WEB_ROOT", &cfg.Paths.WebRoot)
 	set("SYNORA_MEDIAMTX_CONFIG", &cfg.Paths.MediaMTXConfig)
 	set("SYNORA_OTA_JOURNAL", &cfg.Paths.OTAJournal)
@@ -242,7 +246,7 @@ func (c Config) Validate() error {
 		"cge_profile": c.Paths.CGEProfile, "cge_feedback": c.Paths.CGEFeedback,
 		"network_config": c.Paths.NetworkConfig, "bus_socket": c.Paths.BusSocket, "vision_worker_socket": c.Paths.VisionWorkerSocket,
 		"state": c.Paths.State, "clip_root": c.Paths.ClipRoot, "face_data_root": c.Paths.FaceDataRoot,
-		"model_root": c.Paths.ModelRoot, "backup_root": c.Paths.BackupRoot, "web_root": c.Paths.WebRoot,
+		"model_root": c.Paths.ModelRoot, "backup_root": c.Paths.BackupRoot, "action_results": c.Paths.ActionResults, "web_root": c.Paths.WebRoot,
 		"mediamtx_config": c.Paths.MediaMTXConfig, "ota_journal": c.Paths.OTAJournal,
 		"camera_ota_root": c.Paths.CameraOTARoot, "connectivity_root": c.Paths.ConnectivityRoot, "session_store": c.Paths.SessionStore, "identity_registry": c.Paths.IdentityRegistry, "version_file": c.Paths.VersionFile, "tls_cert": c.Paths.TLSCert, "tls_key": c.Paths.TLSKey,
 	}

@@ -133,6 +133,7 @@ func (r ActionRequest) Validate() error {
 	}
 	for name, value := range map[string]string{
 		"action request id": r.ID, "action request_id": r.RequestID,
+		"action command_id":     r.CommandID,
 		"action correlation_id": r.CorrelationID, "action target": r.Target,
 		"action source": r.Source, "action idempotency_key": r.IdempotencyKey,
 	} {
@@ -152,11 +153,15 @@ func (r ActionResult) Validate() error {
 	}
 	for name, value := range map[string]string{
 		"action result id": r.ID, "action result request_id": r.RequestID,
+		"action result command_id": r.CommandID, "action result idempotency_key": r.IdempotencyKey,
 		"action result action_id": r.ActionID, "action result target": r.Target,
 	} {
 		if err := validateOptionalIdentifier(name, value); err != nil {
 			return err
 		}
+	}
+	if r.Attempt < 0 || r.Attempts < 0 || r.TimeoutMs < 0 || r.DurationMs < 0 {
+		return fmt.Errorf("action result attempt, timeout and duration cannot be negative")
 	}
 	return nil
 }
