@@ -1,5 +1,31 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M040
+
+- Jalon : M040 — Santé, métriques et audit
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m040-health-metrics-audit`
+- Branche dédiée : `codex/v1-m040-health-metrics-audit`
+- Commit code/tests : `42eac8b`
+- Santé : les endpoints publics `/health/live` et `/health/ready` exposent
+  uniquement un état borné ; la readiness distingue le fonctionnement nominal
+  du mode dégradé et applique un délai maximal au diagnostic de dépendance.
+- Métriques : l’exposition Prometheus reste limitée à des compteurs et jauges
+  fixes, sans labels de chemin, query string, identité ou donnée métier ; les
+  métriques ne pilotent aucune décision métier.
+- Audit : les requêtes sont journalisées en JSON avec identifiant de requête,
+  corrélations événement/clip/incident validées, chemin expurgé et durée ; les
+  query strings, secrets et valeurs de corrélation invalides ne sont pas
+  journalisés.
+- Couverture : liveness, readiness nominale/dégradée, timeout de dépendance,
+  cardinalité bornée, absence de labels sensibles et validation des
+  corrélations.
+- Validation : tests Web déterministes `npm test` — PASS (4 tests), Go
+  complet — PASS, `go test -race ./cmd/synora-api` — PASS, `go vet` — PASS,
+  build Go — PASS, tests Python Vision — PASS (35), qualification
+  fonctionnelle — PASS (8), `git diff --check` — PASS. `npm run lint` et
+  `npm run build` restent indisponibles ici car `oxlint` et `tsc` sont absents ;
+  aucune dépendance n’a été installée.
+
 ## MASTER_PLAN — M039
 
 - Jalon : M039 — Onboarding et récupération locale
