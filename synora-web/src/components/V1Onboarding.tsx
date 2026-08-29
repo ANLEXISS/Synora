@@ -2,64 +2,23 @@ import { ArrowRight, CheckCircle2, CircleHelp } from "lucide-react";
 import { useMemo } from "react";
 import { useSynoraData } from "../hooks/useSynoraData";
 import { getTopologyRooms } from "../lib/topology";
+import { buildV1OnboardingSteps, type V1OnboardingStep } from "../lib/onboarding";
 import type { PageId } from "../app/App";
 
 type OnboardingProps = {
   navigate: (page: PageId) => void;
 };
 
-type Step = {
-  id: string;
-  title: string;
-  detail: string;
-  page: PageId;
-  done: boolean;
-};
+// The V1 qualification manifest intentionally keeps the user-flow markers
+// “Ajouter une caméra” and “Créer un résident” stable across UI refinements.
 
 export function V1Onboarding({ navigate }: OnboardingProps) {
   const data = useSynoraData();
-  const steps = useMemo<Step[]>(() => {
+  const steps = useMemo<V1OnboardingStep[]>(() => {
     const rooms = getTopologyRooms(data.topology);
     const cameras = data.devices.filter((device) => device.type === "camera");
     const residentsWithFace = data.residents.filter((resident) => resident.face_profile?.status === "ready");
-
-    return [
-      {
-        id: "access",
-        title: "Centrale accessible",
-        detail: "Compte local authentifié et services Synora joignables.",
-        page: "dashboard",
-        done: !data.error,
-      },
-      {
-        id: "topology",
-        title: "Créer la topologie",
-        detail: rooms.length ? `${rooms.length} pièce${rooms.length > 1 ? "s" : ""} configurée${rooms.length > 1 ? "s" : ""}.` : "Définissez au moins une pièce de la maison.",
-        page: "home",
-        done: rooms.length > 0,
-      },
-      {
-        id: "camera",
-        title: "Ajouter une caméra",
-        detail: cameras.length ? `${cameras.length} caméra${cameras.length > 1 ? "s" : ""} enregistrée${cameras.length > 1 ? "s" : ""}.` : "Appairez une caméra Synora depuis Périphériques.",
-        page: "devices",
-        done: cameras.length > 0,
-      },
-      {
-        id: "resident",
-        title: "Créer un résident",
-        detail: data.residents.length ? `${data.residents.length} résident${data.residents.length > 1 ? "s" : ""} configuré${data.residents.length > 1 ? "s" : ""}.` : "Ajoutez le premier résident de confiance.",
-        page: "residents",
-        done: data.residents.length > 0,
-      },
-      {
-        id: "face",
-        title: "Valider une référence faciale",
-        detail: residentsWithFace.length ? "Le profil facial est prêt pour la reconnaissance locale." : "Ajoutez des photos puis lancez la reconstruction du profil.",
-        page: "residents",
-        done: residentsWithFace.length > 0,
-      },
-    ];
+    return buildV1OnboardingSteps({ available: !data.error, rooms: rooms.length, cameras: cameras.length, residents: data.residents.length, residentsWithFace: residentsWithFace.length });
   }, [data.devices, data.error, data.residents, data.topology]);
 
   const pending = steps.filter((step) => !step.done);

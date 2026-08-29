@@ -29,6 +29,13 @@ export function loginWithCredentials(login: string, password: string) {
   });
 }
 
+export function bootstrapAdmin(login: string, password: string) {
+  return synoraFetch<SynoraAuthResponse>("/api/auth/bootstrap", {
+    method: "POST",
+    body: JSON.stringify({ login, password }),
+  });
+}
+
 export function getCurrentUser() {
   return synoraFetch<SynoraAuthResponse>("/api/auth/me");
 }
