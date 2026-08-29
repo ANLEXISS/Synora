@@ -1,5 +1,32 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M042
+
+- Jalon : M042 — Sauvegarde et restauration cohérentes
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m042-backup-restore`
+- Branche dédiée : `codex/v1-m042-backup-restore`
+- Commit code/tests : `31beb30`
+- Périmètre : le snapshot couvre l’état persisté (comptes/logique locale,
+  résidents, incidents, présence, métadonnées clips, sources et dataset
+  facial), ainsi que les configurations persistantes, topologie et registre
+  d’identités présents. Les clips vidéo et les uploads faciaux temporaires,
+  reconstructibles, ne sont pas copiés.
+- Sécurité : la CLI exige `SYNORA_BACKUP_SECRET` ; l’état et les fichiers
+  sont chiffrés en AES-256-GCM, avec manifeste versionné et checksums SHA-256
+  des données stockées. Les permissions restent privées et le secret n’est
+  jamais écrit dans le manifeste ou les logs.
+- Restauration : toutes les versions, checksums, destinations, symlinks et
+  traversals sont vérifiés avant mutation ; les écritures sont atomiques et
+  les fichiers déjà remplacés sont restaurés si la restauration est
+  interrompue. Les versions d’état V1 supportées sont migrées explicitement ;
+  une version future est refusée.
+- Couverture : backup pendant activité, source imbriquée, fichier manquant ou
+  corrompu, symlink/traversal, version future, mauvais secret, espace
+  insuffisant, interruption et rollback complet.
+- Validation : tests backup ciblés avec race — PASS, `go vet` ciblé — PASS,
+  build ciblé — PASS, `git diff --check` — PASS. La validation V1 complète
+  sera rejouée après intégration.
+
 ## MASTER_PLAN — M041
 
 - Jalon : M041 — Backpressure et budgets ressources
