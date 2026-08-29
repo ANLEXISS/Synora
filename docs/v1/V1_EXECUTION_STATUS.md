@@ -1,5 +1,34 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M038
+
+- Jalon : M038 — Écrans Devices et Topologie
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m038-devices-topology`
+- Branche dédiée : `codex/v1-m038-devices-topology`
+- Commit code/tests : `a7bfb79`
+- Devices : l’interface distingue désormais online, dégradé, offline, jamais
+  vue, en attente, non appairée et révoquée ; la révocation caméra est
+  réservée à l’administrateur, confirmée après rafraîchissement et désactive
+  l’accès réseau via l’endpoint existant.
+- Pairing/topologie : renommage, déplacement, activation et pairing conservent
+  la confirmation backend et la topologie normalisée ; les doubles clics sont
+  ignorés pendant une mutation et les états de session restent explicites.
+- Flux : le statut MediaMTX et la disponibilité live restent visibles, mais
+  aucune URL RTSP de publication, clé imprimée ou secret dérivé n’est
+  réaffiché dans l’écran Devices.
+- Couverture : statut caméra et confiance réseau, révocation, permissions,
+  renommage, déplacement, pairing et protection anti-double soumission. Les
+  cas backend de clé erronée, limitation, reprise/expiration de session,
+  doublon, concurrence et reconnexion restent couverts par les tests pairing
+  et API de M027/M032.
+- Validation : tests Web déterministes `npm test` — PASS (4 tests), Go
+  complet — PASS, `go vet` — PASS, build Go — PASS, tests Python Vision —
+  PASS (35), qualification fonctionnelle — PASS, `git diff --check` — PASS.
+  Deux intermittences préexistantes (`internal/bus` et `cmd/synora-core`)
+  ont été isolées cinq fois avec succès avant la suite complète. `npm run
+  lint` et `npm run build` restent indisponibles ici car `oxlint` et `tsc`
+  sont absents ; aucune dépendance n’a été installée.
+
 ## MASTER_PLAN — M037
 
 - Jalon : M037 — Écran Résidents fiable
