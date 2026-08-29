@@ -52,6 +52,21 @@ func TestSkeletonApplyIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestUnsupportedMigrationFailsBeforeMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "security.yaml")
+	original := []byte("schema_version: 0\napi_token_hash: hashed\n")
+	if err := os.WriteFile(path, original, 0640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(path, 0, 4, false); err == nil {
+		t.Fatal("unsupported migration target accepted")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != string(original) {
+		t.Fatalf("failed migration mutated configuration: data=%q err=%v", data, err)
+	}
+}
+
 func TestSanitizeError(t *testing.T) {
 	if got := SanitizeError(os.ErrPermission); got == "" {
 		t.Fatal("expected error")

@@ -71,3 +71,25 @@ func TestRecoverMarksInterruptedUpdateBad(t *testing.T) {
 		t.Fatalf("recovery calls=%v", calls)
 	}
 }
+
+func TestApplyRollsBackWhenInstallReportsInsufficientSpace(t *testing.T) {
+	bundle := filepath.Join(t.TempDir(), "update.raucb")
+	if err := os.WriteFile(bundle, []byte("bundle"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		if name == "rauc" && len(args) > 0 && args[0] == "install" {
+			return []byte("not enough space"), errors.New("no space left on device")
+		}
+		return nil, nil
+	}
+	c := NewController(run, "rauc", "healthcheck")
+	if err := c.Apply(context.Background(), bundle); err == nil {
+		t.Fatal("insufficient space accepted")
+	}
+	if len(calls) != 2 || calls[1] != "rauc status mark-bad" {
+		t.Fatalf("insufficient-space rollback calls=%v", calls)
+	}
+}

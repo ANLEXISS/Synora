@@ -46,6 +46,10 @@ func (m *BundleManifest) Sign(privateKey ed25519.PrivateKey) error {
 }
 
 func VerifyBundleManifest(bundle string, manifest BundleManifest, publicKey ed25519.PublicKey, currentVersion, hardware string) error {
+	return verifyBundleManifest(bundle, manifest, publicKey, currentVersion, hardware, 0)
+}
+
+func verifyBundleManifest(bundle string, manifest BundleManifest, publicKey ed25519.PublicKey, currentVersion, hardware string, currentMigration int) error {
 	if manifest.SchemaVersion != ManifestSchemaVersion || strings.TrimSpace(manifest.Version) == "" || len(publicKey) != ed25519.PublicKeySize || len(manifest.Signature) != ed25519.SignatureSize {
 		return errors.New("OTA manifest is invalid")
 	}
@@ -72,6 +76,12 @@ func VerifyBundleManifest(bundle string, manifest BundleManifest, publicKey ed25
 	}
 	if manifest.MinCoreVersion != "" && compareVersions(currentVersion, manifest.MinCoreVersion) < 0 {
 		return fmt.Errorf("OTA requires Core %s", manifest.MinCoreVersion)
+	}
+	if strings.TrimSpace(currentVersion) != "" && compareVersions(manifest.Version, currentVersion) < 0 {
+		return fmt.Errorf("OTA downgrade refused: current Core is %s, candidate is %s", currentVersion, manifest.Version)
+	}
+	if currentMigration > 0 && manifest.MigrationTarget < currentMigration {
+		return fmt.Errorf("OTA migration downgrade refused: current schema is %d, candidate targets %d", currentMigration, manifest.MigrationTarget)
 	}
 	if len(manifest.CompatibleHW) > 0 && !contains(manifest.CompatibleHW, hardware) {
 		return fmt.Errorf("OTA is not compatible with hardware %s", hardware)

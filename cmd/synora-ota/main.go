@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ func main() {
 	manifest := fs.String("manifest", envOr("SYNORA_OTA_MANIFEST", ""), "detached signed OTA manifest")
 	publicKeyPath := fs.String("public-key", envOr("SYNORA_OTA_PUBLIC_KEY", ""), "Ed25519 public key file")
 	currentVersion := fs.String("current-version", envOr("SYNORA_CORE_VERSION", "0.0.0"), "currently running Core version")
+	currentMigration := fs.Int("current-migration", envOrInt("SYNORA_MIGRATION_SCHEMA", 0), "currently applied configuration migration schema")
 	hardware := fs.String("hardware", envOr("SYNORA_HARDWARE", "rock-5b"), "hardware compatibility identifier")
 	journal := fs.String("journal", runtime.Paths.OTAJournal, "OTA transaction journal")
 	timeout := fs.Duration("timeout", 10*time.Minute, "operation timeout")
@@ -43,7 +45,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "synora-ota: invalid public key")
 			os.Exit(1)
 		}
-		controller.SetVerification(ota.Verification{ManifestPath: *manifest, PublicKey: ed25519.PublicKey(key), CurrentVersion: *currentVersion, Hardware: *hardware})
+		controller.SetVerification(ota.Verification{ManifestPath: *manifest, PublicKey: ed25519.PublicKey(key), CurrentVersion: *currentVersion, Hardware: *hardware, CurrentMigration: *currentMigration})
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
@@ -101,4 +103,16 @@ func envOr(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envOrInt(name string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return fallback
+	}
+	return parsed
 }

@@ -26,10 +26,11 @@ type Controller struct {
 }
 
 type Verification struct {
-	ManifestPath   string
-	PublicKey      ed25519.PublicKey
-	CurrentVersion string
-	Hardware       string
+	ManifestPath     string
+	PublicKey        ed25519.PublicKey
+	CurrentVersion   string
+	Hardware         string
+	CurrentMigration int
 }
 
 type UpdateJournal struct {
@@ -85,7 +86,7 @@ func (c *Controller) Apply(ctx context.Context, bundle string) error {
 		if err := json.Unmarshal(data, &manifest); err != nil {
 			return fmt.Errorf("OTA manifest decode failed: %w", err)
 		}
-		if err := VerifyBundleManifest(bundle, manifest, c.verification.PublicKey, c.verification.CurrentVersion, c.verification.Hardware); err != nil {
+		if err := verifyBundleManifest(bundle, manifest, c.verification.PublicKey, c.verification.CurrentVersion, c.verification.Hardware, c.verification.CurrentMigration); err != nil {
 			return err
 		}
 	}
