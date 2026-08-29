@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestMarkGoodRunsReadonlyHealthcheckBeforeRAUC(t *testing.T) {
@@ -39,6 +40,26 @@ func TestMarkGoodRefusesWhenHealthcheckFails(t *testing.T) {
 	}
 	if len(calls) != 1 || calls[0][0] != "healthcheck" {
 		t.Fatalf("RAUC was called after failed healthcheck: %#v", calls)
+	}
+}
+
+func TestMarkGoodRequiresDurableReadinessWindow(t *testing.T) {
+	healthChecks := 0
+	var calls []string
+	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, name)
+		if name == "healthcheck" {
+			healthChecks++
+		}
+		return nil, nil
+	}
+	c := NewController(run, "rauc", "healthcheck")
+	c.SetStabilityWindow(time.Millisecond)
+	if err := c.MarkGood(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if healthChecks != 2 || len(calls) != 3 || calls[2] != "rauc" {
+		t.Fatalf("calls=%v health checks=%d", calls, healthChecks)
 	}
 }
 

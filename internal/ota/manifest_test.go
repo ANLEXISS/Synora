@@ -70,4 +70,7 @@ func TestBundleManifestRejectsUnsignedInvalidAndDowngradeCandidates(t *testing.T
 	if err := verifyBundleManifest(bundle, manifest, publicKey, "1.3.0", "rock-5b", 4); err == nil {
 		t.Fatal("migration downgrade accepted")
 	}
+	if err := verifyBundleManifestWithPolicy(bundle, manifest, publicKey, "1.3.0", "rock-5b", 2, 4, nil); err == nil {
+		t.Fatal("security generation downgrade accepted")
+	}
 }

@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -120,12 +119,36 @@ func Apply(path string, currentSchema, targetSchema int, dryRun bool) (Result, e
 	if info, statErr := os.Stat(path); statErr == nil {
 		mode = info.Mode().Perm()
 	}
+	backup, err := configfile.BackupExisting(path, mode)
+	if err != nil {
+		return result, err
+	}
 	if err := configfile.WriteAtomicWithBackup(path, updated, mode); err != nil {
 		return result, err
 	}
 	result.Applied = result.Planned
-	result.Backup = filepath.Join(filepath.Dir(path), "backups")
+	result.Backup = backup
 	return result, nil
+}
+
+// RestoreCheckpoint restores the exact pre-migration bytes atomically. It is
+// intended for the OTA failure path and never removes the checkpoint.
+func RestoreCheckpoint(path, checkpoint string) error {
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(checkpoint) == "" {
+		return fmt.Errorf("migration checkpoint is required")
+	}
+	data, err := os.ReadFile(checkpoint)
+	if err != nil {
+		return fmt.Errorf("read migration checkpoint: %w", err)
+	}
+	mode := os.FileMode(0640)
+	if info, statErr := os.Stat(path); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	if err := configfile.WriteAtomicWithBackup(path, data, mode); err != nil {
+		return fmt.Errorf("restore migration checkpoint: %w", err)
+	}
+	return nil
 }
 
 func SchemaVersion(data []byte) int {

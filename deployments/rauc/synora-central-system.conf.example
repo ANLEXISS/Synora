@@ -1,0 +1,21 @@
+# M046 production template. Install only after the RK3588 bootloader and
+# partition labels have been validated by M047; this file is not applied by CI.
+[system]
+compatible=Synora Central
+bootloader=uboot
+boot-attempts=3
+
+[keyring]
+path=/etc/rauc/synora/central-ca-bundle.pem
+check-purpose=codesign
+check-crl=true
+
+[slot.rootfs.0]
+device=/dev/disk/by-partlabel/SYNORA_ROOT_A
+type=ext4
+bootname=A
+
+[slot.rootfs.1]
+device=/dev/disk/by-partlabel/SYNORA_ROOT_B
+type=ext4
+bootname=B

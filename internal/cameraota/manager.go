@@ -6,7 +6,9 @@ package cameraota
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,18 +18,49 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"synora/internal/ota"
 )
 
 const ManifestSchemaVersion = 1
 
 type Manifest struct {
-	SchemaVersion int    `json:"schema_version"`
-	Version       string `json:"version"`
-	Model         string `json:"model"`
-	MinBootloader string `json:"min_bootloader"`
-	Bytes         int64  `json:"bytes"`
-	SHA256        string `json:"sha256"`
-	Signature     []byte `json:"signature"`
+	SchemaVersion      int    `json:"schema_version"`
+	ProductID          string `json:"product_id,omitempty"`
+	Target             string `json:"target,omitempty"`
+	Version            string `json:"version"`
+	SecurityGeneration uint64 `json:"security_generation,omitempty"`
+	Model              string `json:"model"`
+	MinBootloader      string `json:"min_bootloader"`
+	Bytes              int64  `json:"bytes"`
+	SHA256             string `json:"sha256"`
+	Signature          []byte `json:"signature"`
+	SignatureAlgorithm string `json:"signature_algorithm,omitempty"`
+	ReleaseSignature   []byte `json:"release_signature,omitempty"`
+	SignerCertificate  []byte `json:"signer_certificate,omitempty"`
+	Signer             string `json:"signer,omitempty"`
+}
+
+// SignRelease uses the canonical central/camera release envelope while
+// retaining the camera-specific model and bootloader fields.
+func (m *Manifest) SignRelease(key *rsa.PrivateKey, certificate *x509.Certificate) error {
+	if m == nil {
+		return errors.New("camera OTA manifest is unavailable")
+	}
+	canonical := ota.BundleManifest{
+		SchemaVersion: m.SchemaVersion, ProductID: m.ProductID, Target: m.Target,
+		Version: m.Version, SecurityGeneration: m.SecurityGeneration,
+		CompatibleHW: []string{m.Model}, BundleBytes: m.Bytes, BundleSHA256: m.SHA256,
+	}
+	if err := canonical.SignRelease(key, certificate); err != nil {
+		return err
+	}
+	m.Signature = nil
+	m.SignatureAlgorithm = canonical.SignatureAlgorithm
+	m.ReleaseSignature = canonical.ReleaseSignature
+	m.SignerCertificate = canonical.SignerCertificate
+	m.Signer = canonical.Signer
+	return nil
 }
 
 func (m Manifest) signingBytes() ([]byte, error) {
@@ -49,6 +82,10 @@ func (m *Manifest) Sign(key ed25519.PrivateKey) error {
 }
 
 func VerifyManifest(bundle string, manifest Manifest, key ed25519.PublicKey, model, bootloader string) error {
+	return verifyManifest(bundle, manifest, key, model, bootloader, 0)
+}
+
+func verifyManifest(bundle string, manifest Manifest, key ed25519.PublicKey, model, bootloader string, currentGeneration uint64) error {
 	if manifest.SchemaVersion != ManifestSchemaVersion || manifest.Version == "" || manifest.Model == "" || len(key) != ed25519.PublicKeySize || len(manifest.Signature) != ed25519.SignatureSize {
 		return errors.New("invalid camera OTA manifest")
 	}
@@ -71,6 +108,31 @@ func VerifyManifest(bundle string, manifest Manifest, key ed25519.PublicKey, mod
 	signing, err := manifest.signingBytes()
 	if err != nil || !ed25519.Verify(key, signing, manifest.Signature) {
 		return errors.New("camera OTA signature verification failed")
+	}
+	if manifest.Model != model {
+		return fmt.Errorf("camera OTA model mismatch: %s", model)
+	}
+	if manifest.MinBootloader != "" && compareVersion(bootloader, manifest.MinBootloader) < 0 {
+		return fmt.Errorf("camera OTA requires bootloader %s", manifest.MinBootloader)
+	}
+	if manifest.SecurityGeneration < currentGeneration {
+		return fmt.Errorf("camera OTA security generation downgrade refused: current is %d, candidate is %d", currentGeneration, manifest.SecurityGeneration)
+	}
+	return nil
+}
+
+// VerifyReleaseManifest adapts the camera envelope to the canonical RSA/X.509
+// release verifier. Ed25519 remains available above for legacy compatibility.
+func VerifyReleaseManifest(bundle string, manifest Manifest, profile *ota.ReleasePKI, model, bootloader string, currentGeneration uint64) error {
+	canonical := ota.BundleManifest{
+		SchemaVersion: manifest.SchemaVersion, ProductID: manifest.ProductID, Target: manifest.Target,
+		Version: manifest.Version, SecurityGeneration: manifest.SecurityGeneration,
+		CompatibleHW: []string{model}, BundleBytes: manifest.Bytes, BundleSHA256: manifest.SHA256,
+		SignatureAlgorithm: manifest.SignatureAlgorithm, ReleaseSignature: manifest.ReleaseSignature,
+		SignerCertificate: manifest.SignerCertificate, Signer: manifest.Signer,
+	}
+	if err := ota.VerifyReleaseBundleManifest(bundle, canonical, profile, "", model, 0, currentGeneration); err != nil {
+		return err
 	}
 	if manifest.Model != model {
 		return fmt.Errorf("camera OTA model mismatch: %s", model)
@@ -118,21 +180,36 @@ type Result struct {
 }
 
 type Manager struct {
-	Root      string
-	PublicKey ed25519.PublicKey
-	Transport Transport
-	Now       func() time.Time
+	Root                      string
+	PublicKey                 ed25519.PublicKey
+	ReleasePKI                *ota.ReleasePKI
+	CurrentSecurityGeneration uint64
+	Transport                 Transport
+	Now                       func() time.Time
+	StabilityWindow           time.Duration
 }
 
 func New(root string, key ed25519.PublicKey, transport Transport) *Manager {
-	return &Manager{Root: filepath.Clean(strings.TrimSpace(root)), PublicKey: key, Transport: transport, Now: func() time.Time { return time.Now().UTC() }}
+	return &Manager{Root: filepath.Clean(strings.TrimSpace(root)), PublicKey: key, Transport: transport, Now: func() time.Time { return time.Now().UTC() }, StabilityWindow: 60 * time.Second}
+}
+
+const CameraRollbackTimeout = 3 * time.Minute
+
+func (m *Manager) SetStabilityWindow(window time.Duration) {
+	if m != nil && window >= 0 {
+		m.StabilityWindow = window
+	}
 }
 
 func (m *Manager) Apply(ctx context.Context, deviceID, bundle string, manifest Manifest, model, bootloader string) (Result, error) {
 	if m == nil || m.Transport == nil || !safeComponent(deviceID) {
 		return Result{}, errors.New("camera OTA dependencies unavailable")
 	}
-	if err := VerifyManifest(bundle, manifest, m.PublicKey, model, bootloader); err != nil {
+	if m.ReleasePKI != nil {
+		if err := VerifyReleaseManifest(bundle, manifest, m.ReleasePKI, model, bootloader, m.CurrentSecurityGeneration); err != nil {
+			return Result{}, err
+		}
+	} else if err := verifyManifest(bundle, manifest, m.PublicKey, model, bootloader, m.CurrentSecurityGeneration); err != nil {
 		return Result{}, err
 	}
 	now := m.Now()
@@ -180,6 +257,24 @@ func (m *Manager) Apply(ctx context.Context, deviceID, bundle string, manifest M
 		_ = m.save(record)
 		return Result{}, err
 	}
+	if m.StabilityWindow > 0 {
+		timer := time.NewTimer(m.StabilityWindow)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			_ = m.Transport.MarkBad(ctx, deviceID)
+			record.Phase = PhaseRolledBack
+			_ = m.save(record)
+			return Result{}, ctx.Err()
+		case <-timer.C:
+		}
+		if err := m.Transport.Health(ctx, deviceID); err != nil {
+			_ = m.Transport.MarkBad(ctx, deviceID)
+			record.Phase = PhaseRolledBack
+			_ = m.save(record)
+			return Result{}, err
+		}
+	}
 	if err := m.Transport.MarkGood(ctx, deviceID); err != nil {
 		_ = m.Transport.MarkBad(ctx, deviceID)
 		record.Phase = PhaseRolledBack
@@ -216,7 +311,7 @@ func (m *Manager) PrepareRecoveryImage(output, bundle string, manifest Manifest)
 	if m == nil || !filepath.IsAbs(output) || !safeComponent(manifest.Version) {
 		return errors.New("invalid recovery image target")
 	}
-	if err := VerifyManifest(bundle, manifest, m.PublicKey, manifest.Model, "999.0.0"); err != nil {
+	if err := verifyManifest(bundle, manifest, m.PublicKey, manifest.Model, "999.0.0", m.CurrentSecurityGeneration); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(output), 0o750); err != nil {

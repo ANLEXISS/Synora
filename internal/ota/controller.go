@@ -13,24 +13,31 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"synora/internal/migrations"
 )
 
 type Runner func(context.Context, string, ...string) ([]byte, error)
 
 type Controller struct {
-	run          Runner
-	raucBinary   string
-	healthcheck  string
-	verification Verification
-	journalPath  string
+	run              Runner
+	raucBinary       string
+	healthcheck      string
+	verification     Verification
+	journalPath      string
+	stabilityWindow  time.Duration
+	migrationPath    string
+	currentMigration int
 }
 
 type Verification struct {
-	ManifestPath     string
-	PublicKey        ed25519.PublicKey
-	CurrentVersion   string
-	Hardware         string
-	CurrentMigration int
+	ManifestPath              string
+	PublicKey                 ed25519.PublicKey
+	ReleasePKI                *ReleasePKI
+	CurrentVersion            string
+	CurrentSecurityGeneration uint64
+	Hardware                  string
+	CurrentMigration          int
 }
 
 type UpdateJournal struct {
@@ -70,6 +77,20 @@ func (c *Controller) SetJournalPath(path string) {
 	}
 }
 
+// SetMigration configures the persistent configuration target used after the
+// inactive slot is installed and before readiness is evaluated.
+func (c *Controller) SetMigration(path string, currentSchema int) {
+	if c != nil {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			c.migrationPath = ""
+		} else {
+			c.migrationPath = filepath.Clean(path)
+		}
+		c.currentMigration = currentSchema
+	}
+}
+
 // Apply verifies, installs and marks the new slot good. Any failure after the
 // install command requests RAUC mark-bad, leaving bootloader rollback in
 // charge of the platform rather than pretending userspace can switch slots.
@@ -86,7 +107,7 @@ func (c *Controller) Apply(ctx context.Context, bundle string) error {
 		if err := json.Unmarshal(data, &manifest); err != nil {
 			return fmt.Errorf("OTA manifest decode failed: %w", err)
 		}
-		if err := verifyBundleManifest(bundle, manifest, c.verification.PublicKey, c.verification.CurrentVersion, c.verification.Hardware, c.verification.CurrentMigration); err != nil {
+		if err := verifyBundleManifestWithPolicy(bundle, manifest, c.verification.PublicKey, c.verification.CurrentVersion, c.verification.Hardware, c.verification.CurrentMigration, c.verification.CurrentSecurityGeneration, c.verification.ReleasePKI); err != nil {
 			return err
 		}
 	}
@@ -98,11 +119,41 @@ func (c *Controller) Apply(ctx context.Context, bundle string) error {
 		_ = c.writeJournal("rolled_back", bundle)
 		return err
 	}
+	var migrationBackup string
+	if c.migrationPath != "" && c.verification.ManifestPath != "" {
+		data, err := os.ReadFile(c.verification.ManifestPath)
+		if err != nil {
+			_ = c.MarkBad(ctx)
+			_ = c.writeJournal("rolled_back", bundle)
+			return fmt.Errorf("OTA manifest unavailable for migration: %w", err)
+		}
+		var manifest BundleManifest
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			_ = c.MarkBad(ctx)
+			_ = c.writeJournal("rolled_back", bundle)
+			return fmt.Errorf("OTA manifest decode failed for migration: %w", err)
+		}
+		if manifest.MigrationTarget > c.currentMigration {
+			result, err := migrations.Apply(c.migrationPath, c.currentMigration, manifest.MigrationTarget, false)
+			if err != nil {
+				_ = c.MarkBad(ctx)
+				_ = c.writeJournal("rolled_back", bundle)
+				return fmt.Errorf("OTA migration failed: %s", migrations.SanitizeError(err))
+			}
+			migrationBackup = result.Backup
+		}
+	}
 	if err := c.writeJournal("installed", bundle); err != nil {
+		if migrationBackup != "" {
+			_ = migrations.RestoreCheckpoint(c.migrationPath, migrationBackup)
+		}
 		_ = c.MarkBad(ctx)
 		return err
 	}
 	if err := c.MarkGood(ctx); err != nil {
+		if migrationBackup != "" {
+			_ = migrations.RestoreCheckpoint(c.migrationPath, migrationBackup)
+		}
 		_ = c.MarkBad(ctx)
 		_ = c.writeJournal("rolled_back", bundle)
 		return err
@@ -245,10 +296,31 @@ func (c *Controller) MarkGood(ctx context.Context) error {
 	if _, err := c.run(ctx, c.healthcheck, "run", "--readonly"); err != nil {
 		return fmt.Errorf("boot healthcheck failed; mark-good refused: %w", err)
 	}
+	if c.stabilityWindow > 0 {
+		timer := time.NewTimer(c.stabilityWindow)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("readiness stability window failed: %w", ctx.Err())
+		case <-timer.C:
+		}
+		if _, err := c.run(ctx, c.healthcheck, "run", "--readonly"); err != nil {
+			return fmt.Errorf("readiness stability window failed; mark-good refused: %w", err)
+		}
+	}
 	if _, err := c.run(ctx, c.raucBinary, "status", "mark-good"); err != nil {
 		return fmt.Errorf("RAUC mark-good failed: %w", err)
 	}
 	return nil
+}
+
+// SetStabilityWindow configures the required healthy post-boot window. The
+// command-line production profile sets this to 120 seconds; tests may use
+// zero to remain deterministic and immediate.
+func (c *Controller) SetStabilityWindow(window time.Duration) {
+	if c != nil && window >= 0 {
+		c.stabilityWindow = window
+	}
 }
 
 func (c *Controller) MarkBad(ctx context.Context) error {
