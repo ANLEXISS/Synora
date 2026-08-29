@@ -52,12 +52,15 @@ type websocketHub struct {
 }
 
 type websocketClient struct {
-	hub  *websocketHub
-	conn *websocket.Conn
-	send chan []byte
-	done chan struct{}
-	once sync.Once
+	hub          *websocketHub
+	conn         *websocket.Conn
+	send         chan []byte
+	done         chan struct{}
+	once         sync.Once
+	sessionValid func() bool
 }
+
+type wsSessionValidatorContextKey struct{}
 
 type websocketBus interface {
 	SubscribeChannel(string) <-chan contract.Message
@@ -341,7 +344,8 @@ func (h *websocketHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	client := &websocketClient{hub: h, conn: conn, send: make(chan []byte, wsClientQueueSize), done: make(chan struct{})}
+	validator, _ := r.Context().Value(wsSessionValidatorContextKey{}).(func() bool)
+	client := &websocketClient{hub: h, conn: conn, send: make(chan []byte, wsClientQueueSize), done: make(chan struct{}), sessionValid: validator}
 
 	// Serializing this short handshake with publication gives the client a
 	// coherent snapshot cursor without taking any StateStore lock.
@@ -566,6 +570,10 @@ func (c *websocketClient) writePump() {
 				return
 			}
 		case <-ticker.C:
+			if c.sessionValid != nil && !c.sessionValid() {
+				_ = c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "session revoked"), time.Now().Add(writeWait))
+				return
+			}
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return

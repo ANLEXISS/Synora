@@ -175,6 +175,40 @@ func TestWebSocketWithCookieSessionReceivesInitialSnapshot(t *testing.T) {
 	_ = readInitialSnapshot(t, conn)
 }
 
+func TestWebSocketClosesAfterCookieSessionRevocation(t *testing.T) {
+	core := &dynamicStateCore{state: emptyPublicSnapshot()}
+	hub := newWebSocketHub(core)
+	hub.pingInterval = 10 * time.Millisecond
+	hub.writeWait = 100 * time.Millisecond
+	defer hub.Close()
+	store, err := webapi.NewSessionStore(t.TempDir()+"/sessions.json", time.Hour, "fingerprint")
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := webapi.NewAuthService(store, nil)
+	sessionID, _, err := store.Create(webapi.AuthUser{ID: "admin-1", Role: "admin", Source: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &security.Config{}
+	server := newIPv4TestServer(t, apiAuthMiddlewareWithAuth(cfg, auth, false, hub))
+	defer server.Close()
+	header := http.Header{"Cookie": []string{webapi.SessionCookieName + "=" + sessionID}}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL(server.URL)+"/api/ws", header)
+	if err != nil {
+		t.Fatalf("websocket cookie dial: %v", err)
+	}
+	defer conn.Close()
+	discardInitial(t, conn)
+	if err := store.Revoke(sessionID); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	if _, _, err := conn.ReadMessage(); err == nil {
+		t.Fatal("revoked cookie session kept websocket open")
+	}
+}
+
 func TestWebSocketAcceptsQueryTokenForBrowserTests(t *testing.T) {
 	core := &dynamicStateCore{state: emptyPublicSnapshot()}
 	hub := newWebSocketHub(core)
