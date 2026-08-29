@@ -265,6 +265,14 @@ func TestAuthLoginCookieSecureFollowsRequestTransport(t *testing.T) {
 	}
 }
 
+func TestRequestIsHTTPSDoesNotTrustUnconfiguredForwardedProto(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "http://synora.local/api/state", nil)
+	request.Header.Set("X-Forwarded-Proto", "https")
+	if RequestIsHTTPS(request) {
+		t.Fatal("untrusted forwarded proto changed transport security")
+	}
+}
+
 func TestSessionStorePersistsHashesAndInvalidatesOnTokenRotation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth", "sessions.json")
 	store, err := NewSessionStore(path, time.Hour, "fingerprint-a")

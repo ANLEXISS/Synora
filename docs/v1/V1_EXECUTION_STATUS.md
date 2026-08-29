@@ -1,5 +1,27 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M030
+
+- Jalon : M030 — Frontière HTTPS et WebSocket
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m030-https-ws`
+- Branche dédiée : `codex/v1-m030-https-ws`
+- HTTPS : lorsque TLS est activé et valide, HTTP devient un listener de
+  redirection et HTTPS sert le handler applicatif ; les certificats/clé
+  absents ou non réguliers refusent le démarrage.
+- Proxy : aucun `X-Forwarded-*` n’est accepté sans frontière de confiance
+  explicitement configurée ; le transport HTTPS est déterminé par TLS natif.
+- WebSocket : authentification avant upgrade, Origin contrôlée, limite de
+  message 1 MiB, file d’envoi bornée, délais, ping/pong, fermeture explicite
+  des clients lents et reprise/resynchronisation par epoch/révision.
+  Les sessions cookie sont revalidées périodiquement et ferment la connexion
+  après expiration ou révocation.
+- Couverture : séparation HTTP/HTTPS, transport forwarded non fiable, Origin,
+  authentification, limite et backpressure WebSocket, ping/pong, reprise,
+  session révoquée et absence de snapshot avant authentification.
+- Validation : à compléter avec Go complet, vet, build, race, Python,
+  qualification fonctionnelle, `git diff --check` et vérification des deux
+  worktrees avant intégration.
+
 ## MASTER_PLAN — M029
 
 - Jalon : M029 — Administrateurs, sessions et rôles

@@ -308,7 +308,9 @@ func RequestIsHTTPS(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
 	}
-	return strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]), "https")
+	// Forwarded headers are not trusted without an explicit, validated proxy
+	// boundary. Native TLS is the only authoritative signal here.
+	return false
 }
 
 func SessionCookie(r *http.Request, rawID string, expiresAt time.Time) *http.Cookie {

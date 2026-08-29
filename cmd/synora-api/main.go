@@ -310,12 +310,15 @@ func main() {
 		auth,
 		getenvBool("SYNORA_WS_QUERY_TOKEN", false),
 	)
+	httpHandler := handler
 	if httpsEnabled {
-		handler = redirectHTTPToHTTPS(handler, httpsAddr)
+		// HTTP is only the redirect listener. The TLS listener must receive
+		// the real handler or HTTPS requests would redirect to themselves.
+		httpHandler = redirectHTTPToHTTPS(handler, httpsAddr)
 	}
 	httpServer := &http.Server{
 		Addr:              httpAddr,
-		Handler:           handler,
+		Handler:           httpHandler,
 		ReadTimeout:       runtime.Timeouts.HTTPRead,
 		WriteTimeout:      runtime.Timeouts.HTTPWrite,
 		IdleTimeout:       runtime.Timeouts.HTTPIdle,
@@ -585,7 +588,14 @@ func apiAuthMiddlewareWithAuth(
 			return
 		}
 
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authPrincipalContextKey{}, principal)))
+		requestContext := context.WithValue(r.Context(), authPrincipalContextKey{}, principal)
+		if sessionOK && !bearerOK && auth != nil {
+			requestContext = context.WithValue(requestContext, wsSessionValidatorContextKey{}, func() bool {
+				_, valid := authSession(auth, r)
+				return valid
+			})
+		}
+		next.ServeHTTP(w, r.WithContext(requestContext))
 	})
 }
 
