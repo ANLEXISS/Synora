@@ -535,18 +535,19 @@ func apiAuthMiddlewareWithAuth(
 		// The camera claim is the one intentionally narrow unauthenticated
 		// pairing surface. It still requires an active, short-lived network
 		// pairing window and a one-time setup token in the handler.
-		if r.URL.Path == "/api/devices/pairing/synora-camera/claim" && r.Method == http.MethodPost && network.PairingWindowActive() {
+		path := canonicalAPIPath(r.URL.Path)
+		if path == "/api/devices/pairing/synora-camera/claim" && r.Method == http.MethodPost && network.PairingWindowActive() {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.URL.Path == "/api/system/health" && cfg != nil && cfg.PublicSystemHealth {
+		if path == "/api/system/health" && cfg != nil && cfg.PublicSystemHealth {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		token, bearerProvided := bearerToken(r.Header.Get("Authorization"))
 		bearerOK := bearerProvided && cfg != nil && cfg.VerifyAPIToken(token)
-		if !bearerProvided && allowQueryToken && (r.URL.Path == "/api/ws" || r.URL.Path == "/ws") {
+		if !bearerProvided && allowQueryToken && (path == "/api/ws" || path == "/ws") {
 			token = strings.TrimSpace(r.URL.Query().Get("token"))
 			bearerProvided = token != ""
 			bearerOK = bearerProvided && cfg != nil && cfg.VerifyAPIToken(token)
@@ -554,10 +555,18 @@ func apiAuthMiddlewareWithAuth(
 
 		session, sessionOK := authSession(auth, r)
 		if !bearerOK && !sessionOK {
+			if isAPIV1Path(r.URL.Path) {
+				writeAPIV1Error(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+				return
+			}
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 			return
 		}
 		if !bearerOK && sessionOK && isMutatingMethod(r.Method) && !sameOriginRequest(r, cfg) {
+			if isAPIV1Path(r.URL.Path) {
+				writeAPIV1Error(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+				return
+			}
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 			return
 		}
@@ -568,6 +577,10 @@ func apiAuthMiddlewareWithAuth(
 		}
 		permission := requiredAPIPermission(r)
 		if permission != "" && !principal.HasPermission(permission) {
+			if isAPIV1Path(r.URL.Path) {
+				writeAPIV1Error(w, http.StatusForbidden, "forbidden", "forbidden")
+				return
+			}
 			writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
 			return
 		}
@@ -672,6 +685,12 @@ func buildServerHandlerWithAuth(
 		mux.HandleFunc("/api/auth/logout", auth.LogoutHandler)
 		mux.HandleFunc("/api/auth/refresh", auth.RefreshHandler)
 	}
+	apiV1 := newAPIV1Handler(apiMux)
+	mux.Handle("/api/v1", apiAuthMiddlewareWithAuth(cfg, auth, allowQueryToken, apiV1))
+	mux.Handle("/api/v1/", apiAuthMiddlewareWithAuth(cfg, auth, allowQueryToken, apiV1))
+	if wsHub != nil {
+		mux.Handle("/api/v1/ws", apiAuthMiddlewareWithAuth(cfg, auth, allowQueryToken, rewriteAPIPath("/api/ws", wsHub)))
+	}
 	mux.Handle("/api/", apiAuthMiddlewareWithAuth(cfg, auth, allowQueryToken, apiMux))
 	if wsHub != nil {
 		mux.Handle("/api/ws", apiAuthMiddlewareWithAuth(cfg, auth, allowQueryToken, wsHub))
@@ -704,7 +723,7 @@ func requiredAPIPermission(r *http.Request) string {
 	if r == nil {
 		return webapi.PermissionSecurityAdmin
 	}
-	path := r.URL.Path
+	path := canonicalAPIPath(r.URL.Path)
 	method := r.Method
 	readOnly := method == http.MethodGet || method == http.MethodHead
 
@@ -797,7 +816,7 @@ func requiredAPIPermission(r *http.Request) string {
 // retain their immutable cache policy.
 func withAPINoStore(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Pragma", "no-cache")
 			w.Header().Set("Expires", "0")
