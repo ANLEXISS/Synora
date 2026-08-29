@@ -611,6 +611,38 @@ button {
   border-bottom: 1px solid var(--line);
 }
 
+.incident-row-button,
+.clip-row-button {
+  width: 100%;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+
+.incident-row-button {
+  cursor: pointer;
+}
+
+.incident-row-button:hover,
+.incident-row-button:focus-visible,
+.clip-row-button:not(:disabled):hover,
+.clip-row-button:not(:disabled):focus-visible,
+.incident-row-button.selected,
+.clip-row-button.selected {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  outline: none;
+}
+
+.clip-row-button {
+  border: 0;
+  cursor: pointer;
+}
+
+.clip-row-button:disabled {
+  cursor: default;
+  opacity: 0.8;
+}
+
 .incident-row:last-child,
 .clip-row:last-child {
   border-bottom: 0;
@@ -618,6 +650,13 @@ button {
 
 .incident-row-main,
 .clip-row > div {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 4px;
+}
+
+.clip-row > span:first-child {
   display: grid;
   min-width: 0;
   flex: 1;
@@ -642,6 +681,55 @@ button {
 .incident-row-actions {
   display: flex;
   gap: 4px;
+}
+
+.evidence-detail {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.evidence-detail-header,
+.evidence-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.evidence-detail-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.evidence-detail p,
+.evidence-detail-time {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.evidence-detail-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.clip-player {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #000;
+}
+
+.clip-player video {
+  display: block;
+  width: 100%;
+  max-height: 360px;
 }
 
 .dashboard-overview {
