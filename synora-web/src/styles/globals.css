@@ -4002,6 +4002,30 @@ button {
   border-radius: 7px;
 }
 
+.face-dataset-status {
+  display: grid;
+  gap: 5px;
+  margin-top: 16px;
+  padding: 13px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 14px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.face-dataset-status strong {
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.face-dataset-status small {
+  color: var(--muted);
+}
+
+.face-dataset-status .error-text {
+  color: #fca5a5;
+}
+
 @media (max-width: 620px) {
   .resident-modal-backdrop {
     align-items: end;

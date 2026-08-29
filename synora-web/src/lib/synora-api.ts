@@ -386,36 +386,38 @@ export function deleteResident(id: string) {
   });
 }
 
-export function getResidentFace(id: string) {
-  return synoraFetch<unknown>(`/api/residents/${encodeURIComponent(id)}/face`).then(normalizeFaceProfile);
+export function getResidentFace(id: string, signal?: AbortSignal) {
+  return synoraFetch<unknown>(`/api/residents/${encodeURIComponent(id)}/face`, { signal }).then(normalizeFaceProfile);
 }
 
-export function uploadResidentBaseFace(id: string, view: BaseFaceView, file: File) {
+export function uploadResidentBaseFace(id: string, view: BaseFaceView, file: File, signal?: AbortSignal) {
   const body = buildFaceUploadFormData(view, file);
   return synoraFetch<unknown>(`/api/residents/${encodeURIComponent(id)}/face/base`, {
     method: "POST",
     body,
+    signal,
   }).then(normalizeFacePhoto);
 }
 
-export function deleteResidentBaseFace(id: string, photoID: string) {
+export function deleteResidentBaseFace(id: string, photoID: string, signal?: AbortSignal) {
   return synoraFetch<void>(
     `/api/residents/${encodeURIComponent(id)}/face/base/${encodeURIComponent(photoID)}`,
-    { method: "DELETE" }
+    { method: "DELETE", signal }
   );
 }
 
-export function replaceResidentBaseFace(id: string, photoID: string, view: BaseFaceView, file: File) {
+export function replaceResidentBaseFace(id: string, photoID: string, view: BaseFaceView, file: File, signal?: AbortSignal) {
   const body = buildFaceUploadFormData(view, file);
   return synoraFetch<unknown>(
     `/api/residents/${encodeURIComponent(id)}/face/base/${encodeURIComponent(photoID)}/replace`,
-    { method: "POST", body }
+    { method: "POST", body, signal }
   ).then(normalizeFacePhoto);
 }
 
-export function rebuildResidentFace(id: string) {
+export function rebuildResidentFace(id: string, signal?: AbortSignal) {
   return synoraFetch<unknown>(`/api/residents/${encodeURIComponent(id)}/face/rebuild`, {
     method: "POST",
+    signal,
   }).then(normalizeFaceProfile);
 }
 
@@ -425,21 +427,21 @@ export function getResidentFaceImageUrl(id: string, photoID: string) {
   );
 }
 
-export function getResidentFaceReview(id: string) {
-  return synoraFetch<unknown>(`/api/residents/${encodeURIComponent(id)}/face/review`).then((value) => normalizeArray<unknown>(value).map(normalizeFacePhoto));
+export function getResidentFaceReview(id: string, signal?: AbortSignal) {
+  return synoraFetch<unknown>(`/api/residents/${encodeURIComponent(id)}/face/review`, { signal }).then((value) => normalizeArray<unknown>(value).map(normalizeFacePhoto));
 }
 
-export function acceptResidentFaceReview(id: string, cropID: string) {
+export function acceptResidentFaceReview(id: string, cropID: string, signal?: AbortSignal) {
   return synoraFetch<unknown>(
     `/api/residents/${encodeURIComponent(id)}/face/review/${encodeURIComponent(cropID)}/accept`,
-    { method: "POST" }
+    { method: "POST", signal }
   ).then(normalizeFacePhoto);
 }
 
-export function deleteResidentFaceReview(id: string, cropID: string) {
+export function deleteResidentFaceReview(id: string, cropID: string, signal?: AbortSignal) {
   return synoraFetch<void>(
     `/api/residents/${encodeURIComponent(id)}/face/review/${encodeURIComponent(cropID)}`,
-    { method: "DELETE" }
+    { method: "DELETE", signal }
   );
 }
 
@@ -557,12 +559,25 @@ function normalizeFacePhoto(value: unknown): SynoraFacePhoto {
 
 function normalizeFaceProfile(value: unknown): SynoraFaceProfile {
   const source = isRecord(value) ? value : {};
+  const dataset = isRecord(source.dataset) ? source.dataset : null;
   return {
     status: normalizeString(source.status, "empty"),
     base_photos: normalizeArray<unknown>(source.base_photos).map(normalizeFacePhoto).filter((photo) => photo.id),
     auto_count: Math.max(0, Math.round(normalizeNumber(source.auto_count))),
     review_count: Math.max(0, Math.round(normalizeNumber(source.review_count))),
     pending_count: Math.max(0, Math.round(normalizeNumber(source.pending_count))),
+    ...(dataset ? {
+      dataset: {
+        schema_version: Math.max(0, Math.round(normalizeNumber(dataset.schema_version))),
+        desired_revision: Math.max(0, Math.round(normalizeNumber(dataset.desired_revision))),
+        active_version: normalizeString(dataset.active_version),
+        active_revision: Math.max(0, Math.round(normalizeNumber(dataset.active_revision))),
+        built_at: normalizeDateString(dataset.built_at),
+        activated_at: normalizeDateString(dataset.activated_at),
+        status: normalizeString(dataset.status, "unavailable"),
+        failure_code: normalizeString(dataset.failure_code),
+      },
+    } : {}),
   };
 }
 

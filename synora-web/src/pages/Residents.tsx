@@ -2,6 +2,7 @@ import {
   BASE_FACE_VIEWS,
   getBasePhotoByView,
   isBaseComplete,
+  validateFaceFile,
   type BaseFaceView,
 } from "../lib/face";
 import {
@@ -25,7 +26,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Panel } from "../components/Panel";
 import {
   acceptResidentFaceReview,
@@ -190,6 +191,22 @@ function faceStatusLabel(status: string | undefined) {
   }
 }
 
+function faceDatasetStatusLabel(status: string | undefined) {
+  switch (status) {
+    case "building":
+      return "Construction en cours";
+    case "active":
+    case "ready":
+      return "Actif";
+    case "failed":
+      return "Échec — version précédente conservée";
+    case "idle":
+      return "En attente";
+    default:
+      return "Indisponible";
+  }
+}
+
 function presenceDescription(resident: DemoResident) {
   if (resident.state === "present") {
     return `${resident.name} est reconnu dans la maison.`;
@@ -213,6 +230,7 @@ export function Residents() {
   const [faceProfile, setFaceProfile] = useState<SynoraFaceProfile | null>(null);
   const [reviewPhotos, setReviewPhotos] = useState<import("../lib/synora-types").SynoraFacePhoto[]>([]);
   const [busy, setBusy] = useState(false);
+  const faceOperationRef = useRef<AbortController | null>(null);
 
   const data = useSynoraData();
   const auth = useAuth();
@@ -258,13 +276,14 @@ export function Residents() {
     });
   }, [residents, search, stateFilter, roleFilter]);
 
-  async function refreshFace(residentID: string): Promise<SynoraFaceProfile | null> {
+  async function refreshFace(residentID: string, signal?: AbortSignal): Promise<SynoraFaceProfile | null> {
     try {
-      const [profile, review] = await Promise.all([getResidentFace(residentID), getResidentFaceReview(residentID)]);
+      const [profile, review] = await Promise.all([getResidentFace(residentID, signal), getResidentFaceReview(residentID, signal)]);
       setFaceProfile(profile);
       setReviewPhotos(review);
       return profile;
     } catch (error) {
+      if (signal?.aborted) return null;
       setNotice(error instanceof Error ? error.message : "Impossible de charger le profil visage");
       return null;
     }
@@ -275,6 +294,38 @@ export function Residents() {
     setFaceProfile(null);
     setReviewPhotos([]);
     void refreshFace(resident.id);
+  }
+
+  function beginFaceOperation() {
+    if (faceOperationRef.current) return null;
+    const controller = new AbortController();
+    faceOperationRef.current = controller;
+    return controller;
+  }
+
+  function endFaceOperation(controller: AbortController) {
+    if (faceOperationRef.current === controller) faceOperationRef.current = null;
+  }
+
+  function cancelFaceOperation() {
+    faceOperationRef.current?.abort();
+    faceOperationRef.current = null;
+    setBusy(false);
+    setNotice("Opération annulée.");
+  }
+
+  async function waitForFaceRefresh(delayMs: number, signal: AbortSignal) {
+    await new Promise<void>((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new DOMException("Face operation aborted", "AbortError"));
+        return;
+      }
+      const timer = window.setTimeout(resolve, delayMs);
+      signal.addEventListener("abort", () => {
+        window.clearTimeout(timer);
+        reject(new DOMException("Face operation aborted", "AbortError"));
+      }, { once: true });
+    });
   }
 
   function openCreate() {
@@ -356,88 +407,124 @@ export function Residents() {
 
   async function uploadFace(file: File, view: BaseFaceView) {
     if (!photoResident) return;
+    const validationError = validateFaceFile(file);
+    if (validationError) {
+      setNotice(validationError);
+      return;
+    }
+    const controller = beginFaceOperation();
+    if (!controller) return;
     setBusy(true);
     setNotice(null);
     try {
-      await uploadResidentBaseFace(photoResident.id, view, file);
-      const profile = await refreshFace(photoResident.id);
+      await uploadResidentBaseFace(photoResident.id, view, file, controller.signal);
+      const profile = await refreshFace(photoResident.id, controller.signal);
       if (!getBasePhotoByView(profile, view)) {
         throw new Error("La modification photo n’a pas été confirmée par le backend.");
       }
       await data.refresh();
     } catch (error) {
+      if (controller.signal.aborted) return;
       setNotice(error instanceof Error ? error.message : "Upload impossible");
     } finally {
+      endFaceOperation(controller);
       setBusy(false);
     }
   }
 
   async function removeFace(photoID: string) {
     if (!photoResident) return;
+    const controller = beginFaceOperation();
+    if (!controller) return;
     setBusy(true);
     try {
-      await deleteResidentBaseFace(photoResident.id, photoID);
-      const profile = await refreshFace(photoResident.id);
+      await deleteResidentBaseFace(photoResident.id, photoID, controller.signal);
+      const profile = await refreshFace(photoResident.id, controller.signal);
       if (profile?.base_photos.some((photo) => photo.id === photoID)) {
         throw new Error("La modification photo n’a pas été confirmée par le backend.");
       }
       await data.refresh();
     } catch (error) {
+      if (controller.signal.aborted) return;
       setNotice(error instanceof Error ? error.message : "Suppression photo impossible");
     } finally {
+      endFaceOperation(controller);
       setBusy(false);
     }
   }
 
   async function replaceFace(photoID: string, file: File, view: BaseFaceView) {
     if (!photoResident) return;
+    const validationError = validateFaceFile(file);
+    if (validationError) {
+      setNotice(validationError);
+      return;
+    }
+    const controller = beginFaceOperation();
+    if (!controller) return;
     setBusy(true);
     try {
-      await replaceResidentBaseFace(photoResident.id, photoID, view, file);
-      const profile = await refreshFace(photoResident.id);
+      await replaceResidentBaseFace(photoResident.id, photoID, view, file, controller.signal);
+      const profile = await refreshFace(photoResident.id, controller.signal);
       const replacement = profile?.base_photos.find((photo) => photo.id === photoID || photo.view === view);
       if (!replacement || replacement.view !== view) {
         throw new Error("La modification photo n’a pas été confirmée par le backend.");
       }
       await data.refresh();
     } catch (error) {
+      if (controller.signal.aborted) return;
       setNotice(error instanceof Error ? error.message : "Remplacement photo impossible");
     } finally {
+      endFaceOperation(controller);
       setBusy(false);
     }
   }
 
   async function rebuildFace() {
     if (!photoResident) return;
+    const controller = beginFaceOperation();
+    if (!controller) return;
     setBusy(true);
     try {
-      await rebuildResidentFace(photoResident.id);
-      const profile = await refreshFace(photoResident.id);
-      if (!profile || (profile.base_photos.length > 0 && profile.status !== "ready")) {
-        throw new Error("La modification photo n’a pas été confirmée par le backend.");
+      let profile = await rebuildResidentFace(photoResident.id, controller.signal);
+      for (let attempt = 0; attempt < 20 && profile?.dataset?.status === "building"; attempt += 1) {
+        await waitForFaceRefresh(250, controller.signal);
+        profile = await refreshFace(photoResident.id, controller.signal);
+      }
+      if (!profile || profile.dataset?.status === "failed" || profile.status === "error") {
+        throw new Error(profile?.dataset?.failure_code || "Le recalcul du profil a échoué.");
+      }
+      if (profile.base_photos.length > 0 && profile.status !== "ready") {
+        throw new Error("Le recalcul du profil n’a pas été confirmé par le backend.");
       }
       await data.refresh();
     } catch (error) {
+      if (controller.signal.aborted) return;
       setNotice(error instanceof Error ? error.message : "Recalcul impossible");
     } finally {
+      endFaceOperation(controller);
       setBusy(false);
     }
   }
 
   async function acceptReview(cropID: string) {
     if (!photoResident) return;
+    const controller = beginFaceOperation();
+    if (!controller) return;
     setBusy(true);
-    try { await acceptResidentFaceReview(photoResident.id, cropID); await refreshFace(photoResident.id); }
-    catch (error) { setNotice(error instanceof Error ? error.message : "Validation impossible"); }
-    finally { setBusy(false); }
+    try { await acceptResidentFaceReview(photoResident.id, cropID, controller.signal); await refreshFace(photoResident.id, controller.signal); }
+    catch (error) { if (!controller.signal.aborted) setNotice(error instanceof Error ? error.message : "Validation impossible"); }
+    finally { endFaceOperation(controller); setBusy(false); }
   }
 
   async function deleteReview(cropID: string) {
     if (!photoResident) return;
+    const controller = beginFaceOperation();
+    if (!controller) return;
     setBusy(true);
-    try { await deleteResidentFaceReview(photoResident.id, cropID); await refreshFace(photoResident.id); }
-    catch (error) { setNotice(error instanceof Error ? error.message : "Suppression impossible"); }
-    finally { setBusy(false); }
+    try { await deleteResidentFaceReview(photoResident.id, cropID, controller.signal); await refreshFace(photoResident.id, controller.signal); }
+    catch (error) { if (!controller.signal.aborted) setNotice(error instanceof Error ? error.message : "Suppression impossible"); }
+    finally { endFaceOperation(controller); setBusy(false); }
   }
 
   const present = residents.filter((resident) => resident.state === "present").length;
@@ -734,6 +821,7 @@ export function Residents() {
             setPhotoResident(null);
             setFaceProfile(null);
           }}
+          onCancel={cancelFaceOperation}
           onUpload={(file, view) => void uploadFace(file, view)}
           onReplace={(photoID, file, view) => void replaceFace(photoID, file, view)}
           onDelete={(photoID) => void removeFace(photoID)}
@@ -842,6 +930,7 @@ function ResidentPhotosModal({
   reviewPhotos,
   busy,
   onClose,
+  onCancel,
   onUpload,
   onReplace,
   onDelete,
@@ -854,6 +943,7 @@ function ResidentPhotosModal({
   reviewPhotos: import("../lib/synora-types").SynoraFacePhoto[];
   busy: boolean;
   onClose: () => void;
+  onCancel: () => void;
   onUpload: (file: File, view: BaseFaceView) => void;
   onReplace: (photoID: string, file: File, view: BaseFaceView) => void;
   onDelete: (photoID: string) => void;
@@ -879,7 +969,7 @@ function ResidentPhotosModal({
             <strong>Configurer la base faciale · {resident.name}</strong>
             <span>{complete ? "Base complète" : `Progression : ${baseCount}/4`} · {faceStatusLabel(profile?.status ?? resident.face_profile?.status)}</span>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Fermer" disabled={busy}><X size={18} /></button>
         </div>
 
         <div className={`face-setup-progress ${complete ? "complete" : ""}`}>
@@ -898,14 +988,14 @@ function ResidentPhotosModal({
                 <small>{view.help}</small>
                 <small>{photo.filename}</small>
                 <div>
-                  <label className="secondary-button">Remplacer<input type="file" accept="image/*" capture="user" hidden onChange={chooseFile((file) => onReplace(photo.id, file, view.id))} disabled={busy} /></label>
+                  <label className="secondary-button">Remplacer<input type="file" accept="image/jpeg,image/png" capture="user" hidden onChange={chooseFile((file) => onReplace(photo.id, file, view.id))} disabled={busy} /></label>
                   <button type="button" className="icon-button danger" onClick={() => onDelete(photo.id)} disabled={busy} aria-label="Supprimer photo"><Trash2 size={15} /></button>
                 </div>
               </div>
             ) : (
               <label className="face-photo-empty" htmlFor={inputID} key={view.id}>
                 <strong>{view.label}</strong><ImagePlus size={22} /><span>{view.help}</span><small>Ajouter une photo</small>
-                <input id={inputID} type="file" accept="image/*" capture="user" hidden onChange={chooseFile((file) => onUpload(file, view.id))} disabled={busy} />
+                <input id={inputID} type="file" accept="image/jpeg,image/png" capture="user" hidden onChange={chooseFile((file) => onUpload(file, view.id))} disabled={busy} />
               </label>
             );
           })}
@@ -925,9 +1015,20 @@ function ResidentPhotosModal({
           ))}
         </div>
 
+        {profile?.dataset && (
+          <div className="face-dataset-status" aria-live="polite">
+            <strong>Dataset actif</strong>
+            <span>Version : {profile.dataset.active_version || "aucune"}</span>
+            <span>État : {faceDatasetStatusLabel(profile.dataset.status)}</span>
+            {profile.dataset.failure_code && <span className="error-text">Erreur : {profile.dataset.failure_code}</span>}
+            <small>En cas d’échec, la version active précédente est conservée. Relancez le recalcul pour réessayer.</small>
+          </div>
+        )}
+
         <div className="resident-modal-actions">
-          <button type="button" className="secondary-button" onClick={onRebuild} disabled={busy}><RefreshCw size={15} /> Recalculer le profil</button>
-          <button type="button" className="primary-button" onClick={onClose}>Fermer</button>
+          <button type="button" className="secondary-button" onClick={onRebuild} disabled={busy}><RefreshCw size={15} /> {busy ? "Recalcul en cours…" : "Recalculer le profil"}</button>
+          {busy && <button type="button" className="secondary-button" onClick={onCancel}>Annuler l’opération</button>}
+          <button type="button" className="primary-button" onClick={onClose} disabled={busy}>Fermer</button>
         </div>
       </section>
     </div>
