@@ -59,7 +59,9 @@ func cameraFixture(t *testing.T, online bool) (*Manager, Manifest, string, *fake
 		t.Fatal(err)
 	}
 	transport := &fakeTransport{online: online}
-	return New(filepath.Join(t.TempDir(), "ota"), public, transport), manifest, bundle, transport
+	manager := New(filepath.Join(t.TempDir(), "ota"), public, transport)
+	manager.SetStabilityWindow(0)
+	return manager, manifest, bundle, transport
 }
 
 func TestOfflineCameraUpdateQueuesAndRecoveryImageIsAtomic(t *testing.T) {
@@ -105,5 +107,16 @@ func TestInterruptedCameraUpdateRecoversWithMarkBad(t *testing.T) {
 	}
 	if len(transport.calls) != 1 || transport.calls[0] != "bad" {
 		t.Fatalf("calls=%v", transport.calls)
+	}
+}
+
+func TestCameraUpdateRejectsSecurityGenerationDowngrade(t *testing.T) {
+	manager, manifest, bundle, transport := cameraFixture(t, true)
+	manager.CurrentSecurityGeneration = 1
+	if _, err := manager.Apply(context.Background(), "cam-01", bundle, manifest, "synora-zero-3w", "1.1.0"); err == nil {
+		t.Fatal("camera security generation downgrade accepted")
+	}
+	if len(transport.calls) != 0 {
+		t.Fatalf("transport contacted before downgrade rejection: %v", transport.calls)
 	}
 }

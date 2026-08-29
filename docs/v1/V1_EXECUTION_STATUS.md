@@ -1,5 +1,24 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M046
+
+- Jalon : M046 — Mise à jour signée et rollback — terminé
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m046-signed-update-rollback`
+- Branche dédiée : `codex/v1-m046-signed-update-rollback`
+- Implémentation : manifeste RSA/SHA-256 avec chaîne X.509 RAUC, séparation
+  de cible centrale/caméra, génération de sécurité monotone, anti-downgrade,
+  journal OTA, stabilité post-boot 120 s centrale/60 s caméra et rollback
+  délégué à RAUC ou au transport caméra.
+- Politique appliquée : CA racine hors ligne, intermédiaires centraux/caméras,
+  certificats de release limités au code signing, CRL, rotation progressive,
+  récupération hors ligne et conservation des données persistantes.
+- Tests : signer révoqué, mauvaise cible, rotation de racine, corruption,
+  espace insuffisant, migrations non planifiables et restaurables, coupures,
+  health gate/stabilité, fallback simulé et préservation des données.
+- Résultat : validé humainement ; aucune clé de production ni installation
+  matérielle n’a été créée ou modifiée. M047 reste une validation réelle sur
+  Rock 5 ITX et ne peut pas être déclarée réussie localement.
+
 ## MASTER_PLAN — M045
 
 - Jalon : M045 — Suite hostile de sécurité
