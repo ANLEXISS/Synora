@@ -14,13 +14,17 @@ ExecStart=/opt/synora/mediamtx/mediamtx /opt/synora/mediamtx/mediamtx.yml
 
 Restart=always
 RestartSec=2
+TimeoutStopSec=15s
+KillMode=mixed
+UMask=0077
 
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
 
-LimitNOFILE=65536
+LimitNOFILE=4096
+TasksMax=128
 
 [Install]
 WantedBy=multi-user.target
