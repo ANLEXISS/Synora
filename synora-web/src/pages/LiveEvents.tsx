@@ -16,6 +16,7 @@ import { CgeFeedbackBuilder } from "../components/CgeFeedbackBuilder";
 import { useAuth } from "../hooks/useAuth";
 import { useSynoraData } from "../hooks/useSynoraData";
 import { buildWsUrl } from "../lib/config";
+import { acceptRealtimeMessage, type RealtimeCursor } from "../lib/realtime";
 import { getCgeFeedback, getEventChain, getEventChains, submitCgeChainFeedback, submitCgeEvaluationFeedback } from "../lib/synora-api";
 import {
   dangerTone,
@@ -88,6 +89,7 @@ export function LiveEvents() {
   const [notice, setNotice] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const selectedChainIDRef = useRef<string | null>(null);
+  const realtimeCursorRef = useRef<RealtimeCursor | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -116,6 +118,7 @@ export function LiveEvents() {
       try {
         const response = await getEventChains({ status: "all", limit: 100 });
         if (!active) return;
+        realtimeCursorRef.current = null;
         const nextChains = Object.fromEntries(response.chains.map((chain) => [chain.id, chain]));
         setChainsByID(nextChains);
         setSelectedChain((current) => current && nextChains[current.id] ? nextChains[current.id] : current);
@@ -158,6 +161,14 @@ export function LiveEvents() {
       socket.onmessage = (message) => {
         try {
           const parsed = JSON.parse(message.data) as SynoraWsMessage;
+          const decision = acceptRealtimeMessage(parsed, realtimeCursorRef.current);
+          if (decision.kind === "resync") {
+            realtimeCursorRef.current = null;
+            void refresh();
+            return;
+          }
+          if (decision.kind === "ignore") return;
+          realtimeCursorRef.current = decision.cursor;
           if (!parsed.type?.startsWith("event.chain.") && parsed.type !== "engine.evaluation.updated") return;
           const raw = parsed.data ?? parsed.payload;
           if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
