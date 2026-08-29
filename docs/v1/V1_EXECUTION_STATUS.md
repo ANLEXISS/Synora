@@ -1,5 +1,28 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M033
+
+- Jalon : M033 — Automations sécurité minimales
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m033-automations`
+- Branche dédiée : `codex/v1-m033-automations`
+- Périmètre : l’API n’accepte que les déclencheurs et actions nécessaires à la
+  V1 (demande de clip, signalement local, commandes device et adaptateurs
+  bornés existants) ; les actions d’éditeur générique ou de marketplace sont
+  refusées avant activation. Les actions sensibles conservent leurs contrôles
+  de sécurité explicites.
+- Fiabilité : les horloges restent injectables et la réservation de cooldown
+  est atomique entre évaluations concurrentes ; les automations invalides,
+  non approuvées, désactivées ou supprimées ne sont pas exécutées et les
+  formes historiques déjà installées restent rechargeables par adaptation.
+- Couverture : configuration/action invalide, conditions globales et locales,
+  cooldown concurrent, retry, double décision, événement hors ordre,
+  désactivation/suppression, sécurité des actions sensibles, rechargement et
+  redémarrage sans répétition d’un effet confirmé.
+- Validation : Go complet, vet, build, race, Python Vision, qualification
+  fonctionnelle et `git diff --check` — PASS. La qualification Web n’est pas
+  relancée, ses dépendances locales étant absentes et leur installation hors
+  périmètre autorisé.
+
 ## MASTER_PLAN — M032
 
 - Jalon : M032 — Parcours devices et topologie
