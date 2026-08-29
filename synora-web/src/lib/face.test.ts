@@ -1,4 +1,4 @@
-import { buildFaceUploadFormData, getBasePhotoByView, isBaseComplete } from "./face";
+import { buildFaceUploadFormData, getBasePhotoByView, isBaseComplete, validateFaceFile } from "./face";
 
 export function residentFaceSetupUiTest() {
   const profile = {
@@ -20,4 +20,12 @@ export function residentFaceSetupUiTest() {
   if (form.get("view") !== "face" || !(form.get("file") instanceof File)) {
     throw new Error("face upload form should contain view and file");
   }
+}
+
+export function residentFaceUploadValidationTest() {
+  const valid = { size: 12, type: "image/jpeg" } as File;
+  if (validateFaceFile(valid) !== null) throw new Error("JPEG should be accepted");
+  if (!validateFaceFile({ size: 0, type: "image/jpeg" } as File)) throw new Error("empty image should be rejected");
+  if (!validateFaceFile({ size: 12, type: "image/gif" } as File)) throw new Error("unsupported image type should be rejected");
+  if (!validateFaceFile({ size: 5 * 1024 * 1024 + 1, type: "image/png" } as File)) throw new Error("oversized image should be rejected");
 }

@@ -98,6 +98,18 @@ export type SynoraFaceProfile = {
   auto_count: number;
   review_count: number;
   pending_count: number;
+  dataset?: SynoraFaceDatasetState;
+};
+
+export type SynoraFaceDatasetState = {
+  schema_version: number;
+  desired_revision: number;
+  active_version: string;
+  active_revision: number;
+  built_at: string;
+  activated_at: string;
+  status: "idle" | "building" | "ready" | "active" | "failed" | "unavailable" | string;
+  failure_code: string;
 };
 
 export type SynoraEvent = {
