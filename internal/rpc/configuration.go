@@ -212,6 +212,13 @@ func (s *Server) commitTopologyReplacement(prepared *topology.Topology) error {
 func (s *Server) rollbackTopologyFiles(previousTopology *topology.Topology, devices []device.DeviceConfig, automations []automation.Rule) {
 	if previousTopology != nil {
 		_ = topology.Save(s.topologyPath, previousTopology)
+		if s.snapshot != nil {
+			restored := previousTopology.Clone()
+			s.snapshot.SetTopology(restored)
+			if s.updateTopology != nil {
+				s.updateTopology(restored)
+			}
+		}
 	}
 	if err := device.Save(s.devicePath, devices); err == nil {
 		s.devices.Replace(devices)

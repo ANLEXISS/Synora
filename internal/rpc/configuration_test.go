@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -249,6 +250,69 @@ func TestTopologyDeleteKeepsDevicesAndDisablesDependentAutomations(t *testing.T)
 	if len(before.Nodes) != len(after.Nodes) {
 		t.Fatalf("invalid topology changed live topology: before=%#v after=%#v", before, after)
 	}
+}
+
+func TestTopologyReplacementFailureRestoresLiveSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	topologyPath := filepath.Join(dir, "topology.yaml")
+	devicePath := filepath.Join(dir, "devices.yaml")
+	automationPath := filepath.Join(dir, "automations.yaml")
+	previous, err := topology.FromConfig(contract.TopologyConfig{
+		Version: topology.TopologyConfigVersion,
+		Nodes: []contract.TopologyNode{
+			{ID: "home", Type: string(topology.NodeHouse)},
+			{ID: "entry", Type: string(topology.NodeRoom), Parent: "home"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := topology.Save(topologyPath, previous); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(devicePath, []byte("devices: []\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	automations := automation.NewEngine(automationPath)
+	if _, err := automations.Create(automation.Rule{ID: "entry-rule", Name: "Entry", EventType: "vision.motion", Node: "entry", Actions: []automation.AutomationAction{{Type: "light.turn_on", Target: "entry-light"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(automationPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(automationPath, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	registry := device.NewRegistry(devicePath)
+	snap := &snapshot.Builder{
+		Mu: &sync.RWMutex{}, Devices: registry, Topology: previous.Clone(),
+		Residents: map[string]*topology.Resident{}, Events: event.NewStore(10),
+	}
+	server := NewServer(Config{
+		State: state.NewStore(), Devices: registry, Automation: automations, Snapshot: snap,
+		TopologyPath: topologyPath, DevicePath: devicePath, AutomationPath: automationPath,
+	})
+	_, err = server.Handler("topology.replace")(rpcMessage(`{"nodes":[],"links":[]}`))
+	if err == nil {
+		t.Fatal("expected dependent automation persistence failure")
+	}
+	got := snap.Topology.ConfigView()
+	if len(got.Nodes) != 2 || (got.Nodes[0].ID != "entry" && got.Nodes[1].ID != "entry") {
+		t.Fatalf("live topology was not restored: %#v", got)
+	}
+	reloaded, err := topology.LoadBytes(mustReadFile(t, topologyPath))
+	if err != nil || len(reloaded.Nodes) != 2 {
+		t.Fatalf("topology file was not restored: %#v err=%v", reloaded, err)
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func mustDevice(t *testing.T, registry *device.Registry, id string) *device.Device {
