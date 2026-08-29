@@ -126,6 +126,18 @@ func (r *IdentityRegistry) Load() error {
 	return nil
 }
 
+// Reload refreshes the registry from disk so long-running services observe a
+// pairing, rotation, reset, or revocation performed by another process.
+func (r *IdentityRegistry) Reload() error {
+	if r == nil {
+		return errors.New("identity registry is nil")
+	}
+	r.mu.Lock()
+	r.loaded = false
+	r.mu.Unlock()
+	return r.Load()
+}
+
 func GenerateIdentityKey() (ed25519.PublicKey, ed25519.PrivateKey, error) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -218,6 +230,40 @@ func (r *IdentityRegistry) Rotate(deviceID string, publicKey ed25519.PublicKey) 
 	current.Generation++
 	current.Reason = "rotated"
 	current.UpdatedAt = now
+	return current, r.persistLocked(func(next map[string]IdentityRecord) { next[deviceID] = current })
+}
+
+// Reset replaces a revoked or replaced camera identity after an explicit
+// operator reset. The generation advances so credentials from the previous
+// identity cannot regain authority.
+func (r *IdentityRegistry) Reset(deviceID string, publicKey ed25519.PublicKey) (IdentityRecord, error) {
+	if err := validatePublicKey(publicKey); err != nil {
+		return IdentityRecord{}, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.ensureLoadedLocked(); err != nil {
+		return IdentityRecord{}, err
+	}
+	current, ok := r.identities[deviceID]
+	if !ok {
+		return IdentityRecord{}, ErrIdentityNotFound
+	}
+	if current.Kind != IdentityCamera {
+		return IdentityRecord{}, errors.New("only camera identities can be reset")
+	}
+	if current.Status == IdentityActive {
+		return IdentityRecord{}, fmt.Errorf("%w: active identity requires explicit revocation", ErrIdentityInactive)
+	}
+	now := r.now().UTC()
+	current.PublicKey = base64.StdEncoding.EncodeToString(publicKey)
+	current.Fingerprint = IdentityFingerprint(publicKey)
+	current.Generation++
+	current.Status = IdentityActive
+	current.Reason = "reset"
+	current.ReplacedBy = ""
+	current.UpdatedAt = now
+	current.RevokedAt = nil
 	return current, r.persistLocked(func(next map[string]IdentityRecord) { next[deviceID] = current })
 }
 

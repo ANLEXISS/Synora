@@ -23,6 +23,10 @@ type StreamDescriptor struct {
 }
 
 func handleStreams(core deviceConfigurationProvider) http.HandlerFunc {
+	return handleStreamsWithAuthorization(core, nil)
+}
+
+func handleStreamsWithAuthorization(core deviceConfigurationProvider, authorized func(string, map[string]any) bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeMethodNotAllowed(w, http.MethodGet)
@@ -51,7 +55,15 @@ func handleStreams(core deviceConfigurationProvider) http.HandlerFunc {
 			if id == "" || (pathID == "" && !isCameraDevice(item)) || (pathID != "" && id != pathID) {
 				continue
 			}
-			result = append(result, streamDescriptorWithStatus(id, status))
+			descriptor := streamDescriptorWithStatus(id, status)
+			if authorized != nil && !authorized(id, item) {
+				descriptor.Status = "unauthorized"
+				descriptor.RTSPPublishURL = ""
+				descriptor.WebRTCURL = ""
+				descriptor.HLSURL = ""
+				descriptor.LiveAvailable = false
+			}
+			result = append(result, descriptor)
 		}
 		if pathID != "" && len(result) == 0 {
 			http.NotFound(w, r)
