@@ -345,6 +345,14 @@ export function deleteDevice(id: string) {
   });
 }
 
+export function revokeSynoraCamera(deviceID: string, reason = "camera access revoked") {
+  return synoraFetch<{ status: string; device_id: string }>("/api/devices/pairing/synora-camera/revoke", {
+    method: "POST",
+    cache: "no-store",
+    body: JSON.stringify({ device_id: deviceID, reason }),
+  });
+}
+
 const residentMutationKeys: (keyof ResidentMutationPayload)[] = [
   "first_name", "last_name", "display_name", "role", "admin", "trusted",
   "enabled", "reference_node_id", "account_id",

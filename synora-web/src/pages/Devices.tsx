@@ -9,6 +9,7 @@ import {
   Pencil,
   Plus,
   Radar,
+  ShieldAlert,
   Save,
   Search,
   ShieldCheck,
@@ -24,7 +25,7 @@ import { useSynoraData } from "../hooks/useSynoraData";
 import { useAuth } from "../hooks/useAuth";
 import { SynoraApiError } from "../lib/api";
 import { buildDeviceMutationPayload, deviceToEditForm, type DeviceEditForm } from "../lib/device-form";
-import { deleteDevice, getDevices, getStreams, startSynoraPairingWindow, stopSynoraPairingWindow, updateDevice } from "../lib/synora-api";
+import { deleteDevice, getDevices, getStreams, revokeSynoraCamera, startSynoraPairingWindow, stopSynoraPairingWindow, updateDevice } from "../lib/synora-api";
 import { normalizeTopologyDevices } from "../lib/topology";
 import { getRoomLabel, getTopologyRooms } from "../lib/topology";
 import type { SynoraDevice, SynoraStreamDescriptor } from "../lib/synora-types";
@@ -47,7 +48,7 @@ function deviceIcon(type: DeviceType) {
 
 function statusTone(status: DeviceStatus) {
   if (status === "online") return "success";
-  if (status === "degraded" || status === "pending") return "warning";
+  if (status === "degraded" || status === "pending" || status === "unpaired") return "warning";
 
   return "danger";
 }
@@ -56,6 +57,9 @@ function statusLabel(status: DeviceStatus) {
   if (status === "online") return "Online";
   if (status === "degraded") return "Dégradé";
   if (status === "pending") return "En attente";
+  if (status === "never_seen") return "Jamais vue";
+  if (status === "unpaired") return "Non appairée";
+  if (status === "revoked") return "Révoquée";
 
   return "Offline";
 }
@@ -74,13 +78,16 @@ function deviceHealth(device: TopologyDevice) {
   if (device.status === "online") return 96;
   if (device.status === "degraded") return 61;
   if (device.status === "pending") return 42;
+  if (device.status === "unpaired") return 25;
+  if (device.status === "never_seen") return 0;
+  if (device.status === "revoked") return 0;
 
   return 8;
 }
 
 function deviceBattery(device: TopologyDevice) {
   if (device.type === "light") return null;
-  if (device.status === "offline") return 0;
+  if (device.status === "offline" || device.status === "never_seen" || device.status === "revoked") return 0;
   if (device.status === "degraded" || device.status === "pending") return 42;
 
   return 87;
@@ -105,6 +112,7 @@ export function Devices() {
   const [togglingDeviceID, setTogglingDeviceID] = useState<string | null>(null);
   const [enabledOverrides, setEnabledOverrides] = useState<Record<string, boolean>>({});
   const [streams, setStreams] = useState<SynoraStreamDescriptor[]>([]);
+  const [revokingDeviceID, setRevokingDeviceID] = useState<string | null>(null);
 
   const data = useSynoraData();
   const auth = useAuth();
@@ -184,6 +192,7 @@ export function Devices() {
   }
 
   async function handleSaveDevice() {
+    if (editBusy) return;
     if (!auth.isAdmin || !editingDevice || !editForm) {
       setEditError("Accès refusé : action réservée administrateur.");
       return;
@@ -230,6 +239,7 @@ export function Devices() {
   }
 
   async function handleDelete(id: string) {
+    if (deletingID) return;
     if (!auth.isAdmin) {
       setNotice("Accès refusé : action réservée administrateur.");
       return;
@@ -262,6 +272,37 @@ export function Devices() {
     }
   }
 
+  async function handleRevoke(device: TopologyDevice) {
+    if (!auth.isAdmin) {
+      setNotice("Accès refusé : action réservée administrateur.");
+      return;
+    }
+    if (revokingDeviceID) return;
+    if (!window.confirm(`Révoquer l’accès réseau de ${device.name} ?`)) return;
+    setRevokingDeviceID(device.id);
+    setNotice(null);
+    try {
+      const result = await revokeSynoraCamera(device.id);
+      if (result.status !== "revoked" || result.device_id !== device.id) {
+        throw new Error("camera revocation response was not confirmed");
+      }
+      await data.refresh();
+      const devicesAfterRefresh = await getDevices();
+      const confirmed = devicesAfterRefresh.find((candidate) => candidate.id === device.id);
+      const trust = confirmed?.network?.network_trust;
+      if (!confirmed || (trust !== "revoked" && confirmed.enabled !== false)) {
+        throw new Error("camera revocation was not confirmed after refresh");
+      }
+      setNotice("Caméra révoquée. Son accès réseau est désactivé.");
+    } catch (error) {
+      setNotice(error instanceof SynoraApiError && error.status === 403
+        ? "Accès refusé : action réservée administrateur."
+        : "La révocation n’a pas été confirmée par le backend.");
+    } finally {
+      setRevokingDeviceID(null);
+    }
+  }
+
   async function handleToggleDevice(id: string, nextEnabled: boolean) {
     if (!auth.isAdmin) {
       setNotice("Accès refusé : action réservée administrateur.");
@@ -271,6 +312,7 @@ export function Devices() {
       setNotice("Modification indisponible : l’API des périphériques ne répond pas.");
       return;
     }
+    if (togglingDeviceID) return;
 
     const displayedDevice = visibleDevices.find((device) => device.id === id);
     const previousEnabled = displayedDevice?.enabled !== false;
@@ -494,7 +536,7 @@ export function Devices() {
                   </div>
                 )}
 
-                {device.type === "camera" && <div className="device-card-details">{stream?.live_available ? <a href={stream.webrtc_url || stream.hls_url} target="_blank" rel="noreferrer">Live disponible</a> : "Live indisponible : WebRTC/HLS non configuré"}<br /><small>Publication RTSP : {stream?.rtsp_publish_url ?? `rtsp://10.77.0.1:8554/${device.id}`}</small></div>}
+                {device.type === "camera" && <div className="device-card-details">{stream?.live_available ? <a href={stream.webrtc_url || stream.hls_url} target="_blank" rel="noreferrer">Live disponible</a> : "Flux indisponible"}<br /><small>{stream?.status === "degraded" ? "MediaMTX dégradé" : "Le flux sera disponible après connexion de la caméra."}</small></div>}
 
                 <div className="device-health">
                   <div className="device-health-row">
@@ -555,6 +597,16 @@ export function Devices() {
                         >
                           <Trash2 size={15} />
                         </button>
+                        {device.type === "camera" && device.status !== "revoked" && (
+                          <button
+                            aria-label="Révoquer"
+                            title="Révoquer l’accès"
+                            disabled={revokingDeviceID === device.id}
+                            onClick={() => void handleRevoke(device)}
+                          >
+                            <ShieldAlert size={15} />
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
