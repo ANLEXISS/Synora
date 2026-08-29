@@ -1,5 +1,33 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M027
+
+- Jalon : M027 — Pairing par clé imprimée
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m027-pairing`
+- Branche dédiée : `codex/v1-m027-pairing`
+- Commit fonctionnel : `feae3d7` (pairing sécurisé et autorisation caméra)
+- Résultat : le pairing Synora Camera exige une preuve Ed25519 liée à la clé
+  imprimée, l’identité publique, le MAC et un timestamp borné. Les sessions
+  sont persistées sans secret en clair, les claims sont à usage unique et
+  limités après cinq échecs par caméra/origine.
+- Autorisation : Discovery exige une caméra active, trusted, `network_trust:
+  paired`, un secret de transport dérivé et une identité persistante active.
+  Les flux non autorisés ne renvoient aucune URL live ; la révocation ferme
+  immédiatement les clips et le live. Le reset explicite révoque d’abord puis
+  réassocie une nouvelle clé avec une génération augmentée.
+- Compatibilité : les tests et interfaces de pairing existants sont conservés
+  lorsqu’ils restent dans le périmètre ; le claim préalable à la confirmation
+  est désormais obligatoire pour une caméra autorisée.
+- Couverture : première association, clé/preuve fausse, rejeu, reprise après
+  redémarrage, limitation bornée, concurrence de claim, révocation, reset,
+  rotation de génération et masquage des URL non autorisées.
+- Preuves : `GOFLAGS=-buildvcs=false go test ./... -count=1`,
+  `GOFLAGS=-buildvcs=false go vet ./...`, `GOFLAGS=-buildvcs=false go build
+  ./cmd/...`, tests ciblés de sécurité/pairing et `git diff --check` — PASS.
+- Réserve d’environnement : les dépendances Web (`synora-web/node_modules`)
+  restent absentes et hors périmètre ; lint/build Web non exécutés.
+- Intégration : à effectuer après race, Python et qualification fonctionnelle.
+
 ## MASTER_PLAN — M026
 
 - Jalon : M026 — Supervision des flux MediaMTX
