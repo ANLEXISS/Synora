@@ -139,6 +139,25 @@ func (s *Server) faceDatasetStatus(_ contract.Message) (any, error) {
 	return s.state.FaceDatasetState(), nil
 }
 
+func (s *Server) faceDatasetBuilding(msg contract.Message) (any, error) {
+	current := s.state.FaceDatasetState()
+	if current == nil {
+		current = &contract.FaceDatasetState{SchemaVersion: 1, Status: contract.FaceDatasetIdle}
+	}
+	if current.Status == contract.FaceDatasetBuilding {
+		return current, nil
+	}
+	current.Status = contract.FaceDatasetBuilding
+	current.FailureCode = ""
+	if err := s.state.SetFaceDataset(current); err != nil {
+		return nil, err
+	}
+	if msg.Source != "discovery" {
+		s.notifyMutation("residents.face_dataset.building", current.ActiveVersion)
+	}
+	return current, nil
+}
+
 func (s *Server) faceDatasetFailure(msg contract.Message) (any, error) {
 	var req struct {
 		FailureCode string `json:"failure_code"`

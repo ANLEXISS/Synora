@@ -63,6 +63,27 @@ func TestFacePhotoDeletionRequiresDatasetExclusionBeforeRemoved(t *testing.T) {
 	}
 }
 
+func TestFaceDatasetBuildingIsIdempotentAndPersistent(t *testing.T) {
+	store := state.NewStore()
+	server := NewServer(Config{State: store, Snapshot: &snapshot.Builder{Mu: &sync.RWMutex{}, Residents: map[string]*topology.Resident{}}})
+	first, err := server.Handler("face_dataset.building")(contract.Message{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := server.Handler("face_dataset.building")(contract.Message{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstState := first.(*contract.FaceDatasetState)
+	secondState := second.(*contract.FaceDatasetState)
+	if firstState.Status != contract.FaceDatasetBuilding || secondState.Status != contract.FaceDatasetBuilding {
+		t.Fatalf("building states=%#v %#v", firstState, secondState)
+	}
+	if secondState.DesiredRevision != firstState.DesiredRevision {
+		t.Fatalf("idempotent request changed revision: first=%d second=%d", firstState.DesiredRevision, secondState.DesiredRevision)
+	}
+}
+
 func TestResidentPrivacyExportExcludesStorageFields(t *testing.T) {
 	store := state.NewStore()
 	server := NewServer(Config{State: store, Snapshot: &snapshot.Builder{Mu: &sync.RWMutex{}, Residents: map[string]*topology.Resident{"alexis": {ID: "alexis", Name: "Alexis"}}}})

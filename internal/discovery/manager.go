@@ -270,7 +270,7 @@ func (m *Manager) listenFaceMutations(ctx context.Context) {
 				return
 			}
 			switch msg.Type {
-			case "resident.face_photo.updated", "resident.face_photo.removal_pending", "resident.updated":
+			case "resident.face_photo.updated", "resident.face_photo.removal_pending", "resident.updated", "residents.face_dataset.building":
 				m.requestFaceSync()
 			}
 		}
@@ -371,6 +371,11 @@ func (m *Manager) syncFaceDataset() {
 		item.Photo.StorageKey = item.StorageKey
 		photos = append(photos, item.Photo)
 		photoByID[item.Photo.ID] = item.Photo
+	}
+	buildingPayload, _ := json.Marshal(map[string]any{"desired_revision": snapshot.DesiredRevision})
+	if _, err := m.bus.Request("face_dataset.building", "discovery", buildingPayload, "core"); err != nil {
+		log.Printf("face dataset build state unavailable err=%v", err)
+		return
 	}
 	missing := []string{}
 	for _, photo := range photos {

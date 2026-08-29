@@ -229,32 +229,61 @@ func (b *Builder) reloadAndPoint(ctx context.Context, final string, manifest Man
 		return Manifest{}, err
 	}
 	current := filepath.Join(b.Store.Root, "datasets", "current")
-	tmp, err := os.CreateTemp(filepath.Dir(current), ".current-*")
+	if err := writeCurrentPointer(current, manifest.Version); err != nil {
+		return Manifest{}, err
+	}
+	syncDir(filepath.Dir(current))
+	return manifest, nil
+}
+
+// Rollback reloads a previously committed immutable dataset and points the
+// canonical current pointer to it only after Vision has accepted that version.
+// A failed reload leaves the existing pointer untouched, so a crash or bad
+// candidate cannot deactivate the last known-good dataset.
+func (b *Builder) Rollback(ctx context.Context, version string, loader Loader) (Manifest, error) {
+	if b == nil || b.Store == nil || loader == nil || !facestore.SafeComponent(strings.TrimSpace(version)) {
+		return Manifest{}, errors.New("face dataset rollback dependencies unavailable")
+	}
+	if err := b.Store.Init(); err != nil {
+		return Manifest{}, err
+	}
+	final := filepath.Join(b.Store.Root, "datasets", "versions", strings.TrimSpace(version))
+	manifest, err := ReadManifest(final)
 	if err != nil {
 		return Manifest{}, err
+	}
+	if manifest.Version != strings.TrimSpace(version) {
+		return Manifest{}, errors.New("face dataset rollback version mismatch")
+	}
+	return b.reloadAndPoint(ctx, final, manifest, loader)
+}
+
+func writeCurrentPointer(current, version string) error {
+	tmp, err := os.CreateTemp(filepath.Dir(current), ".current-*")
+	if err != nil {
+		return err
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
 	if err := tmp.Chmod(0o640); err != nil {
 		_ = tmp.Close()
-		return Manifest{}, err
+		return err
 	}
-	if _, err := io.WriteString(tmp, manifest.Version+"\n"); err != nil {
+	if _, err := io.WriteString(tmp, version+"\n"); err != nil {
 		_ = tmp.Close()
-		return Manifest{}, err
+		return err
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
-		return Manifest{}, err
+		return err
 	}
 	if err := tmp.Close(); err != nil {
-		return Manifest{}, err
+		return err
 	}
 	if err := os.Rename(tmpPath, current); err != nil {
-		return Manifest{}, err
+		return err
 	}
-	syncDir(filepath.Dir(current))
-	return manifest, nil
+	return nil
 }
 
 func ReadManifest(versionDir string) (Manifest, error) {

@@ -90,6 +90,17 @@ func handleResidentFaceRoute(core faceConfigurationProvider, faces *faceStore) h
 				writeError(w, err)
 				return
 			}
+			if provider, ok := core.(interface {
+				FaceDatasetStatus() (*contract.FaceDatasetState, error)
+			}); ok {
+				state, stateErr := provider.FaceDatasetStatus()
+				if stateErr != nil {
+					writeError(w, stateErr)
+					return
+				}
+				writeFaceProfile(w, http.StatusOK, profile, state)
+				return
+			}
 			writeJSON(w, http.StatusOK, profile)
 			return
 		}
@@ -108,6 +119,10 @@ func handleResidentFaceRoute(core faceConfigurationProvider, faces *faceStore) h
 }
 
 func (s *faceStore) handleBase(w http.ResponseWriter, r *http.Request, core faceConfigurationProvider, residentID string, parts []string) {
+	if _, ok := core.(residentPhotoProvider); ok {
+		s.handleCanonicalBase(w, r, core, residentID, parts)
+		return
+	}
 	if len(parts) == 0 {
 		if r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, http.MethodPost)
@@ -163,6 +178,112 @@ func (s *faceStore) handleBase(w http.ResponseWriter, r *http.Request, core face
 	writeRouteNotFound(w, "face photo")
 }
 
+func (s *faceStore) handleCanonicalBase(w http.ResponseWriter, r *http.Request, core faceConfigurationProvider, residentID string, parts []string) {
+	photos := core.(residentPhotoProvider)
+	if len(parts) == 0 {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		items, err := photos.ResidentPhotos(residentID, 100)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		active := 0
+		for _, item := range items {
+			if item.Status != string(contract.FacePhotoRemoved) && item.Status != string(contract.FacePhotoRejected) {
+				active++
+			}
+		}
+		if active >= 4 {
+			writeError(w, contract.NewAPIError(contract.ErrorValidationFailed, "maximum of 4 base photos reached"))
+			return
+		}
+		photo, err := receiveResidentPhoto(w, r, s, core, residentID, photos)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, photo)
+		return
+	}
+
+	photoID, ok := decodePathPart(parts[0])
+	if !ok || !safeStorageSegment(photoID) {
+		writeRouteNotFound(w, "face photo")
+		return
+	}
+	photo, err := photos.ResidentPhoto(photoID)
+	if err != nil || photo == nil || photo.ResidentID != residentID || photo.Status == string(contract.FacePhotoRemoved) {
+		if err == nil {
+			err = contract.NewAPIError(contract.ErrorNotFound, "face photo not found")
+		}
+		writeError(w, err)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "image" {
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		s.serveCanonicalImage(w, r, residentID, *photo)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "replace" {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		replacement, receiveErr := receiveResidentPhoto(w, r, s, core, residentID, photos)
+		if receiveErr != nil {
+			writeError(w, receiveErr)
+			return
+		}
+		if _, deleteErr := photos.DeleteResidentPhoto(residentID, photoID); deleteErr != nil {
+			// The new photo remains a valid, registered sample. The old sample is
+			// deliberately left active when its removal cannot be recorded.
+			writeError(w, deleteErr)
+			return
+		}
+		writeJSON(w, http.StatusOK, replacement)
+		return
+	}
+	if len(parts) == 1 && r.Method == http.MethodDelete {
+		if _, err := photos.DeleteResidentPhoto(residentID, photoID); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	writeRouteNotFound(w, "face photo")
+}
+
+func (s *faceStore) serveCanonicalImage(w http.ResponseWriter, r *http.Request, residentID string, photo contract.FacePhoto) {
+	if s == nil || s.physical == nil || !safeStorageSegment(photo.Filename) {
+		writeError(w, contract.NewAPIError(contract.ErrorNotFound, "face photo not found"))
+		return
+	}
+	path, err := s.physical.SourcePath(residentID, residentID+"/"+photo.Filename)
+	if err != nil {
+		writeError(w, contract.NewAPIError(contract.ErrorNotFound, "face photo not found"))
+		return
+	}
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		writeError(w, contract.NewAPIError(contract.ErrorNotFound, "face photo file not found"))
+		return
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer file.Close()
+	w.Header().Set("Cache-Control", "private, no-store")
+	http.ServeContent(w, r, filepath.Base(path), photo.UpdatedAt, file)
+}
+
 func (s *faceStore) handleRebuild(w http.ResponseWriter, r *http.Request, core faceConfigurationProvider, residentID string) {
 	if r.Method != http.MethodPost {
 		writeMethodNotAllowed(w, http.MethodPost)
@@ -171,6 +292,18 @@ func (s *faceStore) handleRebuild(w http.ResponseWriter, r *http.Request, core f
 	profile, err := s.profile(core, residentID)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if provider, ok := core.(interface {
+		RequestFaceDatasetRebuild() (*contract.FaceDatasetState, error)
+	}); ok {
+		state, requestErr := provider.RequestFaceDatasetRebuild()
+		if requestErr != nil {
+			writeError(w, requestErr)
+			return
+		}
+		profile.Status = "needs_rebuild"
+		writeFaceProfile(w, http.StatusAccepted, profile, state)
 		return
 	}
 	if len(profile.BasePhotos) == 0 {
@@ -182,7 +315,19 @@ func (s *faceStore) handleRebuild(w http.ResponseWriter, r *http.Request, core f
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, profile)
+	writeFaceProfile(w, http.StatusOK, profile, nil)
+}
+
+func writeFaceProfile(w http.ResponseWriter, status int, profile contract.FaceProfile, dataset *contract.FaceDatasetState) {
+	if dataset == nil {
+		writeJSON(w, status, profile)
+		return
+	}
+	data := map[string]any{}
+	raw, _ := json.Marshal(profile)
+	_ = json.Unmarshal(raw, &data)
+	data["dataset"] = dataset
+	writeJSON(w, status, data)
 }
 
 func (s *faceStore) handleReview(w http.ResponseWriter, r *http.Request, core faceConfigurationProvider, residentID string, parts []string) {
@@ -253,6 +398,41 @@ func (s *faceStore) profile(core faceConfigurationProvider, residentID string) (
 	item, err := core.Resident(residentID)
 	if err != nil {
 		return contract.FaceProfile{}, err
+	}
+	if photos, ok := core.(residentPhotoProvider); ok {
+		items, photoErr := photos.ResidentPhotos(residentID, 100)
+		if photoErr != nil {
+			return contract.FaceProfile{}, photoErr
+		}
+		profile := contract.FaceProfile{BasePhotos: make([]contract.FacePhoto, 0, len(items))}
+		for _, photo := range items {
+			if photo.Status == string(contract.FacePhotoRemoved) || photo.Status == string(contract.FacePhotoRejected) {
+				continue
+			}
+			profile.BasePhotos = append(profile.BasePhotos, photo)
+		}
+		if stateProvider, ok := core.(interface {
+			FaceDatasetStatus() (*contract.FaceDatasetState, error)
+		}); ok {
+			if state, stateErr := stateProvider.FaceDatasetStatus(); stateErr == nil {
+				switch state.Status {
+				case contract.FaceDatasetActive:
+					profile.Status = "ready"
+				case contract.FaceDatasetFailed:
+					profile.Status = "error"
+				default:
+					profile.Status = "needs_rebuild"
+				}
+			}
+		}
+		if profile.Status == "" {
+			profile.Status = "needs_rebuild"
+		}
+		profile.AutoCount, _ = s.countImages(residentID, "auto")
+		profile.ReviewCount, _ = s.countImages(residentID, "review")
+		profile.PendingCount = profile.ReviewCount
+		normalizeFaceProfileForAPI(&profile)
+		return profile, nil
 	}
 	var profile contract.FaceProfile
 	if raw, ok := item["face_profile"]; ok && raw != nil {

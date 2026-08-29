@@ -285,6 +285,7 @@ func (s *Server) register() {
 	s.handlers["residents.photos.reject"] = s.facePhotoReject
 	s.handlers["face_dataset.snapshot"] = s.faceDatasetSnapshot
 	s.handlers["face_dataset.status"] = s.faceDatasetStatus
+	s.handlers["face_dataset.building"] = s.faceDatasetBuilding
 	s.handlers["face_dataset.failure"] = s.faceDatasetFailure
 	s.handlers["face_dataset.mark_missing"] = s.faceDatasetMarkMissing
 	s.handlers["face_dataset.activate"] = s.faceDatasetActivate
