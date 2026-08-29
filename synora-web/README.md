@@ -1,3 +1,21 @@
+# Synora WebApp
+
+Le client utilise `/api/v1` comme frontière unique pour les appels HTTP et
+`/api/v1/ws` pour le temps réel. Les réponses REST sont déballées depuis leur
+enveloppe `data/error/meta`; une erreur d’authentification déclenche la
+réévaluation de session, sans fallback de démonstration.
+
+## Vérification locale
+
+```sh
+npm test
+npm run lint
+npm run build
+```
+
+`npm test` est volontairement indépendant de React et du bundler : il vérifie
+la machine d’état temps réel avec Node afin de rester déterministe en CI.
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.

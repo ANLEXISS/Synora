@@ -155,7 +155,7 @@ export function useSynoraData() {
     const controller = new AbortController();
     void loadRemote(controller.signal);
 
-    const refreshTimer = window.setInterval(() => void loadRemote(), 5000);
+    const refreshTimer = window.setInterval(() => void loadRemote(controller.signal), 5000);
 
     return () => {
       controller.abort();

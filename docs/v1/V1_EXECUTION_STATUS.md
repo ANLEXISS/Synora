@@ -1,5 +1,26 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M035
+
+- Jalon : M035 — Socle de tests WebApp
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m035-web-tests`
+- Branche dédiée : `codex/v1-m035-web-tests`
+- API : les appels HTTP passent par `/api/v1`, déballent l’enveloppe
+  `data/error/meta` et centralisent l’authentification cookie, les erreurs
+  structurées et les métadonnées de révision/ETag. Le WebSocket suit la même
+  frontière `/api/v1/ws`.
+- Temps réel : snapshot initial puis messages séquencés par époque ; les
+  doublons et messages anciens sont ignorés, les trous de séquence et les
+  changements d’époque sans snapshot demandent une resynchronisation HTTP.
+  Les timers, polling et connexions sont nettoyés au démontage.
+- Tests : un harnais Node déterministe couvre snapshot/delta, doublon, ordre
+  ancien, trou, changement d’époque et extraction de payload (`npm test`). Les
+  tests TypeScript framework-free restent appelables par un runner React.
+- Validation : `npm test` — PASS (4 tests), `git diff --check` — PASS. `npm run
+  lint` et `npm run build` sont déclarés mais non exécutables ici car `oxlint`,
+  `tsc` et les dépendances Web locales sont absents ; aucune installation n’a
+  été effectuée dans `node_modules`, hors périmètre autorisé.
+
 ## MASTER_PLAN — M034
 
 - Jalon : M034 — Actions réelles et résultats durables

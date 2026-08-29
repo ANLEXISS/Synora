@@ -256,8 +256,15 @@ export type SynoraClip = {
 };
 
 export type SynoraWsMessage = {
+  schema_version?: string;
   type?: string;
   topic?: string;
+  message_id?: string;
+  occurred_at?: string;
+  source?: string;
+  epoch?: string;
+  sequence?: number;
+  revision?: number;
   payload?: unknown;
   snapshot?: SynoraSnapshot;
   state?: SynoraSnapshot;

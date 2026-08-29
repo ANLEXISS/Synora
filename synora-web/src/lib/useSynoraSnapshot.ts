@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { buildWsUrl } from "../lib/config";
 import { SynoraApiError } from "./api";
 import { getState } from "../lib/synora-api";
+import { acceptRealtimeMessage, type RealtimeCursor } from "./realtime";
 import type { SynoraSnapshot, SynoraWsMessage } from "../lib/synora-types";
 
 type SynoraConnectionState = "connecting" | "connected" | "disconnected" | "error";
@@ -16,49 +17,6 @@ type UseSynoraSnapshotResult = {
   apiStatus: "connected" | "unauthenticated" | "unavailable";
 };
 
-function extractSnapshot(message: SynoraWsMessage): SynoraSnapshot | null {
-  if (message.snapshot) return message.snapshot;
-  if (message.state) return message.state;
-
-  if (
-    message.payload &&
-    typeof message.payload === "object" &&
-    !Array.isArray(message.payload)
-  ) {
-    const payload = message.payload as Record<string, unknown>;
-
-    if (payload.snapshot && typeof payload.snapshot === "object") {
-      return payload.snapshot as SynoraSnapshot;
-    }
-
-    if (payload.state && typeof payload.state === "object") {
-      return payload.state as SynoraSnapshot;
-    }
-
-    if (
-      message.type === "snapshot.initial" ||
-      message.type === "snapshot.updated" ||
-      message.topic === "state.snapshot"
-    ) {
-      return payload as SynoraSnapshot;
-    }
-  }
-
-  if (message.data && typeof message.data === "object" && !Array.isArray(message.data)) {
-    return message.data as SynoraSnapshot;
-  }
-
-  if (
-    message.type === "snapshot.initial" ||
-    message.type === "snapshot.updated" ||
-    message.topic === "state.snapshot"
-  ) {
-    return message as SynoraSnapshot;
-  }
-
-  return null;
-}
-
 export function useSynoraSnapshot(): UseSynoraSnapshotResult {
   const [snapshot, setSnapshot] = useState<SynoraSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,6 +27,7 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
   const [apiStatus, setApiStatus] = useState<UseSynoraSnapshotResult["apiStatus"]>("unavailable");
 
   const abortRef = useRef<AbortController | null>(null);
+  const cursorRef = useRef<RealtimeCursor | null>(null);
 
   async function refresh() {
     abortRef.current?.abort();
@@ -82,6 +41,7 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
       const state = await getState(controller.signal);
 
       setSnapshot(state);
+      cursorRef.current = null;
       setLoading(false);
       setApiStatus("connected");
     } catch (err) {
@@ -143,7 +103,16 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data) as SynoraWsMessage;
-          const nextSnapshot = extractSnapshot(message);
+          const decision = acceptRealtimeMessage(message, cursorRef.current);
+
+          if (decision.kind === "resync") {
+            cursorRef.current = null;
+            setError(decision.reason);
+            void refresh();
+            return;
+          }
+          if (decision.kind === "ignore") return;
+          cursorRef.current = decision.cursor;
 
           if (message.type === "security.mode.changed" || message.topic === "security.mode.changed") {
             void refresh();
@@ -151,8 +120,8 @@ export function useSynoraSnapshot(): UseSynoraSnapshotResult {
 
           setLastMessageAt(new Date());
 
-          if (nextSnapshot) {
-            setSnapshot(nextSnapshot);
+          if (decision.snapshot) {
+            setSnapshot(decision.snapshot);
             setLoading(false);
             setError(null);
             setApiStatus("connected");
