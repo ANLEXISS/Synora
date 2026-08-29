@@ -102,6 +102,13 @@ func handleClipMedia(core clipProvider, root string) http.HandlerFunc {
 			writeError(w, contract.NewAPIError(contract.ErrorConflict, "clip media is not ready"))
 			return
 		}
+		if rawRange := strings.TrimSpace(r.Header.Get("Range")); strings.Contains(rawRange, ",") {
+			// ServeContent can turn an invalid multi-range request into a full
+			// response. Reject it before opening the verified media so hostile
+			// range fan-out cannot bypass the bounded media contract.
+			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
 		path, err := clipstore.FinalPath(root, clip.CameraID, clip.ID)
 		if err != nil {
 			writeRouteNotFound(w, "clip")

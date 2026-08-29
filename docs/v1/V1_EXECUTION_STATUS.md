@@ -1,5 +1,19 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M045
+
+- Jalon : M045 — Suite hostile de sécurité
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m045-hostile-security`
+- Branche dédiée : `codex/v1-m045-hostile-security`
+- Résultat : frontières V1 testées hors ligne contre spoof/rejeu, bruteforce,
+  traversal, injection JSON, symlink/archive, Range, slow client, CSRF/Origin,
+  sessions, IDOR/RBAC, fuite biométrique et dernier administrateur.
+- Corrections : `..` encodé est rejeté par les identifiants de ressources ; les
+  Range multi-segments sont refusées en 416 avant accès au média.
+- Preuves ciblées : packages API/auth/security/backup/ingress/MediaMTX — PASS ;
+  matrice Python hostile — PASS ; aucune cible extérieure utilisée. La
+  validation V1 complète sera rejouée après intégration.
+
 ## MASTER_PLAN — M044
 
 - Jalon : M044 — E2E logiciel V1 hermétique
