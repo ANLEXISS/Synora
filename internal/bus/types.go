@@ -7,10 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"synora/internal/resourcebudget"
 	"synora/pkg/contract"
 )
 
-const maxFrameSize = 1024 * 1024
+const maxFrameSize = resourcebudget.MaxMessageBytes
 
 var errClientClosed = errors.New("bus client closed")
 

@@ -155,3 +155,14 @@ func TestQueueAllowsExplicitlyHistoricalSimulation(t *testing.T) {
 		t.Fatal("explicitly simulated historical event should be accepted")
 	}
 }
+
+func TestParserRejectsPayloadBeyondBusBudget(t *testing.T) {
+	_, err := (Parser{}).Parse(contract.Message{
+		Type:    contract.EventVisionMotion,
+		Source:  "vision",
+		Payload: []byte(`{"data":"` + strings.Repeat("x", (1<<20)) + `"}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), "resource budget") {
+		t.Fatalf("oversized payload error=%v", err)
+	}
+}

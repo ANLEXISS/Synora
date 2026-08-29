@@ -61,6 +61,28 @@ func TestRateControllerLeavesExplicitIDsToCoreIdempotenceGate(t *testing.T) {
 	}
 }
 
+func TestRateControllerEvictsOldStateAtBoundedCapacity(t *testing.T) {
+	controller := NewRateControllerWithLimit(time.Minute, time.Minute, 2)
+	now := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	for _, source := range []string{"camera-a", "camera-b", "camera-c"} {
+		if !controller.Accept(&contract.Event{
+			Type:      contract.EventVisionMotion,
+			Source:    source,
+			Timestamp: now,
+			DeviceID:  source,
+			Priority:  contract.PriorityNormal,
+			Payload:   map[string]any{},
+		}) {
+			t.Fatalf("event from %s was rejected", source)
+		}
+	}
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	if len(controller.fingerprints) > 2 || len(controller.groups) > 2 {
+		t.Fatalf("rate controller state exceeded bound: fingerprints=%d groups=%d", len(controller.fingerprints), len(controller.groups))
+	}
+}
+
 func simulatedUnknownEvent(at time.Time, instanceID string) *contract.Event {
 	return &contract.Event{
 		Type:      contract.EventVisionUnknown,

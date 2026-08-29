@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"synora/internal/bus"
+	"synora/internal/resourcebudget"
 	"synora/pkg/contract"
 )
 
@@ -20,6 +21,27 @@ type realtimeTestBus struct {
 
 func newRealtimeTestBus() *realtimeTestBus {
 	return &realtimeTestBus{messages: make(chan contract.Message, 32)}
+}
+
+func TestWebSocketHubRejectsClientsBeyondV1Budget(t *testing.T) {
+	hub := newWebSocketHub(nil)
+	for i := 0; i < resourcebudget.MaxWebSocketClients; i++ {
+		hub.clients[&websocketClient{}] = struct{}{}
+	}
+	if hub.hasClientCapacity() {
+		t.Fatal("websocket hub accepted more than the V1 client budget")
+	}
+	for client := range hub.clients {
+		delete(hub.clients, client)
+		break
+	}
+	if !hub.hasClientCapacity() {
+		t.Fatal("websocket capacity did not return after a client left")
+	}
+	hub.closed = true
+	if hub.hasClientCapacity() {
+		t.Fatal("closed websocket hub reported capacity")
+	}
 }
 
 func (b *realtimeTestBus) SubscribeChannel(string) <-chan contract.Message { return b.messages }
