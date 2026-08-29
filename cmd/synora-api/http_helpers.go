@@ -73,7 +73,7 @@ func resourceID(path string, prefix string) (string, bool) {
 		return "", false
 	}
 	id = strings.TrimSpace(id)
-	return id, id != "" && !strings.Contains(id, "/")
+	return id, id != "" && id != "." && id != ".." && !strings.Contains(id, "/")
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter, methods ...string) {
