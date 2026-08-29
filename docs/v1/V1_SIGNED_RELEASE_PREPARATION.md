@@ -1,31 +1,34 @@
-# M046 — préparation de release signée
+# M046 — release signée et rollback V1
 
-Cette étape prépare le format de release sans arrêter de décision sur la
-racine de confiance ni sur la stratégie opérationnelle de rollback.
+La politique humaine M046 est validée. La release de production utilise une
+PKI RAUC X.509 distincte pour la centrale et les caméras ; la chaîne de
+développement est séparée et n’est jamais acceptée en production.
 
-Le manifeste JSON signé contient la version, la compatibilité matérielle, la
-taille et le SHA-256 du bundle, ainsi que la cible de migration. La signature
-Ed25519 est vérifiée après lecture du bundle et avant toute installation. Une
-version candidate inférieure à la version Core courante, ou une cible de
-migration inférieure au schéma déjà appliqué, est refusée.
+Le manifeste JSON signé contient l’identifiant produit, la cible centrale ou
+caméra, la version, la génération de sécurité monotone, la compatibilité
+matérielle, la taille, le SHA-256, le signer et la cible de migration. La
+signature RSA/SHA-256 et la chaîne X.509 sont vérifiées avant installation ;
+RAUC effectue la vérification finale du bundle avec `check-purpose=codesign`
+et `check-crl=true`. Le chemin Ed25519 reste uniquement un adaptateur de
+compatibilité pour les consommateurs existants.
 
-Le contrôleur conserve un journal transactionnel, n’exécute le health gate
-qu’après installation et ne demande le marquage sain qu’après le healthcheck
-en lecture seule. Les échecs d’installation, d’espace ou de readiness
-déclenchent le chemin de marquage mauvais déjà délégué au backend OTA.
-L’infrastructure de migrations refuse une cible non planifiable avant toute
-écriture et reste idempotente.
+Le contrôleur conserve un journal transactionnel, refuse les downgrades de
+version, génération ou migration, installe dans le slot géré par RAUC et
+n’exécute le health gate qu’après installation. `mark-good` exige un
+healthcheck readonly puis une stabilité durable de 120 secondes ; les échecs
+d’installation, d’espace ou de readiness demandent `mark-bad`. Les caméras
+utilisent le même profil de release, restent autonomes et exigent 60 secondes
+de stabilité avant validation. Les migrations sont ordonnées, idempotentes,
+transactionnelles et restaurables depuis leur checkpoint.
 
-Les preuves locales couvrent manifeste non signé, signature invalide, bundle
-corrompu, downgrade, migration downgrade/non planifiable, espace insuffisant,
-health gate en échec et reprise d’un journal interrompu.
+Les preuves locales couvrent manifeste non signé ou modifié, chaîne et signer
+révoqués, mauvaise cible, rotation progressive de racine, bundle corrompu,
+downgrade, migration downgrade/non planifiable, espace insuffisant, coupure,
+health gate et stabilité en échec, compteur/fallback simulé, rollback caméra
+et préservation des données persistantes.
 
-Décisions encore requises par Alexis avant M046 complet :
-
-- racine de confiance, rotation et conservation des clés ;
-- procédure de récupération et révocation ;
-- politique opérationnelle de rollback central et caméras ;
-- conditions matérielles de reprise et d’acceptation finale.
-
-Aucune clé de production, racine système ou installation matérielle n’est
-modifiée par cette préparation.
+La politique de conservation, rotation, révocation et récupération est
+documentée dans `docs/ota-rollback.md`. Aucun secret réel n’est présent dans
+le dépôt : les fixtures et le script `tools/ota/create_test_pki.sh` ne
+produisent que des clés de test à la demande. La validation matérielle RK3588
+reste le périmètre humain de M047 et n’est pas simulée ici.

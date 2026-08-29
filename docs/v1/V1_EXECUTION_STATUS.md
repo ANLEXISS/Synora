@@ -2,19 +2,22 @@
 
 ## MASTER_PLAN — M046
 
-- Jalon : M046 — Mise à jour signée et rollback — préparation
+- Jalon : M046 — Mise à jour signée et rollback — terminé
 - Worktree dédié : `/home/rock/Synora-worktrees/v1-m046-signed-update-rollback`
 - Branche dédiée : `codex/v1-m046-signed-update-rollback`
-- Préparation : manifeste signé Ed25519, checksum bundle, compatibilité
-  matérielle, anti-downgrade version/migration, journal OTA, health gate et
-  simulateur de défaillance.
-- Tests : signature absente/invalide, corruption bundle, espace insuffisant,
-  migration non planifiable sans mutation, health gate en échec et reprise
-  journalisée.
-- Limite volontaire : aucune racine de confiance, rotation/conservation de
-  clés ou stratégie opérationnelle de rollback n’est choisie ou modifiée.
-  Ces décisions nécessitent la validation humaine d’Alexis avant intégration
-  et avant M046 complet.
+- Implémentation : manifeste RSA/SHA-256 avec chaîne X.509 RAUC, séparation
+  de cible centrale/caméra, génération de sécurité monotone, anti-downgrade,
+  journal OTA, stabilité post-boot 120 s centrale/60 s caméra et rollback
+  délégué à RAUC ou au transport caméra.
+- Politique appliquée : CA racine hors ligne, intermédiaires centraux/caméras,
+  certificats de release limités au code signing, CRL, rotation progressive,
+  récupération hors ligne et conservation des données persistantes.
+- Tests : signer révoqué, mauvaise cible, rotation de racine, corruption,
+  espace insuffisant, migrations non planifiables et restaurables, coupures,
+  health gate/stabilité, fallback simulé et préservation des données.
+- Résultat : validé humainement ; aucune clé de production ni installation
+  matérielle n’a été créée ou modifiée. M047 reste une validation réelle sur
+  Rock 5 ITX et ne peut pas être déclarée réussie localement.
 
 ## MASTER_PLAN — M045
 
