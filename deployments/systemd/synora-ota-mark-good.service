@@ -10,6 +10,11 @@ User=root
 Group=root
 ExecStart=/opt/synora/bin/synora-ota mark-good
 NoNewPrivileges=true
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+KillMode=mixed
+UMask=0077
+TasksMax=128
 
 [Install]
 WantedBy=multi-user.target

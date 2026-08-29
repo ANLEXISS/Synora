@@ -34,6 +34,7 @@ RUN_DIR ?= /run/synora
 BUS_SOCKET ?= $(RUN_DIR)/bus.sock
 SERVICE_USER ?= synora
 GO ?= $(shell if command -v go >/dev/null 2>&1; then command -v go; elif [ -x /usr/local/go/bin/go ]; then printf '%s' /usr/local/go/bin/go; else printf '%s' go; fi)
+GO_BUILD_FLAGS ?= -trimpath -buildvcs=false
 PYTHON ?= python3
 GOCACHE ?= /tmp/synora-gocache
 
@@ -73,8 +74,8 @@ RUNTIME_SERVICES := \
 	synora-discovery \
 	synora-connect
 
-START_ORDER := mediamtx $(RUNTIME_SERVICES)
-STOP_ORDER := synora-connect synora-discovery synora-api synora-actions synora-core synora-runtime-manager synora-bus mediamtx
+START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-actions synora-api synora-connect mediamtx
+STOP_ORDER := mediamtx synora-connect synora-api synora-actions synora-discovery synora-core synora-runtime-manager synora-bus
 OTA_UNITS := synora-ota-mark-good
 START_ORDER += $(OTA_UNITS)
 SYSTEMD_UNITS := $(addsuffix .service,$(RUNTIME_SERVICES) $(OTA_UNITS)) mediamtx.service
@@ -118,13 +119,13 @@ build: check-go build-bootstrap-config build-boot-healthcheck generate-version
 	@for item in $(GO_BINS); do \
 		name="$${item%%:*}"; pkg="$${item#*:}"; \
 		echo "Building $$name from $$pkg"; \
-		GOCACHE=$(GOCACHE) "$(GO)" build -o "bin/$$name" "$$pkg"; \
+		GOCACHE=$(GOCACHE) "$(GO)" build $(GO_BUILD_FLAGS) -o "bin/$$name" "$$pkg"; \
 		done
 
 build-boot-healthcheck: check-go
 	@mkdir -p bin
 	@echo "Building synora-boot-healthcheck"
-	@GOCACHE=$(GOCACHE) "$(GO)" build -o bin/synora-boot-healthcheck ./cmd/synora-boot-healthcheck
+	@GOCACHE=$(GOCACHE) "$(GO)" build $(GO_BUILD_FLAGS) -o bin/synora-boot-healthcheck ./cmd/synora-boot-healthcheck
 
 generate-version: check-go
 	@mkdir -p build
@@ -135,7 +136,7 @@ dev-tools: check-go
 	@for item in $(DEV_TOOL_BINS); do \
 		name="$${item%%:*}"; pkg="$${item#*:}"; \
 		echo "Building $$name from $$pkg"; \
-		GOCACHE=$(GOCACHE) "$(GO)" build -o "bin/$$name" "$$pkg"; \
+		GOCACHE=$(GOCACHE) "$(GO)" build $(GO_BUILD_FLAGS) -o "bin/$$name" "$$pkg"; \
 	done
 
 build-bootstrap-config: check-go
@@ -312,13 +313,12 @@ build-web:
 			exit 1; \
 		fi; \
 		echo "Building webapp in $(WEBAPP_DIR)"; \
-		if [ -f "$(WEBAPP_DIR)/package-lock.json" ]; then \
-			echo "Installing webapp dependencies with npm ci"; \
-			( cd "$(WEBAPP_DIR)" && npm ci ); \
-		else \
-			echo "Installing webapp dependencies with npm install"; \
-			( cd "$(WEBAPP_DIR)" && npm install ); \
+		if [ ! -f "$(WEBAPP_DIR)/package-lock.json" ]; then \
+			echo "FAIL: $(WEBAPP_DIR)/package-lock.json is required for a reproducible build." >&2; \
+			exit 1; \
 		fi; \
+		echo "Installing webapp dependencies with npm ci"; \
+		( cd "$(WEBAPP_DIR)" && npm ci ); \
 		echo "Building static webapp"; \
 		( cd "$(WEBAPP_DIR)" && npm run build ); \
 	else \

@@ -16,12 +16,17 @@ ExecStart=/opt/synora/bin/synora-connect run
 
 Restart=on-failure
 RestartSec=3
+TimeoutStopSec=15s
+KillMode=mixed
+UMask=0077
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
 ReadWritePaths=/var/lib/synora/connectivity /run/synora
+LimitNOFILE=4096
+TasksMax=128
 
 # No AmbientCapabilities and no CAP_NET_ADMIN in this foundation pass.
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,7 +50,7 @@ func generate() version.Manifest {
 	bundle := envOr("SYNORA_BUNDLE_ID", "local-"+commit)
 	return version.Manifest{
 		ImageVersion: image, SynoraVersion: synora, GitCommit: commit,
-		BuildTime:           envOr("SYNORA_BUILD_TIME", time.Now().UTC().Format(time.RFC3339)),
+		BuildTime:           buildTime(),
 		TargetBoard:         envOr("SYNORA_TARGET_BOARD", "rock-5-itx"),
 		OSBase:              envOr("SYNORA_OS_BASE", "radxa-debian-bookworm"),
 		KernelExpected:      envOr("SYNORA_KERNEL_EXPECTED", "6.1.43-26-rk2312"),
@@ -57,6 +58,19 @@ func generate() version.Manifest {
 		ConfigSchemaVersion: 1,
 		BundleID:            bundle,
 	}
+}
+
+func buildTime() string {
+	if value := strings.TrimSpace(os.Getenv("SYNORA_BUILD_TIME")); value != "" {
+		return value
+	}
+	if raw := strings.TrimSpace(os.Getenv("SOURCE_DATE_EPOCH")); raw != "" {
+		seconds, err := strconv.ParseInt(raw, 10, 64)
+		if err == nil {
+			return time.Unix(seconds, 0).UTC().Format(time.RFC3339)
+		}
+	}
+	return "unknown"
 }
 
 func gitCommit() string {
