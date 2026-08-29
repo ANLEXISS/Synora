@@ -1,5 +1,32 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M036
+
+- Jalon : M036 — Dashboard, incidents et clips
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m036-dashboard-incidents`
+- Branche dédiée : `codex/v1-m036-dashboard-incidents`
+- Parcours : le Dashboard expose la liste des incidents, l’ouverture d’un
+  détail accessible au clavier, la cause, l’état de sécurité, l’identité et
+  les horodatages RFC3339 ; les transitions `viewed` et `acknowledged` restent
+  réservées aux administrateurs et s’appuient sur l’endpoint idempotent.
+- Médias : les clips sont filtrés par incident ; seuls les états `ready` et
+  `processed` ouvrent le lecteur vérifié. Les états `receiving`, `processing`,
+  `failed`, `missing` et `expired` restent explicitement descriptifs sans
+  promettre une vidéo absente. Une erreur de lecture conserve les métadonnées.
+- Temps réel : la mise à jour des incidents et clips est relancée lors des
+  messages temps réel et par polling de secours, avec annulation et nettoyage
+  des timers au démontage ; session expirée, reconnexion et resynchronisation
+  suivent le socle M035.
+- Couverture : incident créé pendant la navigation, liste vide ou volumineuse,
+  détail et navigation clavier, acquittement, états de clip, vidéo indisponible
+  et erreurs d’API.
+- Validation : Go complet, vet, build, Python Vision, qualification
+  fonctionnelle, tests Web déterministes et `git diff --check` — PASS. La
+  race complète reste couverte par la dernière validation Go de M034, aucun
+  fichier Go n’ayant été modifié dans M036. La qualification Web bundlée
+  (`lint`/`build`) n’est pas exécutable ici : `oxlint` et `tsc` sont absents,
+  et l’installation de dépendances est hors périmètre autorisé.
+
 ## MASTER_PLAN — M035
 
 - Jalon : M035 — Socle de tests WebApp

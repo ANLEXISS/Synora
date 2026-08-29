@@ -131,6 +131,10 @@ export function getClips(limit = 20, signal?: AbortSignal) {
   return synoraFetch<SynoraClip[]>(`/api/clips?limit=${Math.max(1, Math.min(100, limit))}`, { signal });
 }
 
+export function getClipMediaUrl(id: string) {
+  return buildApiUrl(`/api/clips/${encodeURIComponent(id)}/media`);
+}
+
 export function getRuntimeStatus(signal?: AbortSignal) {
   return synoraFetch<unknown>("/api/cge/runtime-status", { signal }).then((value): DashboardRuntimeStatus => (
     isRecord(value) ? value : {}

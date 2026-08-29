@@ -321,7 +321,7 @@ export function Dashboard() {
         </div>
       </Panel>
 
-      <IncidentEvidencePanel />
+      <IncidentEvidencePanel refreshKey={data.lastMessageAt?.getTime() ?? 0} />
     </div>
   );
 }
