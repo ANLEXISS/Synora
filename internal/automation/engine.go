@@ -17,6 +17,7 @@ type Engine struct {
 	filePath   string
 	Now        func() time.Time
 	cooldowns  map[string]time.Time
+	cooldownMu sync.Mutex
 	mutationMu sync.Mutex
 }
 
@@ -281,7 +282,9 @@ func (e *Engine) EvaluateRequests(event *contract.Event, decision *contract.Deci
 			}
 		}
 		ruleCooldownKey := "automation:" + rule.ID
-		if rule.CooldownMs > 0 && e.cooldownActive(ruleCooldownKey, now) {
+		e.cooldownMu.Lock()
+		if rule.CooldownMs > 0 && e.cooldownActiveLocked(ruleCooldownKey, now) {
+			e.cooldownMu.Unlock()
 			continue
 		}
 		log.Printf("automation matched id=%s", rule.ID)
@@ -295,7 +298,7 @@ func (e *Engine) EvaluateRequests(event *contract.Event, decision *contract.Deci
 				continue
 			}
 			actionCooldownKey := action.CooldownKey
-			if actionCooldownKey != "" && e.cooldownActive(actionCooldownKey, now) {
+			if actionCooldownKey != "" && e.cooldownActiveLocked(actionCooldownKey, now) {
 				continue
 			}
 			if actionCooldownKey != "" && rule.CooldownMs > 0 {
@@ -307,6 +310,7 @@ func (e *Engine) EvaluateRequests(event *contract.Event, decision *contract.Deci
 		if rule.CooldownMs > 0 && generated > 0 {
 			e.cooldowns[ruleCooldownKey] = now.Add(time.Duration(rule.CooldownMs) * time.Millisecond)
 		}
+		e.cooldownMu.Unlock()
 	}
 	return matched
 }
@@ -356,6 +360,15 @@ func matchesTrigger(rule Rule, event *contract.Event, decision *contract.Decisio
 }
 
 func (e *Engine) cooldownActive(key string, now time.Time) bool {
+	if key == "" {
+		return false
+	}
+	e.cooldownMu.Lock()
+	defer e.cooldownMu.Unlock()
+	return e.cooldownActiveLocked(key, now)
+}
+
+func (e *Engine) cooldownActiveLocked(key string, now time.Time) bool {
 	if key == "" {
 		return false
 	}
