@@ -1,9 +1,10 @@
 # HTTPS natif de synora-api
 
-`synora-api` peut servir le même handler HTTP sur deux listeners :
+`synora-api` peut servir le même handler applicatif sur deux listeners :
 
-- HTTP `:8080` pour le debug/local ;
-- HTTPS `:8443` quand `server.https_enabled` vaut `true`.
+- HTTP `:8080` comme listener de redirection uniquement lorsque
+  `server.https_enabled` vaut `true` ;
+- HTTPS `:8443` comme listener applicatif lorsque TLS est configuré.
 
 La webapp statique, l'API et `/api/ws` utilisent le même handler. Le
 WebSocket du frontend choisit automatiquement `ws://` en HTTP et `wss://` en
@@ -55,6 +56,13 @@ HTTPS rend aussi le contexte navigateur et les cookies `Secure` explicites.
 Tailscale ou WireGuard protègent le transport réseau, mais ne remplacent pas
 HTTPS pour le contexte navigateur ni l'authentification applicative.
 
-La redirection HTTP vers HTTPS est réservée à une passe ultérieure ; le champ
-`redirect_http_to_https` est conservé dans la configuration mais reste sans
-effet tant qu'il n'est pas activé par une implémentation dédiée.
+Lorsque HTTPS est activé et que les deux fichiers TLS sont valides, aucune
+requête applicative ne reste servie en clair : le listener HTTP renvoie une
+redirection permanente vers l’autorité HTTPS configurée, tandis que le
+listener HTTPS sert directement l’application. Si HTTPS est activé sans
+certificat ou clé régulière, le démarrage est refusé.
+
+Les en-têtes `X-Forwarded-*` ne sont pas interprétés. Une terminaison TLS par
+proxy doit donc transmettre le trafic vers un endpoint Synora explicitement
+configuré dans une frontière de confiance ; Synora ne déduit jamais la
+sécurité du transport d’un en-tête client non authentifié.
