@@ -1,5 +1,17 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M048
+
+- Jalon : M048 — Validation caméras, pairing et live — procédure préparée,
+  validation matérielle en attente
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m048-camera-pairing-live`
+- Branche dédiée : `codex/v1-m048-camera-pairing-live`
+- Procédure : pairing des trois caméras, clés fausses/réutilisées, révocation,
+  firmware/checksum, pertes réseau, reboots, clips chunked/retry/index, live
+  MediaMTX et capteurs PIR/Doppler strictement V1.
+- Statut : `blocked_no_target_results` ; M047 est différé et aucun résultat
+  matériel M048 n’est simulé.
+
 ## MASTER_PLAN — M046
 
 - Jalon : M046 — Mise à jour signée et rollback — terminé
@@ -17,7 +29,7 @@
   health gate/stabilité, fallback simulé et préservation des données.
 - Résultat : validé humainement ; aucune clé de production ni installation
   matérielle n’a été créée ou modifiée. M047 reste une validation réelle sur
-  Rock 5 ITX et ne peut pas être déclarée réussie localement.
+  Rock 5T et ne peut pas être déclarée réussie localement.
 
 ## MASTER_PLAN — M045
 
