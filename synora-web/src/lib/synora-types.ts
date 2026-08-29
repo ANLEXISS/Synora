@@ -28,6 +28,9 @@ export type SynoraDevice = {
   model?: string;
   serial?: string;
   pairing_method?: string;
+  network?: { network_trust?: string; [key: string]: unknown };
+  identity_status?: string;
+  revoked?: boolean;
   online?: boolean;
   status?: "online" | "offline" | "degraded" | string;
   last_seen?: string | null;

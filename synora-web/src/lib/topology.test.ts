@@ -1,4 +1,4 @@
-import { getDevicesByRoom, getRoomLabel, getTopologyRooms, normalizeTopologyResponse } from "./topology";
+import { getDevicesByRoom, getRoomLabel, getTopologyRooms, normalizeTopologyDevices, normalizeTopologyResponse } from "./topology";
 
 // Kept framework-free so the adapter can be exercised by any frontend test
 // runner without adding a production dependency.
@@ -37,5 +37,18 @@ export function topologyAdapterFixtureTest() {
   const grouped = getDevicesByRoom([{ id: "cam_01", node_id: "zoneA.L0.entree" }, { id: "sensor_01" }]);
   if (grouped["zoneA.L0.entree"]?.[0]?.id !== "cam_01" || grouped.unlocated?.[0]?.id !== "sensor_01") {
     throw new Error("device room grouping failed");
+  }
+}
+
+export function topologyDeviceStatusFixtureTest() {
+  const devices = normalizeTopologyDevices([
+    { id: "cam-never", type: "camera", status: "offline", last_seen: null },
+    { id: "cam-unpaired", type: "camera", status: "offline", network: { network_trust: "pending" } },
+    { id: "cam-revoked", type: "camera", status: "offline", enabled: false, network: { network_trust: "revoked" } },
+    { id: "cam-offline", type: "camera", status: "offline", last_seen: "2026-08-29T00:00:00Z" },
+  ], []);
+  const statuses = devices.map((device) => device.status);
+  if (statuses.join(",") !== "never_seen,pending,revoked,offline") {
+    throw new Error(`camera status distinctions were lost: ${statuses.join(",")}`);
   }
 }

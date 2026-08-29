@@ -75,6 +75,7 @@ export function SynoraCameraPairingWizard({ topology, onClose, onPaired }: Wizar
   const rooms = useMemo(() => roomsFromTopology(topology), [topology]);
 
   async function submitCode(value: string) {
+    if (busy) return;
     setError(null);
     try {
       const payload = parseQRValue(value);
@@ -96,7 +97,7 @@ export function SynoraCameraPairingWizard({ topology, onClose, onPaired }: Wizar
   }
 
   async function confirm() {
-    if (!pairing) return;
+    if (!pairing || busy) return;
     if (!name.trim()) {
       setError("Le nom affiché est obligatoire.");
       return;
@@ -134,7 +135,7 @@ export function SynoraCameraPairingWizard({ topology, onClose, onPaired }: Wizar
       <section className="pairing-modal" role="dialog" aria-modal="true" aria-labelledby="pairing-title">
         <header className="pairing-modal-header">
           <div><span>Appairage · étape {Math.min(step, 4)}/4</span><h2 id="pairing-title">{stepTitle}</h2></div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Fermer"><X size={19} /></button>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Fermer" disabled={busy}><X size={19} /></button>
         </header>
 
         {error && <div className="wizard-error" role="alert">{error}</div>}
@@ -179,7 +180,7 @@ export function SynoraCameraPairingWizard({ topology, onClose, onPaired }: Wizar
         </div>
 
         <footer className="pairing-modal-footer">
-          {step > 1 && step < 5 && <button type="button" className="secondary-button" onClick={() => { setError(null); setStep((current) => (current - 1) as 1 | 2 | 3 | 4); }}><ArrowLeft size={15} /> Retour</button>}
+          {step > 1 && step < 5 && <button type="button" className="secondary-button" disabled={busy} onClick={() => { setError(null); setStep((current) => (current - 1) as 1 | 2 | 3 | 4); }}><ArrowLeft size={15} /> Retour</button>}
           <span />
           {step === 1 && <button type="button" className="primary-button" onClick={() => setStep(2)}>Commencer <ChevronRight size={15} /></button>}
           {step === 3 && <button type="button" className="primary-button" disabled={busy || !nodeID || !name.trim()} onClick={() => setStep(4)}>Vérifier <ChevronRight size={15} /></button>}

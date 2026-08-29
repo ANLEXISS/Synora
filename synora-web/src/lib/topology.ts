@@ -190,7 +190,7 @@ export type NormalizedTopologyDevice = {
   id: string;
   name: string;
   type: "camera" | "light" | "sensor" | "siren" | "lock" | "unknown";
-  status: "online" | "offline" | "degraded" | "pending";
+  status: "online" | "offline" | "degraded" | "pending" | "never_seen" | "unpaired" | "revoked";
   node_id: string | null;
   enabled: boolean;
   role?: string;
@@ -216,10 +216,24 @@ export function normalizeTopologyDevices(
       ? rawType as NormalizedTopologyDevice["type"]
       : "unknown";
     const configuredStatus = String(device["status"] ?? "");
-    const status = configuredStatus === "pending"
+    const networkTrust = typeof device.network?.network_trust === "string" ? device.network.network_trust.trim().toLowerCase() : "";
+    const revoked = device.revoked === true || String(device.identity_status ?? "").toLowerCase() === "revoked" || networkTrust === "revoked";
+    const paired = device.paired === true || device.approved === true || networkTrust === "paired";
+    const hasLastSeen = device.last_seen !== undefined && device.last_seen !== null && String(device.last_seen).trim() !== "";
+    const explicitlyOnline = configuredStatus === "online" || device.online === true;
+    const explicitlyOffline = configuredStatus === "offline" || device.online === false || device.enabled === false;
+    const status = revoked
+      ? "revoked"
+      : type === "camera" && (networkTrust === "pending" || (networkTrust === "" && !paired && configuredStatus === "pending"))
+        ? "pending"
+      : type === "camera" && networkTrust !== "" && !paired
+        ? "unpaired"
+      : configuredStatus === "pending"
       ? "pending"
-      : configuredStatus === "offline" || device.enabled === false
-        ? "offline"
+      : type === "camera" && !hasLastSeen && !explicitlyOnline && (configuredStatus === "" || configuredStatus === "offline")
+        ? "never_seen"
+      : explicitlyOffline
+        ? (type === "camera" && !hasLastSeen ? "never_seen" : "offline")
       : configuredStatus === "degraded"
         ? "degraded"
         : "online";
