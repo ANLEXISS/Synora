@@ -1,5 +1,21 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M046
+
+- Jalon : M046 — Mise à jour signée et rollback — préparation
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m046-signed-update-rollback`
+- Branche dédiée : `codex/v1-m046-signed-update-rollback`
+- Préparation : manifeste signé Ed25519, checksum bundle, compatibilité
+  matérielle, anti-downgrade version/migration, journal OTA, health gate et
+  simulateur de défaillance.
+- Tests : signature absente/invalide, corruption bundle, espace insuffisant,
+  migration non planifiable sans mutation, health gate en échec et reprise
+  journalisée.
+- Limite volontaire : aucune racine de confiance, rotation/conservation de
+  clés ou stratégie opérationnelle de rollback n’est choisie ou modifiée.
+  Ces décisions nécessitent la validation humaine d’Alexis avant intégration
+  et avant M046 complet.
+
 ## MASTER_PLAN — M045
 
 - Jalon : M045 — Suite hostile de sécurité
