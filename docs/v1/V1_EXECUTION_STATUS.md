@@ -1,5 +1,33 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M043
+
+- Jalon : M043 — Build et déploiement reproductibles
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m043-reproducible-deploy`
+- Branche dédiée : `codex/v1-m043-reproducible-deploy`
+- Commit code/tests : `f301655`
+- Reproductibilité : les builds Go utilisent `-trimpath -buildvcs=false` ; le
+  manifeste de version utilise `SYNORA_BUILD_TIME` ou `SOURCE_DATE_EPOCH` et
+  ne retombe plus sur l’horloge de la machine. La build Web exige le lockfile
+  et utilise exclusivement `npm ci`.
+- Python : les dépendances Vision sont épinglées pour l’environnement V1
+  RK3588/Debian 12, avec RKNN, OpenCV, NumPy, Flask et SciPy explicitement
+  versionnés.
+- Déploiement : l’ordre de démarrage/arrêt est explicite ; les unités utilisent
+  utilisateur/groupe dédiés, `NoNewPrivileges`, arrêt borné, `UMask`, plafond
+  de descripteurs et `TasksMax`. Aucun fichier de secret n’est copié depuis
+  Git et le plan d’installation reste en lecture seule.
+- Migrations : le registre versionné est contrôlé avant déploiement ; les
+  migrations restent idempotentes, atomiques et sans réécriture des secrets.
+  Leur exécution OTA et le health gate matériel restent dans le périmètre
+  d’intégration suivant, sans mutation sur cette machine de test.
+- Validation : tests Go ciblés avec race — PASS, tests migration et version —
+  PASS, tests Python de déploiement/release/RC — PASS (9), `bash -n` des
+  scripts — PASS, vet/build ciblés — PASS, `git diff --check` — PASS. La
+  validation V1 complète sera rejouée après intégration. `systemd-analyze`
+  signale seulement les exécutables `/opt/synora` absents de l’environnement
+  local ; aucune installation système n’a été effectuée.
+
 ## MASTER_PLAN — M042
 
 - Jalon : M042 — Sauvegarde et restauration cohérentes

@@ -1,5 +1,19 @@
 # Release engineering V1
 
+## Build reproductible et déploiement contrôlé
+
+La build Go est exécutée avec `-trimpath -buildvcs=false` et la build Web
+exige `package-lock.json` et `npm ci`. Le manifeste de version n’utilise pas
+l’horloge de l’hôte : fournir `SYNORA_BUILD_TIME` ou `SOURCE_DATE_EPOCH`, sinon
+la valeur déclarée est `unknown`. Les dépendances Python de Vision sont
+épinglées dans `services/vision-worker/requirements.txt`.
+
+Le plan `tools/install_plan.sh` reste strictement read-only. Les unités systemd
+définissent un ordre explicite, des utilisateurs dédiés, un arrêt borné, une
+umask privée et des plafonds de descripteurs/tâches. Les migrations sont
+versionnées et idempotentes ; leur exécution dans une mise à jour OTA doit
+rester précédée d’un backup et suivie du health gate.
+
 J24 fournit un manifeste source reproductible, un inventaire SBOM/licences,
 un plan de provisioning, un protocole burn-in, des diagnostics support
 expurgés et une matrice réglementaire sans fausse certification.
