@@ -110,7 +110,7 @@ export default function App() {
 	}
 
 	if (!auth.authenticated) {
-		return <LoginScreen error={auth.error} onLogin={auth.login} />;
+		return <LoginScreen error={auth.error} onLogin={auth.login} onBootstrap={auth.bootstrap} />;
 	}
 
 	return (
@@ -162,32 +162,40 @@ export default function App() {
 function LoginScreen({
 	error,
 	onLogin,
+	onBootstrap,
 }: {
 	error: string | null;
 	onLogin: (login: string, password: string, token?: string) => Promise<void>;
+	onBootstrap: (login: string, password: string) => Promise<void>;
 }) {
 	const [login, setLogin] = useState("");
 	const [password, setPassword] = useState("");
 	const [token, setToken] = useState("");
 	const [advanced, setAdvanced] = useState(false);
+	const [bootstrap, setBootstrap] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 	const [message, setMessage] = useState<string | null>(error);
 
 	async function submit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
-		if (advanced ? !token.trim() : !login.trim() || !password) {
-			setMessage(advanced ? "Saisissez le token local." : "Saisissez votre login et votre mot de passe.");
+		const invalidCredentials = advanced ? !token.trim() : !login.trim() || !password || (bootstrap && password.length < 12);
+		if (invalidCredentials) {
+			setMessage(advanced ? "Saisissez le token local." : bootstrap && password.length < 12 ? "Le mot de passe administrateur doit contenir au moins 12 caractères." : "Saisissez votre login et votre mot de passe.");
 			return;
 		}
 		setSubmitting(true);
 		setMessage(null);
 		try {
-			await onLogin(login, password, advanced ? token : undefined);
+			if (bootstrap) {
+				await onBootstrap(login, password);
+			} else {
+				await onLogin(login, password, advanced ? token : undefined);
+			}
 			setLogin("");
 			setPassword("");
 			setToken("");
 		} catch {
-			setMessage("Token invalide ou API indisponible.");
+			setMessage(bootstrap ? "Bootstrap refusé ou API indisponible." : "Token invalide ou API indisponible.");
 		} finally {
 			setSubmitting(false);
 		}
@@ -198,7 +206,7 @@ function LoginScreen({
 			<form className="auth-card" onSubmit={submit}>
 				<div className="auth-icon"><Shield size={24} /></div>
 				<h1>Synora</h1>
-				<p>Connectez-vous avec votre compte local.</p>
+				<p>{bootstrap ? "Créez le premier administrateur local, une seule fois." : "Connectez-vous avec votre compte local."}</p>
 				{advanced ? (
 					<>
 						<label htmlFor="synora-token">Token local / bootstrap admin</label>
@@ -206,19 +214,22 @@ function LoginScreen({
 					</>
 				) : (
 					<>
-						<label htmlFor="synora-login">Login</label>
+						<label htmlFor="synora-login">{bootstrap ? "Login administrateur" : "Login"}</label>
 						<input id="synora-login" type="text" autoComplete="username" value={login} onChange={(event) => setLogin(event.target.value)} placeholder="alexis" />
-						<label htmlFor="synora-password">Mot de passe</label>
-						<input id="synora-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mot de passe" />
+						<label htmlFor="synora-password">Mot de passe {bootstrap && "(12 caractères minimum)"}</label>
+						<input id="synora-password" type="password" autoComplete={bootstrap ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mot de passe" />
 					</>
 				)}
 				{message && <div className="auth-error">{message}</div>}
 				<button className="primary-button" type="submit" disabled={submitting}>
-					{submitting ? "Connexion…" : "Se connecter"}
+					{submitting ? (bootstrap ? "Création…" : "Connexion…") : (bootstrap ? "Créer l’administrateur" : "Se connecter")}
 				</button>
-				<button className="secondary-button" type="button" onClick={() => setAdvanced((value) => !value)}>
-					{advanced ? "Utiliser un compte" : "Bootstrap token admin"}
+				<button className="secondary-button" type="button" onClick={() => { setAdvanced((value) => !value); setBootstrap(false); }}>
+					{advanced ? "Utiliser un compte" : "Connexion par token"}
 				</button>
+				{!advanced && <button className="secondary-button" type="button" onClick={() => { setBootstrap((value) => !value); setMessage(null); }}>
+					{bootstrap ? "J’ai déjà un compte" : "Première installation"}
+				</button>}
 			</form>
 		</div>
 	);

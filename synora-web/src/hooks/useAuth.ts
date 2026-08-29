@@ -10,6 +10,7 @@ import {
 import { SynoraApiError } from "../lib/api";
 import {
   getCurrentUser,
+  bootstrapAdmin,
   loginWithCredentials,
   loginWithToken,
   logout as logoutSession,
@@ -31,6 +32,7 @@ export type AuthState = {
   isAdmin: boolean;
   can: (permission: string) => boolean;
   login: (login: string, password: string, token?: string) => Promise<void>;
+  bootstrap: (login: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   me: () => Promise<void>;
@@ -111,6 +113,21 @@ function useAuthState(): AuthState {
     [applyAuth, markUnauthenticated]
   );
 
+  const bootstrap = useCallback(async (loginName: string, password: string) => {
+    try {
+      applyAuth(await bootstrapAdmin(loginName, password));
+    } catch (error) {
+      markUnauthenticated(
+        error instanceof SynoraApiError && error.status === 409
+          ? "Le premier administrateur existe déjà. Connectez-vous avec votre compte."
+          : error instanceof SynoraApiError && error.status === 400
+            ? "Le login ou le mot de passe ne respecte pas les règles de sécurité."
+            : "Bootstrap impossible : API indisponible."
+      );
+      throw error;
+    }
+  }, [applyAuth, markUnauthenticated]);
+
   const logout = useCallback(async () => {
     try {
       await logoutSession();
@@ -145,6 +162,7 @@ function useAuthState(): AuthState {
     isAdmin: role === "admin",
     can,
     login,
+    bootstrap,
     logout,
     refresh,
     me,
