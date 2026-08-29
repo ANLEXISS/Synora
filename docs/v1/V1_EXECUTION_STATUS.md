@@ -1,5 +1,33 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M037
+
+- Jalon : M037 — Écran Résidents fiable
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m037-residents-ui`
+- Branche dédiée : `codex/v1-m037-residents-ui`
+- Commit code/tests : `aa9524f`
+- Parcours : ajout, remplacement et suppression des quatre vues de base,
+  validation locale déterministe des fichiers JPEG/PNG bornés à 5 Mo, suivi
+  des photos en attente et affichage de la progression.
+- Dataset : le statut public, la version active et le code d’échec sont
+  affichés sans embedding ni chemin privé. La construction est suivie jusqu’à
+  son état final ; l’échec conserve la version active précédente et le bouton
+  de recalcul permet une retentative.
+- Fiabilité : une seule opération photo à la fois, annulation par
+  `AbortController`, protection contre les doubles clics, confirmation après
+  mutation et bouton de fermeture désactivé pendant une opération.
+- Couverture : upload invalide, taille/type, suppression, remplacement,
+  recalcul en construction, échec, reprise, retry et validation de la forme
+  d’upload ; les permissions et la suppression protégée restent garanties par
+  les contrôles admin et les endpoints existants de M031.
+- Validation : tests Web déterministes `npm test` — PASS (4 tests), Go
+  complet — PASS, `go vet` — PASS, build Go — PASS, tests Python Vision —
+  PASS (35), qualification fonctionnelle — PASS, `git diff --check` — PASS.
+  Le test bus intermittent `TestServerClosesOversizedFrame` a réussi cinq
+  fois isolément avant la suite complète. `npm run lint` et `npm run build`
+  restent indisponibles ici car `oxlint` et `tsc` sont absents ; aucune
+  dépendance n’a été installée.
+
 ## MASTER_PLAN — M036
 
 - Jalon : M036 — Dashboard, incidents et clips
