@@ -1,5 +1,31 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M031
+
+- Jalon : M031 — Parcours résidents et visages
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m031-residents-face`
+- Branche dédiée : `codex/v1-m031-residents-face`
+- Parcours : les endpoints historiques `/face/base` sont adaptés au registre
+  canonique des photos ; les uploads sont bornés, validés par type MIME réel,
+  décodage et dimensions, limités à quatre photos de base et refusent les
+  multi-uploads. Les métadonnées exposées n’incluent ni chemin privé, ni clé
+  de stockage, ni embedding.
+- Dataset : le rebuild expose l’état `building`, puis `active` ou `failed`;
+  les versions restent immuables, le pointeur `current` n’est publié qu’après
+  reload Vision accepté, et un rollback vers une version validée conserve le
+  dernier pointeur en cas d’échec.
+- Fiabilité : les suppressions et remplacements passent par la machine d’état
+  des photos et réconcilient le dataset par révision ; les reprises après
+  crash réutilisent les versions engagées et les erreurs de build ne retirent
+  jamais le dataset actif.
+- Couverture : CRUD résident, upload/remplacement/suppression, format et
+  taille hostiles, multi-upload, rebuild/échec/rollback, suppression pendant
+  build, reprise, permissions, persistance et non-divulgation biométrique.
+- Validation : Go complet, vet, build, race, Python Vision, qualification
+  fonctionnelle et `git diff --check` — PASS. La qualification Web n’est pas
+  relancée, ses dépendances locales étant absentes et leur installation hors
+  périmètre autorisé ; les deux worktrees seront contrôlés avant intégration.
+
 ## MASTER_PLAN — M030
 
 - Jalon : M030 — Frontière HTTPS et WebSocket
