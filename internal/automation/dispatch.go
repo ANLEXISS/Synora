@@ -41,6 +41,7 @@ func (d Dispatcher) Dispatch(action contract.Action, contexts ...ActionContext) 
 	}
 	request := contract.ActionRequest{
 		ID:             id,
+		CommandID:      id,
 		Type:           action.Type,
 		Version:        "v1",
 		RequestID:      id,
@@ -92,6 +93,9 @@ func (d Dispatcher) DispatchRequest(request contract.ActionRequest) error {
 			id = d.NewID()
 		}
 		request.ID = id
+	}
+	if request.CommandID == "" {
+		request.CommandID = firstNonEmpty(request.ActionID, request.ID)
 	}
 	if request.CreatedAt.IsZero() {
 		request.CreatedAt = now

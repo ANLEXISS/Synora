@@ -17,6 +17,7 @@ type Service struct {
 	Executor       Executor
 	Bus            Publisher
 	Deduper        *Deduper
+	Store          ResultStore
 	Now            func() time.Time
 	NewID          func(prefix string) string
 	DefaultTimeout time.Duration
@@ -31,7 +32,7 @@ func (s *Service) HandleMessage(ctx context.Context, msg contract.Message) {
 	if err != nil {
 		log.Printf("actions: invalid action payload id=%s err=%v", msg.ID, err)
 		now := s.now()
-		s.publishResult(msg, contract.ActionRequest{}, StatusError, err.Error(), now, now, nil)
+		s.publishResult(msg, contract.ActionRequest{}, StatusError, err.Error(), ErrorClassPermanent, 1, now, now, nil)
 		return
 	}
 
@@ -59,9 +60,21 @@ func (s *Service) HandleMessage(ctx context.Context, msg contract.Message) {
 	normalizeRequest(&request)
 
 	key := idempotencyKey(request, msg)
+	request.IdempotencyKey = key
+	if request.CommandID == "" {
+		request.CommandID = firstNonEmpty(request.ActionID, request.ID, key)
+	}
+	if s.Store != nil {
+		if previous, ok, err := s.Store.Lookup(key); err != nil {
+			log.Printf("actions: result lookup failed key=%s err=%v", key, err)
+		} else if ok {
+			s.publishStoredResult(msg, request, previous, key)
+			return
+		}
+	}
 	if s.deduper().SeenOrAdd(key) {
 		now := s.now()
-		s.publishResult(msg, request, StatusDuplicate, "", now, now, map[string]any{
+		s.publishResult(msg, request, StatusDuplicate, "", ErrorClassDuplicate, 0, now, now, map[string]any{
 			"idempotency_key": key,
 			"reason":          "duplicate",
 		})
@@ -70,7 +83,7 @@ func (s *Service) HandleMessage(ctx context.Context, msg contract.Message) {
 
 	if requestDryRun(request) {
 		now := s.now()
-		s.publishResult(msg, request, StatusSimulatedSuccess, "", now, now, map[string]any{
+		s.publishResult(msg, request, StatusSimulatedSuccess, "", ErrorClassNone, 1, now, now, map[string]any{
 			"dry_run":   true,
 			"simulated": true,
 			"reason":    "simulation dry-run; action handler was not executed",
@@ -83,8 +96,8 @@ func (s *Service) HandleMessage(ctx context.Context, msg contract.Message) {
 		executor = DryRunExecutor{Adapter: "dry_run"}
 	}
 
-	status, errorMessage, startedAt, finishedAt, details := s.executeWithRetry(ctx, executor, request)
-	s.publishResult(msg, request, status, errorMessage, startedAt, finishedAt, details)
+	status, errorMessage, errorClass, attempt, startedAt, finishedAt, details := s.executeWithRetry(ctx, executor, request)
+	s.publishResult(msg, request, status, errorMessage, errorClass, attempt, startedAt, finishedAt, details)
 }
 
 func DecodeRequest(msg contract.Message) (contract.ActionRequest, error) {
@@ -170,7 +183,7 @@ func (s *Service) executeWithRetry(
 	ctx context.Context,
 	executor Executor,
 	request contract.ActionRequest,
-) (string, string, time.Time, time.Time, map[string]any) {
+) (string, string, ErrorClass, int, time.Time, time.Time, map[string]any) {
 	attempts := request.RetryCount + 1
 	if attempts < 1 {
 		attempts = 1
@@ -178,9 +191,12 @@ func (s *Service) executeWithRetry(
 
 	var lastErr error
 	var lastResult ExecutionResult
+	var lastClass ErrorClass
+	lastAttempt := 0
 	var startedAt time.Time
 	var finishedAt time.Time
 	for attempt := 1; attempt <= attempts; attempt++ {
+		lastAttempt = attempt
 		startedAt = s.now()
 		execCtx := ctx
 		cancel := func() {}
@@ -188,11 +204,25 @@ func (s *Service) executeWithRetry(
 			execCtx, cancel = context.WithTimeout(ctx, timeout)
 		}
 		result, err := executor.Execute(execCtx, request)
+		late := err == nil && execCtx.Err() != nil
 		cancel()
+		if late {
+			err = execCtx.Err()
+		}
 		finishedAt = s.now()
 
 		lastResult = result
 		lastErr = err
+		lastClass = result.ErrorClass
+		if lastClass == ErrorClassNone {
+			lastClass = ErrorClassOf(err)
+		}
+		if late && !result.EffectConfirmed {
+			lastClass = ErrorClassTimeout
+		}
+		if result.EffectConfirmed || IsEffectConfirmed(err) {
+			lastClass = ErrorClassConfirmed
+		}
 		if err == nil {
 			status := result.Status
 			if status == "" {
@@ -205,12 +235,12 @@ func (s *Service) executeWithRetry(
 				}
 				details["attempts"] = attempt
 			}
-			return status, "", startedAt, finishedAt, details
+			return status, "", lastClass, attempt, startedAt, finishedAt, details
 		}
-		if !isTimeoutError(err) && attempt < attempts {
-			continue
+		if lastClass == ErrorClassConfirmed || lastClass == ErrorClassPermanent {
+			break
 		}
-		if isTimeoutError(err) && attempt < attempts {
+		if attempt < attempts {
 			continue
 		}
 	}
@@ -223,14 +253,17 @@ func (s *Service) executeWithRetry(
 	if isTimeoutError(lastErr) {
 		status = StatusTimeout
 	}
+	if lastResult.Status != "" && (lastClass == ErrorClassConfirmed || lastClass == ErrorClassPermanent) {
+		status = lastResult.Status
+	}
 	details := cloneMap(lastResult.Details)
 	if request.RetryCount > 0 {
 		if details == nil {
 			details = map[string]any{}
 		}
-		details["attempts"] = attempts
+		details["attempts"] = lastAttempt
 	}
-	return status, errorMessage, startedAt, finishedAt, details
+	return status, errorMessage, lastClass, lastAttempt, startedAt, finishedAt, details
 }
 
 func (s *Service) timeout(request contract.ActionRequest) time.Duration {
@@ -252,14 +285,12 @@ func (s *Service) publishResult(
 	request contract.ActionRequest,
 	status string,
 	errorMessage string,
+	errorClass ErrorClass,
+	attempt int,
 	startedAt time.Time,
 	finishedAt time.Time,
 	details map[string]any,
 ) {
-	if s.Bus == nil {
-		return
-	}
-
 	now := finishedAt
 	if now.IsZero() {
 		now = s.now()
@@ -271,24 +302,35 @@ func (s *Service) publishResult(
 	}
 
 	result := contract.ActionResult{
-		ID:            id,
-		Version:       request.Version,
-		RequestID:     firstNonEmpty(request.ID, request.RequestID, msg.RequestID, msg.ID),
-		AutomationID:  request.AutomationID,
-		ActionID:      firstNonEmpty(request.ActionID, request.ID, msg.ID),
-		Type:          request.Type,
-		Target:        request.Target,
-		CorrelationID: firstNonEmpty(request.CorrelationID, msg.CorrelationID),
-		Source:        "actions",
-		Timestamp:     now,
-		Status:        status,
-		Error:         errorMessage,
-		StartedAt:     startedAt,
-		FinishedAt:    now,
-		DurationMs:    durationMillis(startedAt, now),
-		Attempts:      attemptsFromDetails(details),
-		Data:          details,
-		Details:       details,
+		ID:             id,
+		Version:        request.Version,
+		RequestID:      firstNonEmpty(request.ID, request.RequestID, msg.RequestID, msg.ID),
+		CommandID:      firstNonEmpty(request.CommandID, request.ActionID, request.ID, msg.ID),
+		IdempotencyKey: firstNonEmpty(request.IdempotencyKey, request.RequestID, request.ID, msg.ID),
+		AutomationID:   request.AutomationID,
+		ActionID:       firstNonEmpty(request.ActionID, request.ID, msg.ID),
+		Type:           request.Type,
+		Target:         request.Target,
+		CorrelationID:  firstNonEmpty(request.CorrelationID, msg.CorrelationID),
+		Source:         "actions",
+		Timestamp:      now,
+		Status:         status,
+		Error:          errorMessage,
+		ErrorClass:     string(errorClass),
+		StartedAt:      startedAt,
+		FinishedAt:     now,
+		TimeoutMs:      request.TimeoutMs,
+		Attempt:        attempt,
+		DurationMs:     durationMillis(startedAt, now),
+		Attempts:       maxInt(attempt, attemptsFromDetails(details)),
+		Data:           details,
+		Details:        details,
+		SourceEventID:  request.SourceEventID,
+		DecisionID:     request.DecisionID,
+		SituationID:    request.SituationID,
+		ClipID:         request.ClipID,
+		NodeID:         request.NodeID,
+		DeviceID:       firstNonEmpty(request.DeviceID, request.Action.Device),
 	}
 	if result.Data == nil {
 		result.Data = map[string]any{}
@@ -301,6 +343,14 @@ func (s *Service) publishResult(
 		result.Data["simulated"] = true
 	}
 	result.Details = result.Data
+	if s.Store != nil && result.IdempotencyKey != "" && status != StatusDuplicate {
+		if err := s.Store.Save(result.IdempotencyKey, result); err != nil {
+			log.Printf("actions: result persistence failed key=%s err=%v", result.IdempotencyKey, err)
+		}
+	}
+	if s.Bus == nil {
+		return
+	}
 
 	payload, err := json.Marshal(result)
 	if err != nil {
@@ -328,6 +378,42 @@ func (s *Service) publishResult(
 		Payload:       payload,
 	}); err != nil {
 		log.Printf("actions: result publish failed request=%s err=%v", result.RequestID, err)
+	}
+}
+
+func (s *Service) publishStoredResult(msg contract.Message, request contract.ActionRequest, previous contract.ActionResult, key string) {
+	if s.Bus == nil {
+		return
+	}
+	data := cloneMap(previous.Data)
+	if data == nil {
+		data = map[string]any{}
+	}
+	data["duplicate"] = true
+	data["idempotency_key"] = key
+	previous.Data = data
+	previous.Details = data
+	previous.IdempotencyKey = key
+	if request.CorrelationID != "" {
+		previous.CorrelationID = request.CorrelationID
+	}
+	payload, err := json.Marshal(previous)
+	if err != nil {
+		log.Printf("actions: stored result marshal failed key=%s err=%v", key, err)
+		return
+	}
+	if err := s.Bus.Send(contract.Message{
+		ID:            idgen.New("msg"),
+		Type:          contract.EventActionResult,
+		Kind:          contract.KindEvent,
+		Source:        "actions",
+		Target:        firstNonEmpty(request.Source, msg.Source, "core"),
+		Timestamp:     s.now(),
+		CorrelationID: previous.CorrelationID,
+		RequestID:     previous.RequestID,
+		Payload:       payload,
+	}); err != nil {
+		log.Printf("actions: stored result publish failed key=%s err=%v", key, err)
 	}
 }
 
@@ -421,6 +507,16 @@ func firstNonZero(values ...int) int {
 		}
 	}
 	return 0
+}
+
+func maxInt(values ...int) int {
+	maximum := 0
+	for _, value := range values {
+		if value > maximum {
+			maximum = value
+		}
+	}
+	return maximum
 }
 
 func requestDryRun(request contract.ActionRequest) bool {
