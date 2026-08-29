@@ -309,6 +309,7 @@ func main() {
 		webServer,
 		auth,
 		getenvBool("SYNORA_WS_QUERY_TOKEN", false),
+		core,
 	)
 	httpHandler := handler
 	if httpsEnabled {
@@ -468,12 +469,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 
-		log.Printf(
-			"%s %s %s",
-			r.Method,
-			security.RedactSupportText(r.URL.Path),
-			time.Since(started),
-		)
+		structuredRequestLog(r, started)
 	})
 }
 
@@ -687,6 +683,7 @@ func buildServerHandlerWithAuth(
 	webServer *webapi.Server,
 	auth *webapi.AuthService,
 	allowQueryToken bool,
+	readiness ...systemHealthProvider,
 ) http.Handler {
 	mux := http.NewServeMux()
 	if auth != nil {
@@ -710,7 +707,14 @@ func buildServerHandlerWithAuth(
 		mux.Handle("/api/ws", apiAuthMiddlewareWithAuth(cfg, auth, allowQueryToken, wsHub))
 		mux.Handle("/ws", apiAuthMiddlewareWithAuth(cfg, auth, allowQueryToken, wsHub))
 	}
+	var readinessProvider systemHealthProvider
+	if len(readiness) > 0 {
+		readinessProvider = readiness[0]
+	}
 	mux.HandleFunc("/health", handleHealth)
+	mux.HandleFunc("/health/live", handleLiveness)
+	mux.HandleFunc("/health/ready", handleReadiness(readinessProvider))
+	mux.HandleFunc("/metrics", handleMetrics)
 	if webEnabled && webServer != nil {
 		mux.Handle("/", webServer.WebHandler())
 	} else {
@@ -719,7 +723,7 @@ func buildServerHandlerWithAuth(
 	// Keep this wrapper outside the router, auth middleware, CORS and logging
 	// layers so every API response receives the same anti-cache policy,
 	// regardless of route declaration order or router implementation.
-	return securityHeadersMiddleware(withAPINoStore(loggingMiddleware(corsMiddleware(cfg, apiRateLimitMiddleware(newAPIRequestRateLimiter(), mux)))))
+	return securityHeadersMiddleware(withAPINoStore(metricsMiddleware(loggingMiddleware(corsMiddleware(cfg, apiRateLimitMiddleware(newAPIRequestRateLimiter(), mux))))))
 }
 
 func securityHeadersMiddleware(next http.Handler) http.Handler {
