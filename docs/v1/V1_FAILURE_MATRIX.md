@@ -19,5 +19,5 @@ charge et la stabilité des identifiants rejoués. Les temps mesurés sont ceux
 du harness logiciel local, pas une promesse de temps de boot matériel.
 
 Limites restantes : aucune coupure électrique réelle, panne disque réelle,
-perte radio/WireGuard ou qualification Rock 5 ITX/Zero 3W n’est démontrée par
+perte radio/WireGuard ou qualification Rock 5T/Zero 3W n’est démontrée par
 cette matrice.

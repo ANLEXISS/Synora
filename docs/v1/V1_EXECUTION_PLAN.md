@@ -15,7 +15,7 @@ révèle de chemin interne ou de donnée biométrique.
 
 ## Périmètre
 
-V1 couvre la centrale Rock 5 ITX, trois caméras Zero 3W, le fonctionnement
+V1 couvre la centrale Rock 5T, trois caméras Zero 3W, le fonctionnement
 local-first, les clips HTTPS et le live à la demande, Vision résident/incertain/
 inconnu, présence, tracking, incidents, clips, REST/WebSocket, webapp,
 WireGuard, pairing, rétention, OTA/rollback et qualification logicielle et

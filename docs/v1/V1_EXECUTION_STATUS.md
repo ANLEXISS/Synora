@@ -2,15 +2,16 @@
 
 ## MASTER_PLAN — M047
 
-- Jalon : M047 — Validation RKNN sur Rock 5 ITX — procédure préparée, gate
+- Jalon : M047 — Validation RKNN/CPU sur Rock 5T — procédure préparée, gate
   matériel en attente
-- Worktree dédié : `/home/rock/Synora-worktrees/v1-m047-rknn-rock5-itx`
-- Branche dédiée : `codex/v1-m047-rknn-rock5-itx`
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m047-rknn-rock5t`
+- Branche dédiée : `codex/v1-m047-rknn-rock5t`
 - Procédure : identification physique, modèles SCRFD/ArcFace/YOLO, NPU,
   latence, mémoire, température, trois sources, dataset, arrêt/redémarrage et
   absence de biométrie dans les preuves.
 - Statut : `blocked_no_target_results`. Aucun passage n’est simulé ; le jalon
-  ne pourra être clôturé qu’avec des résultats réels du Rock 5 ITX RK3588.
+  ne pourra être clôturé qu’avec des résultats réels du Rock 5T et les mesures
+  RKNN/NPU et CPU demandées.
 
 ## MASTER_PLAN — M046
 
@@ -29,7 +30,7 @@
   health gate/stabilité, fallback simulé et préservation des données.
 - Résultat : validé humainement ; aucune clé de production ni installation
   matérielle n’a été créée ou modifiée. M047 reste une validation réelle sur
-  Rock 5 ITX et ne peut pas être déclarée réussie localement.
+  Rock 5T et ne peut pas être déclarée réussie localement.
 
 ## MASTER_PLAN — M045
 
