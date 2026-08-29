@@ -1,5 +1,22 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M044
+
+- Jalon : M044 — E2E logiciel V1 hermétique
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m044-e2e-hermetic`
+- Branche dédiée : `codex/v1-m044-e2e-hermetic`
+- Scénario : bus mémoire, Core réel avec arrêt borné, faux Discovery/MediaMTX/Vision,
+  Actions réel avec exécuteur contrôlé et API HTTP locale sur store persistant.
+- Couverture : trois caméras, résident, clips connu/incertain/inconnu, intrusion
+  immédiate et incident unique, lecture/acquittement, rejeu idempotent, restart
+  et restauration, échec retryable, saturation, corrélations et absence de
+  dépendance système ou matérielle.
+- Preuves ciblées : tests Go Core/API hermétiques — PASS ; qualification
+  Python des oracles E2E — PASS. La validation V1 complète sera rejouée après
+  intégration.
+- Réserve : ce jalon établit une preuve logicielle hermétique ; il ne remplace
+  pas la qualification physique des caméras ni la suite hostile M045.
+
 ## MASTER_PLAN — M043
 
 - Jalon : M043 — Build et déploiement reproductibles
