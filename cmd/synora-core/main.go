@@ -27,6 +27,7 @@ import (
 	"synora/internal/idgen"
 	"synora/internal/ingest"
 	"synora/internal/recovery"
+	"synora/internal/resourcebudget"
 	corerpc "synora/internal/rpc"
 	"synora/internal/runtimeconfig"
 	snapshotpkg "synora/internal/snapshot"
@@ -234,9 +235,9 @@ func main() {
 		rate:         rateController,
 		metrics:      &coreMetrics{sourceLastSeen: map[string]time.Time{}},
 		processStop:  ctx.Done(),
-		highPriority: make(chan *contract.Event, 128),
-		normalQueue:  make(chan *contract.Event, 512),
-		rpcQueue:     make(chan contract.Message, 256),
+		highPriority: make(chan *contract.Event, resourcebudget.CoreHighPriorityQueue),
+		normalQueue:  make(chan *contract.Event, resourcebudget.CoreNormalQueue),
+		rpcQueue:     make(chan contract.Message, resourcebudget.CoreRPCQueue),
 	}
 	if err := app.beginRecovery(); err != nil {
 		log.Fatal("start Core recovery:", err)
@@ -482,7 +483,7 @@ func (a *coreApp) runBusLoopContext(ctx context.Context) error {
 	log.Println("core bus loop started")
 	msgCh := a.bus.SubscribeChannel("core")
 	if a.rpcQueue == nil {
-		a.rpcQueue = make(chan contract.Message, 256)
+		a.rpcQueue = make(chan contract.Message, resourcebudget.CoreRPCQueue)
 	}
 	if a.processStop == nil {
 		go a.rpcLoop()

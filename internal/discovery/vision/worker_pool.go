@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"synora/internal/resourcebudget"
 )
 
 var (
@@ -24,7 +26,7 @@ var (
 
 const (
 	defaultMaxAttempts     = 2
-	defaultQueueSize       = 128
+	defaultQueueSize       = resourcebudget.MaxVisionQueue / 4
 	defaultProcessTimeout  = WorkerTimeout
 	defaultRetryBackoff    = 100 * time.Millisecond
 	defaultMaxRetryBackoff = 2 * time.Second
@@ -74,8 +76,14 @@ func NewWorkerPoolWithConfig(workers int, process func(*ClipJob) error, cfg Work
 	if workers < 1 {
 		workers = 1
 	}
+	if workers > resourcebudget.MaxVisionWorkers {
+		workers = resourcebudget.MaxVisionWorkers
+	}
 	if cfg.QueueSize < 1 {
 		cfg.QueueSize = defaultQueueSize
+	}
+	if cfg.QueueSize > resourcebudget.MaxVisionQueue {
+		cfg.QueueSize = resourcebudget.MaxVisionQueue
 	}
 	if cfg.MaxAttempts < 1 {
 		cfg.MaxAttempts = defaultMaxAttempts

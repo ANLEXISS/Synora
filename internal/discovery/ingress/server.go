@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"synora/internal/clipstore"
@@ -104,7 +103,7 @@ func NewHandler(cfg Config) http.Handler {
 		cfg.MinFreeBytes = retention.DefaultPolicy().MinFreeBytes
 	}
 	_ = ReconcileStorage(cfg.ClipDir, cfg.TempMaxAge)
-	var uploadMu sync.Mutex
+	uploads := newUploadLimiter()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/vision", func(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +116,11 @@ func NewHandler(cfg Config) http.Handler {
 			http.Error(w, "valid device required", http.StatusBadRequest)
 			return
 		}
+		if !uploads.tryAcquire(deviceID) {
+			http.Error(w, "clip ingress busy", http.StatusServiceUnavailable)
+			return
+		}
+		defer uploads.release(deviceID)
 		bodyLimit := cfg.MaxClipSize + multipartOverheadLimit
 		if bodyLimit < cfg.MaxClipSize {
 			bodyLimit = cfg.MaxClipSize
@@ -128,8 +132,6 @@ func NewHandler(cfg Config) http.Handler {
 			return
 		}
 
-		uploadMu.Lock()
-		defer uploadMu.Unlock()
 		cameraDir, err := clipstore.EnsureCameraDir(cfg.ClipDir, deviceID)
 		if err != nil {
 			http.Error(w, "clip storage unavailable", http.StatusInsufficientStorage)

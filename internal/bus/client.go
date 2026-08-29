@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"synora/internal/resourcebudget"
 	"synora/pkg/contract"
 )
 
@@ -59,7 +60,7 @@ func NewClientWithConfig(path string, service string, cfg ClientConfig) (*Client
 		service:  service,
 		auth:     cfg.Auth,
 		pending:  make(map[string]chan pendingResponse),
-		incoming: make(chan contract.Message, 100),
+		incoming: make(chan contract.Message, resourcebudget.BusIncomingQueue),
 		closeCh:  make(chan struct{}),
 		done:     make(chan struct{}),
 	}

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"synora/internal/resourcebudget"
 	"synora/pkg/contract"
 )
 
@@ -12,6 +13,7 @@ type RateController struct {
 	mu             sync.Mutex
 	dedupeWindow   time.Duration
 	throttleWindow time.Duration
+	maxEntries     int
 	fingerprints   map[string]time.Time
 	groups         map[string]*groupState
 }
@@ -25,10 +27,21 @@ func NewRateController(
 	dedupeWindow,
 	throttleWindow time.Duration,
 ) *RateController {
+	return NewRateControllerWithLimit(dedupeWindow, throttleWindow, resourcebudget.MaxRateControllerEntries)
+}
 
+func NewRateControllerWithLimit(
+	dedupeWindow,
+	throttleWindow time.Duration,
+	maxEntries int,
+) *RateController {
+	if maxEntries < 1 {
+		maxEntries = 1
+	}
 	return &RateController{
 		dedupeWindow:   dedupeWindow,
 		throttleWindow: throttleWindow,
+		maxEntries:     maxEntries,
 		fingerprints:   make(map[string]time.Time),
 		groups:         make(map[string]*groupState),
 	}
@@ -60,6 +73,7 @@ func (c *RateController) Accept(event *contract.Event) bool {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.pruneLocked(now)
 
 	// ------------------------------------------------
 	// DEDUPE
@@ -83,6 +97,9 @@ func (c *RateController) Accept(event *contract.Event) bool {
 				return false
 			}
 		}
+		if len(c.fingerprints) >= c.maxEntries {
+			deleteOldestFingerprint(c.fingerprints)
+		}
 		c.fingerprints[fingerprint] = now
 	}
 
@@ -102,6 +119,9 @@ func (c *RateController) Accept(event *contract.Event) bool {
 	group := c.groups[groupKey]
 
 	if group == nil {
+		if len(c.groups) >= c.maxEntries {
+			deleteOldestGroup(c.groups)
+		}
 		group = &groupState{}
 		c.groups[groupKey] = group
 	}
@@ -123,6 +143,52 @@ func (c *RateController) Accept(event *contract.Event) bool {
 	group.lastAccepted = now
 
 	return true
+}
+
+func (c *RateController) pruneLocked(now time.Time) {
+	if c == nil {
+		return
+	}
+	for key, seen := range c.fingerprints {
+		if c.dedupeWindow <= 0 || now.Sub(seen) > c.dedupeWindow {
+			delete(c.fingerprints, key)
+		}
+	}
+	for key, group := range c.groups {
+		if group == nil || c.throttleWindow <= 0 || now.Sub(group.lastAccepted) > c.throttleWindow {
+			delete(c.groups, key)
+		}
+	}
+}
+
+func deleteOldestFingerprint(values map[string]time.Time) {
+	oldestKey := ""
+	var oldest time.Time
+	for key, seen := range values {
+		if oldestKey == "" || seen.Before(oldest) || seen.Equal(oldest) && key < oldestKey {
+			oldestKey, oldest = key, seen
+		}
+	}
+	if oldestKey != "" {
+		delete(values, oldestKey)
+	}
+}
+
+func deleteOldestGroup(values map[string]*groupState) {
+	oldestKey := ""
+	var oldest time.Time
+	for key, group := range values {
+		seen := time.Time{}
+		if group != nil {
+			seen = group.lastAccepted
+		}
+		if oldestKey == "" || seen.Before(oldest) || seen.Equal(oldest) && key < oldestKey {
+			oldestKey, oldest = key, seen
+		}
+	}
+	if oldestKey != "" {
+		delete(values, oldestKey)
+	}
 }
 
 func controlledFingerprintSuffix(payload map[string]any) string {

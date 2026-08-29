@@ -12,12 +12,13 @@ import (
 
 	"github.com/gorilla/websocket"
 	"synora/internal/idgen"
+	"synora/internal/resourcebudget"
 	"synora/pkg/contract"
 )
 
 const (
-	wsClientQueueSize  = 64
-	wsReplayBufferSize = 256
+	wsClientQueueSize  = resourcebudget.WebSocketQueue
+	wsReplayBufferSize = resourcebudget.WebSocketReplay
 	wsPingInterval     = 30 * time.Second
 	wsPongWait         = 60 * time.Second
 	wsWriteWait        = 10 * time.Second
@@ -327,6 +328,10 @@ func (h *websocketHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": "origin_not_allowed"})
 		return
 	}
+	if !h.hasClientCapacity() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "websocket capacity exhausted"})
+		return
+	}
 	cursor, err := parseWSCursor(r)
 	if err != nil {
 		writeError(w, err)
@@ -370,6 +375,12 @@ func (h *websocketHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.mu.Lock()
+	if len(h.clients) >= resourcebudget.MaxWebSocketClients {
+		h.mu.Unlock()
+		h.publishMu.Unlock()
+		client.close()
+		return
+	}
 	h.clients[client] = struct{}{}
 	ready := h.readyEnvelopeLocked()
 	if err := h.enqueueLocked(client, ready); err != nil {
@@ -402,6 +413,15 @@ func (h *websocketHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	go client.writePump()
 	go client.readPump()
+}
+
+func (h *websocketHub) hasClientCapacity() bool {
+	if h == nil {
+		return false
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return !h.closed && len(h.clients) < resourcebudget.MaxWebSocketClients
 }
 
 func (h *websocketHub) readyEnvelopeLocked() contract.RealtimeEnvelope {

@@ -13,6 +13,7 @@ import (
 	"synora/internal/device"
 	"synora/internal/event"
 	"synora/internal/idgen"
+	"synora/internal/resourcebudget"
 	"synora/pkg/contract"
 )
 
@@ -22,6 +23,9 @@ type Parser struct {
 }
 
 func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
+	if len(msg.Payload) > resourcebudget.MaxMessageBytes {
+		return nil, fmt.Errorf("event payload exceeds resource budget")
+	}
 	payload := map[string]any{}
 	if len(msg.Payload) > 0 {
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {

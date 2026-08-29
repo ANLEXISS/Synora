@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"synora/internal/resourcebudget"
 )
 
 func TestWorkerPoolRetriesOneTransientProcessingFailure(t *testing.T) {
@@ -124,6 +126,19 @@ func TestWorkerPoolTimeoutRetriesThenReportsPermanentFailure(t *testing.T) {
 	}
 	if got := attempts.Load(); got != 2 {
 		t.Fatalf("processing attempts=%d, want 2", got)
+	}
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkerPoolClampsWorkersAndQueueToV1Budgets(t *testing.T) {
+	p := NewWorkerPoolWithConfig(100, func(*ClipJob) error { return nil }, WorkerPoolConfig{QueueSize: 10000})
+	if p.workers != resourcebudget.MaxVisionWorkers {
+		t.Fatalf("workers=%d, want V1 cap %d", p.workers, resourcebudget.MaxVisionWorkers)
+	}
+	if p.queueSize != resourcebudget.MaxVisionQueue || cap(p.queue) != resourcebudget.MaxVisionQueue {
+		t.Fatalf("queue=%d cap=%d, want V1 cap %d", p.queueSize, cap(p.queue), resourcebudget.MaxVisionQueue)
 	}
 	if err := p.Close(); err != nil {
 		t.Fatal(err)

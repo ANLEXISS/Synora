@@ -1,5 +1,34 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M041
+
+- Jalon : M041 — Backpressure et budgets ressources
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m041-backpressure-budgets`
+- Branche dédiée : `codex/v1-m041-backpressure-budgets`
+- Commit code/tests : `d2cad1b`
+- Budgets : les limites V1 sont centralisées et positives pour les messages,
+  files Core/Bus/Vision, workers, clients WebSocket, replay temps réel,
+  déduplication et uploads clips. Les valeurs restent fixes dans le périmètre
+  V1 et ne constituent pas une autorité métier.
+- Backpressure : les files refusent proprement au plein ; Core réserve une
+  file haute priorité ; le pool Vision plafonne workers et jobs ; trois uploads
+  clips simultanés sont possibles avec une place par caméra, afin qu’une
+  caméra bavarde ne monopolise pas les autres ; les clients WebSocket au-delà
+  du budget sont refusés.
+- Mémoire et reprise : le cache de rate/déduplication évacue les entrées
+  anciennes ou les plus anciennes à capacité pleine ; les quotas message,
+  clip, stockage, timeout et taille WebSocket existants restent actifs ; aucun
+  OOM ou épuisement disque n’est provoqué par une rafale acceptée.
+- Couverture : queues pleines, trois caméras concurrentes, payload au-delà du
+  budget, cache borné, workers/queue plafonnés, admission WebSocket, retour de
+  capacité après libération et cohérence des budgets.
+- Validation : Go complet — PASS, race sur tous les composants modifiés —
+  PASS, `go vet` — PASS, build Go — PASS, tests Python Vision — PASS (35),
+  qualification fonctionnelle — PASS (8), tests Web déterministes `npm test`
+  — PASS (4), `git diff --check` — PASS. `npm run lint` et `npm run build`
+  restent indisponibles ici car `oxlint` et `tsc` sont absents ; aucune
+  dépendance n’a été installée.
+
 ## MASTER_PLAN — M040
 
 - Jalon : M040 — Santé, métriques et audit
