@@ -1,5 +1,27 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M028
+
+- Jalon : M028 — API REST v1 cohérente
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m028-api`
+- Branche dédiée : `codex/v1-m028-api`
+- Périmètre : ajout non cassant de `/api/v1` par adaptation des handlers
+  existants ; les chemins `/api` gardent leurs contrats historiques.
+- Contrat : enveloppe JSON `data/error/meta`, ETag déterministe, `304` via
+  `If-None-Match`, précondition `If-Match` pour les mutations de ressources,
+  pagination stable par curseur bornée de 1 à 100 et document
+  `GET /api/v1/openapi.json`.
+- Sécurité : permissions et exception de claim sont évaluées sur le chemin
+  canonique ; les erreurs internes et corps backend non JSON ne divulguent pas
+  leur contenu.
+- Couverture : méthodes et statuts, Content-Type, limite de body et JSON
+  stricts des handlers propriétaires, identifiants invalides, pagination,
+  filtres conservés, ETag/conditionnel, concurrence optimiste, document
+  OpenAPI et absence de détail sensible.
+- Validation : à compléter avec la suite Go complète, vet, build, race,
+  Python, qualification fonctionnelle et vérification des deux worktrees
+  avant intégration.
+
 ## MASTER_PLAN — M027
 
 - Jalon : M027 — Pairing par clé imprimée

@@ -17,6 +17,40 @@ Avec une session valide mais sans permission, il retourne
 `403 {"error":"forbidden"}`. Le Bearer admin est toujours traité comme le
 rôle `admin` complet.
 
+## API REST v1
+
+Les mêmes propriétaires d’état sont exposés sous `/api/v1`. Les routes
+historiques `/api` restent disponibles pendant la migration des clients ;
+elles conservent leur forme de réponse actuelle.
+
+Toute réponse JSON v1 (hors document OpenAPI) suit cette enveloppe :
+
+```json
+{
+  "data": {},
+  "meta": {"revision": 0, "etag": "\"...\""}
+}
+```
+
+Les erreurs utilisent `data: null` et `error: {"code":"...","message":"..."}`.
+Les détails internes et les corps d’erreur backend non JSON ne sont jamais
+renvoyés. Les réponses v1 portent un ETag SHA-256 déterministe ; `GET` et
+`HEAD` honorent `If-None-Match` avec `304 Not Modified`. Les mutations de
+ressources qui acceptent `If-Match` vérifient l’ETag de l’état courant avant de
+déléguer au handler propriétaire et retournent `412` si l’état a changé.
+
+Les collections principales (`events`, `incidents`, `clips`, `devices`,
+`residents`, `streams`, `validations`, chaînes d’événements et photos) acceptent
+`limit` entre 1 et 100 et un `cursor` opaque stable. La réponse ajoute
+`meta.limit` et, lorsqu’il reste des éléments, `meta.next_cursor`. Les filtres
+déjà supportés par les handlers historiques sont conservés.
+
+Le contrat testable est disponible via `GET /api/v1/openapi.json`. Les routes
+v1 couvrent notamment `state`, `events`, `incidents`, `clips`, `residents`,
+`devices`, `streams`, `topology`, `devices/pairing`, `system/health`,
+`system/version`, `system/connectivity`, les actions de sécurité et les routes
+CGE/validation existantes, par adaptation sans duplication des handlers.
+
 ## Endpoints backend réellement disponibles
 
 | Méthode | Route | Handler/fichier | Auth requise | Statut | Utilisé par la webapp | Notes |
