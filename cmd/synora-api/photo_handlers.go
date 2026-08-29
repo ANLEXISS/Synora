@@ -102,6 +102,7 @@ func receiveResidentPhoto(w http.ResponseWriter, r *http.Request, faces *faceSto
 		return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "multipart upload required")
 	}
 	var received *contract.FacePhoto
+	view := ""
 	for {
 		part, nextErr := multipartReader.NextPart()
 		if errors.Is(nextErr, io.EOF) || nextErr == nil && part == nil {
@@ -109,6 +110,18 @@ func receiveResidentPhoto(w http.ResponseWriter, r *http.Request, faces *faceSto
 		}
 		if nextErr != nil {
 			return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "invalid multipart upload")
+		}
+		if part.FormName() == "view" {
+			data, readErr := io.ReadAll(io.LimitReader(part, 32))
+			_ = part.Close()
+			if readErr != nil {
+				return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "invalid face view")
+			}
+			view = strings.ToLower(strings.TrimSpace(string(data)))
+			if view != "" && !validFaceView(view) {
+				return nil, contract.NewAPIError(contract.ErrorValidationFailed, "view must be face, up, left or right")
+			}
+			continue
 		}
 		if part.FormName() != "file" && part.FormName() != "photo" {
 			_ = part.Close()
@@ -124,6 +137,7 @@ func receiveResidentPhoto(w http.ResponseWriter, r *http.Request, faces *faceSto
 			return nil, receiveErr
 		}
 		received = &result.Photo
+		received.View = view
 	}
 	if received == nil {
 		return nil, contract.NewAPIError(contract.ErrorInvalidRequest, "multipart field file is required")

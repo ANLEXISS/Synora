@@ -172,6 +172,35 @@ func TestFailedReloadPreservesPreviousCurrentVersion(t *testing.T) {
 	}
 }
 
+func TestRollbackReloadsPreviousImmutableVersionAndPreservesItOnFailure(t *testing.T) {
+	store := facestore.New(t.TempDir(), facestore.Limits{})
+	received, err := store.Receive("resident-1", bytes.NewReader(bytesForDataset(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := NewBuilder(store)
+	if _, err := builder.BuildAndActivate(context.Background(), []contract.FacePhoto{received.Photo}, 1, testEmbedder{}, &testLoader{version: "v-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := builder.BuildAndActivate(context.Background(), []contract.FacePhoto{received.Photo}, 2, testEmbedder{}, &testLoader{version: "v-2"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := builder.Rollback(context.Background(), "v-1", &testLoader{version: "v-1"}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := ReadCurrent(store.Root)
+	if err != nil || current.Version != "v-1" {
+		t.Fatalf("rollback current=%#v err=%v", current, err)
+	}
+	if _, err := builder.Rollback(context.Background(), "v-2", &testLoader{version: "wrong"}); err == nil {
+		t.Fatal("failed rollback accepted")
+	}
+	current, err = ReadCurrent(store.Root)
+	if err != nil || current.Version != "v-1" {
+		t.Fatalf("failed rollback replaced current=%#v err=%v", current, err)
+	}
+}
+
 func TestConcurrentBuildsReuseSameImmutableVersion(t *testing.T) {
 	store := facestore.New(t.TempDir(), facestore.Limits{})
 	received, err := store.Receive("resident-1", bytes.NewReader(bytesForDataset(t)))

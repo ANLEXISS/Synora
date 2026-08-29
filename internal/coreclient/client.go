@@ -681,6 +681,22 @@ func (c *Client) DeleteResidentPhoto(residentID, photoID string) (*contract.Face
 	return &result, nil
 }
 
+func (c *Client) RequestFaceDatasetRebuild() (*contract.FaceDatasetState, error) {
+	var result contract.FaceDatasetState
+	if err := c.call("face_dataset.building", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) FaceDatasetStatus() (*contract.FaceDatasetState, error) {
+	var result contract.FaceDatasetState
+	if err := c.call("face_dataset.status", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) Automations() ([]map[string]any, error) {
 	var result []map[string]any
 	if err := c.call("automation.list", nil, &result); err != nil {
