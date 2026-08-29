@@ -14,6 +14,7 @@ import (
 type DeviceVerifier struct {
 	Config        func() (*Config, error)
 	DeviceAllowed func(string) bool
+	IdentityStore *IdentityRegistry
 	Now           func() time.Time
 }
 
@@ -44,6 +45,15 @@ func (v DeviceVerifier) VerifyHeaders(
 	}
 	if v.DeviceAllowed != nil && !v.DeviceAllowed(deviceID) {
 		return fmt.Errorf("unknown or unconfigured device")
+	}
+	if v.IdentityStore != nil {
+		if err := v.IdentityStore.Reload(); err != nil {
+			return fmt.Errorf("camera identity unavailable")
+		}
+		record, ok := v.IdentityStore.Lookup(deviceID)
+		if !ok || record.Kind != IdentityCamera || record.Status != IdentityActive {
+			return fmt.Errorf("camera identity is not active")
+		}
 	}
 
 	cfg, err := v.Config()
@@ -78,6 +88,19 @@ func (v DeviceVerifier) VerifyHeaders(
 	}
 
 	return nil
+}
+
+// DeriveDeviceTransportSecret deterministically derives the post-pairing
+// transport credential from the printed secret and the camera identity. The
+// printed secret is never persisted by this package; callers persist only the
+// returned verifier value in their protected security configuration.
+func DeriveDeviceTransportSecret(deviceID, setupToken, fingerprint string) string {
+	h := hmac.New(sha256.New, []byte(strings.TrimSpace(setupToken)))
+	h.Write([]byte("synora-camera-transport-v1|"))
+	h.Write([]byte(strings.TrimSpace(deviceID)))
+	h.Write([]byte("|"))
+	h.Write([]byte(strings.TrimSpace(fingerprint)))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func DeviceSignature(

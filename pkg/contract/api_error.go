@@ -12,6 +12,7 @@ const (
 	ErrorPayloadTooLarge  = "payload_too_large"
 	ErrorNotFound         = "not_found"
 	ErrorConflict         = "conflict"
+	ErrorRateLimited      = "rate_limited"
 	ErrorDuplicateID      = "duplicate_id"
 	ErrorValidationFailed = "validation_failed"
 	ErrorForbiddenAction  = "forbidden_action"

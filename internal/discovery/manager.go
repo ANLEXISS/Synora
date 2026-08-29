@@ -71,6 +71,10 @@ func NewManager(
 		log.Fatal(err)
 	}
 	devicePath := runtime.Paths.Devices
+	identityRegistry := security.NewIdentityRegistry(runtime.Paths.IdentityRegistry)
+	if err := identityRegistry.Load(); err != nil {
+		log.Fatal("camera identity registry: ", err)
+	}
 
 	log.Printf(
 		"loaded device secrets=%d",
@@ -91,11 +95,16 @@ func NewManager(
 			}
 			for _, configured := range configs {
 				if configured.ID == deviceID {
-					return configured.Enabled && configured.DeletedAt == nil
+					if !configured.Enabled || configured.DeletedAt != nil || !configured.Trusted {
+						return false
+					}
+					trust, _ := configured.Network["network_trust"].(string)
+					return strings.TrimSpace(trust) == "paired"
 				}
 			}
 			return false
 		},
+		IdentityStore: identityRegistry,
 	}
 
 	workerManager := vision.NewWorkerManager(

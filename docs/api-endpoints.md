@@ -52,7 +52,9 @@ rôle `admin` complet.
 | GET | `/api/devices/pairing/capabilities` | `cmd/synora-api/synora_camera_pairing.go` | admin | stable | oui | Capacités Synora Camera Pairing. |
 | POST | `/api/devices/pairing/synora-camera/start` | `cmd/synora-api/synora_camera_pairing.go` | admin | stable | oui | Valide un QR/JSON et ouvre une session TTL de 10 minutes. |
 | POST | `/api/devices/pairing/synora-camera/confirm` | `cmd/synora-api/synora_camera_pairing.go` | admin | stable | oui | Crée atomiquement la caméra dans `devices.yaml`. |
-| POST | `/api/devices/pairing/synora-camera/claim` | `cmd/synora-api/synora_camera_pairing.go` | admin | préparatoire | non | Vérifie le token hashé et marque `device_seen`; auth caméra future à définir. |
+| POST | `/api/devices/pairing/synora-camera/claim` | `cmd/synora-api/synora_camera_pairing.go` | pairing local | stable | oui | Vérifie la preuve Ed25519 à usage unique et établit le dérivé de transport. |
+| POST | `/api/devices/pairing/synora-camera/revoke` | `cmd/synora-api/synora_camera_pairing.go` | admin | stable | oui | Révoque l’identité et désactive la caméra. |
+| POST | `/api/devices/pairing/synora-camera/reset` | `cmd/synora-api/synora_camera_pairing.go` | admin | stable | oui | Ferme l’accès avant un nouveau pairing explicite avec rotation d’identité. |
 | GET | `/api/residents` | `cmd/synora-api/config_handlers.go` | oui | stable | oui | Configuration statique + métadonnées face pour admin. `/api/state.residents` reste la présence runtime. |
 | GET | `/api/residents/:id` | `cmd/synora-api/config_handlers.go` | oui | stable | oui | Configuration statique redacted selon le rôle. |
 | POST | `/api/residents` | `cmd/synora-api/config_handlers.go` | admin | stable | oui | Création atomique, id slug immutable. |

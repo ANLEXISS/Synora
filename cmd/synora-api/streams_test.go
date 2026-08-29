@@ -80,3 +80,17 @@ func TestPublicStreamBaseStripsCredentialsAndQuery(t *testing.T) {
 		t.Fatalf("unsafe public base=%q", value)
 	}
 }
+
+func TestStreamsHideUnauthorizedCameraURLs(t *testing.T) {
+	items := []map[string]any{{"id": "cam_03", "type": "camera"}}
+	handler := handleStreamsWithAuthorization(streamDevicesFake{items: items}, func(string, map[string]any) bool { return false })
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/streams/cam_03", nil))
+	var descriptor StreamDescriptor
+	if err := json.Unmarshal(recorder.Body.Bytes(), &descriptor); err != nil {
+		t.Fatal(err)
+	}
+	if descriptor.Status != "unauthorized" || descriptor.LiveAvailable || descriptor.RTSPPublishURL != "" || descriptor.WebRTCURL != "" || descriptor.HLSURL != "" {
+		t.Fatalf("unauthorized stream exposed: %#v", descriptor)
+	}
+}

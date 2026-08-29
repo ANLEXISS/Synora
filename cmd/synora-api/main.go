@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -231,15 +232,34 @@ func main() {
 	apiMux.HandleFunc("/api/validations", handleValidationCollection(core))
 	apiMux.HandleFunc("/api/validations/", handleValidationItem(core))
 	apiMux.HandleFunc("/api/devices", handleDeviceCollection(core))
-	apiMux.HandleFunc("/api/streams", handleStreams(core))
-	apiMux.HandleFunc("/api/streams/", handleStreams(core))
-	apiMux.HandleFunc("/api/devices/pairing/start", handlePairingStart(core))
-	apiMux.HandleFunc("/api/devices/pairing/complete", handlePairingComplete(core))
 	identityRegistry := security.NewIdentityRegistry(paths.IdentityRegistry)
 	if err := identityRegistry.Load(); err != nil {
 		log.Fatal("camera identity registry: ", err)
 	}
-	synoraCameraPairing := newSynoraCameraPairingStore()
+	streamAuthorization := func(deviceID string, item map[string]any) bool {
+		if err := identityRegistry.Reload(); err != nil {
+			return false
+		}
+		record, ok := identityRegistry.Lookup(deviceID)
+		if !ok || record.Kind != security.IdentityCamera || record.Status != security.IdentityActive {
+			return false
+		}
+		trusted, trustedOK := item["trusted"].(bool)
+		enabled, enabledOK := item["enabled"].(bool)
+		if trustedOK && !trusted || enabledOK && !enabled {
+			return false
+		}
+		if deleted, exists := item["deleted_at"]; exists && deleted != nil {
+			return false
+		}
+		return true
+	}
+	apiMux.HandleFunc("/api/streams", handleStreamsWithAuthorization(core, streamAuthorization))
+	apiMux.HandleFunc("/api/streams/", handleStreamsWithAuthorization(core, streamAuthorization))
+	apiMux.HandleFunc("/api/devices/pairing/start", handlePairingStart(core))
+	apiMux.HandleFunc("/api/devices/pairing/complete", handlePairingComplete(core))
+	synoraCameraPairing := newSynoraCameraPairingStore(filepath.Join(filepath.Dir(paths.IdentityRegistry), "pairing-sessions.json"))
+	synoraCameraPairing.securityPath = securityPath
 	synoraCameraPairing.windowActive = network.PairingWindowActive
 	synoraCameraPairing.identityRegistry = identityRegistry
 	synoraCameraPairing.requirePublicKey = true
@@ -248,6 +268,8 @@ func main() {
 	apiMux.HandleFunc("/api/devices/pairing/synora-camera/start", handleSynoraCameraPairingStart(core, synoraCameraPairing))
 	apiMux.HandleFunc("/api/devices/pairing/synora-camera/confirm", handleSynoraCameraPairingConfirm(core, synoraCameraPairing))
 	apiMux.HandleFunc("/api/devices/pairing/synora-camera/claim", handleSynoraCameraPairingClaimWithProvider(core, synoraCameraPairing))
+	apiMux.HandleFunc("/api/devices/pairing/synora-camera/revoke", handleSynoraCameraPairingRevoke(core, synoraCameraPairing))
+	apiMux.HandleFunc("/api/devices/pairing/synora-camera/reset", handleSynoraCameraPairingReset(core, synoraCameraPairing))
 	apiMux.HandleFunc("/api/devices/pairing/status", handleSynoraNetPairingStatus())
 	apiMux.HandleFunc("/api/devices/pairing/window/start", handleSynoraNetPairingWindowStart())
 	apiMux.HandleFunc("/api/devices/pairing/window/stop", handleSynoraNetPairingWindowStop())
@@ -1283,6 +1305,8 @@ func apiErrorStatus(code string) int {
 		return http.StatusRequestEntityTooLarge
 	case contract.ErrorNotFound:
 		return http.StatusNotFound
+	case contract.ErrorRateLimited:
+		return http.StatusTooManyRequests
 	case contract.ErrorConflict, contract.ErrorDuplicateID, contract.ErrorTopologyRequired:
 		return http.StatusConflict
 	case contract.ErrorValidationFailed:
