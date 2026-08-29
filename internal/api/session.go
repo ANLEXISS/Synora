@@ -201,6 +201,29 @@ func (s *SessionStore) Revoke(rawID string) error {
 	return s.saveLocked()
 }
 
+// RevokeUser invalidates every web session belonging to a local account. It
+// is used after password changes, role changes and account removal so stale
+// claims cannot survive an administrative mutation.
+func (s *SessionStore) RevokeUser(userID string) error {
+	userID = strings.TrimSpace(userID)
+	if s == nil || userID == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	for idHash, session := range s.sessions {
+		if session.User.ID == userID {
+			delete(s.sessions, idHash)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return s.saveLocked()
+}
+
 func (s *SessionStore) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
 		return err

@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/tls"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -93,6 +94,161 @@ func TestAuthSessionLifecycle(t *testing.T) {
 		t.Fatalf("logout did not expire cookie: %#v", logoutCookie)
 	}
 }
+
+func TestAuthBootstrapIsOneShotAndPersistsDedicatedAdmin(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth", "auth.yaml")
+	directory, err := LoadUserDirectory(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewSessionStore(filepath.Join(t.TempDir(), "sessions.json"), time.Hour, "fingerprint")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewAuthService(store, func(string) bool { return false })
+	service.Users = directory
+	request := httptest.NewRequest(http.MethodPost, "https://synora.local/api/auth/bootstrap", strings.NewReader(`{"login":"admin","password":"first-admin-password"}`))
+	request.TLS = &tls.ConnectionState{}
+	response := httptest.NewRecorder()
+	service.BootstrapHandler(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("bootstrap status=%d body=%s", response.Code, response.Body.String())
+	}
+	cookie := mustCookie(t, response)
+	if !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("insecure bootstrap cookie: %#v", cookie)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || strings.Contains(string(data), "first-admin-password") {
+		t.Fatalf("dedicated auth file is invalid: %s (%v)", data, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0640 {
+		t.Fatalf("auth file mode=%o", info.Mode().Perm())
+	}
+
+	second := httptest.NewRecorder()
+	service.BootstrapHandler(second, httptest.NewRequest(http.MethodPost, "/api/auth/bootstrap", strings.NewReader(`{"login":"other","password":"second-password"}`)))
+	if second.Code != http.StatusConflict || !strings.Contains(second.Body.String(), `"error":"bootstrap_completed"`) {
+		t.Fatalf("second bootstrap status=%d body=%s", second.Code, second.Body.String())
+	}
+	reloaded, err := LoadUserDirectory(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reloaded.Authenticate("admin", "first-admin-password"); !ok || reloaded.AdminCount() != 1 {
+		t.Fatal("persisted bootstrap admin cannot authenticate after reload")
+	}
+}
+
+func TestAuthPasswordChangeRevokesSessionAndProtectsLastAdmin(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.yaml")
+	directory, err := LoadUserDirectory(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin, err := directory.BootstrapAdmin("admin", "first-admin-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewSessionStore(filepath.Join(t.TempDir(), "sessions.json"), time.Hour, "fingerprint")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewAuthService(store, nil)
+	service.Users = directory
+	service.CookieOriginAllowed = func(*http.Request) bool { return true }
+
+	login := httptest.NewRecorder()
+	service.LoginHandler(login, httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"login":"admin","password":"first-admin-password"}`)))
+	if login.Code != http.StatusOK {
+		t.Fatalf("login status=%d body=%s", login.Code, login.Body.String())
+	}
+	cookie := mustCookie(t, login)
+	change := httptest.NewRequest(http.MethodPost, "/api/auth/password", strings.NewReader(`{"current_password":"first-admin-password","new_password":"second-admin-password"}`))
+	change.AddCookie(cookie)
+	changed := httptest.NewRecorder()
+	service.ChangePasswordHandler(changed, change)
+	if changed.Code != http.StatusOK {
+		t.Fatalf("password change status=%d body=%s", changed.Code, changed.Body.String())
+	}
+	me := httptest.NewRecorder()
+	meRequest := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	meRequest.AddCookie(cookie)
+	service.MeHandler(me, meRequest)
+	if me.Code != http.StatusUnauthorized {
+		t.Fatalf("old session survived password change: %d", me.Code)
+	}
+	if _, ok := directory.Authenticate("admin", "second-admin-password"); !ok {
+		t.Fatal("new password does not authenticate")
+	}
+
+	if err := directory.DeleteUser(admin.ID); !errors.Is(err, ErrLastAdmin) {
+		t.Fatalf("last admin deletion err=%v", err)
+	}
+	if _, err := directory.UpdateUser(admin.ID, nil, boolPtr(false), nil); !errors.Is(err, ErrLastAdmin) {
+		t.Fatalf("last admin disable err=%v", err)
+	}
+	if _, err := directory.CreateUser("second-admin", RoleAdmin, "second-admin-password", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.DeleteUser(admin.ID); err != nil {
+		t.Fatalf("delete with replacement admin: %v", err)
+	}
+}
+
+func TestAuthUserManagementUsesRBACAndRejectsUnknownJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.yaml")
+	directory, err := LoadUserDirectory(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := directory.BootstrapAdmin("admin", "first-admin-password"); err != nil {
+		t.Fatal(err)
+	}
+	service := NewAuthService(nil, func(token string) bool { return token == "admin-token" })
+	service.Users = directory
+	service.CookieOriginAllowed = func(*http.Request) bool { return true }
+
+	unauthorized := httptest.NewRecorder()
+	service.UsersHandler(unauthorized, httptest.NewRequest(http.MethodGet, "/api/auth/users", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized users status=%d", unauthorized.Code)
+	}
+
+	create := httptest.NewRequest(http.MethodPost, "/api/auth/users", strings.NewReader(`{"login":"guest","role":"guest","password":"guest-password","unknown":true}`))
+	create.Header.Set("Authorization", "Bearer admin-token")
+	created := httptest.NewRecorder()
+	service.UsersHandler(created, create)
+	if created.Code != http.StatusBadRequest || !strings.Contains(created.Body.String(), `"error":"invalid_json"`) {
+		t.Fatalf("unknown user field status=%d body=%s", created.Code, created.Body.String())
+	}
+
+	create = httptest.NewRequest(http.MethodPost, "/api/auth/users", strings.NewReader(`{"login":"guest","role":"guest","password":"guest-password"}`))
+	create.Header.Set("Authorization", "Bearer admin-token")
+	created = httptest.NewRecorder()
+	service.UsersHandler(created, create)
+	if created.Code != http.StatusCreated || strings.Contains(created.Body.String(), "password") {
+		t.Fatalf("user creation status=%d body=%s", created.Code, created.Body.String())
+	}
+	guest, found := directory.UserByID("user_guest")
+	if !found || guest.Role != RoleGuest {
+		t.Fatalf("created guest missing: %#v", guest)
+	}
+
+	patch := httptest.NewRequest(http.MethodPatch, "/api/auth/users/user_guest", strings.NewReader(`{"role":"resident"}`))
+	patch.Header.Set("Authorization", "Bearer admin-token")
+	patched := httptest.NewRecorder()
+	service.UserHandler(patched, patch)
+	if patched.Code != http.StatusOK || !strings.Contains(patched.Body.String(), `"role":"resident"`) {
+		t.Fatalf("user patch status=%d body=%s", patched.Code, patched.Body.String())
+	}
+}
+
+func boolPtr(value bool) *bool { return &value }
 
 func TestAuthLoginCookieSecureFollowsRequestTransport(t *testing.T) {
 	service := newAuthTestService(t)

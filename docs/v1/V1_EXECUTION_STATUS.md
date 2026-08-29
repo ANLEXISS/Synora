@@ -1,5 +1,29 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M029
+
+- Jalon : M029 — Administrateurs, sessions et rôles
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m029-auth`
+- Branche dédiée : `codex/v1-m029-auth`
+- Périmètre : bootstrap applicatif à usage unique, authentification locale,
+  comptes persistés dans `auth.yaml`, changement de mot de passe, RBAC et
+  gestion administrateur.
+- Sécurité : identifiants de session aléatoires et hashés au repos, rotation,
+  expiration/révocation, cookie `HttpOnly`/`SameSite=Strict`/`Secure` sous
+  HTTPS, contrôle d’origine pour les mutations cookie, réponses sans hash ni
+  détail sensible.
+- Invariants : `residents.yaml` ne contient aucun secret d’authentification ;
+  le dernier administrateur activé ne peut pas être supprimé, désactivé ou
+  rétrogradé ; les modifications de comptes sont atomiques et le stockage est
+  protégé (`0640`, répertoire `0700`).
+- Couverture : bootstrap/rejeu, mauvais mot de passe et non-énumération,
+  fixation/rotation, expiration, révocation, CSRF par origine, élévation de
+  rôle, changement de mot de passe, dernier administrateur, permissions,
+  rechargement après redémarrage et JSON inconnu.
+- Validation : à compléter avec Go complet, vet, build, race, Python,
+  qualification fonctionnelle, `git diff --check` et vérification des deux
+  worktrees avant intégration.
+
 ## MASTER_PLAN — M028
 
 - Jalon : M028 — API REST v1 cohérente

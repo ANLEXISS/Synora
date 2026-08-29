@@ -8,9 +8,13 @@ session web `synora_session` HttpOnly issuee par `/api/auth/login`.
 | Méthode | Route | Auth | Permissions |
 |---|---|---|---|
 | POST | `/api/auth/login` | public | login/password depuis `auth.yaml`, ou token bootstrap |
+| POST | `/api/auth/bootstrap` | public, une seule fois | crée le premier administrateur local et ouvre une session |
 | GET | `/api/auth/me` | session | utilisateur et permissions courantes |
 | POST | `/api/auth/logout` | session ou Bearer | — |
 | POST | `/api/auth/refresh` | session | rotation de session |
+| POST | `/api/auth/password` | session locale | changement de mot de passe et révocation des sessions |
+| GET/POST | `/api/auth/users` | admin | liste ou crée un compte sans exposer son hash |
+| GET/PATCH/DELETE | `/api/auth/users/:id` | admin | compte, rôle, activation, mot de passe ou révocation |
 
 Sans authentification, le backend retourne `401 {"error":"unauthorized"}`.
 Avec une session valide mais sans permission, il retourne
