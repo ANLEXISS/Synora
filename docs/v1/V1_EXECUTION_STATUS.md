@@ -1,5 +1,29 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M032
+
+- Jalon : M032 — Parcours devices et topologie
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m032-devices-topology`
+- Branche dédiée : `codex/v1-m032-devices-topology`
+- Livrable : les mutations de configuration restent séparées de l’état runtime,
+  les références de nœuds sont validées, les registres sont persistés de façon
+  atomique et les notifications de mutation alimentent le snapshot temps réel.
+- Fiabilité : en cas d’échec après écriture de la topologie, les fichiers, le
+  registre device et le snapshot mémoire reviennent ensemble à l’état précédent;
+  les devices détachés sont déplacés vers `unlocated` sans supprimer leur
+  historique, et les automations dépendantes sont désactivées explicitement.
+- Sécurité : les champs runtime (`last_seen`, scores, tracks, présence et état
+  sécurité) ne sont pas mutables par l’API de configuration ; les secrets ne
+  sortent pas des vues publiques.
+- Couverture : nœud absent, cycle, doublon, renommage, déplacement, suppression
+  avec historique, rollback d’écriture, concurrence API et rechargement.
+- Validation : Go complet, vet, build, race, Python Vision, qualification
+  fonctionnelle et `git diff --check` — PASS. Une défaillance intermittente
+  préexistante de `internal/cge/shadowworkflow` a été isolée cinq fois avec
+  succès, puis la race globale a été relancée avec succès. La qualification Web
+  n’est pas relancée, ses dépendances locales étant absentes et leur installation
+  hors périmètre autorisé.
+
 ## MASTER_PLAN — M031
 
 - Jalon : M031 — Parcours résidents et visages
