@@ -2,9 +2,11 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,5 +89,123 @@ func TestLowSpaceAndInterruptedExpirationAreSafe(t *testing.T) {
 	}
 	if _, err := os.Stat(deleting); !os.IsNotExist(err) {
 		t.Fatalf("interrupted deletion was not recoverable: %v", err)
+	}
+}
+
+func TestRestoreRollsBackConfigurationFilesWhenInterrupted(t *testing.T) {
+	root := t.TempDir()
+	sourceRoot := t.TempDir()
+	sourceA := filepath.Join(sourceRoot, "a")
+	sourceB := filepath.Join(sourceRoot, "b")
+	if err := os.WriteFile(sourceA, []byte("new-a"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourceB, []byte("new-b"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := New(root, 1)
+	manifest, err := m.Create(context.Background(), state.NewStore(), map[string]string{"config/a.yaml": sourceA, "config/b.yaml": sourceB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	destinationRoot := t.TempDir()
+	destinationA := filepath.Join(destinationRoot, "a.yaml")
+	destinationB := filepath.Join(destinationRoot, "b.yaml")
+	if err := os.WriteFile(destinationA, []byte("old-a"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destinationB, []byte("old-b"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.BeforeRestore = func(name string) error {
+		if name == "config/b.yaml" {
+			return errors.New("simulated restore interruption")
+		}
+		return nil
+	}
+	err = m.Restore(context.Background(), manifest.ID, state.NewStore(), map[string]string{"config/a.yaml": destinationA, "config/b.yaml": destinationB})
+	if err == nil {
+		t.Fatal("interrupted restore succeeded")
+	}
+	for path, want := range map[string]string{destinationA: "old-a", destinationB: "old-b"} {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil || string(data) != want {
+			t.Fatalf("destination %s=%q err=%v, want %q", path, data, readErr, want)
+		}
+	}
+}
+
+func TestBackupRejectsTraversalSymlinkAndFutureState(t *testing.T) {
+	root := t.TempDir()
+	m := New(root, 1)
+	if _, err := m.Create(context.Background(), state.NewStore(), map[string]string{"../escape": filepath.Join(t.TempDir(), "missing")}); err == nil {
+		t.Fatal("traversal source name was accepted")
+	}
+	target := filepath.Join(t.TempDir(), "target")
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.WriteFile(target, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := m.Create(context.Background(), state.NewStore(), map[string]string{"config/link": link}); err == nil {
+		t.Fatal("symlink source was accepted")
+	}
+	stateValue := state.NewStore()
+	manifest, err := m.Create(context.Background(), stateValue, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(root, "snapshots", manifest.ID, "state.json")
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), `"version": 2`, `"version": 99`, 1))
+	if err := os.WriteFile(statePath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest.StateBytes = int64(len(data))
+	manifest.StateSHA256 = digest(data)
+	manifestData, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "snapshots", manifest.ID, "manifest.json"), append(manifestData, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Restore(context.Background(), manifest.ID, state.NewStore(), nil); err == nil || !strings.Contains(err.Error(), "unsupported backup state version") {
+		t.Fatalf("future state restore error=%v", err)
+	}
+}
+
+func TestEncryptedBackupRequiresTheCorrectSecret(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(source, []byte("password_hash: protected\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	creator := New(root, 1)
+	creator.Secret = "correct-local-backup-secret"
+	manifest, err := creator.Create(context.Background(), state.NewStore(), map[string]string{"config/auth.yaml": source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manifest.Encrypted || manifest.Encryption != "aes-256-gcm" {
+		t.Fatalf("backup encryption metadata=%#v", manifest)
+	}
+	wrong := New(root, 1)
+	wrong.Secret = "wrong-local-backup-secret"
+	if err := wrong.Restore(context.Background(), manifest.ID, state.NewStore(), nil); err == nil || !strings.Contains(err.Error(), "invalid") {
+		t.Fatalf("wrong secret restore error=%v", err)
+	}
+	destination := filepath.Join(t.TempDir(), "auth.yaml")
+	if err := creator.Restore(context.Background(), manifest.ID, state.NewStore(), map[string]string{"config/auth.yaml": destination}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(destination)
+	if err != nil || string(data) != "password_hash: protected\n" {
+		t.Fatalf("decrypted restore=%q err=%v", data, err)
 	}
 }
