@@ -1,5 +1,34 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M039
+
+- Jalon : M039 — Onboarding et récupération locale
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m039-onboarding-recovery`
+- Branche dédiée : `codex/v1-m039-onboarding-recovery`
+- Commit code/tests : `e34a47c`
+- Premier administrateur : le parcours Web propose le bootstrap local
+  exactement une fois via `/api/auth/bootstrap`, avec mot de passe renforcé,
+  session créée après succès et message explicite si le bootstrap est déjà
+  consommé. Le token de connexion reste masqué et les champs sont vidés après
+  authentification.
+- Onboarding : les étapes sont dérivées des données persistées et donc
+  reprenables après refresh/reboot ; la topologie et trois caméras terminent
+  la configuration matérielle, tandis que zéro résident reste valide et que
+  moins de trois caméras est signalé sans bloquer l’usage. Un résident créé
+  doit avoir une référence faciale prête pour clore son parcours.
+- Fiabilité : les actions de pairing, de configuration et de mutations
+  conservent les confirmations backend existantes ; les états incomplets
+  restent visibles et les erreurs n’effacent pas la progression déjà engagée.
+- Couverture : installation neuve, zéro résident, 0/3 à 3/3 caméras,
+  onboarding incomplet/complet et API inaccessible ; les cas pairing,
+  permissions, session expirée, doublon et reconnexion sont couverts par les
+  tests API et Web des jalons précédents.
+- Validation : tests Web déterministes `npm test` — PASS (4 tests), Go
+  complet — PASS, `go vet` — PASS, build Go — PASS, tests Python Vision —
+  PASS (35), qualification fonctionnelle — PASS (8), `git diff --check` —
+  PASS. `npm run lint` et `npm run build` restent indisponibles ici car
+  `oxlint` et `tsc` sont absents ; aucune dépendance n’a été installée.
+
 ## MASTER_PLAN — M038
 
 - Jalon : M038 — Écrans Devices et Topologie
