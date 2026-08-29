@@ -1,5 +1,17 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M047
+
+- Jalon : M047 — Validation RKNN sur Rock 5 ITX — procédure préparée, gate
+  matériel en attente
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m047-rknn-rock5-itx`
+- Branche dédiée : `codex/v1-m047-rknn-rock5-itx`
+- Procédure : identification physique, modèles SCRFD/ArcFace/YOLO, NPU,
+  latence, mémoire, température, trois sources, dataset, arrêt/redémarrage et
+  absence de biométrie dans les preuves.
+- Statut : `blocked_no_target_results`. Aucun passage n’est simulé ; le jalon
+  ne pourra être clôturé qu’avec des résultats réels du Rock 5 ITX RK3588.
+
 ## MASTER_PLAN — M046
 
 - Jalon : M046 — Mise à jour signée et rollback — terminé
