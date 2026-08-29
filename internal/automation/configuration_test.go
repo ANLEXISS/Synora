@@ -93,6 +93,18 @@ func TestAutomationCriticalActionDefaultsAndSafety(t *testing.T) {
 	}
 }
 
+func TestAutomationRejectsActionOutsideV1Set(t *testing.T) {
+	engine := NewEngine(filepath.Join(t.TempDir(), "automations.yaml"))
+	_, err := engine.Create(Rule{
+		ID: "unsupported", Enabled: true,
+		Trigger: Trigger{EventType: "vision.motion"},
+		Actions: []AutomationAction{{Type: "webhook.call", Target: "external"}},
+	})
+	if contract.APIErrorCode(err) != contract.ErrorValidationFailed {
+		t.Fatalf("unsupported action error=%v code=%s", err, contract.APIErrorCode(err))
+	}
+}
+
 func TestAutomationTopologyDetachUsesOneCommittedReplacement(t *testing.T) {
 	engine := NewEngine(filepath.Join(t.TempDir(), "automations.yaml"))
 	for _, rule := range []Rule{

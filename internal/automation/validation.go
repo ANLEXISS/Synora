@@ -65,6 +65,9 @@ func validateAction(rule Rule, action AutomationAction, strictAPI bool) error {
 		return contract.NewAPIError(contract.ErrorValidationFailed, "automation action timing and retry values cannot be negative")
 	}
 	name := normalizedActionName(action)
+	if strictAPI && !isV1Action(name, action) {
+		return contract.NewAPIError(contract.ErrorValidationFailed, "automation action %q is outside the V1 action set", name)
+	}
 	switch name {
 	case "emergency_call", "emergency.call", "disable_camera", "camera.disable":
 		return contract.NewAPIError(contract.ErrorForbiddenAction, "automatic action %q is forbidden", name)
@@ -78,6 +81,26 @@ func validateAction(rule Rule, action AutomationAction, strictAPI bool) error {
 		return contract.NewAPIError(contract.ErrorForbiddenAction, "automatic action %q is forbidden", name)
 	}
 	return nil
+}
+
+func isV1Action(name string, action AutomationAction) bool {
+	switch name {
+	case "device.command", "record.clip", "record", "recorder", "notify", "notify.local", "signal.local", "push", "mqtt.publish", "mqtt":
+		return true
+	case "light.turn_on", "light.turn_off", "light.on", "light.off":
+		return true
+	case "door.unlock", "siren.turn_on", "siren.turn_on_without_policy", "emergency_call", "emergency.call", "disable_camera", "camera.disable":
+		return true // the safety gate below still requires explicit approval.
+	}
+	// Legacy device.command and MQTT forms have no explicit type. They remain
+	// accepted only when their target operation is unambiguous.
+	if strings.TrimSpace(action.Device) != "" && strings.TrimSpace(action.Command) != "" {
+		return true
+	}
+	if strings.TrimSpace(action.Channel) != "" && strings.TrimSpace(action.Command) != "" {
+		return true
+	}
+	return false
 }
 
 func containsSensitiveAction(actions []AutomationAction) bool {

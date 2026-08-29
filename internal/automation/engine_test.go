@@ -1,6 +1,7 @@
 package automation
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -224,6 +225,33 @@ func TestEvaluateRequestsCooldownBlocksSecondTrigger(t *testing.T) {
 	}
 	if got := engine.EvaluateRequests(testEvent(), testDecision()); len(got) != 0 {
 		t.Fatalf("cooldown should block second trigger, got %#v", got)
+	}
+}
+
+func TestEvaluateRequestsCooldownIsAtomicAcrossConcurrentEvents(t *testing.T) {
+	engine := NewEngine(t.TempDir() + "/concurrent-cooldown.yaml")
+	engine.Now = func() time.Time { return time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC) }
+	mustAddRule(t, engine, Rule{
+		ID: "concurrent", Enabled: true, EventType: contract.EventVisionMotion,
+		CooldownMs: 1000, Actions: []AutomationAction{testAction("a1")},
+	})
+	var wait sync.WaitGroup
+	results := make(chan int, 32)
+	for range 32 {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			results <- len(engine.EvaluateRequests(testEvent(), testDecision()))
+		}()
+	}
+	wait.Wait()
+	close(results)
+	matched := 0
+	for count := range results {
+		matched += count
+	}
+	if matched != 1 {
+		t.Fatalf("concurrent cooldown emitted %d action requests", matched)
 	}
 }
 
