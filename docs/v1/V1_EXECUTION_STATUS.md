@@ -1,5 +1,31 @@
 # Synora V1 — état d’exécution
 
+## MASTER_PLAN — M034
+
+- Jalon : M034 — Actions réelles et résultats durables
+- Worktree dédié : `/home/rock/Synora-worktrees/v1-m034-actions-results`
+- Branche dédiée : `codex/v1-m034-actions-results`
+- Exécution : les actions `device.command`, `record.clip` et MQTT passent par
+  des adapters injectables ; les adapters idempotents optionnels reçoivent le
+  `command_id` et la clé d’idempotence sans casser les interfaces historiques.
+- Résultat durable : chaque résultat transporte les identifiants de commande,
+  la clé d’idempotence, le timeout, la tentative, le statut, la classe d’erreur
+  et les corrélations événement/décision/clip/device. Le service recharge un
+  ledger local atomique et rejoue un résultat confirmé sans réexécuter l’effet.
+- Fiabilité : les erreurs transitoires peuvent être retentées ; les erreurs
+  permanentes, les effets confirmés et les réponses tardives ne provoquent pas
+  de répétition dangereuse. L’historique du ledger est limité aux 200 derniers
+  résultats, comme l’historique public Core.
+- Couverture : succès, timeout, réponse tardive, erreur transitoire/permanente,
+  effet confirmé, doublon, redémarrage, persistance/rechargement, borne 200,
+  adapters device/recorder/MQTT et validation de contrat.
+- Validation : Go complet, vet, build, race, Python Vision, qualification
+  fonctionnelle et `git diff --check` — PASS. Deux tests d’intégration
+  préexistants et intermittents ont été isolés cinq fois chacun avec succès,
+  puis la race globale a été relancée avec succès. La qualification Web n’est
+  pas relancée, ses dépendances locales étant absentes et leur installation
+  hors périmètre autorisé.
+
 ## MASTER_PLAN — M033
 
 - Jalon : M033 — Automations sécurité minimales
