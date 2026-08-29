@@ -681,9 +681,13 @@ func buildServerHandlerWithAuth(
 	mux := http.NewServeMux()
 	if auth != nil {
 		mux.HandleFunc("/api/auth/login", auth.LoginHandler)
+		mux.HandleFunc("/api/auth/bootstrap", auth.BootstrapHandler)
 		mux.HandleFunc("/api/auth/me", auth.MeHandler)
 		mux.HandleFunc("/api/auth/logout", auth.LogoutHandler)
 		mux.HandleFunc("/api/auth/refresh", auth.RefreshHandler)
+		mux.HandleFunc("/api/auth/password", auth.ChangePasswordHandler)
+		mux.HandleFunc("/api/auth/users", auth.UsersHandler)
+		mux.HandleFunc("/api/auth/users/", auth.UserHandler)
 	}
 	apiV1 := newAPIV1Handler(apiMux)
 	mux.Handle("/api/v1", apiAuthMiddlewareWithAuth(cfg, auth, allowQueryToken, apiV1))
