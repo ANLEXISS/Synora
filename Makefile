@@ -8,6 +8,12 @@ SHELL := /usr/bin/env bash
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	dev-tools diagnostics install-dev-tools
 
+.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1
+
+COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
+COGNITIVE_MODEL_DIR ?= build/cognitive-mlp-v1
+COGNITIVE_FIXTURES ?= testdata/cognitive/mlp_parity_100.jsonl
+
 PREFIX ?= /opt/synora
 BINDIR ?= $(PREFIX)/bin
 SERVICES_DIR ?= $(PREFIX)/services
@@ -55,6 +61,8 @@ GO_BINS := \
 	synora-discovery:./cmd/synora-discovery \
 	synora-network-config:./cmd/synora-network-config \
 	synora-runtime-manager:./cmd/synora-runtime-manager \
+	synora-cognitive:./cmd/synora-cognitive \
+	synora-cognitive-demo:./cmd/synora-cognitive-demo \
 	synora-connect:./cmd/synora-connect \
 	synora-ota:./cmd/synora-ota
 
@@ -72,10 +80,11 @@ RUNTIME_SERVICES := \
 	synora-actions \
 	synora-api \
 	synora-discovery \
+	synora-cognitive \
 	synora-connect
 
 START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-actions synora-api synora-connect mediamtx
-STOP_ORDER := mediamtx synora-connect synora-api synora-actions synora-discovery synora-core synora-runtime-manager synora-bus
+STOP_ORDER := mediamtx synora-connect synora-cognitive synora-api synora-actions synora-discovery synora-core synora-runtime-manager synora-bus
 OTA_UNITS := synora-ota-mark-good
 START_ORDER += $(OTA_UNITS)
 SYSTEMD_UNITS := $(addsuffix .service,$(RUNTIME_SERVICES) $(OTA_UNITS)) mediamtx.service
@@ -86,6 +95,7 @@ help:
 		'  make build                 Build Go runtime binaries into ./bin' \
 		'  make build-web             Build the React/Vite webapp statically' \
 		'  make test                  Run Go tests and Python compileall' \
+		'  make e2e-v1                Run the permanent hermetic V1 trace harness' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
 		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
 		'  persistent face data     Keep resident face files in $(FACE_DATA_DIR)' \
@@ -106,6 +116,18 @@ help:
 		'  make install-dev-tools     Explicitly install developer tools (never part of make install)' \
 		'  make install-bootstrap-config  Install the local production config bootstrap tool' \
 		'  make install-plan          Show the standard runtime installation footprint without changing the system'
+
+cognitive-export:
+	@mkdir -p $(COGNITIVE_MODEL_DIR)
+	$(PYTHON) tools/cognitive/export_models.py --bundle $(COGNITIVE_BUNDLE) --output $(COGNITIVE_MODEL_DIR)
+
+cognitive-parity: cognitive-export
+	@mkdir -p $$(dirname $(COGNITIVE_FIXTURES))
+	$(PYTHON) tools/cognitive/parity.py --bundle $(COGNITIVE_BUNDLE) --export $(COGNITIVE_MODEL_DIR) --fixtures $(COGNITIVE_FIXTURES) --report $(COGNITIVE_MODEL_DIR)/parity.json
+
+cognitive-demo:
+	@test "$(SYNORA_COGNITIVE_DRY_RUN)" = "1" || (echo 'SYNORA_COGNITIVE_DRY_RUN=1 is required' >&2; exit 1)
+	SYNORA_COGNITIVE_DRY_RUN=1 SYNORA_COGNITIVE_MODEL_DIR=$(COGNITIVE_MODEL_DIR) $(GO) run ./cmd/synora-cognitive-demo --models $(COGNITIVE_MODEL_DIR) --trace build/cognitive-dry-run.jsonl
 
 check-go:
 	@if ! command -v "$(GO)" >/dev/null 2>&1 && [ ! -x "$(GO)" ]; then \
@@ -165,6 +187,9 @@ hash-password: check-go
 test: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./...
 	$(PYTHON) -m compileall -q services/vision-worker
+
+e2e-v1: check-go
+	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1HermeticScenarioAcrossBusCoreDiscoveryVisionActionsAndMediaMTX$$' -count=1
 
 install: install-deps build build-bootstrap-config install-dirs install-bins install-bootstrap-config install-boot-healthcheck install-version install-model-manifest install-config install-models install-web install-mediamtx install-vision-worker install-face-data install-diagnostics install-systemd enable-services
 	@echo "Synora runtime installation complete."
@@ -484,7 +509,7 @@ doctor: check-go
 	failf() { echo "FAIL $$*"; fail=$$((fail+1)); }; \
 	command -v $(PYTHON) >/dev/null 2>&1 && ok "Python: $$($(PYTHON) --version 2>&1)" || failf "Python missing"; \
 	command -v jq >/dev/null 2>&1 && ok "jq: $$(jq --version)" || warnf "jq missing"; \
-	for bin in synora-bus synora-core synora-actions synora-api synora-discovery synora-runtime-manager; do \
+	for bin in synora-bus synora-core synora-actions synora-api synora-discovery synora-runtime-manager synora-cognitive; do \
 		[ -x "$(BINDIR)/$$bin" ] && ok "binary $(BINDIR)/$$bin" || failf "binary missing $(BINDIR)/$$bin"; \
 	done; \
 		for service in $(START_ORDER); do \
@@ -565,6 +590,7 @@ delete:
 		$(SYSTEMD_DIR)/synora-api.service \
 		$(SYSTEMD_DIR)/synora-discovery.service \
 		$(SYSTEMD_DIR)/synora-runtime-manager.service \
+		$(SYSTEMD_DIR)/synora-cognitive.service \
 		$(SYSTEMD_DIR)/mediamtx.service \
 		$(SYSTEMD_DIR)/synora-{web,vision,action}.service \
 		$(SYSTEMD_DIR)/mqtt"_bridge".service

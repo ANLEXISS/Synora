@@ -21,6 +21,7 @@ import (
 	"synora/internal/bus"
 	"synora/internal/cge"
 	"synora/internal/cge/decisioncomparison"
+	"synora/internal/cognitive"
 	"synora/internal/device"
 	"synora/internal/engine"
 	eventpkg "synora/internal/event"
@@ -52,6 +53,7 @@ type coreMetrics struct {
 	lastEngineLatency  time.Duration
 	totalEngineLatency time.Duration
 	sourceLastSeen     map[string]time.Time
+	admission          *ingest.AdmissionMetrics
 }
 
 type coreApp struct {
@@ -100,6 +102,7 @@ type coreApp struct {
 	snapshotBuilder   *snapshotpkg.Builder
 	snapshotPublisher snapshotpkg.Publisher
 	actionDispatcher  automation.Dispatcher
+	datasetCapture    *cognitive.Recorder
 }
 
 type coreBus interface {
@@ -233,12 +236,13 @@ func main() {
 		profile:      profileStore,
 		cognitive:    cognitiveEngine,
 		rate:         rateController,
-		metrics:      &coreMetrics{sourceLastSeen: map[string]time.Time{}},
+		metrics:      &coreMetrics{sourceLastSeen: map[string]time.Time{}, admission: &ingest.AdmissionMetrics{}},
 		processStop:  ctx.Done(),
 		highPriority: make(chan *contract.Event, resourcebudget.CoreHighPriorityQueue),
 		normalQueue:  make(chan *contract.Event, resourcebudget.CoreNormalQueue),
 		rpcQueue:     make(chan contract.Message, resourcebudget.CoreRPCQueue),
 	}
+	app.datasetCapture, _ = cognitive.NewRecorderFromEnv(os.Getenv)
 	if err := app.beginRecovery(); err != nil {
 		log.Fatal("start Core recovery:", err)
 	}
@@ -277,6 +281,7 @@ func main() {
 		configuredShadow.SetDecisionPublicationSink(&coreDecisionPublicationSink{bus: app.bus})
 	}
 	defer app.closeCognitive()
+	defer app.closeDatasetCapture()
 	app.snapshotBuilder = &snapshotpkg.Builder{
 		Mu:         &app.mu,
 		State:      app.state,
@@ -307,8 +312,9 @@ func main() {
 			MaxFutureSkew: 5 * time.Minute,
 			MaxPastAge:    24 * time.Hour,
 		},
-		High:   app.highPriority,
-		Normal: app.normalQueue,
+		High:      app.highPriority,
+		Normal:    app.normalQueue,
+		Admission: app.metrics.admission,
 	}
 	app.rpc = corerpc.NewServer(corerpc.Config{
 		Bus:              app.bus,
@@ -341,6 +347,9 @@ func main() {
 	stateLoadErr := err
 	if err != nil {
 		log.Println("state persistence load warning:", err)
+	}
+	if err := app.engine.LoadHomeModel(app.state.HomeModelRaw()); err != nil {
+		log.Println("home model restore warning:", err)
 	}
 	if err := app.setRecoveryDependency("topology", topologyLoaded, map[bool]string{true: "topology loaded", false: "topology restore failed"}[topologyLoaded]); err != nil {
 		log.Fatal("record topology recovery status:", err)
@@ -502,6 +511,11 @@ func (a *coreApp) runBusLoopContext(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
+			// Cognitive protocol messages are isolated from the deterministic Core
+			// event path. Advisory observations never become Core input events.
+			if cognitive.IsProtocolMessage(msg.Type) {
+				continue
+			}
 			log.Printf(
 				"core: received message type=%s kind=%s source=%s",
 				msg.Type,
@@ -600,6 +614,10 @@ func (a *coreApp) processEvent(event *contract.Event) {
 	cgeEvent := cge.EventFromContract(event)
 	var historicalDecision *decisioncomparison.HistoricalDecisionRef
 	historicalChainID := ""
+	var result *engine.Result
+	stateChanged := false
+	pendingCapture := a.captureBefore(event)
+	defer func() { a.captureAfter(pendingCapture, event, result, stateChanged) }()
 	defer func() { a.observeCGE(cgeEvent, historicalDecision, historicalChainID) }()
 
 	stateapply.TouchDeviceState(a.state, a.device, event)
@@ -645,7 +663,6 @@ func (a *coreApp) processEvent(event *contract.Event) {
 		event.Type,
 	)
 
-	var result *engine.Result
 	if event.Type == contract.EventSecurityModeChanged {
 		// Mode changes provide automation context; they are not CGE danger input.
 		result = nil
@@ -694,7 +711,7 @@ func (a *coreApp) processEvent(event *contract.Event) {
 			result.Presence = nil
 		}
 	}
-	stateChanged := stateapply.Apply(a.state, result, stateapply.Callbacks{
+	stateChanged = stateapply.Apply(a.state, result, stateapply.Callbacks{
 		SyncPresence: a.syncResidentPresence,
 	})
 	a.updateVisionTracking(event)
@@ -912,6 +929,9 @@ func (a *coreApp) recordRuntimeEvent(event *contract.Event) {
 			current.RuntimeComponentInfo = map[string]string{}
 		}
 		current.RuntimeComponentInfo["actions"] = "bus client registered"
+		if mode := payloadString(event.Payload, "execution_mode"); mode != "" {
+			current.RuntimeComponentInfo["actions.execution_mode"] = mode
+		}
 	case contract.EventDiscoveryVisionWorkerUnavailable, contract.EventDiscoveryNetworkDegraded, contract.EventRuntimeComponentFlapping, contract.EventRuntimeModelMissing, contract.EventDiscoveryVisionIngressStatus:
 		current.Degraded = true
 		current.DegradationReasons = appendUniqueString(current.DegradationReasons, event.Type)
@@ -1588,7 +1608,7 @@ func (a *coreApp) setTopology(value *topology.Topology) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.topology = value
-	a.engine.Topology = value
+	a.engine.SetTopology(value)
 }
 
 func (m *coreMetrics) touchSource(source string) {
@@ -1639,6 +1659,7 @@ func (m *coreMetrics) Snapshot(store *state.Store) map[string]any {
 		"state_store_size":   store.Size(),
 		"active_tracks":      store.ActiveTracks(),
 		"active_clusters":    store.ActiveClusters(),
+		"ingress_admission":  m.admission.Snapshot(),
 	}
 }
 
