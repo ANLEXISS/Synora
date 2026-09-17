@@ -1,5 +1,25 @@
 # Vision Worker
 
+Le pipeline opt-in Vision Clip V1 est décrit dans
+`services/vision-worker/docs/clip_pipeline_v1.md`. Il publie une observation
+finale par track sous `synora.vision.clip-summary/v1` et ne déclenche aucune
+action physique.
+
+Le pipeline opt-in Vision Clip V1 est décrit dans
+`services/vision-worker/docs/clip_pipeline_v1.md`. Il publie une observation
+finale par track sous `synora.vision.clip-summary/v1` et ne déclenche aucune
+action physique.
+
+Le pipeline opt-in Vision Clip V1 est décrit dans
+`services/vision-worker/docs/clip_pipeline_v1.md`. Il publie une observation
+finale par track sous `synora.vision.clip-summary/v1` et ne déclenche aucune
+action physique.
+
+Le pipeline opt-in Vision Clip V1 est décrit dans
+`services/vision-worker/docs/clip_pipeline_v1.md`. Il publie une observation
+finale par track sous `synora.vision.clip-summary/v1` et ne déclenche aucune
+action physique.
+
 Le Vision Worker est une capacité optionnelle de Discovery. Son socket est
 `/run/synora/vision-worker.sock`; les unités systemd créent auparavant le
 répertoire runtime `synora` avec les permissions attendues.

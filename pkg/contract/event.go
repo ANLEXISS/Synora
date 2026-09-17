@@ -45,6 +45,10 @@ const (
 	EventVisionFight = "vision.fight"
 	// EventVisionTamper reports camera obstruction, movement, or tampering.
 	EventVisionTamper = "vision.tamper"
+	// EventVisionClipSummaryV1 is the immutable per-track V1 clip observation.
+	EventVisionClipSummaryV1 = "synora.vision.clip-summary/v1"
+	// EventVisionPreliminaryAlertV1 is emitted only for a configured strong critical detection.
+	EventVisionPreliminaryAlertV1 = "synora.vision.preliminary-alert/v1"
 
 	// Device events
 	EventDeviceTrigger = "device.trigger"
@@ -242,7 +246,7 @@ TYPE HELPERS
 */
 
 func IsVisionEvent(eventType string) bool {
-	return strings.HasPrefix(eventType, "vision.")
+	return strings.HasPrefix(eventType, "vision.") || strings.HasPrefix(eventType, "synora.vision.")
 }
 
 func IsDeviceEvent(eventType string) bool {
@@ -286,7 +290,9 @@ func EventCategory(eventType string) string {
 		return EventCategorySecurity
 	case EventVisionIdentity,
 		EventVisionEnd,
-		EventVisionMotion:
+		EventVisionMotion,
+		EventVisionClipSummaryV1,
+		EventVisionPreliminaryAlertV1:
 		return EventCategoryVision
 	case EventActionRequest,
 		EventActionResult,
@@ -342,6 +348,8 @@ func NormalizeEventType(raw string) string {
 		EventVisionFight,
 		EventVisionTamper,
 		EventVisionMotion,
+		EventVisionClipSummaryV1,
+		EventVisionPreliminaryAlertV1,
 		EventDeviceTrigger,
 		EventDeviceOffline,
 		EventDiscoveryCameraObserved,
@@ -420,6 +428,8 @@ func EventPriority(eventType string) int {
 		EventVisionUncertain,
 		EventVisionIdentity,
 		EventVisionMotion,
+		EventVisionClipSummaryV1,
+		EventVisionPreliminaryAlertV1,
 		EventDeviceTrigger,
 		EventDiscoveryCameraObserved,
 		EventDiscoveryCameraOnline,

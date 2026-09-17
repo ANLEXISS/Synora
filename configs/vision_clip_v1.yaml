@@ -1,0 +1,15 @@
+# Opt-in Vision Clip V1 configuration. The request/job must explicitly select
+# pipeline: clip-v1; this file does not enable it globally.
+vision_clip_v1:
+  enabled: false
+  max_duration_seconds: 10
+  episode_continuity_window_seconds: 5
+  max_crops_per_track: 5
+  critical_alert_threshold: 0.90
+  min_face_crops: 2
+  identity_stability_threshold: 0.67
+  face_backend: arcface_existing_only
+  plate_backend: unavailable_until_configured
+  sensitive_objects_backend: unavailable_until_configured
+  publish_preliminary_alerts: true
+

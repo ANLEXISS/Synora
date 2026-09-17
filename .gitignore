@@ -13,6 +13,8 @@ htmlcov/
 
 # Go
 bin/
+!services/vision-worker/bin/
+!services/vision-worker/bin/vision_clip_v1_demo.py
 main
 coverage.out
 *.prof

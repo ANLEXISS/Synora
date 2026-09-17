@@ -96,6 +96,31 @@ func runClipWorker(
 		if _, ok := payloadMap["track_id"]; !ok && job.TrackID != "" {
 			payloadMap["track_id"] = job.TrackID
 		}
+		if evt.Type == contract.EventVisionClipSummaryV1 {
+			// Upload/job metadata is authoritative at this boundary. A model
+			// result cannot move a summary to another episode or topology node.
+			if job.EpisodeID != "" {
+				payloadMap["episode_id"] = job.EpisodeID
+			}
+			if topology, ok := payloadMap["topology"].(map[string]any); ok {
+				if job.NodeID != "" {
+					topology["node_id"] = job.NodeID
+				}
+				if job.Zone != "" {
+					topology["zone"] = job.Zone
+				}
+			} else if job.NodeID != "" || job.Zone != "" {
+				payloadMap["topology"] = map[string]any{"node_id": job.NodeID, "zone": job.Zone}
+			}
+			if trigger, ok := payloadMap["trigger"].(map[string]any); ok {
+				if job.TriggerReason != "" {
+					trigger["reason"] = job.TriggerReason
+				}
+				if !job.StartedAt.IsZero() {
+					trigger["started_at"] = job.StartedAt
+				}
+			}
+		}
 
 		payload, err := json.Marshal(
 			payloadMap,

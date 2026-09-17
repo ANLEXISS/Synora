@@ -56,10 +56,13 @@ type Config struct {
 	MinFreeBytes    int64
 	TempMaxAge      time.Duration
 
-	Authenticator Authenticator
-	Devices       DeviceTracker
-	Queue         Queue
-	Publisher     Publisher
+	Authenticator           Authenticator
+	Devices                 DeviceTracker
+	Queue                   Queue
+	Publisher               Publisher
+	ClipManager             *vision.ClipManager
+	ClipDuration            time.Duration
+	EpisodeContinuityWindow time.Duration
 
 	AllowInsecure bool
 	OnStatus      func(status, reason string)
@@ -98,6 +101,18 @@ func NewHandler(cfg Config) http.Handler {
 	}
 	if cfg.MaxClipBytes <= 0 {
 		cfg.MaxClipBytes = 5 << 30
+	}
+	if cfg.ClipDuration <= 0 {
+		cfg.ClipDuration = 10 * time.Second
+	}
+	if cfg.EpisodeContinuityWindow < 0 {
+		cfg.EpisodeContinuityWindow = 5 * time.Second
+	}
+	if cfg.EpisodeContinuityWindow == 0 {
+		cfg.EpisodeContinuityWindow = 5 * time.Second
+	}
+	if cfg.ClipManager == nil {
+		cfg.ClipManager, _ = vision.NewClipManager(cfg.ClipDuration, cfg.EpisodeContinuityWindow)
 	}
 	if cfg.MinFreeBytes <= 0 {
 		cfg.MinFreeBytes = retention.DefaultPolicy().MinFreeBytes
@@ -175,6 +190,19 @@ func NewHandler(cfg Config) http.Handler {
 		sequenceKey := firstNonEmpty(r.Header.Get("X-Synora-Sequence-Key"), upload.fields["sequence_key"])
 		trackID := firstNonEmpty(r.Header.Get("X-Synora-Track-ID"), upload.fields["track_id"])
 		nodeID := firstNonEmpty(r.Header.Get("X-Synora-Node-ID"), upload.fields["node_id"])
+		episodeID := firstNonEmpty(r.Header.Get("X-Synora-Episode-ID"), upload.fields["episode_id"])
+		zone := firstNonEmpty(r.Header.Get("X-Synora-Zone"), upload.fields["zone"])
+		triggerReason := firstNonEmpty(r.Header.Get("X-Synora-Trigger-Reason"), upload.fields["trigger_reason"])
+		pipeline := firstNonEmpty(r.Header.Get("X-Synora-Pipeline"), upload.fields["pipeline"])
+		startedAt := time.Now().UTC()
+		if rawStartedAt := firstNonEmpty(r.Header.Get("X-Synora-Started-At"), upload.fields["started_at"]); rawStartedAt != "" {
+			parsed, parseErr := time.Parse(time.RFC3339Nano, rawStartedAt)
+			if parseErr != nil {
+				http.Error(w, "invalid started_at", http.StatusBadRequest)
+				return
+			}
+			startedAt = parsed.UTC()
+		}
 		container := strings.ToLower(firstNonEmpty(r.Header.Get("X-Synora-Clip-Container"), upload.fields["container"]))
 		if container != "" && container != "mp4" {
 			http.Error(w, "unsupported clip container", http.StatusUnsupportedMediaType)
@@ -266,6 +294,15 @@ func NewHandler(cfg Config) http.Handler {
 			http.Error(w, "clip path unavailable", http.StatusInsufficientStorage)
 			return
 		}
+		endsAt := startedAt.Add(cfg.ClipDuration)
+		if pipeline == "clip-v1" && episodeID == "" && cfg.ClipManager != nil {
+			window, managerErr := cfg.ClipManager.Open(clipID, deviceID, nodeID, zone, triggerReason, trackID, startedAt)
+			if managerErr != nil {
+				http.Error(w, "clip lifecycle unavailable", http.StatusInternalServerError)
+				return
+			}
+			episodeID, startedAt, endsAt = window.EpisodeID, window.StartedAt, window.EndsAt
+		}
 		if valid, verifyErr := clipstore.VerifyRegularFile(finalPath, size, checksum); verifyErr != nil || !valid {
 			if finalizedHere {
 				_ = os.Remove(finalPath)
@@ -285,6 +322,7 @@ func NewHandler(cfg Config) http.Handler {
 			ID: clipID, ActivationID: activationID, ClipIndex: clipIndex,
 			SequenceKey: sequenceKey, TrackID: trackID,
 			CameraID: deviceID, NodeID: nodeID, CreatedAt: now, ReceivedAt: now,
+			EpisodeID: episodeID, Zone: zone, TriggerReason: triggerReason, StartedAt: startedAt, EndsAt: endsAt, Pipeline: pipeline,
 			ReadyAt: now, Status: contract.ClipStatusReady, SizeBytes: size,
 			Checksum: checksum, MediaType: upload.mediaType, Container: "mp4", Duration: duration,
 			UpdatedAt: now, Revision: 1,
@@ -305,7 +343,7 @@ func NewHandler(cfg Config) http.Handler {
 			http.Error(w, "analysis queue unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		if err := cfg.Queue.Enqueue(&vision.ClipJob{ID: clipID, CameraID: deviceID, Path: finalPath, CreatedAt: now, ActivationID: activationID, ClipIndex: clipIndex, NodeID: nodeID, SequenceKey: sequenceKey, TrackID: trackID}); err != nil {
+		if err := cfg.Queue.Enqueue(&vision.ClipJob{ID: clipID, CameraID: deviceID, Path: finalPath, CreatedAt: now, ActivationID: activationID, ClipIndex: clipIndex, NodeID: nodeID, SequenceKey: sequenceKey, TrackID: trackID, EpisodeID: episodeID, Zone: zone, TriggerReason: triggerReason, StartedAt: startedAt, EndsAt: endsAt, Pipeline: pipeline}); err != nil {
 			log.Printf("analysis queue unavailable clip=%s err=%v", clipID, err)
 			_ = publishLifecycle(cfg.Publisher, contract.EventClipFailed, clip, "analysis_queue_full", clipID+":failed")
 			http.Error(w, "analysis queue full", http.StatusServiceUnavailable)

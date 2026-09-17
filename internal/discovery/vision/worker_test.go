@@ -76,3 +76,27 @@ func TestRunClipWorkerPublishesFailureAndDoesNotClaimProcessed(t *testing.T) {
 		t.Fatalf("unexpected failure lifecycle: %#v", publisher.messages)
 	}
 }
+
+func TestRunClipWorkerPublishesVersionedClipSummaryToCore(t *testing.T) {
+	publisher := &clipMessagePublisher{}
+	processor := clipProcessorFunc(func(job *ClipJob) (*WorkerResponse, error) {
+		return &WorkerResponse{Events: []Event{{
+			Type: contract.EventVisionClipSummaryV1, TrackID: "track-1",
+			Payload: map[string]any{"schema": contract.EventVisionClipSummaryV1, "clip_id": "spoofed"},
+		}}}, nil
+	})
+	job := &ClipJob{ID: "clip-v1", CameraID: "cam-1", NodeID: "front", EpisodeID: "episode-1", Pipeline: "clip-v1"}
+	if err := RunClipWorker(processor, publisher, job); err != nil {
+		t.Fatal(err)
+	}
+	if len(publisher.messages) != 3 || publisher.messages[1].Type != contract.EventVisionClipSummaryV1 {
+		t.Fatalf("unexpected messages: %#v", publisher.messages)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(publisher.messages[1].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["schema"] != contract.EventVisionClipSummaryV1 || payload["clip_id"] != "clip-v1" || payload["track_id"] != "track-1" {
+		t.Fatalf("summary metadata not authoritative: %#v", payload)
+	}
+}

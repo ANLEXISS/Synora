@@ -222,19 +222,21 @@ func (m *Manager) StartContext(ctx context.Context) {
 
 	clipDir := runtime.Paths.ClipRoot
 	m.ingressServer = ingress.StartServer(ingress.Config{
-		Addr:          runtime.Endpoints.VisionHTTPS,
-		CertFile:      runtime.Paths.TLSCert,
-		KeyFile:       runtime.Paths.TLSKey,
-		ClipDir:       clipDir,
-		MaxClipSize:   MaxClipSize,
-		MaxClipCount:  clipLimitInt("SYNORA_CLIP_MAX_COUNT", 500),
-		MaxClipBytes:  clipLimitInt64("SYNORA_CLIP_MAX_BYTES", 5<<30),
-		TempMaxAge:    clipDuration("SYNORA_CLIP_PART_MAX_AGE", time.Hour),
-		Authenticator: m,
-		Devices:       m.devices,
-		Queue:         m.pool,
-		Publisher:     m.bus,
-		AllowInsecure: allowInsecureIngress(),
+		Addr:                    runtime.Endpoints.VisionHTTPS,
+		CertFile:                runtime.Paths.TLSCert,
+		KeyFile:                 runtime.Paths.TLSKey,
+		ClipDir:                 clipDir,
+		MaxClipSize:             MaxClipSize,
+		MaxClipCount:            clipLimitInt("SYNORA_CLIP_MAX_COUNT", 500),
+		MaxClipBytes:            clipLimitInt64("SYNORA_CLIP_MAX_BYTES", 5<<30),
+		TempMaxAge:              clipDuration("SYNORA_CLIP_PART_MAX_AGE", time.Hour),
+		Authenticator:           m,
+		Devices:                 m.devices,
+		Queue:                   m.pool,
+		Publisher:               m.bus,
+		ClipDuration:            clipDuration("SYNORA_VISION_V1_MAX_DURATION", 10*time.Second),
+		EpisodeContinuityWindow: clipDuration("SYNORA_VISION_V1_CONTINUITY_WINDOW", 5*time.Second),
+		AllowInsecure:           allowInsecureIngress(),
 		OnStatus: func(status, reason string) {
 			healthState.setVisionIngress(status, reason)
 			m.publishDiagnostic(contract.EventDiscoveryVisionIngressStatus, map[string]any{
@@ -520,7 +522,7 @@ func (m *Manager) resumePendingClips(ctx context.Context, root string) {
 			if err != nil || !info.Mode().IsRegular() {
 				continue
 			}
-			if err := m.pool.Enqueue(&vision.ClipJob{ID: value.ID, CameraID: value.CameraID, Path: path, CreatedAt: value.CreatedAt, ActivationID: value.ActivationID, ClipIndex: value.ClipIndex, NodeID: value.NodeID, SequenceKey: value.SequenceKey, TrackID: value.TrackID}); err != nil {
+			if err := m.pool.Enqueue(&vision.ClipJob{ID: value.ID, CameraID: value.CameraID, Path: path, CreatedAt: value.CreatedAt, ActivationID: value.ActivationID, ClipIndex: value.ClipIndex, NodeID: value.NodeID, SequenceKey: value.SequenceKey, TrackID: value.TrackID, EpisodeID: value.EpisodeID, Zone: value.Zone, TriggerReason: value.TriggerReason, StartedAt: value.StartedAt, EndsAt: value.EndsAt, Pipeline: value.Pipeline}); err != nil {
 				log.Printf("discovery clip resume queue failed clip=%s err=%v", value.ID, err)
 			}
 		}

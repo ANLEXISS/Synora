@@ -6,11 +6,32 @@ import signal
 import socket
 import sys
 import threading
+from datetime import datetime, timedelta, timezone
 
 import cv2
 import numpy as np
 
 from core.events import ALLOWED_EVENT_TYPES, EventBuilder
+from core.clip_pipeline_v1 import (
+    ClipMetadata,
+    Detection,
+    FrameObservation,
+    IdentityResult,
+    IdentityStatus,
+    PlateResult,
+    SensitiveObjectResult,
+    SensitiveStatus,
+    SubjectType,
+    Topology,
+    VisionClipPipelineV1,
+    ConfiguredFaceEnricher,
+    StaticFaceEnricher,
+    StaticPlateEnricher,
+    StaticSensitiveObjectEnricher,
+    UnavailableFaceEnricher,
+    UnavailablePlateEnricher,
+)
+from core.unix_bus import UnixBusPublisher
 from core.model_runner import model_status
 from face_dataset import FaceDatasetError, FaceDatasetManager, safe_component, _regular_file
 
@@ -35,6 +56,27 @@ logging.basicConfig(
 log = logging.getLogger(
     "synora.vision"
 )
+
+
+def _parse_worker_time(value):
+    if not value:
+        return None
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(float(value), tz=timezone.utc)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def _worker_float(name, fallback):
+    try:
+        value = float(os.getenv(name, str(fallback)))
+        return value if value >= 0 else fallback
+    except (TypeError, ValueError):
+        return fallback
 
 
 class VisionWorker:
@@ -250,6 +292,9 @@ class VisionWorker:
                 "failure_code": "unsupported_operation",
             })
 
+        if req.get("pipeline") == "clip-v1":
+            return self._with_request_id(request_id, self.process_clip_v1(req))
+
         clip_path = req.get(
             "clip_path"
         )
@@ -358,6 +403,80 @@ class VisionWorker:
         )
 
         return {"request_id": request_id, "events": events}
+
+    def process_clip_v1(self, req):
+        """Run the opt-in fixed-clip pipeline and return only final summaries."""
+        if not req.get("clip_path") and not self.dry_run:
+            return {"error": "missing clip_path"}
+        clip_id = req.get("clip_id") or req.get("id") or "clip-v1"
+        camera_id = req.get("camera_id") or req.get("camera") or "unknown"
+        started = _parse_worker_time(req.get("started_at")) or datetime.now(timezone.utc)
+        max_duration = _worker_float("SYNORA_VISION_V1_MAX_DURATION", 10.0)
+        requested_end = _parse_worker_time(req.get("ends_at"))
+        ends = min(requested_end or started + timedelta(seconds=max_duration),
+                   started + timedelta(seconds=max_duration))
+        clip = ClipMetadata(
+            clip_id=clip_id,
+            episode_id=req.get("episode_id") or f"episode-{clip_id}",
+            camera_id=camera_id,
+            topology=Topology(req.get("node_id") or "unknown", req.get("zone") or "unknown"),
+            trigger_reason=req.get("trigger_reason") or "unknown",
+            started_at=started,
+            ends_at=ends,
+            clip_ref=f"local://clips/{clip_id}",
+        )
+
+        preliminary_published = set()
+        bus = None
+        if not self.dry_run and os.getenv("SYNORA_VISION_PRELIMINARY_BUS", "1") == "1":
+            socket_path = os.getenv("SYNORA_BUS_SOCKET", "/run/synora/bus.sock")
+            bus = UnixBusPublisher(socket_path)
+
+        def preliminary_sink(event):
+            if bus is None:
+                return
+            try:
+                bus.publish(event["type"], event["payload"])
+                preliminary_published.add(event.get("track_id"))
+            except Exception as exc:
+                log.warning("V1 preliminary alert bus publication deferred: %s", exc)
+
+        try:
+            if self.dry_run:
+                face_status = req.get("mock_identity_status", "uncertain")
+                face = StaticFaceEnricher(IdentityResult(face_status, req.get("mock_identity_confidence", 0.0)))
+                plate = StaticPlateEnricher(PlateResult("not_available"))
+                sensitive = StaticSensitiveObjectEnricher(SensitiveObjectResult(SensitiveStatus.NOT_AVAILABLE))
+                pipeline = VisionClipPipelineV1({}, face, plate, sensitive, preliminary_sink)
+                frames = []
+                for item in req.get("mock_frames", []):
+                    detections = [Detection(d.get("track_id", "track-0"), d.get("subject_type", "human"),
+                                             d.get("confidence", 0.0), d.get("roi_ref"))
+                                  for d in item.get("detections", [])]
+                    frames.append(FrameObservation.from_values(_parse_worker_time(item.get("at")) or started, detections))
+                events = pipeline.process_frames(clip, frames)
+            else:
+                if self.pipeline is None or self.person_detector is None:
+                    return {"error": "no_models_available", "message": "person detector unavailable"}
+                face = ConfiguredFaceEnricher(self.pipeline,
+                                              min_crops=int(os.getenv("SYNORA_VISION_V1_MIN_FACE_CROPS", "2")),
+                                              stability_threshold=_worker_float("SYNORA_VISION_V1_IDENTITY_STABILITY", .67))
+                pipeline = VisionClipPipelineV1({
+                    "max_crops_per_track": int(os.getenv("SYNORA_VISION_V1_MAX_CROPS", "5")),
+                    "critical_alert_threshold": _worker_float("SYNORA_VISION_V1_CRITICAL_THRESHOLD", .90),
+                }, face, UnavailablePlateEnricher(), UnavailableSensitiveObjectEnricher(), preliminary_sink)
+                events = pipeline.process_video(clip, req["clip_path"], self.person_detector,
+                                                _worker_float("SYNORA_VISION_V1_SAMPLE_PERIOD", .2))
+        finally:
+            if bus is not None:
+                bus.close()
+
+        result_events = []
+        for event in events:
+            if event["type"] == "synora.vision.preliminary-alert/v1" and event.get("track_id") in preliminary_published:
+                continue
+            result_events.append({"type": event["type"], "track_id": event.get("track_id"), "payload": event["payload"]})
+        return {"events": result_events}
 
     @staticmethod
     def _with_request_id(request_id, response):
