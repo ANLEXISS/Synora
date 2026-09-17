@@ -30,6 +30,10 @@ type Result struct {
 	System           *state.SystemState
 	Situations       []cgecontracts.Situation
 	DangerAssessment *contract.DangerAssessment
+	// HomeModel is a descriptive projection. It is intentionally separate from
+	// Decision so a probabilistic world-model conclusion cannot authorize an
+	// action by type confusion.
+	HomeModel *contract.HomeModelSnapshot
 }
 
 func NormalizeEvent(event *contract.Event, registry *device.Registry) time.Time {

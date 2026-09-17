@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"synora/internal/engine/danger"
 	"synora/internal/engine/graph"
 	"synora/internal/engine/situation"
+	"synora/internal/homemodel"
 	"synora/internal/idgen"
 	"synora/internal/state"
 	"synora/internal/topology"
@@ -34,6 +36,9 @@ type Engine struct {
 	securityProfile   *contract.CgeSecurityProfile
 	feedbackMu        sync.RWMutex
 	feedbackHints     []feedbackHint
+	homeModel         *homemodel.Model
+	homeModelMu       sync.Mutex
+	homeModelLoaded   bool
 }
 
 func NewEngine(
@@ -42,12 +47,54 @@ func NewEngine(
 	_ map[string]*topology.Resident,
 ) *Engine {
 	memory := graph.NewGraphMemory()
+	home := homemodel.New(topo, homemodel.DefaultConfig())
+	if registry != nil {
+		for id, item := range registry.List() {
+			if item == nil {
+				continue
+			}
+			zones := []string{}
+			if item.NodeID != "" {
+				zones = append(zones, item.NodeID)
+			}
+			if item.Room != "" && item.Room != item.NodeID {
+				zones = append(zones, item.Room)
+			}
+			zones = append(zones, configuredZones(item.Metadata, "zones", "zone_ids")...)
+			zones = append(zones, configuredZones(item.Config, "zones", "zone_ids")...)
+			home.SetSensorCoverage(id, zones...)
+		}
+	}
 	return &Engine{
 		Topology:    topo,
 		device:      registry,
 		graphMemory: memory,
 		cognitive:   cognitive.NewEngine(memory),
+		homeModel:   home,
 	}
+}
+
+func configuredZones(values map[string]any, keys ...string) []string {
+	var result []string
+	for _, key := range keys {
+		value, ok := values[key]
+		if !ok {
+			continue
+		}
+		switch items := value.(type) {
+		case []string:
+			result = append(result, items...)
+		case []any:
+			for _, item := range items {
+				if zone, ok := item.(string); ok {
+					result = append(result, zone)
+				}
+			}
+		case string:
+			result = append(result, items)
+		}
+	}
+	return result
 }
 
 func (e *Engine) Analyze(
@@ -62,6 +109,7 @@ func (e *Engine) Analyze(
 	}
 
 	now := adapter.NormalizeEvent(event, e.device)
+	homeSnapshot := e.observeHomeModel(event, store)
 	cgeEvent := adapter.ToCGEEvent(event, store, now)
 
 	criticalSeedMatch := e.graphMemory.LearnEvent(cgeEvent)
@@ -81,6 +129,7 @@ func (e *Engine) Analyze(
 	decisionResult.Situations = situation.Analyze(cgeEvent, decisionResult, now)
 
 	result := adapter.BuildResult(event, store, decisionResult, now, &assessment)
+	result.HomeModel = homeSnapshot
 	e.applyFeedbackHint(event, result)
 	return result
 }
@@ -95,13 +144,80 @@ func (e *Engine) ObserveContext(event *contract.Event, store *state.Store) *Resu
 		store = state.NewStore()
 	}
 	now := adapter.NormalizeEvent(event, e.device)
+	homeSnapshot := e.observeHomeModel(event, store)
 	e.graphMemory.LearnEvent(adapter.ToCGEEvent(event, store, now))
-	return &Result{Decision: &contract.Decision{
+	return &Result{HomeModel: homeSnapshot, Decision: &contract.Decision{
 		ID: idgen.New("dec"), Type: "engine.decision", Source: "core", Timestamp: now,
 		Priority: contract.EventPriority(event.Type), EventID: event.ID, State: "activity",
 		NodeID: event.NodeID, ClipID: event.ClipID, TrackID: event.TrackID,
 		GroupKey: event.GroupKey, Reason: "contextual event observed",
 	}}
+}
+
+func (e *Engine) observeHomeModel(event *contract.Event, store *state.Store) *contract.HomeModelSnapshot {
+	if e == nil || e.homeModel == nil || event == nil {
+		return nil
+	}
+	e.homeModelMu.Lock()
+	defer e.homeModelMu.Unlock()
+	if !e.homeModelLoaded {
+		if store != nil {
+			_ = e.homeModel.Load(store.HomeModelRaw())
+		}
+		e.homeModelLoaded = true
+	}
+	snapshot, raw := e.homeModel.Observe(event)
+	if store != nil && len(raw) > 0 {
+		store.SetHomeModelRaw(raw)
+	}
+	return snapshot
+}
+
+// LoadHomeModel restores persisted world-model state after StateStore startup
+// without synthesizing a new observation.
+func (e *Engine) LoadHomeModel(raw json.RawMessage) error {
+	if e == nil || e.homeModel == nil {
+		return nil
+	}
+	e.homeModelMu.Lock()
+	defer e.homeModelMu.Unlock()
+	if err := e.homeModel.Load(raw); err != nil {
+		return err
+	}
+	e.homeModelLoaded = true
+	return nil
+}
+
+func (e *Engine) SetHomeModelConfig(config homemodel.Config) {
+	if e == nil || e.homeModel == nil {
+		return
+	}
+	e.homeModelMu.Lock()
+	defer e.homeModelMu.Unlock()
+	e.homeModel.SetConfig(config)
+}
+
+// SetTopology keeps the Home Model aligned with runtime topology replacement.
+func (e *Engine) SetTopology(value *topology.Topology) {
+	if e == nil {
+		return
+	}
+	e.Topology = value
+	if e.homeModel != nil {
+		e.homeModel.SetTopology(value)
+	}
+}
+
+func (e *Engine) HomeModelSnapshot() *contract.HomeModelSnapshot {
+	if e == nil || e.homeModel == nil {
+		return nil
+	}
+	raw := e.homeModel.Marshal()
+	temporary := homemodel.New(e.Topology, homemodel.DefaultConfig())
+	if err := temporary.Load(raw); err != nil {
+		return nil
+	}
+	return temporary.Snapshot()
 }
 
 func ShouldPersistDangerAssessment(assessment *contract.DangerAssessment) bool {

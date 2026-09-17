@@ -51,6 +51,7 @@ type Store struct {
 	incidentLimit int
 	inputEpoch    string
 	inputSequence uint64
+	homeModel     json.RawMessage
 }
 
 // PersistenceHealth is the last observed durability result. A failed write
@@ -925,6 +926,31 @@ func (s *Store) RecentEventsList() []*contract.Event {
 	return cloneEvents(s.RecentEvents)
 }
 
+// HomeModelRaw returns the persisted Home World Model working state. It is a
+// raw boundary on purpose: the state package does not depend on CGE model
+// implementation details and older state files remain valid.
+func (s *Store) HomeModelRaw() json.RawMessage {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append(json.RawMessage(nil), s.homeModel...)
+}
+
+// SetHomeModelRaw stores a complete, already validated model projection.
+// Persistence is best-effort in line with the existing runtime state setters.
+func (s *Store) SetHomeModelRaw(value json.RawMessage) {
+	if s == nil || len(value) == 0 {
+		return
+	}
+	s.mu.Lock()
+	s.homeModel = append(json.RawMessage(nil), value...)
+	s.revision.Add(1)
+	s.mu.Unlock()
+	_ = s.SaveNow()
+}
+
 func (s *Store) AddValidationEvent(event *contract.Event) {
 	if event == nil {
 		return
@@ -1629,6 +1655,7 @@ func (s *Store) applyPersistedState(persisted *PersistedState) {
 	defer s.mu.Unlock()
 	s.inputEpoch = strings.TrimSpace(persisted.InputEpoch)
 	s.inputSequence = persisted.InputSequence
+	s.homeModel = append(json.RawMessage(nil), persisted.HomeModel...)
 	s.Clips = make(map[string]*ClipState, len(persisted.Clips))
 	if persisted.Clips != nil {
 		for id, value := range persisted.Clips {
@@ -1805,6 +1832,7 @@ func (s *Store) persistedStateLocked(savedAt time.Time) *PersistedState {
 	persisted.SavedAt = savedAt
 	persisted.InputEpoch = s.inputEpoch
 	persisted.InputSequence = s.inputSequence
+	persisted.HomeModel = append(json.RawMessage(nil), s.homeModel...)
 	for id, value := range s.Clips {
 		if value == nil {
 			continue

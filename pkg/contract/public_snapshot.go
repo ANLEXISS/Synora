@@ -28,6 +28,7 @@ type PublicSnapshot struct {
 	CGE           map[string]any   `json:"cge"`
 	EventChains   map[string]any   `json:"event_chains,omitempty"`
 	Incidents     []map[string]any `json:"incidents"`
+	Home          map[string]any   `json:"home,omitempty"`
 }
 
 func PublicSnapshotFromCoreState(state map[string]any) PublicSnapshot {
@@ -54,6 +55,7 @@ func PublicSnapshotFromCoreState(state map[string]any) PublicSnapshot {
 		CGE:           mapOrEmpty(normalizeMap(mapValue(state["cge"]))),
 		EventChains:   mapOrEmpty(normalizeMap(mapValue(state["event_chains"]))),
 		Incidents:     collectionFrom(state, store, "incidents"),
+		Home:          mapOrEmpty(normalizeMap(mapValue(state["home"]))),
 	}
 }
 

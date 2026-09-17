@@ -47,6 +47,7 @@ type PersistedState struct {
 	EventChains       map[string]contract.EventChain          `json:"event_chains,omitempty"`
 	CriticalChains    map[string]contract.CriticalChainMemory `json:"critical_chain_memories,omitempty"`
 	Incidents         map[string]contract.Incident            `json:"incidents,omitempty"`
+	HomeModel         json.RawMessage                         `json:"home_model,omitempty"`
 	System            *SystemState                            `json:"system,omitempty"`
 	InputEpoch        string                                  `json:"vision_input_epoch,omitempty"`
 	InputSequence     uint64                                  `json:"vision_input_sequence,omitempty"`

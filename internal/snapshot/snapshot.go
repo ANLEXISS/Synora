@@ -23,6 +23,10 @@ type CGEInspector interface {
 	CGEInspection() map[string]any
 }
 
+type HomeModelInspector interface {
+	HomeModelSnapshot() *contract.HomeModelSnapshot
+}
+
 type Builder struct {
 	Mu         *sync.RWMutex
 	State      *state.Store
@@ -118,6 +122,7 @@ func (b *Builder) CoreState() map[string]any {
 		"metrics":      b.metricsSnapshot(),
 		"event_chains": b.chainSummary(),
 		"cge":          cge,
+		"home":         b.homeModelSnapshot(),
 		"state_store": map[string]any{
 			"devices":        b.State.Snapshot("devices"),
 			"device":         b.State.Snapshot("devices"),
@@ -158,7 +163,20 @@ func (b *Builder) StatePayload() map[string]any {
 		"topology":       b.TopologyTreeViews(),
 		"residents":      b.ResidentViews(),
 		"event_chains":   b.chainSummary(),
+		"home":           b.homeModelSnapshot(),
 	}
+}
+
+func (b *Builder) homeModelSnapshot() any {
+	if b == nil || b.CGE == nil {
+		return map[string]any{}
+	}
+	if inspector, ok := b.CGE.(HomeModelInspector); ok {
+		if value := inspector.HomeModelSnapshot(); value != nil {
+			return value
+		}
+	}
+	return map[string]any{}
 }
 
 func (b *Builder) chainSummary() map[string]any {
