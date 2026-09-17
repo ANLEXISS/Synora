@@ -182,6 +182,7 @@ type Queue struct {
 	Timestamp TimestampPolicy
 	High      chan<- *contract.Event
 	Normal    chan<- *contract.Event
+	Admission *AdmissionMetrics
 }
 
 // TimestampPolicy validates source capture time at the Core ingress boundary.
@@ -253,20 +254,37 @@ func (q *Queue) Ingest(msg contract.Message) (*contract.Event, bool) {
 	}
 
 	if parsed.Priority >= contract.PriorityHigh {
+		class := admissionClass(parsed.Priority)
+		if class == AdmissionCritical {
+			if q.High == nil {
+				q.Admission.record(class, false)
+				log.Println("core: critical event rejected explicitly; high priority queue unavailable", parsed.Type)
+				return parsed, false
+			}
+			// Critical events are never best-effort. Blocking here is deliberate:
+			// it applies backpressure to the bus reader until Core admits the event.
+			q.High <- parsed
+			q.Admission.record(class, true)
+			return parsed, true
+		}
 		select {
 		case q.High <- parsed:
+			q.Admission.record(class, true)
 			return parsed, true
 		default:
-			log.Println("core: high priority queue full, dropping event", parsed.Type)
+			q.Admission.record(class, false)
+			log.Println("core: important queue full, admission refused", parsed.Type)
 			return parsed, false
 		}
 	}
 
 	select {
 	case q.Normal <- parsed:
+		q.Admission.record(AdmissionBestEffort, true)
 		return parsed, true
 	default:
-		log.Println("core: event queue full, dropping event", parsed.Type)
+		q.Admission.record(AdmissionBestEffort, false)
+		log.Println("core: best-effort queue full, admission refused", parsed.Type)
 		return parsed, false
 	}
 }

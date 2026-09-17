@@ -21,6 +21,10 @@ type Service struct {
 	Now            func() time.Time
 	NewID          func(prefix string) string
 	DefaultTimeout time.Duration
+	ExecutionMode  ExecutionMode
+	// EnforceExecutionMode is enabled by the production command. It is kept
+	// explicit so injected unit-test executors retain their historical contract.
+	EnforceExecutionMode bool
 }
 
 func (s *Service) HandleMessage(ctx context.Context, msg contract.Message) {
@@ -79,6 +83,28 @@ func (s *Service) HandleMessage(ctx context.Context, msg contract.Message) {
 			"reason":          "duplicate",
 		})
 		return
+	}
+
+	if s.EnforceExecutionMode {
+		mode := s.ExecutionMode
+		if mode == "" {
+			mode = ExecutionDisabled
+		}
+		if mode == ExecutionDisabled {
+			now := s.now()
+			s.publishResult(msg, request, StatusSkipped, "", ErrorClassPermanent, 0, now, now, map[string]any{
+				"execution_mode": string(mode), "disabled": true, "reason": "physical execution disabled",
+			})
+			return
+		}
+		if mode == ExecutionDryRun {
+			now := s.now()
+			s.publishResult(msg, request, StatusSimulatedSuccess, "", ErrorClassNone, 1, now, now, map[string]any{
+				"execution_mode": string(mode), "dry_run": true, "simulated": true,
+				"reason": "execution mode dry_run; action handler was not executed",
+			})
+			return
+		}
 	}
 
 	if requestDryRun(request) {

@@ -36,10 +36,16 @@ func main() {
 		}
 		return
 	}
+	executionMode, err := actions.ResolveExecutionMode(os.Getenv)
+	if err != nil {
+		log.Fatal("invalid action execution configuration: ", err)
+	}
+	log.Printf("actions: execution_mode=%s", executionMode)
 	startupPayload, _ := json.Marshal(map[string]any{
-		"component": "actions",
-		"status":    "ok",
-		"message":   "bus client registered",
+		"component":      "actions",
+		"status":         "ok",
+		"message":        "bus client registered",
+		"execution_mode": string(executionMode),
 	})
 	if err := busClient.Send(contract.Message{
 		Type:      contract.EventActionServiceStarted,
@@ -53,20 +59,22 @@ func main() {
 
 	mqttAdapter := actionmqtt.Adapter{}
 	whatsappAdapter := actionwhatsapp.Adapter{Config: actionwhatsapp.ConfigFromEnv()}
-	if whatsappAdapter.Config.Enabled {
+	if executionMode == actions.ExecutionArmed && whatsappAdapter.Config.Enabled {
 		log.Printf("actions: whatsapp provider enabled dry_run=%t", whatsappAdapter.Config.DryRun)
 	}
-	if broker := os.Getenv("SYNORA_ACTIONS_MQTT_BROKER"); broker != "" {
-		publisher, err := actionmqtt.NewPahoPublisher(
-			broker,
-			actionMQTTClientID(),
-		)
-		if err != nil {
-			log.Fatal(err)
+	if executionMode == actions.ExecutionArmed {
+		if broker := os.Getenv("SYNORA_ACTIONS_MQTT_BROKER"); broker != "" {
+			publisher, err := actionmqtt.NewPahoPublisher(
+				broker,
+				actionMQTTClientID(),
+			)
+			if err != nil {
+				log.Fatal(err)
+			}
+			mqttAdapter.Publisher = publisher
+			mqttAdapter.Topic = os.Getenv("SYNORA_ACTIONS_MQTT_TOPIC")
+			log.Printf("actions: mqtt adapter enabled broker=%s", broker)
 		}
-		mqttAdapter.Publisher = publisher
-		mqttAdapter.Topic = os.Getenv("SYNORA_ACTIONS_MQTT_TOPIC")
-		log.Printf("actions: mqtt adapter enabled broker=%s", broker)
 	}
 	resultStore, err := actions.OpenFileResultStore(runtime.Paths.ActionResults)
 	if err != nil {
@@ -83,7 +91,9 @@ func main() {
 			WhatsApp:  whatsappAdapter,
 			Fallback:  actions.DryRunExecutor{Adapter: "dry_run"},
 		},
-		Deduper: actions.NewDeduper(),
+		Deduper:              actions.NewDeduper(),
+		ExecutionMode:        executionMode,
+		EnforceExecutionMode: true,
 	}
 
 	messages := busClient.SubscribeChannel("actions")

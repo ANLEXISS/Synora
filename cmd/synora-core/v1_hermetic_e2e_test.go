@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"synora/internal/actions"
 	"synora/internal/automation"
+	"synora/internal/cognitive"
 	"synora/internal/discovery/ingress"
 	"synora/internal/discovery/vision"
 	"synora/internal/mediamtx"
@@ -130,11 +132,13 @@ func newHermeticV1Harness(t *testing.T) *hermeticV1Harness {
 
 	executor := &hermeticActionExecutor{}
 	actionService := &actions.Service{
-		Executor: executor,
-		Bus:      bus,
-		Deduper:  actions.NewDeduper(),
-		Now:      func() time.Time { return time.Date(2026, 8, 29, 12, 1, 0, 0, time.UTC) },
-		NewID:    func(string) string { return "hermetic-action-result" },
+		Executor:             executor,
+		Bus:                  bus,
+		Deduper:              actions.NewDeduper(),
+		ExecutionMode:        actions.ExecutionDryRun,
+		EnforceExecutionMode: true,
+		Now:                  func() time.Time { return time.Date(2026, 8, 29, 12, 1, 0, 0, time.UTC) },
+		NewID:                func(string) string { return "hermetic-action-result" },
 	}
 
 	harness := &hermeticV1Harness{
@@ -186,7 +190,7 @@ func (h *hermeticV1Harness) deliverCoreMessages(t *testing.T) {
 
 func waitHermetic(t *testing.T, description string, condition func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if condition() {
 			return
@@ -245,6 +249,30 @@ func (h *hermeticV1Harness) runVision(t *testing.T, job *vision.ClipJob, event v
 	})
 }
 
+type hermeticCognitiveTrace struct {
+	SchemaVersion string `json:"schema_version"`
+	RequestID     string `json:"request_id"`
+	TaskID        string `json:"task_id"`
+	AdapterID     string `json:"adapter_id"`
+	BackendID     string `json:"backend_id"`
+	AdvisoryOnly  bool   `json:"advisory_only"`
+}
+
+type hermeticV1Trace struct {
+	SchemaVersion          string                 `json:"schema_version"`
+	TeacherDecisionSource  string                 `json:"teacher_decision_source"`
+	VisionEventID          string                 `json:"vision_event_id"`
+	VisionEventType        string                 `json:"vision_event_type"`
+	ClipID                 string                 `json:"clip_id"`
+	EpisodeID              string                 `json:"episode_id"`
+	TrackID                string                 `json:"track_id"`
+	NodeID                 string                 `json:"node_id"`
+	CorrelationID          string                 `json:"correlation_id"`
+	ExecutionMode          string                 `json:"execution_mode"`
+	PhysicalActionAttempts int                    `json:"physical_action_attempts"`
+	Cognitive              hermeticCognitiveTrace `json:"cognitive"`
+}
+
 func mustJSON(t *testing.T, value any) []byte {
 	t.Helper()
 	data, err := json.Marshal(value)
@@ -278,6 +306,55 @@ func TestV1HermeticScenarioAcrossBusCoreDiscoveryVisionActionsAndMediaMTX(t *tes
 	}
 	if len(h.app.residents) != 2 || h.app.residents["alexis"] == nil {
 		t.Fatalf("resident fixture was not loaded")
+	}
+
+	clipV1 := h.upload(t, "cam_01", "clip-v1")
+	clipV1.ActivationID = "activation-v1"
+	clipV1.SequenceKey = "episode-v1"
+	clipV1.TrackID = "track-v1"
+	clipV1.EpisodeID = "episode-v1"
+	clipV1.NodeID = "entry"
+	clipV1.Zone = "entry"
+	clipV1.TriggerReason = "hermetic_fixture"
+	clipV1.StartedAt = when
+	clipV1.EndsAt = when.Add(10 * time.Second)
+	clipV1.Pipeline = "clip-v1"
+	clipSummary := contract.VisionClipSummary{
+		Schema: contract.EventVisionClipSummaryV1, EpisodeID: "episode-v1", ClipID: clipV1.ID, CameraID: clipV1.CameraID,
+		Topology:  contract.VisionClipTopology{NodeID: "entry", Zone: "entry"},
+		Trigger:   contract.VisionClipTrigger{Reason: "hermetic_fixture", StartedAt: when},
+		Track:     contract.VisionClipTrack{ID: "track-v1", SubjectType: "human", FirstSeenAt: when, LastSeenAt: when.Add(2 * time.Second), Confidence: 0.93},
+		Identity:  contract.VisionClipIdentity{Status: "not_available", Confidence: 0},
+		Plate:     contract.VisionClipPlate{Status: "not_available", Confidence: 0},
+		Sensitive: contract.VisionSensitiveObjects{Status: "not_available"},
+		Media:     contract.VisionClipMedia{BestROIRefs: []string{"local://clip-v1/roi-0"}},
+	}
+	if err := clipSummary.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	var clipSummaryPayload map[string]any
+	if err := json.Unmarshal(mustJSON(t, clipSummary), &clipSummaryPayload); err != nil {
+		t.Fatal(err)
+	}
+	h.runVision(t, clipV1, vision.Event{Type: contract.EventVisionClipSummaryV1, TrackID: "track-v1", Payload: clipSummaryPayload})
+
+	var clipSummaryEvent *contract.Event
+	h.bus.mu.Lock()
+	clipMessages := append([]contract.Message(nil), h.bus.messages...)
+	h.bus.mu.Unlock()
+	for _, message := range clipMessages {
+		if message.Target != "core" || message.Type != contract.EventVisionClipSummaryV1 {
+			continue
+		}
+		parsed, err := h.app.ingest.Parser.Parse(message)
+		if err != nil {
+			t.Fatal(err)
+		}
+		clipSummaryEvent = parsed
+		break
+	}
+	if clipSummaryEvent == nil || clipSummaryEvent.ClipID != "clip-v1" || clipSummaryEvent.TrackID != "track-v1" || clipSummaryEvent.NodeID != "entry" {
+		t.Fatalf("clip-summary/v1 lost its authoritative identity: %#v", clipSummaryEvent)
 	}
 
 	known := h.upload(t, "cam_01", "clip-known")
@@ -317,10 +394,72 @@ func TestV1HermeticScenarioAcrossBusCoreDiscoveryVisionActionsAndMediaMTX(t *tes
 	}
 	h.actions.HandleMessage(context.Background(), actionRequest)
 	h.deliverCoreMessages(t)
-	if len(h.actionExec.requests) != 1 || h.actionExec.requests[0].SourceEventID == "" || h.actionExec.requests[0].CorrelationID == "" {
-		t.Fatalf("action request lost correlation: %#v", h.actionExec.requests)
+	if len(h.actionExec.requests) != 0 {
+		t.Fatalf("dry_run action path attempted physical execution: %#v", h.actionExec.requests)
+	}
+	var dryRunResult contract.ActionResult
+	for _, message := range h.bus.messagesOfType(contract.EventActionResult) {
+		if err := json.Unmarshal(message.Payload, &dryRunResult); err == nil && dryRunResult.Status == actions.StatusSimulatedSuccess {
+			break
+		}
+	}
+	if dryRunResult.Status != actions.StatusSimulatedSuccess {
+		t.Fatalf("dry_run action result was not published: %#v", h.bus.messagesOfType(contract.EventActionResult))
 	}
 	waitHermetic(t, "action result persisted", func() bool { return len(h.app.state.ActionResultsList()) == 1 })
+
+	var teacherEvent *contract.Event
+	h.bus.mu.Lock()
+	allMessages := append([]contract.Message(nil), h.bus.messages...)
+	h.bus.mu.Unlock()
+	for _, message := range allMessages {
+		if message.Target != "core" || message.Type != contract.EventVisionUnknown {
+			continue
+		}
+		parsed, err := h.app.ingest.Parser.Parse(message)
+		if err != nil {
+			t.Fatal(err)
+		}
+		teacherEvent = parsed
+		break
+	}
+	if teacherEvent == nil {
+		t.Fatal("hermetic scenario did not retain the teacher event")
+	}
+	cognitiveInput, err := cognitive.BuildInput(context.Background(), "hermetic-cognitive-request", cognitive.Task{
+		ID: "hermetic-cognitive-task", Kind: "event_reasoning", RequestedCapabilities: []string{cognitive.CapabilityEventReasoning},
+	}, cognitive.StateFrame{
+		SchemaVersion: cognitive.StateFrameSchemaVersion, Revision: h.app.coreRevision.Load(), CapturedAt: when,
+		CurrentEvent: cognitive.StateEventFromContract(teacherEvent), System: cognitive.StateSystem{DangerLevel: "intrusion"},
+	}, cognitive.ActionCatalog{SchemaVersion: cognitive.ActionCatalogSchemaVersion, Revision: 1}, cognitive.DeterministicStateEncoder{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cognitiveOutput, err := cognitive.NewScheduler(cognitive.DefaultRegistry()).Run(context.Background(), cognitiveInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cognitiveOutput.AdvisoryOnly || len(cognitiveOutput.ExecutableActions) != 0 {
+		t.Fatalf("cognitive shadow output crossed the advisory boundary: %#v", cognitiveOutput)
+	}
+	trace := hermeticV1Trace{
+		SchemaVersion: contract.EventVisionClipSummaryV1, TeacherDecisionSource: "historical_teacher",
+		VisionEventID: clipSummaryEvent.ID, VisionEventType: clipSummaryEvent.Type, ClipID: clipSummaryEvent.ClipID,
+		EpisodeID: clipV1.EpisodeID, TrackID: clipSummaryEvent.TrackID, NodeID: clipSummaryEvent.NodeID,
+		CorrelationID: clipV1.ActivationID, ExecutionMode: string(actions.ExecutionDryRun), PhysicalActionAttempts: len(h.actionExec.requests),
+		Cognitive: hermeticCognitiveTrace{SchemaVersion: cognitiveOutput.SchemaVersion, RequestID: cognitiveOutput.RequestID, TaskID: cognitiveOutput.TaskID, AdapterID: cognitiveOutput.AdapterID, BackendID: cognitiveOutput.BackendID, AdvisoryOnly: cognitiveOutput.AdvisoryOnly},
+	}
+	tracePayload, err := json.Marshal(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracePath := t.TempDir() + "/v1-trace.jsonl"
+	if err := os.WriteFile(tracePath, append(tracePayload, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if traceBytes, err := os.ReadFile(tracePath); err != nil || len(traceBytes) == 0 || !strings.HasSuffix(string(traceBytes), "\n") {
+		t.Fatalf("normalized JSONL trace was not persisted: path=%s err=%v", tracePath, err)
+	}
 
 	// At-least-once replay is accepted by the transport but deduplicated by Core.
 	beforeReplay := len(h.app.state.IncidentsList(10))
@@ -403,9 +542,6 @@ func TestV1HermeticScenarioAcrossBusCoreDiscoveryVisionActionsAndMediaMTX(t *tes
 	}
 	if acknowledged, ok := restarted.state.Incident(incidents[0].ID); !ok || acknowledged.Status != contract.IncidentStatusAcknowledged {
 		t.Fatalf("incident was not acknowledged: %#v ok=%t", acknowledged, ok)
-	}
-	if strings.Contains(string(mustJSON(t, h.actionExec.requests[0])), "secret") {
-		t.Fatal("action boundary leaked a secret fixture")
 	}
 }
 

@@ -166,3 +166,40 @@ func TestParserRejectsPayloadBeyondBusBudget(t *testing.T) {
 		t.Fatalf("oversized payload error=%v", err)
 	}
 }
+
+func TestQueueRefusesImportantEventsExplicitlyWhenFull(t *testing.T) {
+	high := make(chan *contract.Event, 1)
+	high <- &contract.Event{ID: "occupied"}
+	metrics := &AdmissionMetrics{}
+	queue := &Queue{Parser: Parser{}, High: high, Normal: make(chan *contract.Event, 1), Admission: metrics}
+	_, accepted := queue.Ingest(contract.Message{ID: "important", Type: contract.EventVisionTamper, Kind: contract.KindEvent, Source: "cam-1"})
+	if accepted || metrics.Snapshot()["rejected_important"] != 1 {
+		t.Fatalf("important saturation was not observable: accepted=%v metrics=%v", accepted, metrics.Snapshot())
+	}
+}
+
+func TestQueueDoesNotDropCriticalEventWhenCapacityBecomesAvailable(t *testing.T) {
+	high := make(chan *contract.Event, 1)
+	high <- &contract.Event{ID: "occupied"}
+	metrics := &AdmissionMetrics{}
+	queue := &Queue{Parser: Parser{}, High: high, Normal: make(chan *contract.Event, 1), Admission: metrics}
+	done := make(chan bool, 1)
+	go func() {
+		_, accepted := queue.Ingest(contract.Message{ID: "critical", Type: contract.EventVisionWeapon, Kind: contract.KindEvent, Source: "cam-1"})
+		done <- accepted
+	}()
+	select {
+	case accepted := <-done:
+		t.Fatalf("critical event was abandoned while queue was full: accepted=%v", accepted)
+	case <-time.After(20 * time.Millisecond):
+	}
+	<-high
+	select {
+	case accepted := <-done:
+		if !accepted || metrics.Snapshot()["accepted_critical"] != 1 {
+			t.Fatalf("critical event was not admitted after capacity returned: accepted=%v metrics=%v", accepted, metrics.Snapshot())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("critical event did not receive backpressure admission")
+	}
+}
