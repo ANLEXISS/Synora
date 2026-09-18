@@ -1,0 +1,258 @@
+package cognitivecore
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"time"
+
+	"synora/internal/cognitive"
+	"synora/pkg/contract"
+)
+
+type ProcessResult struct {
+	Commit  Commit
+	Result  CommitResult
+	Encoded EncodedSnapshot
+}
+
+type Core struct {
+	Store   *UniversalStore
+	Encoder SnapshotEncoder
+	MLP     MLPBackend
+	Gate    SafetyGate
+	Now     func() time.Time
+}
+
+func (c *Core) now() time.Time {
+	if c != nil && c.Now != nil {
+		return c.Now().UTC()
+	}
+	return time.Now().UTC()
+}
+
+func (c *Core) Process(ctx context.Context, event contract.Event) (ProcessResult, error) {
+	if c == nil || c.Store == nil {
+		return ProcessResult{}, errors.New("cognitive core is not configured")
+	}
+	if event.ID == "" || event.Type == "" || event.Source == "" {
+		return ProcessResult{}, errors.New("event id, type and source are required")
+	}
+	if event.Timestamp.IsZero() {
+		event.Timestamp = c.now()
+	}
+	previous := c.Store.Snapshot()
+	snapshot, err := c.composeSnapshot(previous, event)
+	if err != nil {
+		return ProcessResult{}, err
+	}
+	encoded, err := c.Encoder.Encode(ctx, snapshot)
+	if err != nil {
+		return ProcessResult{}, err
+	}
+	decision := Decision{SchemaVersion: DecisionSchemaVersion, Status: "unavailable", Mode: "active_dry_run", Source: "mlp", HeadOrder: append([]string(nil), HeadOrder[:]...), InputDimension: CognitiveVectorSize, Action: ActionAssessment{Proposed: ActionIntent{Action: "no_action"}, Status: "not_requested", PhysicalActionExecuted: false}, GeneratedAt: c.now()}
+	var output MLPOutput
+	if c.MLP == nil {
+		decision.Error = ErrModelUnavailable.Error()
+	} else {
+		var latencies map[string]float64
+		output, latencies, err = c.MLP.Run(ctx, encoded, snapshot)
+		decision.HeadLatencyMS = latencies
+		if err == nil {
+			decision.Status, decision.Mode, decision.DangerLabel, decision.DangerScore = "available", "active", output.DangerLabel, clamp01(output.DangerScore)
+			decision.Incidents, decision.Task = append([]string(nil), output.Incidents...), output.Task
+			decision.Action = c.Gate.Apply(output, snapshot, c.now())
+		} else {
+			decision.Error = err.Error()
+		}
+	}
+	var action *ActionRequest
+	if decision.Status == "available" && decision.Action.Status == "allowed" && decision.Action.Proposed.Action != "no_action" {
+		action = &ActionRequest{SchemaVersion: "action-request/v1", RequestID: event.ID, EpisodeID: episodeID(event), Action: decision.Action.Proposed, DryRun: true}
+	}
+	snapshot.Revision = c.Store.Revision() + 1
+	training := TrainingTrace{SchemaVersion: "training-capture/v1", Snapshot: snapshot, Encoded: encoded, Decision: decision, Label: payloadString(event.Payload, "scenario_label"), Provenance: provenance(event)}
+	commit := Commit{Event: event, Snapshot: snapshot, Decision: decision, Training: training, Action: action, CommittedAt: c.now()}
+	result, err := c.Store.Commit(commit)
+	if err != nil {
+		return ProcessResult{}, err
+	}
+	commit.Snapshot.Revision = result.Revision
+	return ProcessResult{Commit: commit, Result: result, Encoded: encoded}, nil
+}
+
+func (c *Core) composeSnapshot(previous CognitiveSnapshot, event contract.Event) (CognitiveSnapshot, error) {
+	now := event.Timestamp.UTC()
+	if now.IsZero() {
+		now = c.now()
+	}
+	snapshot := previous.Normalized()
+	snapshot.CapturedAt = now
+	snapshot.SchemaVersion = SnapshotSchemaVersion
+	snapshot.Episode.SecondsSinceLast = float32(maxDuration(now, previous.CapturedAt))
+	if previous.CapturedAt.IsZero() || previous.CapturedAt.Unix() == 0 {
+		snapshot.Episode.SecondsSinceFirst = 0
+	} else {
+		snapshot.Episode.SecondsSinceFirst += snapshot.Episode.SecondsSinceLast
+	}
+	payload := event.Payload
+	if event.Type == contract.EventActionResult || event.Type == "discovery.action.result" {
+		snapshot.ActionResults = append(snapshot.ActionResults, actionResultFromPayload(payload))
+	}
+	if contract.IsVisionEvent(event.Type) || strings.HasPrefix(event.Type, "vision") || strings.HasPrefix(event.Type, "synora.vision") {
+		frame, err := frameFromVisionEvent(snapshot, event)
+		if err != nil {
+			return CognitiveSnapshot{}, err
+		}
+		evidence, err := VisionEvidenceFromFrame(context.Background(), frame)
+		if err != nil {
+			return CognitiveSnapshot{}, err
+		}
+		snapshot.VisionEvidence = evidence
+		snapshot.Topology = frame.TopologyClass
+		snapshot.Presence.HumanPresent = frame.Presence.HumanPresent
+		snapshot.Presence.TrackCount = frame.Presence.TrackCount
+		snapshot.Presence.TrackConfirmed = frame.Presence.TrackConfirmed
+		snapshot.Episode.Phase = frame.EpisodePhase
+		snapshot.Episode.SegmentCount = frame.Continuity.SegmentCount
+		snapshot.Episode.GapCount = frame.Continuity.GapCount
+		snapshot.Episode.CalmSeconds = frame.Continuity.CalmSeconds
+		snapshot.Sensors.Movement = frame.CoEvidence.Movement
+		snapshot.Sensors.AccessState = frame.CoEvidence.AccessState
+		snapshot.Sensors.AlarmState = frame.CoEvidence.AlarmState
+		snapshot.Sensors.SensorEvidence = frame.CoEvidence.SensorEvidence
+		snapshot.Sensors.ObservationCount = frame.Quality.ObservationCount
+		snapshot.Sensors.Confidence = frame.Quality.AggregateConfidence
+	}
+	if value, ok := payloadBool(payload, "armed"); ok {
+		snapshot.Security.Armed = value
+		snapshot.Security.Known = true
+	}
+	if value, ok := payloadBool(payload, "degraded"); ok {
+		snapshot.Security.Degraded = value
+	}
+	if value, ok := payloadBool(payload, "movement"); ok {
+		snapshot.Sensors.Movement = value
+	}
+	if snapshot.Topology == "" {
+		snapshot.Topology = "unknown"
+	}
+	return snapshot.Normalized(), nil
+}
+
+func frameFromVisionEvent(previous CognitiveSnapshot, event contract.Event) (cognitive.StateFrameV5, error) {
+	p := event.Payload
+	priority := payloadString(p, "priority")
+	if priority == "" {
+		priority = payloadString(p, "priority_hint")
+	}
+	if priority == cognitiveContractP0() {
+		priority = contract.VisionPriorityP4
+	}
+	phase := payloadString(p, "episode_phase")
+	if phase == "" {
+		if payloadBoolDefault(p, "is_final", false) {
+			phase = cognitive.V5PhaseFinal
+		} else if previous.Presence.HumanPresent {
+			phase = cognitive.V5PhaseConfirmed
+		} else {
+			phase = cognitive.V5PhaseCandidate
+		}
+	}
+	frame := cognitive.StateFrameV5{SchemaVersion: cognitive.StateEncoderV5SchemaVersion, CapturedAt: event.Timestamp.UTC(), Security: cognitive.StateFrameV5Security{Armed: previous.Security.Armed, Degraded: previous.Security.Degraded, Known: previous.Security.Known}, Presence: cognitive.StateFrameV5Presence{HumanPresent: payloadBoolDefault(p, "human_present", previous.Presence.HumanPresent), TrackCount: payloadIntDefault(p, "track_count", previous.Presence.TrackCount), TrackConfirmed: payloadBoolDefault(p, "track_confirmed", previous.Presence.TrackConfirmed)}, TopologyClass: payloadStringDefault(p, "topology", previous.Topology), Priority: priority, PriorityOrigin: cognitive.V5PriorityOriginVision, EpisodePhase: phase, Enrichment: payloadStringDefault(p, "enrichment_status", cognitive.V5EnrichmentUnavailable), Continuity: cognitive.StateFrameV5Continuity{SecondsSinceFirstObservation: payloadFloatDefault(p, "seconds_since_first", previous.Episode.SecondsSinceFirst), SecondsSinceLastObservation: payloadFloatDefault(p, "seconds_since_last", previous.Episode.SecondsSinceLast), SegmentCount: payloadIntDefault(p, "segment_count", previous.Episode.SegmentCount+1), GapCount: payloadIntDefault(p, "gap_count", previous.Episode.GapCount), CalmSeconds: payloadFloatDefault(p, "calm_seconds", 0)}, Quality: cognitive.StateFrameV5Quality{RealDetection: payloadBoolDefault(p, "real_detection", true), ReplaySimulation: payloadBoolDefault(p, "replay_simulation", false), ObservationCount: payloadIntDefault(p, "observation_count", previous.Sensors.ObservationCount+1), AggregateConfidence: payloadFloatDefault(p, "confidence", previous.Sensors.Confidence)}, CoEvidence: cognitive.StateFrameV5CoEvidence{AccessState: payloadStringDefault(p, "access_state", previous.Sensors.AccessState), Movement: payloadBoolDefault(p, "movement", previous.Sensors.Movement), SensorEvidence: payloadBoolDefault(p, "sensor_evidence", true), AlarmState: payloadStringDefault(p, "alarm_state", previous.Sensors.AlarmState)}}
+	return frame, frame.Validate()
+}
+
+func (c *Core) Validate() error {
+	if c == nil || c.Store == nil {
+		return errors.New("core store unavailable")
+	}
+	if c.Gate.DryRun == false {
+		return errors.New("V1 requires dry_run until physical promotion")
+	}
+	return c.Store.ValidateBounds()
+}
+func maxDuration(at, previous time.Time) time.Duration {
+	if previous.IsZero() || at.Before(previous) {
+		return 0
+	}
+	return at.Sub(previous)
+}
+func episodeID(event contract.Event) string {
+	if event.ActivationID != "" {
+		return event.ActivationID
+	}
+	if event.GroupKey != "" {
+		return event.GroupKey
+	}
+	return event.ID
+}
+func provenance(event contract.Event) string {
+	if payloadBoolDefault(event.Payload, "replay_simulation", false) {
+		return "replay"
+	}
+	return "live"
+}
+func payloadString(payload map[string]any, key string) string {
+	if payload == nil {
+		return ""
+	}
+	if value, ok := payload[key].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+func payloadStringDefault(payload map[string]any, key, fallback string) string {
+	if value := payloadString(payload, key); value != "" {
+		return value
+	}
+	return fallback
+}
+func payloadBool(payload map[string]any, key string) (bool, bool) {
+	if payload == nil {
+		return false, false
+	}
+	value, ok := payload[key].(bool)
+	return value, ok
+}
+func payloadBoolDefault(payload map[string]any, key string, fallback bool) bool {
+	if value, ok := payloadBool(payload, key); ok {
+		return value
+	}
+	return fallback
+}
+func payloadIntDefault(payload map[string]any, key string, fallback int) int {
+	if payload == nil {
+		return fallback
+	}
+	switch value := payload[key].(type) {
+	case int:
+		return value
+	case float64:
+		return int(value)
+	case json.Number:
+		n, _ := value.Int64()
+		return int(n)
+	}
+	return fallback
+}
+func payloadFloatDefault(payload map[string]any, key string, fallback float32) float32 {
+	if payload == nil {
+		return fallback
+	}
+	switch value := payload[key].(type) {
+	case float64:
+		return float32(value)
+	case float32:
+		return value
+	case int:
+		return float32(value)
+	}
+	return fallback
+}
+func actionResultFromPayload(payload map[string]any) ActionResultFact {
+	status := strings.ToLower(payloadString(payload, "status"))
+	return ActionResultFact{Status: status, Successful: status == "success" || status == "executed", Failed: status == "failed" || status == "timeout" || status == "blocked", Unavailable: status == "unavailable"}
+}
+func cognitiveContractP0() string { return contract.VisionPriorityP0 }
