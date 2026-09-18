@@ -68,6 +68,13 @@ func TestCoreUsesAbstractActionAndKeepsPhysicalExecutionFalse(t *testing.T) {
 	}
 }
 
+func TestSafetyGateBlocksCapabilityWithoutChoosingAnotherAction(t *testing.T) {
+	assessment := (SafetyGate{DryRun: true, Capabilities: map[string]bool{"lock": false}, AllowedTopologies: map[string]bool{contract.VisionTopologyProtectedInterior: true}}).Apply(MLPOutput{Action: ActionIntent{Action: "lock", Capability: "lock"}}, CognitiveSnapshot{Topology: contract.VisionTopologyProtectedInterior}, time.Unix(1, 0).UTC())
+	if assessment.Status != "blocked" || assessment.Proposed.Action != "lock" || len(assessment.Reasons) != 1 || assessment.Reasons[0] != "capability_unavailable" {
+		t.Fatalf("Safety Gate replaced or lost the MLP intent: %#v", assessment)
+	}
+}
+
 func TestVisionCannotCreateP0(t *testing.T) {
 	store := NewUniversalStore()
 	core := &Core{Store: store, MLP: UnavailableMLP{}, Gate: SafetyGate{DryRun: true}}

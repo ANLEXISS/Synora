@@ -135,17 +135,12 @@ func (g SafetyGate) Apply(output MLPOutput, snapshot CognitiveSnapshot, now time
 		assessment.Reasons = []string{"action_not_in_abstract_catalog"}
 		return assessment
 	}
-	if g.DryRun {
-		assessment.Status = "allowed_dry_run"
-		assessment.Reasons = []string{"dry_run"}
-		return assessment
-	}
-	if !contractTopologyAllowed(g.AllowedTopologies, snapshot.Topology) {
+	if len(g.AllowedTopologies) > 0 && !contractTopologyAllowed(g.AllowedTopologies, snapshot.Topology) {
 		assessment.Status = "blocked"
 		assessment.Reasons = []string{"topology_not_allowed"}
 		return assessment
 	}
-	if assessment.Proposed.Capability == "" || !g.Capabilities[assessment.Proposed.Capability] {
+	if len(g.Capabilities) > 0 && (assessment.Proposed.Capability == "" || !g.Capabilities[assessment.Proposed.Capability]) {
 		assessment.Status = "blocked"
 		assessment.Reasons = []string{"capability_unavailable"}
 		return assessment
@@ -156,6 +151,11 @@ func (g SafetyGate) Apply(output MLPOutput, snapshot CognitiveSnapshot, now time
 			assessment.Reasons = []string{"cooldown"}
 			return assessment
 		}
+	}
+	if g.DryRun {
+		assessment.Status = "allowed_dry_run"
+		assessment.Reasons = []string{"dry_run"}
+		return assessment
 	}
 	assessment.Status = "allowed"
 	return assessment
