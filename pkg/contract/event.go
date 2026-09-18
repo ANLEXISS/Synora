@@ -49,6 +49,7 @@ const (
 	EventVisionClipSummaryV1 = "synora.vision.clip-summary/v1"
 	// EventVisionPreliminaryAlertV1 is emitted only for a configured strong critical detection.
 	EventVisionPreliminaryAlertV1 = "synora.vision.preliminary-alert/v1"
+	EventVisionClipObservationV1  = "synora.vision.clip-observation/v1"
 
 	// Device events
 	EventDeviceTrigger = "device.trigger"
@@ -292,7 +293,8 @@ func EventCategory(eventType string) string {
 		EventVisionEnd,
 		EventVisionMotion,
 		EventVisionClipSummaryV1,
-		EventVisionPreliminaryAlertV1:
+		EventVisionPreliminaryAlertV1,
+		EventVisionClipObservationV1:
 		return EventCategoryVision
 	case EventActionRequest,
 		EventActionResult,
@@ -350,6 +352,7 @@ func NormalizeEventType(raw string) string {
 		EventVisionMotion,
 		EventVisionClipSummaryV1,
 		EventVisionPreliminaryAlertV1,
+		EventVisionClipObservationV1,
 		EventDeviceTrigger,
 		EventDeviceOffline,
 		EventDiscoveryCameraObserved,
@@ -430,6 +433,7 @@ func EventPriority(eventType string) int {
 		EventVisionMotion,
 		EventVisionClipSummaryV1,
 		EventVisionPreliminaryAlertV1,
+		EventVisionClipObservationV1,
 		EventDeviceTrigger,
 		EventDiscoveryCameraObserved,
 		EventDiscoveryCameraOnline,

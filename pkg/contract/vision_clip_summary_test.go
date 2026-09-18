@@ -25,3 +25,31 @@ func TestVisionClipSummaryV1Validation(t *testing.T) {
 		t.Fatalf("expected local reference rejection, got %v", err)
 	}
 }
+
+func TestVisionClipObservationV1ValidationAndRawDataRejection(t *testing.T) {
+	at := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	observation := VisionClipObservation{
+		SchemaVersion: EventVisionClipObservationV1, ClipID: "clip-1", EpisodeID: "episode-1", CameraID: "cam-1",
+		NodeID: "front", Zone: "exterior", Trigger: "motion.sensor.front", ObservedAt: at, Sequence: 1,
+		Tracks:  []VisionClipObservationTrack{{ID: "human-0", SubjectType: "human", Confidence: .8, State: "candidate", DetectionCount: 1}},
+		Backend: VisionClipObservationBackend{Status: "ok", RealModel: true},
+	}
+	if err := observation.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	observation.Tracks[0].State = "recognized"
+	if err := observation.Validate(); err == nil {
+		t.Fatal("invalid enrichment state accepted")
+	}
+}
+
+func TestVisionClipMetricsRejectInvalidWallOrderingAndInflight(t *testing.T) {
+	metrics := VisionClipMetrics{VisionWallLatencyMS: 10, FirstObservationWallMS: 11}
+	if err := metrics.Validate(); err == nil {
+		t.Fatal("first observation after final result accepted")
+	}
+	metrics = VisionClipMetrics{PeakFramesInFlight: 4}
+	if err := metrics.Validate(); err == nil {
+		t.Fatal("inflight bound violation accepted")
+	}
+}

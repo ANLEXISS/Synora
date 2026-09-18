@@ -56,15 +56,104 @@ type VisionClipMedia struct {
 }
 
 type VisionClipBackendDiagnostic struct {
-	Name            string  `json:"name"`
-	ModelVersion    string  `json:"model_version"`
-	RealModel       bool    `json:"real_model"`
-	Status          string  `json:"status"`
-	FramesSampled   int     `json:"frames_sampled"`
-	DetectionsTotal int     `json:"detections_total"`
-	LatencyMS       float64 `json:"latency_ms"`
-	NonHumanIgnored int     `json:"non_human_ignored"`
-	ErrorCode       string  `json:"error_code,omitempty"`
+	Name                 string  `json:"name"`
+	ModelVersion         string  `json:"model_version"`
+	RealModel            bool    `json:"real_model"`
+	Status               string  `json:"status"`
+	FramesSampled        int     `json:"frames_sampled"`
+	DetectionsTotal      int     `json:"detections_total"`
+	LatencyMS            float64 `json:"latency_ms"`
+	NonHumanIgnored      int     `json:"non_human_ignored"`
+	ErrorCode            string  `json:"error_code,omitempty"`
+	DetectorComputeSumMS float64 `json:"detector_compute_sum_ms,omitempty"`
+}
+
+type VisionClipMetrics struct {
+	QueueWaitMS                 float64          `json:"queue_wait_ms"`
+	ClipDecodeWallMS            float64          `json:"clip_decode_wall_ms"`
+	DetectorWallMS              float64          `json:"detector_wall_ms"`
+	TrackingWallMS              float64          `json:"tracking_wall_ms"`
+	EnrichmentWallMS            float64          `json:"enrichment_wall_ms"`
+	SummaryWallMS               float64          `json:"summary_wall_ms"`
+	VisionWallLatencyMS         float64          `json:"vision_wall_latency_ms"`
+	FirstObservationWallMS      float64          `json:"first_observation_wall_ms"`
+	DetectorComputeSumMS        float64          `json:"detector_compute_sum_ms"`
+	FramesSkippedByPolicy       int              `json:"frames_skipped_by_policy"`
+	FramesSampled               int              `json:"frames_sampled"`
+	PeakFramesInFlight          int              `json:"peak_frames_in_flight"`
+	SamplingStateTransitions    []map[string]any `json:"sampling_state_transitions"`
+	EnrichmentRequests          int              `json:"enrichment_requests"`
+	EnrichmentSkippedRecognized int              `json:"enrichment_skipped_recognized"`
+	EnrichmentSkippedBudget     int              `json:"enrichment_skipped_budget"`
+	EnrichmentReopened          int              `json:"enrichment_reopened"`
+}
+
+func (m VisionClipMetrics) Validate() error {
+	values := []float64{m.QueueWaitMS, m.ClipDecodeWallMS, m.DetectorWallMS, m.TrackingWallMS, m.EnrichmentWallMS, m.SummaryWallMS, m.VisionWallLatencyMS, m.FirstObservationWallMS, m.DetectorComputeSumMS}
+	for _, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 3600000 {
+			return fmt.Errorf("invalid vision wall metrics")
+		}
+	}
+	if m.FirstObservationWallMS > m.VisionWallLatencyMS {
+		return fmt.Errorf("first observation occurs after final vision result")
+	}
+	for _, value := range []int{m.FramesSkippedByPolicy, m.FramesSampled, m.PeakFramesInFlight, m.EnrichmentRequests, m.EnrichmentSkippedRecognized, m.EnrichmentSkippedBudget, m.EnrichmentReopened} {
+		if value < 0 || value > 1000000 {
+			return fmt.Errorf("invalid vision processing counters")
+		}
+	}
+	if m.PeakFramesInFlight > 3 {
+		return fmt.Errorf("vision frames in flight exceeded bound")
+	}
+	return nil
+}
+
+type VisionClipObservationTrack struct {
+	ID             string  `json:"track_id"`
+	SubjectType    string  `json:"subject_type"`
+	Confidence     float64 `json:"confidence"`
+	State          string  `json:"state"`
+	DetectionCount int     `json:"detection_count"`
+}
+
+type VisionClipObservationBackend struct {
+	Status    string `json:"status"`
+	RealModel bool   `json:"real_model"`
+}
+
+type VisionClipObservation struct {
+	SchemaVersion string                       `json:"schema_version"`
+	ClipID        string                       `json:"clip_id"`
+	EpisodeID     string                       `json:"episode_id"`
+	CameraID      string                       `json:"camera_id"`
+	NodeID        string                       `json:"node_id"`
+	Zone          string                       `json:"zone"`
+	Trigger       string                       `json:"trigger"`
+	ObservedAt    time.Time                    `json:"observed_at"`
+	Sequence      int                          `json:"sequence"`
+	Tracks        []VisionClipObservationTrack `json:"tracks"`
+	Backend       VisionClipObservationBackend `json:"backend"`
+}
+
+func (o VisionClipObservation) Validate() error {
+	if o.SchemaVersion != EventVisionClipObservationV1 || !validScalar(o.ClipID) || !validScalar(o.EpisodeID) || !validScalar(o.CameraID) || !validScalar(o.NodeID) || !validScalar(o.Zone) || !validScalar(o.Trigger) || o.ObservedAt.IsZero() || o.Sequence < 1 || o.Sequence > 1000000 {
+		return fmt.Errorf("invalid vision clip observation identity")
+	}
+	if o.Backend.Status != "ok" && o.Backend.Status != "unavailable" && o.Backend.Status != "failed" && o.Backend.Status != "timeout" {
+		return fmt.Errorf("invalid vision observation backend status")
+	}
+	for _, track := range o.Tracks {
+		if !validScalar(track.ID) || !validVisionSubjectType(track.SubjectType) || !validConfidence(track.Confidence) || track.DetectionCount < 1 || track.DetectionCount > 1000000 {
+			return fmt.Errorf("invalid vision observation track")
+		}
+		switch track.State {
+		case "candidate", "enriching", "recognized_stable", "uncertain", "unknown":
+		default:
+			return fmt.Errorf("invalid vision observation track state")
+		}
+	}
+	return nil
 }
 
 type VisionPreliminaryTrack struct {
@@ -101,6 +190,7 @@ type VisionClipSummary struct {
 	Sensitive VisionSensitiveObjects      `json:"sensitive_objects"`
 	Media     VisionClipMedia             `json:"media"`
 	Backend   VisionClipBackendDiagnostic `json:"backend"`
+	Metrics   VisionClipMetrics           `json:"metrics"`
 }
 
 func (s VisionClipSummary) Validate() error {
@@ -123,6 +213,9 @@ func (s VisionClipSummary) Validate() error {
 		return fmt.Errorf("invalid vision clip summary sensitive status")
 	}
 	if err := s.Backend.Validate(); err != nil {
+		return err
+	}
+	if err := s.Metrics.Validate(); err != nil {
 		return err
 	}
 	if s.Identity.Status == "recognized" && s.Identity.EmbeddingRef == nil {
@@ -163,7 +256,7 @@ func (d VisionClipBackendDiagnostic) Validate() error {
 	if d.FramesSampled < 0 || d.FramesSampled > 1000000 || d.DetectionsTotal < 0 || d.DetectionsTotal > 10000000 || d.NonHumanIgnored < 0 || d.NonHumanIgnored > 10000000 {
 		return fmt.Errorf("invalid vision backend counters")
 	}
-	if math.IsNaN(d.LatencyMS) || math.IsInf(d.LatencyMS, 0) || d.LatencyMS < 0 || d.LatencyMS > 3600000 {
+	if math.IsNaN(d.LatencyMS) || math.IsInf(d.LatencyMS, 0) || d.LatencyMS < 0 || d.LatencyMS > 3600000 || math.IsNaN(d.DetectorComputeSumMS) || math.IsInf(d.DetectorComputeSumMS, 0) || d.DetectorComputeSumMS < 0 || d.DetectorComputeSumMS > 3600000 {
 		return fmt.Errorf("invalid vision backend latency")
 	}
 	if d.Status == "ok" && !d.RealModel {
@@ -199,7 +292,7 @@ func DecodeVisionClipSummary(data []byte) (VisionClipSummary, error) {
 	if err := decodeTypedPayload(data, map[string]struct{}{
 		"schema": {}, "episode_id": {}, "clip_id": {}, "camera_id": {}, "topology": {}, "trigger": {},
 		"track": {}, "identity": {}, "plate": {}, "sensitive_objects": {}, "media": {},
-		"backend":   {},
+		"backend": {}, "metrics": {},
 		"device_id": {}, "node_id": {}, "track_id": {}, "event_id": {}, "activation_id": {}, "sequence_key": {}, "clip_index": {},
 	}, &summary); err != nil {
 		return VisionClipSummary{}, err
@@ -208,6 +301,27 @@ func DecodeVisionClipSummary(data []byte) (VisionClipSummary, error) {
 		return VisionClipSummary{}, err
 	}
 	return summary, nil
+}
+
+func DecodeVisionClipObservation(data []byte) (VisionClipObservation, error) {
+	var observation VisionClipObservation
+	if err := decodeTypedPayload(data, map[string]struct{}{
+		"schema_version": {}, "clip_id": {}, "episode_id": {}, "camera_id": {}, "node_id": {}, "zone": {}, "trigger": {}, "observed_at": {}, "sequence": {}, "tracks": {}, "backend": {},
+		"device_id": {}, "event_id": {}, "clip_index": {}, "activation_id": {}, "sequence_key": {}, "track_id": {},
+	}, &observation); err != nil {
+		return VisionClipObservation{}, err
+	}
+	var transport struct {
+		NodeID string `json:"node_id"`
+	}
+	if err := json.Unmarshal(data, &transport); err != nil {
+		return VisionClipObservation{}, err
+	}
+	observation.NodeID = transport.NodeID
+	if err := observation.Validate(); err != nil {
+		return VisionClipObservation{}, err
+	}
+	return observation, nil
 }
 
 func DecodeVisionPreliminaryAlert(data []byte) (VisionPreliminaryAlert, error) {

@@ -52,11 +52,17 @@ class _TrackEnrichment:
 class TrackEnrichmentPolicy:
     """Per-track face-enrichment gate; it never gates human detection."""
 
-    def __init__(self, max_occlusion_frames: int = 5):
+    def __init__(self, max_occlusion_frames: int = 5, max_requests_per_track: int = 5):
         if max_occlusion_frames < 1:
             raise ValueError("max_occlusion_frames must be positive")
         self.max_occlusion_frames = int(max_occlusion_frames)
+        self.max_requests_per_track = max(1, int(max_requests_per_track))
         self._tracks: dict[str, _TrackEnrichment] = {}
+        self._requests: dict[str, int] = {}
+        self.enrichment_requests = 0
+        self.enrichment_skipped_recognized = 0
+        self.enrichment_skipped_budget = 0
+        self.enrichment_reopened = 0
 
     def observe(self, track_id: str, at: datetime, *, visible: bool = True,
                 ambiguous: bool = False, strong_change: bool = False) -> TrackEnrichmentState:
@@ -77,8 +83,14 @@ class TrackEnrichmentPolicy:
     def begin_enrichment(self, track_id: str) -> bool:
         entry = self._tracks.setdefault(track_id, _TrackEnrichment())
         if entry.state == TrackEnrichmentState.RECOGNIZED_STABLE:
+            self.enrichment_skipped_recognized += 1
+            return False
+        if self._requests.get(track_id, 0) >= self.max_requests_per_track:
+            self.enrichment_skipped_budget += 1
             return False
         entry.state = TrackEnrichmentState.ENRICHING
+        self._requests[track_id] = self._requests.get(track_id, 0) + 1
+        self.enrichment_requests += 1
         return True
 
     def complete(self, track_id: str, result: IdentityResult, *, stable: bool = False) -> TrackEnrichmentState:
@@ -101,6 +113,7 @@ class TrackEnrichmentPolicy:
 
     def expire(self, track_id: str) -> None:
         self._tracks.pop(track_id, None)
+        self._requests.pop(track_id, None)
 
     def state(self, track_id: str) -> TrackEnrichmentState:
         return self._tracks.get(track_id, _TrackEnrichment()).state
@@ -109,6 +122,95 @@ class TrackEnrichmentPolicy:
         entry.state = TrackEnrichmentState.CANDIDATE
         entry.identity = None
         entry.occluded_frames = 0
+        self.enrichment_reopened += 1
+
+    def counters(self) -> dict[str, int]:
+        return {
+            "enrichment_requests": self.enrichment_requests,
+            "enrichment_skipped_recognized": self.enrichment_skipped_recognized,
+            "enrichment_skipped_budget": self.enrichment_skipped_budget,
+            "enrichment_reopened": self.enrichment_reopened,
+        }
+
+
+@dataclass
+class AdaptiveSamplingPolicy:
+    initial_fps: float = 5.0
+    active_fps: float = 5.0
+    stable_fps: float = 1.0
+    quiet_fps: float = 2.0
+    quiet_after_clean_samples: int = 5
+    lost_track_recovery_fps: float = 5.0
+    minimum_detection_fps: float = 1.0
+    state: str = "initial"
+    clean_samples: int = 0
+    transitions: list[dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        for name in ("initial_fps", "active_fps", "stable_fps", "quiet_fps", "lost_track_recovery_fps", "minimum_detection_fps"):
+            value = float(getattr(self, name))
+            if value <= 0:
+                raise ValueError(f"{name} must be positive")
+            setattr(self, name, value)
+        self.quiet_after_clean_samples = max(1, int(self.quiet_after_clean_samples))
+
+    def fps(self) -> float:
+        values = {"initial": self.initial_fps, "active": self.active_fps, "stable": self.stable_fps, "quiet": self.quiet_fps, "recovery": self.lost_track_recovery_fps}
+        return max(self.minimum_detection_fps, values.get(self.state, self.active_fps))
+
+    def observe(self, *, has_human: bool, all_stable: bool = False, recently_lost: bool = False) -> str:
+        previous = self.state
+        if recently_lost:
+            self.state = "recovery"
+            self.clean_samples = 0
+        elif has_human:
+            self.clean_samples = 0
+            self.state = "stable" if all_stable else "active"
+        else:
+            self.clean_samples += 1
+            if self.clean_samples >= self.quiet_after_clean_samples:
+                self.state = "quiet"
+            elif self.state == "initial":
+                self.state = "active"
+        if self.state != previous:
+            self.transitions.append({"from": previous, "to": self.state, "clean_samples": self.clean_samples})
+        return self.state
+
+
+@dataclass
+class ClipProcessingMetrics:
+    queue_wait_ms: float = 0.0
+    clip_decode_wall_ms: float = 0.0
+    detector_wall_ms: float = 0.0
+    tracking_wall_ms: float = 0.0
+    enrichment_wall_ms: float = 0.0
+    summary_wall_ms: float = 0.0
+    vision_wall_latency_ms: float = 0.0
+    first_observation_wall_ms: float = 0.0
+    detector_compute_sum_ms: float = 0.0
+    frames_skipped_by_policy: int = 0
+    frames_sampled: int = 0
+    sampling_state_transitions: list[dict[str, Any]] = field(default_factory=list)
+    peak_frames_in_flight: int = 0
+    enrichment: dict[str, int] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "queue_wait_ms": round(max(0.0, self.queue_wait_ms), 3),
+            "clip_decode_wall_ms": round(max(0.0, self.clip_decode_wall_ms), 3),
+            "detector_wall_ms": round(max(0.0, self.detector_wall_ms), 3),
+            "tracking_wall_ms": round(max(0.0, self.tracking_wall_ms), 3),
+            "enrichment_wall_ms": round(max(0.0, self.enrichment_wall_ms), 3),
+            "summary_wall_ms": round(max(0.0, self.summary_wall_ms), 3),
+            "vision_wall_latency_ms": round(max(0.0, self.vision_wall_latency_ms), 3),
+            "first_observation_wall_ms": round(max(0.0, self.first_observation_wall_ms), 3),
+            "detector_compute_sum_ms": round(max(0.0, self.detector_compute_sum_ms), 3),
+            "frames_skipped_by_policy": self.frames_skipped_by_policy,
+            "frames_sampled": self.frames_sampled,
+            "sampling_state_transitions": list(self.sampling_state_transitions),
+            "peak_frames_in_flight": self.peak_frames_in_flight,
+            **self.enrichment,
+        }
 
 
 class SensitiveStatus(str, Enum):
@@ -583,7 +685,8 @@ class VisionClipPipelineV1:
         self.preliminary_sink = preliminary_sink
 
     def process_frames(self, clip: ClipMetadata, frames: Iterable[FrameObservation],
-                       backend_diagnostic: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
+                       backend_diagnostic: Optional[dict[str, Any]] = None,
+                       metrics: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
         tracks: dict[str, TrackState] = {}
         emitted_alerts: set[str] = set()
         events: list[dict[str, Any]] = []
@@ -611,10 +714,13 @@ class VisionClipPipelineV1:
                             self.preliminary_sink(alert)
         if not tracks and backend_diagnostic is not None:
             empty = TrackState("clip-no-human", SubjectType.UNKNOWN, _utc(clip.started_at), _utc(clip.started_at))
-            events.append(self._summary(clip, empty, backend_diagnostic))
+            events.append(self._summary(clip, empty, backend_diagnostic, metrics))
         else:
             for state in sorted(tracks.values(), key=lambda item: item.track_id):
-                events.append(self._summary(clip, state, backend_diagnostic))
+                enrichment_started = time.perf_counter()
+                events.append(self._summary(clip, state, backend_diagnostic, metrics))
+                if metrics is not None:
+                    metrics["enrichment_wall_ms"] = metrics.get("enrichment_wall_ms", 0.0) + (time.perf_counter() - enrichment_started) * 1000.0
         return events
 
     def _preliminary_alert(self, clip: ClipMetadata, track: TrackState,
@@ -635,7 +741,8 @@ class VisionClipPipelineV1:
         }
 
     def _summary(self, clip: ClipMetadata, track: TrackState,
-                 backend_diagnostic: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+                 backend_diagnostic: Optional[dict[str, Any]] = None,
+                 metrics: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         identity = IdentityResult(IdentityStatus.NOT_AVAILABLE)
         plate = PlateResult(IdentityStatus.NOT_AVAILABLE)
         if track.subject_type == SubjectType.HUMAN:
@@ -661,6 +768,7 @@ class VisionClipPipelineV1:
             "plate": plate.as_dict(),
             "sensitive_objects": sensitive.as_dict(),
             "media": {"clip_ref": _local_ref(clip.clip_ref), "best_roi_refs": refs},
+            "metrics": dict(metrics or {}),
         }
         if backend_diagnostic is not None:
             payload["backend"] = dict(backend_diagnostic)
@@ -686,16 +794,26 @@ class VisionClipPipelineV1:
 
     def process_video(self, clip: ClipMetadata, video_path: str, detector: Any,
                       sample_period_seconds: float = 0.2) -> list[dict[str, Any]]:
-        """Run the configured detector through a bounded per-clip tracker."""
+        """Run bounded progressive observation, adaptive sampling and final summaries."""
         import cv2
+        vision_started = time.perf_counter()
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             cap.release()
             raise RuntimeError("video cannot be opened")
         fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
-        stride = max(1, int(round((fps or 5.0) * sample_period_seconds)))
         frames: list[FrameObservation] = []
         index = 0
+        metrics = ClipProcessingMetrics()
+        sampling = AdaptiveSamplingPolicy(
+            initial_fps=float(self._config.get("sampling_initial_fps", 5.0)),
+            active_fps=float(self._config.get("sampling_active_fps", 5.0)),
+            stable_fps=float(self._config.get("sampling_stable_fps", 1.0)),
+            quiet_fps=float(self._config.get("sampling_quiet_fps", 2.0)),
+            quiet_after_clean_samples=int(self._config.get("sampling_quiet_after_clean_samples", 5)),
+            lost_track_recovery_fps=float(self._config.get("sampling_lost_track_recovery_fps", 5.0)),
+            minimum_detection_fps=float(self._config.get("sampling_minimum_detection_fps", 1.0)),
+        )
         tracker = ClipTrackerV1(
             iou_threshold=float(self._config.get("tracker_iou_threshold", 0.20)),
             max_track_gap_seconds=float(self._config.get("tracker_max_gap_seconds", 2.5)),
@@ -705,10 +823,70 @@ class VisionClipPipelineV1:
         )
         frame_period = fps or 5.0
         batch: list[tuple[int, datetime, Any, int]] = []
+        next_sample_index = 0
+        enrichment_policy = TrackEnrichmentPolicy(
+            max_occlusion_frames=int(self._config.get("enrichment_max_occlusion_samples", 5)),
+            max_requests_per_track=self.max_crops,
+        )
+        track_records: dict[str, dict[str, Any]] = {}
+        observation_events: list[dict[str, Any]] = []
+        last_observation_signature: Optional[str] = None
+        last_observation_at: Optional[datetime] = None
+        observation_sequence = 0
+
+        def backend_diagnostic() -> dict[str, Any]:
+            if hasattr(detector, "diagnostic"):
+                return dict(detector.diagnostic())
+            return {"name": "existing_detector", "model_version": "unknown", "real_model": False,
+                    "status": "unavailable", "frames_sampled": metrics.frames_sampled,
+                    "detections_total": sum(len(frame.detections) for frame in frames),
+                    "latency_ms": 0.0, "detector_compute_sum_ms": 0.0, "non_human_ignored": 0}
+
+        def maybe_observe(at: datetime) -> None:
+            nonlocal last_observation_signature, last_observation_at, observation_sequence
+            diagnostic = backend_diagnostic()
+            active_ids = tracker.active_track_ids
+            if not active_ids and diagnostic.get("status") == "ok":
+                return
+            tracks = []
+            for track_id in active_ids:
+                record = track_records.get(track_id)
+                if not record:
+                    continue
+                tracks.append({
+                    "track_id": track_id,
+                    "subject_type": "human",
+                    "confidence": record["score_sum"] / max(1, record["detection_count"]),
+                    "state": enrichment_policy.state(track_id).value,
+                    "detection_count": record["detection_count"],
+                })
+            payload = {
+                "schema_version": "synora.vision.clip-observation/v1",
+                "clip_id": clip.clip_id, "episode_id": clip.episode_id, "camera_id": clip.camera_id,
+                "node_id": clip.topology.node_id, "zone": clip.topology.zone,
+                "trigger": clip.trigger_reason, "observed_at": _utc(at).isoformat(),
+                "sequence": observation_sequence + 1, "tracks": tracks,
+                "backend": {"status": diagnostic.get("status", "unavailable"), "real_model": bool(diagnostic.get("real_model", False))},
+            }
+            signature = repr((payload["tracks"], payload["backend"]))
+            if signature == last_observation_signature:
+                return
+            if last_observation_at is not None and (_utc(at) - last_observation_at).total_seconds() < 0.5:
+                return
+            observation_sequence += 1
+            payload["sequence"] = observation_sequence
+            observation_events.append({"type": "synora.vision.clip-observation/v1", "payload": payload})
+            last_observation_signature = signature
+            last_observation_at = _utc(at)
+            if metrics.first_observation_wall_ms == 0.0:
+                metrics.first_observation_wall_ms = (time.perf_counter() - vision_started) * 1000.0
 
         def process_batch() -> None:
+            nonlocal next_sample_index
             if not batch:
                 return
+            metrics.peak_frames_in_flight = max(metrics.peak_frames_in_flight, len(batch))
+            detector_started = time.perf_counter()
             if hasattr(detector, "detect_many"):
                 raw_batches = detector.detect_many(
                     [item[2] for item in batch], [item[3] for item in batch]
@@ -719,48 +897,70 @@ class VisionClipPipelineV1:
                     else detector.detect(item[2])
                     for item in batch
                 ]
+            metrics.detector_wall_ms += (time.perf_counter() - detector_started) * 1000.0
             for (sample_index, at, frame, _), raw_detections in zip(batch, raw_batches):
                 detections: list[Detection] = []
+                tracking_started = time.perf_counter()
+                previous_active = set(tracker.active_track_ids)
                 for assigned in tracker.update(list(raw_detections), at):
                     x1, y1, x2, y2 = assigned["bbox"]
                     roi = frame[max(0, y1):max(0, y2), max(0, x1):max(0, x2)]
                     ref = f"local://clips/{clip.clip_id}/roi/{sample_index}-{len(detections)}"
+                    track_id = assigned["track_id"]
+                    record = track_records.setdefault(track_id, {"detection_count": 0, "score_sum": 0.0})
+                    record["detection_count"] += 1
+                    record["score_sum"] += float(assigned["score"])
+                    enrichment_policy.observe(track_id, at)
+                    if enrichment_policy.state(track_id) == TrackEnrichmentState.CANDIDATE:
+                        enrichment_policy.begin_enrichment(track_id)
                     detections.append(Detection(assigned["track_id"], SubjectType.HUMAN,
                                                 assigned["score"], ref, roi))
+                current_active = set(tracker.active_track_ids)
+                for track_id in previous_active - current_active:
+                    enrichment_policy.observe(track_id, at, visible=False)
+                metrics.tracking_wall_ms += (time.perf_counter() - tracking_started) * 1000.0
+                metrics.frames_sampled += 1
+                sampling.observe(has_human=bool(detections), recently_lost=bool(previous_active - current_active))
+                maybe_observe(at)
                 frames.append(FrameObservation.from_values(at, detections))
             batch.clear()
 
         try:
             while True:
+                read_started = time.perf_counter()
                 ok, frame = cap.read()
+                metrics.clip_decode_wall_ms += (time.perf_counter() - read_started) * 1000.0
                 if not ok:
                     break
-                if index % stride == 0:
+                if index >= next_sample_index:
                     at = clip.started_at + timedelta(seconds=index / frame_period)
                     if at > clip.ends_at:
                         break
                     timestamp_ms = int(round((at - clip.started_at).total_seconds() * 1000.0))
                     batch.append((index, at, frame, timestamp_ms))
+                    sample_stride = max(1, int(round(frame_period / sampling.fps())))
+                    next_sample_index = index + sample_stride
                     if len(batch) >= (3 if hasattr(detector, "detect_many") else 1):
                         process_batch()
+                else:
+                    metrics.frames_skipped_by_policy += 1
                 index += 1
             process_batch()
         finally:
             cap.release()
-        if hasattr(detector, "diagnostic"):
-            diagnostic = detector.diagnostic()
-        else:
-            diagnostic = {
-                "name": "existing_detector",
-                "model_version": "unknown",
-                "real_model": False,
-                "status": "unavailable",
-                "frames_sampled": len(frames),
-                "detections_total": sum(len(frame.detections) for frame in frames),
-                "latency_ms": 0.0,
-                "non_human_ignored": 0,
-            }
-        return self.process_frames(clip, frames, diagnostic)
+        diagnostic = backend_diagnostic()
+        metrics.detector_compute_sum_ms = float(diagnostic.get("detector_compute_sum_ms", diagnostic.get("latency_ms", 0.0)) or 0.0)
+        metrics.sampling_state_transitions = sampling.transitions
+        metrics.enrichment = enrichment_policy.counters()
+        metric_values = metrics.as_dict()
+        summary_started = time.perf_counter()
+        summary_events = self.process_frames(clip, frames, diagnostic, metric_values)
+        metrics.summary_wall_ms = (time.perf_counter() - summary_started) * 1000.0
+        metrics.vision_wall_latency_ms = (time.perf_counter() - vision_started) * 1000.0
+        metric_values = metrics.as_dict()
+        for event in summary_events:
+            event["payload"]["metrics"] = metric_values
+        return observation_events + summary_events
 
     @staticmethod
     def _iou(left: tuple[int, int, int, int], right: tuple[int, int, int, int]) -> float:

@@ -102,6 +102,43 @@ func TestRunClipWorkerPublishesVersionedClipSummaryToCore(t *testing.T) {
 	}
 }
 
+func TestRunClipWorkerPublishesProgressiveObservationBeforeSummary(t *testing.T) {
+	publisher := &clipMessagePublisher{}
+	processor := clipProcessorFunc(func(job *ClipJob) (*WorkerResponse, error) {
+		return &WorkerResponse{Events: []Event{
+			{Type: contract.EventVisionClipObservationV1, Payload: map[string]any{
+				"schema_version": contract.EventVisionClipObservationV1, "clip_id": job.ID, "episode_id": job.EpisodeID, "camera_id": job.CameraID,
+				"node_id": job.NodeID, "zone": job.Zone, "trigger": job.TriggerReason, "observed_at": job.StartedAt,
+				"sequence": 1, "tracks": []any{map[string]any{"track_id": "human-0", "subject_type": "human", "confidence": .8, "state": "candidate", "detection_count": 1}},
+				"backend": map[string]any{"status": "ok", "real_model": true},
+			}},
+			{Type: contract.EventVisionClipSummaryV1, TrackID: "track-1", Payload: validSummaryPayload("clip-v1", "cam-1", "episode-1", "front", "exterior", "motion.sensor.front", "track-1")},
+		}}, nil
+	})
+	job := validV1Job()
+	if err := RunClipWorker(processor, publisher, job); err != nil {
+		t.Fatal(err)
+	}
+	if len(publisher.messages) != 4 || publisher.messages[1].Type != contract.EventVisionClipObservationV1 || publisher.messages[2].Type != contract.EventVisionClipSummaryV1 {
+		t.Fatalf("unexpected progressive messages: %#v", publisher.messages)
+	}
+}
+
+func TestRunClipWorkerRejectsDuplicateObservationSequence(t *testing.T) {
+	publisher := &clipMessagePublisher{}
+	observation := map[string]any{
+		"schema_version": contract.EventVisionClipObservationV1, "clip_id": "clip-v1", "episode_id": "episode-1", "camera_id": "cam-1",
+		"node_id": "front", "zone": "exterior", "trigger": "motion.sensor.front", "observed_at": "2026-09-17T12:00:00Z", "sequence": 1,
+		"tracks": []any{}, "backend": map[string]any{"status": "ok", "real_model": true},
+	}
+	err := RunClipWorker(clipProcessorFunc(func(*ClipJob) (*WorkerResponse, error) {
+		return &WorkerResponse{Events: []Event{{Type: contract.EventVisionClipObservationV1, Payload: observation}, {Type: contract.EventVisionClipObservationV1, Payload: observation}}}, nil
+	}), publisher, validV1Job())
+	if err == nil || len(publisher.messages) != 2 || publisher.messages[1].Type != contract.EventClipFailed {
+		t.Fatalf("duplicate observation was accepted: err=%v messages=%#v", err, publisher.messages)
+	}
+}
+
 func validV1Job() *ClipJob {
 	at := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
 	return &ClipJob{ID: "clip-v1", CameraID: "cam-1", NodeID: "front", Zone: "exterior", EpisodeID: "episode-1", TriggerReason: "motion.sensor.front", StartedAt: at, Pipeline: "clip-v1"}

@@ -465,7 +465,7 @@ class VisionWorker:
         return {"request_id": request_id, "events": events}
 
     def process_clip_v1(self, req):
-        """Run the opt-in fixed-clip pipeline and return only final summaries."""
+        """Run the opt-in clip pipeline and return observations before final summaries."""
         if not req.get("clip_path") and not self.dry_run:
             return {"error": "missing clip_path"}
         clip_id = req.get("clip_id") or req.get("id") or "clip-v1"
@@ -519,6 +519,14 @@ class VisionWorker:
                 "tracker_max_active_tracks": int(os.getenv("SYNORA_VISION_V1_TRACKER_MAX_ACTIVE", "16")),
                 "tracker_min_bbox_width": int(os.getenv("SYNORA_VISION_V1_TRACKER_MIN_WIDTH", "20")),
                 "tracker_min_bbox_height": int(os.getenv("SYNORA_VISION_V1_TRACKER_MIN_HEIGHT", "20")),
+                "sampling_initial_fps": _worker_float("SYNORA_VISION_V1_INITIAL_FPS", 5.0),
+                "sampling_active_fps": _worker_float("SYNORA_VISION_V1_ACTIVE_FPS", 5.0),
+                "sampling_stable_fps": _worker_float("SYNORA_VISION_V1_STABLE_FPS", 1.0),
+                "sampling_quiet_fps": _worker_float("SYNORA_VISION_V1_QUIET_FPS", 2.0),
+                "sampling_quiet_after_clean_samples": int(os.getenv("SYNORA_VISION_V1_QUIET_AFTER_CLEAN_SAMPLES", "5")),
+                "sampling_lost_track_recovery_fps": _worker_float("SYNORA_VISION_V1_LOST_TRACK_RECOVERY_FPS", 5.0),
+                "sampling_minimum_detection_fps": _worker_float("SYNORA_VISION_V1_MINIMUM_DETECTION_FPS", 1.0),
+                "enrichment_max_occlusion_samples": int(os.getenv("SYNORA_VISION_V1_ENRICHMENT_MAX_OCCLUSION_SAMPLES", "5")),
             }, face, UnavailablePlateEnricher(), UnavailableSensitiveObjectEnricher(), preliminary_sink)
             try:
                 events = pipeline.process_video(clip, req["clip_path"], self.detector_backend,

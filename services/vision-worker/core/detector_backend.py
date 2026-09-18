@@ -26,6 +26,7 @@ class BackendDiagnostic:
     latency_ms: float
     non_human_ignored: int = 0
     error_code: Optional[str] = None
+    detector_compute_sum_ms: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -36,6 +37,7 @@ class BackendDiagnostic:
             "frames_sampled": self.frames_sampled,
             "detections_total": self.detections_total,
             "latency_ms": round(max(0.0, float(self.latency_ms)), 3),
+            "detector_compute_sum_ms": round(max(0.0, float(self.detector_compute_sum_ms or self.latency_ms)), 3),
             "non_human_ignored": self.non_human_ignored,
         }
         if self.error_code:
@@ -210,6 +212,7 @@ class ExistingDetectorBackend(DetectorBackend):
             latency_ms=self._latency_ms,
             non_human_ignored=self._non_human_ignored,
             error_code=self._error_code,
+            detector_compute_sum_ms=self._latency_ms,
         ).as_dict()
 
     def capability(self) -> dict[str, Any]:
@@ -277,6 +280,7 @@ class ThreePinnedDetectorBackend(DetectorBackend):
             latency_ms=sum(item["latency_ms"] for item in diagnostics),
             non_human_ignored=sum(item["non_human_ignored"] for item in diagnostics),
             error_code=next((item.get("error_code") for item in diagnostics if item.get("error_code")), None),
+            detector_compute_sum_ms=sum(item.get("detector_compute_sum_ms", item.get("latency_ms", 0.0)) for item in diagnostics),
         ).as_dict()
 
     def capability(self) -> dict[str, Any]:

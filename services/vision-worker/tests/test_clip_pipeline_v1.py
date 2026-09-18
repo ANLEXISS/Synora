@@ -27,6 +27,7 @@ from core.clip_pipeline_v1 import (  # noqa: E402
     StaticSensitiveObjectEnricher,
     TrackEnrichmentPolicy,
     TrackEnrichmentState,
+    AdaptiveSamplingPolicy,
     SubjectType,
     Topology,
     UnavailablePlateEnricher,
@@ -95,6 +96,17 @@ class ClipPipelineV1Tests(unittest.TestCase):
         self.assertTrue(policy.should_enrich("human-0"))
         self.assertEqual(policy.state("human-0"), TrackEnrichmentState.CANDIDATE)
 
+    def test_adaptive_sampling_never_disables_detection_and_enters_quiet_mode(self):
+        policy = AdaptiveSamplingPolicy(quiet_after_clean_samples=2, minimum_detection_fps=1)
+        self.assertEqual(policy.fps(), 5.0)
+        policy.observe(has_human=False)
+        policy.observe(has_human=False)
+        self.assertEqual(policy.state, "quiet")
+        self.assertEqual(policy.fps(), 2.0)
+        policy.observe(has_human=True)
+        self.assertEqual(policy.state, "active")
+        self.assertGreaterEqual(policy.fps(), 1.0)
+
     def test_process_video_uses_fake_capture_detector_and_honors_clip_duration(self):
         class FakeFrame:
             def __getitem__(self, _key):
@@ -145,6 +157,54 @@ class ClipPipelineV1Tests(unittest.TestCase):
         self.assertEqual(summaries[0]["payload"]["track"]["last_seen_at"], (self.base + timedelta(seconds=.4)).isoformat())
         self.assertLessEqual(detector.calls, 3)
         self.assertTrue(capture.released)
+
+    def test_process_video_emits_ordered_deduplicated_observations_and_wall_metrics(self):
+        class FakeFrame:
+            shape = (40, 40, 3)
+            def __getitem__(self, _key):
+                return self
+
+        class FakeCapture:
+            def __init__(self, _path):
+                self.frames = 0
+            def isOpened(self):
+                return True
+            def get(self, _prop):
+                return 5.0
+            def read(self):
+                if self.frames >= 12:
+                    return False, None
+                self.frames += 1
+                return True, FakeFrame()
+            def release(self):
+                pass
+
+        class FakeDetector:
+            def __init__(self):
+                self.calls = 0
+            def detect_many(self, frames, timestamps):
+                self.calls += 1
+                return [[{"bbox": [0, 0, 30, 30], "score": .8}] for _ in frames]
+            def diagnostic(self):
+                return {"name": "fake", "model_version": "fake", "real_model": True, "status": "ok",
+                        "frames_sampled": 0, "detections_total": 0, "latency_ms": 3.0,
+                        "detector_compute_sum_ms": 3.0, "non_human_ignored": 0}
+
+        cv2_fake = types.SimpleNamespace(VideoCapture=FakeCapture, CAP_PROP_FPS=5)
+        pipeline = VisionClipPipelineV1()
+        with patch.dict(sys.modules, {"cv2": cv2_fake}):
+            events = pipeline.process_video(self.clip(), "clip.mp4", FakeDetector())
+        observations = [event for event in events if event["type"].endswith("clip-observation/v1")]
+        summaries = [event for event in events if event["type"].endswith("clip-summary/v1")]
+        self.assertGreaterEqual(len(observations), 1)
+        self.assertTrue(summaries)
+        self.assertLess(events.index(observations[-1]), events.index(summaries[0]))
+        sequences = [event["payload"]["sequence"] for event in observations]
+        self.assertEqual(sequences, sorted(set(sequences)))
+        metrics = summaries[0]["payload"]["metrics"]
+        self.assertEqual(metrics["peak_frames_in_flight"], 3)
+        self.assertGreaterEqual(metrics["frames_sampled"], 1)
+        self.assertGreaterEqual(metrics["vision_wall_latency_ms"], metrics["first_observation_wall_ms"])
 
     def test_open_close_is_fixed_and_continuity_reuses_episode(self):
         ids = {"episode": 0, "clip": 0}

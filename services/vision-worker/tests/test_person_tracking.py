@@ -87,6 +87,14 @@ class PersonDetectorTests(unittest.TestCase):
             detector = detector_with_outputs(outputs)
             self.assertEqual(detector.detect(np.zeros((240, 320, 3), dtype=np.uint8)), [])
 
+    def test_model_path_is_configurable_without_changing_capability_shape(self):
+        with mock.patch.dict(os.environ, {"SYNORA_YOLO_MODEL_PATH": "/tmp/custom-yolo.rknn"}):
+            with mock.patch("modules.detect.person_detector.model_status", return_value={"status": "present", "path": "/tmp/custom-yolo.rknn"}), \
+                 mock.patch("modules.detect.person_detector.create_model_runner", side_effect=RuntimeError("test stop")):
+                detector = PersonDetector()
+        self.assertEqual(detector.model_path, "/tmp/custom-yolo.rknn")
+        self.assertEqual(detector.capability()["path"], "/tmp/custom-yolo.rknn")
+
 
 class TrackerTests(unittest.TestCase):
 

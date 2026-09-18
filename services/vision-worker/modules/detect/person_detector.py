@@ -27,7 +27,7 @@ class PersonDetector:
     def __init__(self, core_mask=None, debug_enabled=None, debug_max_frames=None):
         log.info("PERSON DETECTOR INIT")
         cv2.setNumThreads(1)
-        model_path = "/var/lib/synora/models/yolov8.rknn"
+        model_path = os.getenv("SYNORA_YOLO_MODEL_PATH", "/var/lib/synora/models/yolov8.rknn")
         self.model_path = model_path
         self.available = False
         self.error = None

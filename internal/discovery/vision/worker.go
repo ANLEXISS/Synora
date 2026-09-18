@@ -77,6 +77,8 @@ func runClipWorker(
 		return err
 	}
 	prepared := make([]map[string]any, len(result.Events))
+	lastObservationSequence := 0
+	lastObservationPayload := ""
 	for index, evt := range result.Events {
 		payloadMap, prepareErr := prepareVisionEvent(evt, job, index)
 		if prepareErr != nil {
@@ -84,6 +86,20 @@ func runClipWorker(
 			return prepareErr
 		}
 		prepared[index] = payloadMap
+		if evt.Type == contract.EventVisionClipObservationV1 {
+			observation, observationErr := contract.DecodeVisionClipObservation(mustJSON(payloadMap))
+			if observationErr != nil {
+				_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_contract_invalid", job.ID+":failed")
+				return observationErr
+			}
+			encoded, _ := json.Marshal(payloadMap)
+			if observation.Sequence <= lastObservationSequence || string(encoded) == lastObservationPayload {
+				_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_contract_invalid", job.ID+":failed")
+				return errors.New("vision contract invalid: observation sequence is not strictly increasing or is duplicated")
+			}
+			lastObservationSequence = observation.Sequence
+			lastObservationPayload = string(encoded)
+		}
 	}
 
 	for index, evt := range result.Events {
@@ -188,7 +204,7 @@ func prepareVisionEvent(evt Event, job *ClipJob, index int) (map[string]any, err
 	if job.Pipeline != "clip-v1" {
 		return payloadMap, nil
 	}
-	if evt.Type != contract.EventVisionClipSummaryV1 && evt.Type != contract.EventVisionPreliminaryAlertV1 {
+	if evt.Type != contract.EventVisionClipSummaryV1 && evt.Type != contract.EventVisionPreliminaryAlertV1 && evt.Type != contract.EventVisionClipObservationV1 {
 		return nil, fmt.Errorf("vision contract invalid: event %q is not admitted for clip-v1", evt.Type)
 	}
 	if job.EpisodeID == "" || job.NodeID == "" || job.Zone == "" || job.TriggerReason == "" || job.StartedAt.IsZero() {
@@ -197,6 +213,19 @@ func prepareVisionEvent(evt Event, job *ClipJob, index int) (map[string]any, err
 	payloadMap["episode_id"] = job.EpisodeID
 	payloadMap["topology"] = map[string]any{"node_id": job.NodeID, "zone": job.Zone}
 	payloadMap["trigger"] = map[string]any{"reason": job.TriggerReason, "started_at": job.StartedAt}
+	if evt.Type == contract.EventVisionClipObservationV1 {
+		payloadMap["zone"] = job.Zone
+		payloadMap["trigger"] = job.TriggerReason
+		delete(payloadMap, "topology")
+		observation, err := contract.DecodeVisionClipObservation(mustJSON(payloadMap))
+		if err != nil {
+			return nil, fmt.Errorf("vision contract invalid: %w", err)
+		}
+		if observation.EpisodeID != job.EpisodeID || observation.ClipID != job.ID || observation.CameraID != job.CameraID || observation.NodeID != job.NodeID || observation.Zone != job.Zone || observation.Trigger != job.TriggerReason {
+			return nil, errors.New("vision contract invalid: authoritative observation metadata mismatch")
+		}
+		return payloadMap, nil
+	}
 	if evt.TrackID == nil {
 		return nil, errors.New("vision contract invalid: track id is required")
 	}
@@ -239,6 +268,12 @@ func rejectAuthoritativeSpoof(payload map[string]any, job *ClipJob) error {
 		}
 	}
 	if rawTrigger, exists := payload["trigger"]; exists {
+		if text, scalar := rawTrigger.(string); scalar {
+			if text != job.TriggerReason {
+				return errors.New("vision contract invalid: worker spoofed trigger.reason")
+			}
+			return nil
+		}
 		trigger, ok := rawTrigger.(map[string]any)
 		if !ok {
 			return errors.New("vision contract invalid: worker spoofed trigger")

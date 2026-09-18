@@ -137,6 +137,31 @@ func TestV1RealClipReplay(t *testing.T) {
 	if len(workerResponse.Events) == 0 {
 		t.Fatalf("real replay worker returned no summary logs=%s", logs.String())
 	}
+	observations := []map[string]any{}
+	lastObservationSequence := 0
+	workerSummarySeen := false
+	for _, event := range workerResponse.Events {
+		if event.Type == contract.EventVisionClipObservationV1 {
+			if workerSummarySeen {
+				t.Fatal("worker emitted progressive observation after final summary")
+			}
+			payload := event.Payload
+			assertNoRawVisionData(t, payload)
+			observationBytes, _ := json.Marshal(payload)
+			observation, observationErr := contract.DecodeVisionClipObservation(observationBytes)
+			if observationErr != nil {
+				t.Fatalf("invalid progressive observation: %v", observationErr)
+			}
+			if observation.Sequence <= lastObservationSequence {
+				t.Fatalf("progressive observation sequence is not increasing: %d after %d", observation.Sequence, lastObservationSequence)
+			}
+			lastObservationSequence = observation.Sequence
+			observations = append(observations, payload)
+		}
+		if event.Type == contract.EventVisionClipSummaryV1 {
+			workerSummarySeen = true
+		}
+	}
 	if err := vision.RunClipWorker(visionProcessorFunc(func(*vision.ClipJob) (*vision.WorkerResponse, error) {
 		return &workerResponse, nil
 	}), replayBus.discovery, job); err != nil {
@@ -149,8 +174,19 @@ func TestV1RealClipReplay(t *testing.T) {
 
 	var summaryEvent *contract.Event
 	trackIDs := map[string]struct{}{}
+	summarySeen := false
 	for _, event := range replayBus.app.eventStore.List() {
-		if event != nil && event.Type == contract.EventVisionClipSummaryV1 {
+		if event == nil {
+			continue
+		}
+		if event.Type == contract.EventVisionClipObservationV1 {
+			if summarySeen {
+				t.Fatal("progressive observation was published after final summary")
+			}
+			assertNoRawVisionData(t, event.Payload)
+		}
+		if event.Type == contract.EventVisionClipSummaryV1 {
+			summarySeen = true
 			if summaryEvent == nil {
 				summaryEvent = event
 			}
@@ -170,6 +206,14 @@ func TestV1RealClipReplay(t *testing.T) {
 	}
 	if err := backend.Validate(); err != nil {
 		t.Fatalf("Core summary backend diagnostic invalid: %v", err)
+	}
+	var metrics contract.VisionClipMetrics
+	metricsBytes, _ := json.Marshal(summaryEvent.Payload["metrics"])
+	if err := json.Unmarshal(metricsBytes, &metrics); err != nil {
+		t.Fatalf("invalid vision wall metrics: %v", err)
+	}
+	if err := metrics.Validate(); err != nil {
+		t.Fatalf("vision wall metrics validation failed: %v", err)
 	}
 
 	if err := replayBus.app.actionDispatcher.Dispatch(contract.Action{Type: "push", Device: "dry-run-device", Command: "notify"}, automationContext(summaryEvent.ID)); err != nil {
@@ -217,18 +261,23 @@ func TestV1RealClipReplay(t *testing.T) {
 		"clip_id": job.ID, "episode_id": job.EpisodeID, "python_worker_real": true,
 		"vision_model_real": backend.RealModel, "detector_backend": backend.Name, "detector_status": backend.Status,
 		"frames_sampled": backend.FramesSampled, "human_detections": humanDetections, "tracks_final": tracksFinal,
-		"worker_latency_ms": backend.LatencyMS, "physical_action_executed": false, "cognitive_mode": "advisory_shadow",
+		"observations": len(observations), "worker_latency_ms": backend.LatencyMS,
+		"first_observation_wall_ms": metrics.FirstObservationWallMS, "vision_wall_latency_ms": metrics.VisionWallLatencyMS,
+		"detector_compute_sum_ms": metrics.DetectorComputeSumMS, "metrics": metrics,
+		"physical_action_executed": false, "cognitive_mode": "advisory_shadow",
 	}
 	writeReplayJSON(t, filepath.Join(outDir, "summary.json"), summary)
 	writeReplayJSON(t, filepath.Join(outDir, "summary.contract.json"), summaryEvent.Payload)
+	writeReplayJSONL(t, filepath.Join(outDir, "observations.jsonl"), observations)
 	traceLines := []map[string]any{
 		{"stage": "clip", "clip_id": job.ID, "episode_id": job.EpisodeID},
+		{"stage": "vision.observations", "count": len(observations), "last_sequence": lastObservationSequence},
 		{"stage": "vision.summary", "event_id": summaryEvent.ID, "event_type": summaryEvent.Type, "backend": backend},
 		{"stage": "cognitive", "mode": "advisory_shadow", "advisory_only": cognitiveOutput.AdvisoryOnly},
 		{"stage": "action", "execution_mode": string(actions.ExecutionDryRun), "physical_action_executed": false},
 	}
 	writeReplayJSONL(t, filepath.Join(outDir, "trace.jsonl"), traceLines)
-	report := fmt.Sprintf("# Vision Clip V1 replay\n\n- clip: `%s`\n- episode: `%s`\n- detector: `%s` (`%s`)\n- frames sampled: `%d`\n- human detections: `%d`\n- tracks final: `%d`\n- worker latency: %.3f ms\n- physical action executed: `false`\n- cognitive mode: `advisory_shadow`\n", job.ID, job.EpisodeID, backend.Name, backend.Status, backend.FramesSampled, humanDetections, tracksFinal, backend.LatencyMS)
+	report := fmt.Sprintf("# Vision Clip V1 progressive replay\n\n- clip: `%s`\n- episode: `%s`\n- detector: `%s` (`%s`)\n- frames sampled: `%d`\n- human detections: `%d`\n- tracks final: `%d`\n- progressive observations: `%d`\n- first observation wall time: %.3f ms\n- final vision wall time: %.3f ms\n- detector compute sum (cumulative NPU): %.3f ms\n- physical action executed: `false`\n- cognitive mode: `advisory_shadow`\n", job.ID, job.EpisodeID, backend.Name, backend.Status, backend.FramesSampled, humanDetections, tracksFinal, len(observations), metrics.FirstObservationWallMS, metrics.VisionWallLatencyMS, metrics.DetectorComputeSumMS)
 	if err := os.WriteFile(filepath.Join(outDir, "report.md"), []byte(report), 0600); err != nil {
 		t.Fatal(err)
 	}
