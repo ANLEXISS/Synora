@@ -75,6 +75,13 @@ func TestSafetyGateBlocksCapabilityWithoutChoosingAnotherAction(t *testing.T) {
 	}
 }
 
+func TestV4ManifestCannotLoadAsV1Bundle(t *testing.T) {
+	manifest := Manifest{SchemaVersion: "synora.cognitive-runtime-manifest/v1", SnapshotSchema: "state-frame/v1", EncoderSchema: "state-encoder/v4", InputDimension: 477, Heads: []string{"danger", "incident", "task", "action"}, Labels: map[string][]string{"danger": {"none"}, "incident": {"none"}, "task": {"none"}, "action": {"no_action"}}}
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("V4 manifest was accepted as a V1 full-snapshot bundle")
+	}
+}
+
 func TestVisionCannotCreateP0(t *testing.T) {
 	store := NewUniversalStore()
 	core := &Core{Store: store, MLP: UnavailableMLP{}, Gate: SafetyGate{DryRun: true}}

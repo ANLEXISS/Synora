@@ -13,10 +13,6 @@ SHELL := /usr/bin/env bash
 COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
 COGNITIVE_MODEL_DIR ?= build/cognitive-mlp-v1
 COGNITIVE_FIXTURES ?= testdata/cognitive/mlp_parity_100.jsonl
-COGNITIVE_RUNTIME_MANIFEST ?= models/cognitive/MANIFEST.runtime.json
-VISION_MLP_FIXTURES ?= testdata/vision-mlp-e2e
-STATEFRAME_V5_FIXTURES ?= testdata/stateframe-v5
-STATEFRAME_V5_OUT ?= /tmp/synora-stateframe-v5-shadow-v1
 PERF_CLIP ?= /home/rock/test3.mp4
 PERF_BEFORE ?= /tmp/synora-perf-v1-before
 PERF_AFTER ?= /tmp/synora-perf-v1-after
@@ -70,7 +66,6 @@ endif
 GO_BINS := \
 	synora-bus:./cmd/synora-bus \
 	synora-core:./cmd/synora-core \
-	synora-actions:./cmd/synora-actions \
 	synora-api:./cmd/synora-api \
 	synora-discovery:./cmd/synora-discovery \
 	synora-network-config:./cmd/synora-network-config \
@@ -90,13 +85,12 @@ RUNTIME_SERVICES := \
 	synora-bus \
 	synora-runtime-manager \
 	synora-core \
-	synora-actions \
 	synora-api \
 	synora-discovery \
 	synora-connect
 
-START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-actions synora-api synora-connect mediamtx
-STOP_ORDER := mediamtx synora-connect synora-api synora-actions synora-discovery synora-core synora-runtime-manager synora-bus
+START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-api synora-connect mediamtx
+STOP_ORDER := mediamtx synora-connect synora-api synora-discovery synora-core synora-runtime-manager synora-bus
 OTA_UNITS := synora-ota-mark-good
 START_ORDER += $(OTA_UNITS)
 SYSTEMD_UNITS := $(addsuffix .service,$(RUNTIME_SERVICES) $(OTA_UNITS)) mediamtx.service
@@ -568,7 +562,7 @@ doctor: check-go
 	failf() { echo "FAIL $$*"; fail=$$((fail+1)); }; \
 	command -v $(PYTHON) >/dev/null 2>&1 && ok "Python: $$($(PYTHON) --version 2>&1)" || failf "Python missing"; \
 	command -v jq >/dev/null 2>&1 && ok "jq: $$(jq --version)" || warnf "jq missing"; \
-	for bin in synora-bus synora-core synora-actions synora-api synora-discovery synora-runtime-manager; do \
+	for bin in synora-bus synora-core synora-api synora-discovery synora-runtime-manager; do \
 		[ -x "$(BINDIR)/$$bin" ] && ok "binary $(BINDIR)/$$bin" || failf "binary missing $(BINDIR)/$$bin"; \
 	done; \
 		for service in $(START_ORDER); do \
@@ -645,7 +639,6 @@ delete:
 	$(SUDO) rm -f \
 		$(SYSTEMD_DIR)/synora-bus.service \
 		$(SYSTEMD_DIR)/synora-core.service \
-		$(SYSTEMD_DIR)/synora-actions.service \
 		$(SYSTEMD_DIR)/synora-api.service \
 		$(SYSTEMD_DIR)/synora-discovery.service \
 		$(SYSTEMD_DIR)/synora-runtime-manager.service \

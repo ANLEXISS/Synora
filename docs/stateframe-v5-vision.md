@@ -142,12 +142,13 @@ n'est autorisé.
 d'épisode calme, gap de segments, détecteur indisponible, enrichissement
 indisponible et P0 Core-only.
 
-La commande permanente est :
+Les fixtures restent disponibles pour l’encodeur V5 et le bloc
+`VisionEvidence[44]`. La commande Core V1 est :
 
 ```text
-make e2e-stateframe-v5-shadow-v1
+make e2e-cognitive-core-v1
 ```
 
-Elle produit un rapport V4/V5 dans `STATEFRAME_V5_OUT` (par défaut
-`/tmp/synora-stateframe-v5-shadow-v1`), vérifie les dimensions 477/44, les
-empreintes, les invariants, les captures interdites et l'absence d'action.
+Elle vérifie que V4 reste inchangé, que le bloc V5 ne transporte aucune donnée
+interdite, que le snapshot complet est encodé par le Core et qu’aucune action
+physique n’est exécutée.

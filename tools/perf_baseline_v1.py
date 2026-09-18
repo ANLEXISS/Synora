@@ -108,8 +108,7 @@ def collect_run(root: Path, clip: Path) -> dict[str, Any]:
         "segments": len(manifest.get("segments", [])),
         "tracks": len({track.get("track_id") for item in observations for track in item.get("tracks", []) if track.get("track_id")}),
         "summaries": read_json(segment_root / "summary.contract.json").get("summary_count", 0),
-        "advisory_shadow": False,
-        "active_dry_run": bool(replay.get("active_dry_run", False)),
+		"active_dry_run": bool(replay.get("active_dry_run", False)),
         "physical_action_executed": bool(replay.get("physical_action_executed", False)),
         "backend_status": "unavailable" if replay.get("active_dry_run", False) else "active",
         "functional_signature": signature,
@@ -167,7 +166,7 @@ def main() -> int:
             "no_raw_vision_on_bus": before["functional_signature"]["raw_vision_absent"] and after["functional_signature"]["raw_vision_absent"],
             "no_physical_action": not before["physical_action_executed"] and not after["physical_action_executed"],
             "max_three_frames_in_flight": after["max_frames_in_flight"] <= 3,
-            "no_advisory_shadow": not before["advisory_shadow"] and not after["advisory_shadow"],
+			"no_legacy_shadow_mode": before["backend_status"] != "shadow" and after["backend_status"] != "shadow",
         },
     }
     report_path = Path(args.after) / "perf-baseline.json"

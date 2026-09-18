@@ -1,1 +1,0 @@
-{"schema":"synora.vision-mlp-e2e-fixture/v1","name":"p1_confirmed_protected_interior","description":"Confirmed protected-interior P1 observation.","expected":["P1_urgent_presence","confirmed","teacher_continues"]}

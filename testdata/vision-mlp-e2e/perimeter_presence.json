@@ -1,1 +1,0 @@
-{"schema":"synora.vision-mlp-e2e-fixture/v1","name":"perimeter_presence","description":"Human presence in a private exterior perimeter.","expected":["perimeter_presence","no_physical_action"]}

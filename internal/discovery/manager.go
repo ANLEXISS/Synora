@@ -272,11 +272,35 @@ func (m *Manager) listenFaceMutations(ctx context.Context) {
 				return
 			}
 			switch msg.Type {
+			case "action.request":
+				m.handleV1ActionRequest(msg)
 			case "resident.face_photo.updated", "resident.face_photo.removal_pending", "resident.updated", "residents.face_dataset.building":
 				m.requestFaceSync()
 			}
 		}
 	}
+}
+
+// handleV1ActionRequest is the only runtime bridge from the Core outbox to a
+// device adapter. V1 remains dry-run and publishes the result as a new event;
+// it never mutates the Store or calls a physical device.
+func (m *Manager) handleV1ActionRequest(message contract.Message) {
+	if m == nil || m.bus == nil {
+		return
+	}
+	var request ActionRequest
+	if err := json.Unmarshal(message.Payload, &request); err != nil {
+		return
+	}
+	event, err := (&Boundary{DryRun: true}).ExecuteAction(request)
+	if err != nil {
+		return
+	}
+	body, err := json.Marshal(event.Payload)
+	if err != nil {
+		return
+	}
+	_ = m.bus.Send(contract.Message{ID: event.ID, Type: event.Type, Kind: contract.KindEvent, Source: "discovery", Target: "core", CorrelationID: message.CorrelationID, Timestamp: event.Timestamp, Payload: body})
 }
 
 func (m *Manager) Close(ctx context.Context) error {
