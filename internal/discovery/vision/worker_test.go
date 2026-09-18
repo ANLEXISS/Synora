@@ -117,6 +117,7 @@ func validSummaryPayload(clipID, cameraID, episodeID, nodeID, zone, reason, trac
 		"plate":             map[string]any{"status": "not_available", "confidence": 0, "value_ref": nil},
 		"sensitive_objects": map[string]any{"status": "not_available", "detections": []any{}},
 		"media":             map[string]any{"clip_ref": "local://clips/clip-v1", "best_roi_refs": []string{"local://clips/clip-v1/roi/1"}},
+		"backend":           map[string]any{"name": "existing_detector", "model_version": "yolov8.rknn", "real_model": true, "status": "ok", "frames_sampled": 2, "detections_total": 2, "latency_ms": 1.5, "non_human_ignored": 0},
 	}
 }
 

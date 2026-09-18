@@ -83,6 +83,7 @@ func TestClipManagerOnlyLearnsTrackFromValidatedSummaryWithinEpisode(t *testing.
 		Track:    contract.VisionClipTrack{ID: "worker-track", SubjectType: "human", FirstSeenAt: base, LastSeenAt: base.Add(time.Second), Confidence: .8},
 		Identity: contract.VisionClipIdentity{Status: "uncertain"}, Plate: contract.VisionClipPlate{Status: "not_available"},
 		Sensitive: contract.VisionSensitiveObjects{Status: "not_available"},
+		Backend:   contract.VisionClipBackendDiagnostic{Name: "existing_detector", ModelVersion: "yolov8.rknn", RealModel: true, Status: "ok", FramesSampled: 1, DetectionsTotal: 1},
 	}
 	if err := m.ObserveSummary(summary); err != nil {
 		t.Fatal(err)

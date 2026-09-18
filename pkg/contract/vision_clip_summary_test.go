@@ -15,6 +15,7 @@ func TestVisionClipSummaryV1Validation(t *testing.T) {
 		Track:    VisionClipTrack{ID: "track-1", SubjectType: "human", FirstSeenAt: at, LastSeenAt: at.Add(time.Second), Confidence: .8},
 		Identity: VisionClipIdentity{Status: "uncertain", Confidence: .2}, Plate: VisionClipPlate{Status: "not_available"},
 		Sensitive: VisionSensitiveObjects{Status: "not_available"}, Media: VisionClipMedia{ClipRef: &clipRef, BestROIRefs: []string{"local://clips/clip-1/roi/1"}},
+		Backend: VisionClipBackendDiagnostic{Name: "existing_detector", ModelVersion: "yolov8.rknn", RealModel: true, Status: "ok", FramesSampled: 2, DetectionsTotal: 2, LatencyMS: 1.5},
 	}
 	if err := summary.Validate(); err != nil {
 		t.Fatal(err)

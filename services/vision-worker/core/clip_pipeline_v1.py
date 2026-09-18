@@ -431,7 +431,7 @@ class ClipTrackerV1:
             bbox = self._bbox(item.get("bbox"))
             if bbox is None:
                 continue
-            score = self._score(item.get("score", 0.0))
+            score = self._score(item.get("confidence", item.get("score", 0.0)))
             if bbox[2] - bbox[0] < self.min_bbox_width or bbox[3] - bbox[1] < self.min_bbox_height:
                 continue
             clean.append((index, bbox, score, item))
@@ -503,7 +503,8 @@ class VisionClipPipelineV1:
         self.sensitive_enricher = sensitive_enricher or UnavailableSensitiveObjectEnricher()
         self.preliminary_sink = preliminary_sink
 
-    def process_frames(self, clip: ClipMetadata, frames: Iterable[FrameObservation]) -> list[dict[str, Any]]:
+    def process_frames(self, clip: ClipMetadata, frames: Iterable[FrameObservation],
+                       backend_diagnostic: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
         tracks: dict[str, TrackState] = {}
         emitted_alerts: set[str] = set()
         events: list[dict[str, Any]] = []
@@ -529,8 +530,12 @@ class VisionClipPipelineV1:
                         events.append(alert)
                         if self.preliminary_sink is not None:
                             self.preliminary_sink(alert)
-        for state in sorted(tracks.values(), key=lambda item: item.track_id):
-            events.append(self._summary(clip, state))
+        if not tracks and backend_diagnostic is not None:
+            empty = TrackState("clip-no-human", SubjectType.UNKNOWN, _utc(clip.started_at), _utc(clip.started_at))
+            events.append(self._summary(clip, empty, backend_diagnostic))
+        else:
+            for state in sorted(tracks.values(), key=lambda item: item.track_id):
+                events.append(self._summary(clip, state, backend_diagnostic))
         return events
 
     def _preliminary_alert(self, clip: ClipMetadata, track: TrackState,
@@ -550,7 +555,8 @@ class VisionClipPipelineV1:
             },
         }
 
-    def _summary(self, clip: ClipMetadata, track: TrackState) -> dict[str, Any]:
+    def _summary(self, clip: ClipMetadata, track: TrackState,
+                 backend_diagnostic: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         identity = IdentityResult(IdentityStatus.NOT_AVAILABLE)
         plate = PlateResult(IdentityStatus.NOT_AVAILABLE)
         if track.subject_type == SubjectType.HUMAN:
@@ -577,6 +583,8 @@ class VisionClipPipelineV1:
             "sensitive_objects": sensitive.as_dict(),
             "media": {"clip_ref": _local_ref(clip.clip_ref), "best_roi_refs": refs},
         }
+        if backend_diagnostic is not None:
+            payload["backend"] = dict(backend_diagnostic)
         return {"type": "synora.vision.clip-summary/v1", "track_id": track.track_id, "payload": payload}
 
     @staticmethod
@@ -627,7 +635,11 @@ class VisionClipPipelineV1:
                     if at > clip.ends_at:
                         break
                     detections: list[Detection] = []
-                    raw_detections = list(detector.detect(frame))
+                    timestamp_ms = int(round((at - clip.started_at).total_seconds() * 1000.0))
+                    if hasattr(detector, "diagnostic"):
+                        raw_detections = list(detector.detect(frame, timestamp_ms))
+                    else:
+                        raw_detections = list(detector.detect(frame))
                     for assigned in tracker.update(raw_detections, at):
                         x1, y1, x2, y2 = assigned["bbox"]
                         roi = frame[max(0, y1):max(0, y2), max(0, x1):max(0, x2)]
@@ -638,7 +650,20 @@ class VisionClipPipelineV1:
                 index += 1
         finally:
             cap.release()
-        return self.process_frames(clip, frames)
+        if hasattr(detector, "diagnostic"):
+            diagnostic = detector.diagnostic()
+        else:
+            diagnostic = {
+                "name": "existing_detector",
+                "model_version": "unknown",
+                "real_model": False,
+                "status": "unavailable",
+                "frames_sampled": len(frames),
+                "detections_total": sum(len(frame.detections) for frame in frames),
+                "latency_ms": 0.0,
+                "non_human_ignored": 0,
+            }
+        return self.process_frames(clip, frames, diagnostic)
 
     @staticmethod
     def _iou(left: tuple[int, int, int, int], right: tuple[int, int, int, int]) -> float:

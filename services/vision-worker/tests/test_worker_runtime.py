@@ -98,6 +98,45 @@ class WorkerRuntimeTests(unittest.TestCase):
             thread.join(timeout=1)
             self.assertFalse(thread.is_alive())
 
+    def test_dry_run_clip_summary_contains_non_real_backend_diagnostic(self):
+        worker = VisionWorker(dry_run=True)
+        response = worker.process_request({
+            "request_id": "clip-v1-dry",
+            "operation": "clip.process",
+            "pipeline": "clip-v1",
+            "clip_path": "/tmp/clip.mp4",
+            "clip_id": "clip-v1-dry",
+            "camera_id": "cam-1",
+            "episode_id": "episode-1",
+            "node_id": "entry",
+            "zone": "interior_entry",
+            "trigger_reason": "motion",
+            "started_at": "2026-09-18T10:00:00Z",
+            "ends_at": "2026-09-18T10:00:10Z",
+            "mock_frames": [{
+                "at": "2026-09-18T10:00:01Z",
+                "detections": [{"track_id": "track-1", "subject_type": "human", "confidence": .8}],
+            }],
+        })
+        self.assertEqual(response["request_id"], "clip-v1-dry")
+        backend = response["events"][-1]["payload"]["backend"]
+        self.assertFalse(backend["real_model"])
+        self.assertEqual(backend["status"], "unavailable")
+        self.assertNotIn("frame", backend)
+        self.assertNotIn("embedding", response["events"][-1]["payload"])
+
+    def test_real_clip_v1_requires_explicit_shadow_mode(self):
+        worker = VisionWorker.__new__(VisionWorker)
+        worker.dry_run = False
+        worker.clip_v1_enabled = False
+        worker.detector_mode = "unavailable"
+        response = worker.process_request({
+            "request_id": "clip-v1-disabled",
+            "operation": "clip.process",
+            "pipeline": "clip-v1",
+        })
+        self.assertEqual(response["failure_code"], "vision_clip_v1_disabled")
+
 
 if __name__ == "__main__":
     unittest.main()

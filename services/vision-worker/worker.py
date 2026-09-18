@@ -30,7 +30,9 @@ from core.clip_pipeline_v1 import (
     StaticSensitiveObjectEnricher,
     UnavailableFaceEnricher,
     UnavailablePlateEnricher,
+    UnavailableSensitiveObjectEnricher,
 )
+from core.detector_backend import ExistingDetectorBackend
 from core.model_runner import model_status
 from face_dataset import FaceDatasetError, FaceDatasetManager, safe_component, _regular_file
 
@@ -90,37 +92,54 @@ class VisionWorker:
 
         self.dry_run = dry_run
         self.pipeline_error = None
+        self.detector_error = None
+        self.face_error = None
         self.debug_http_error = None
         self.face_dataset = None
         self.face_dataset_startup_error = None
+        self.clip_v1_enabled = dry_run or os.getenv("SYNORA_VISION_CLIP_V1_ENABLED", "0") == "1"
+        self.detector_mode = os.getenv("SYNORA_VISION_CLIP_V1_DETECTOR_MODE", "unavailable")
+        self.detector_backend = None
 
         if dry_run:
             self.face_recognizer = None
             self.person_detector = None
             self.pipeline = None
         else:
+            self.face_recognizer = None
+            self.person_detector = None
+            self.pipeline = None
             try:
-                from core.pipeline import VisionPipeline
                 from modules.detect.person_detector import PersonDetector
-                from modules.face.FaceRecognizer import FaceRecognizer
-
-                self.face_recognizer = FaceRecognizer(model_path=ARCFACE_MODEL)
                 self.person_detector = PersonDetector()
-                self.pipeline = VisionPipeline(
-                    self.face_recognizer,
-                    self.person_detector,
-                )
-                self.face_dataset = FaceDatasetManager(FACE_DATA_ROOT, self.face_recognizer)
-                try:
-                    self.face_dataset.startup()
-                except FaceDatasetError as exc:
-                    self.face_dataset_startup_error = exc.code
             except Exception as exc:
-                self.pipeline_error = str(exc)
-                self.face_recognizer = None
-                self.person_detector = None
-                self.pipeline = None
-                log.exception("VISION PIPELINE degraded during initialization")
+                self.detector_error = str(exc)
+                log.exception("HUMAN DETECTOR degraded during initialization")
+            try:
+                from modules.face.FaceRecognizer import FaceRecognizer
+                self.face_recognizer = FaceRecognizer(model_path=ARCFACE_MODEL)
+            except Exception as exc:
+                self.face_error = str(exc)
+                log.exception("FACE backend unavailable during initialization")
+            if self.face_recognizer is not None and self.person_detector is not None:
+                try:
+                    from core.pipeline import VisionPipeline
+                    self.pipeline = VisionPipeline(self.face_recognizer, self.person_detector)
+                    self.face_dataset = FaceDatasetManager(FACE_DATA_ROOT, self.face_recognizer)
+                    try:
+                        self.face_dataset.startup()
+                    except FaceDatasetError as exc:
+                        self.face_dataset_startup_error = exc.code
+                except Exception as exc:
+                    self.pipeline_error = str(exc)
+                    log.exception("VISION PIPELINE degraded during initialization")
+            if self.detector_error:
+                self.pipeline_error = self.detector_error
+        if not dry_run and self.detector_backend is None:
+            self.detector_backend = ExistingDetectorBackend(
+                self.person_detector,
+                timeout_seconds=_worker_float("SYNORA_VISION_V1_DETECTOR_TIMEOUT", 2.0),
+            )
 
         self.debug_app = self.create_debug_app() if DEBUG_HTTP_ENABLED else None
         if not DEBUG_HTTP_ENABLED:
@@ -198,6 +217,11 @@ class VisionWorker:
                 },
                 "models": {},
                 "face_dataset": {"status": "not_configured", "dimension": ARCFACE_EMBEDDING_DIMENSION},
+                "detector_backend": {
+                    "name": "existing_detector", "status": "unavailable", "backend": "not_run",
+                    "model_path": "", "model_version": "not_run", "input_size": 640,
+                    "confidence_threshold": 0.40, "nms_threshold": 0.45, "real_model": False,
+                },
             }
 
         models = {
@@ -214,8 +238,8 @@ class VisionWorker:
         else:
             weapon_capability["status"] = "unavailable"
             weapon_capability["error"] = "weapon detector is not enabled in the clip pipeline"
-        face_capability = self.face_recognizer.capability() if self.face_recognizer is not None else {"status": "unavailable", "error": self.pipeline_error or "face recognizer unavailable"}
-        object_capability = self.person_detector.capability() if self.person_detector is not None else {"status": "unavailable", "error": self.pipeline_error or "person detector unavailable"}
+        face_capability = self.face_recognizer.capability() if self.face_recognizer is not None else {"status": "unavailable", "error": getattr(self, "face_error", None) or "face recognizer unavailable"}
+        object_capability = self.person_detector.capability() if self.person_detector is not None else {"status": "unavailable", "error": getattr(self, "detector_error", None) or "person detector unavailable"}
         face_detection = {"status": "unavailable", "error": "face detector unavailable"}
         if self.pipeline is not None:
             face_detection = self.pipeline.face_detection_capability()
@@ -243,6 +267,9 @@ class VisionWorker:
             },
             "models": models,
             "error": self.pipeline_error,
+            "detector_backend": self.detector_backend.capability() if getattr(self, "detector_backend", None) is not None else {
+                "name": "existing_detector", "status": "unavailable", "model_version": "unknown", "real_model": False,
+            },
         }
         if self.face_dataset is not None:
             result["face_dataset"] = self.face_dataset.snapshot()
@@ -296,6 +323,11 @@ class VisionWorker:
             })
 
         if req.get("pipeline") == "clip-v1":
+            if not self.dry_run and (not getattr(self, "clip_v1_enabled", False) or getattr(self, "detector_mode", "") != "real_shadow"):
+                return self._with_request_id(request_id, {
+                    "error": "real shadow detector mode is not enabled",
+                    "failure_code": "vision_clip_v1_disabled",
+                })
             return self._with_request_id(request_id, self.process_clip_v1(req))
 
         clip_path = req.get(
@@ -444,10 +476,13 @@ class VisionWorker:
                                          d.get("confidence", 0.0), d.get("roi_ref"))
                               for d in item.get("detections", [])]
                 frames.append(FrameObservation.from_values(_parse_worker_time(item.get("at")) or started, detections))
-            events = pipeline.process_frames(clip, frames)
+            events = pipeline.process_frames(clip, frames, {
+                "name": "existing_detector", "model_version": "not_run", "real_model": False,
+                "status": "unavailable", "frames_sampled": len(frames),
+                "detections_total": sum(len(frame.detections) for frame in frames),
+                "latency_ms": 0.0, "non_human_ignored": 0, "error_code": "dry_run",
+            })
         else:
-            if self.pipeline is None or self.person_detector is None:
-                return {"error": "no_models_available", "message": "person detector unavailable"}
             face = ConfiguredFaceEnricher(self.pipeline,
                                           min_crops=int(os.getenv("SYNORA_VISION_V1_MIN_FACE_CROPS", "2")),
                                           stability_threshold=_worker_float("SYNORA_VISION_V1_IDENTITY_STABILITY", .67))
@@ -460,8 +495,11 @@ class VisionWorker:
                 "tracker_min_bbox_width": int(os.getenv("SYNORA_VISION_V1_TRACKER_MIN_WIDTH", "20")),
                 "tracker_min_bbox_height": int(os.getenv("SYNORA_VISION_V1_TRACKER_MIN_HEIGHT", "20")),
             }, face, UnavailablePlateEnricher(), UnavailableSensitiveObjectEnricher(), preliminary_sink)
-            events = pipeline.process_video(clip, req["clip_path"], self.person_detector,
-                                            _worker_float("SYNORA_VISION_V1_SAMPLE_PERIOD", .2))
+            try:
+                events = pipeline.process_video(clip, req["clip_path"], self.detector_backend,
+                                                _worker_float("SYNORA_VISION_V1_SAMPLE_PERIOD", .2))
+            except Exception as exc:
+                return {"error": str(exc), "failure_code": "clip_processing_failed"}
 
         return {"events": [{"type": event["type"], "track_id": event.get("track_id"), "payload": event["payload"]}
                            for event in events]}

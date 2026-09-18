@@ -8,7 +8,7 @@ SHELL := /usr/bin/env bash
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	dev-tools diagnostics install-dev-tools
 
-.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1
+.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 replay-vision-v1
 
 COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
 COGNITIVE_MODEL_DIR ?= build/cognitive-mlp-v1
@@ -191,6 +191,14 @@ test: check-go
 e2e-v1: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1HermeticScenarioAcrossBusCoreDiscoveryVisionActionsAndMediaMTX$$' -count=1
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1PythonWorkerRealProtocolThroughUnixBusCoreShadowAndDryRun$$' -count=1 -v
+
+replay-vision-v1: check-go
+	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }
+	@test -n "$(CAMERA_ID)" || { echo "FAIL: CAMERA_ID is required" >&2; exit 2; }
+	@test -n "$(NODE_ID)" || { echo "FAIL: NODE_ID is required" >&2; exit 2; }
+	@test -n "$(ZONE)" || { echo "FAIL: ZONE is required" >&2; exit 2; }
+	@test -n "$(TRIGGER)" || { echo "FAIL: TRIGGER is required" >&2; exit 2; }
+	$(PYTHON) services/vision-worker/replay_v1.py --clip "$(CLIP)" --camera-id "$(CAMERA_ID)" --node-id "$(NODE_ID)" --zone "$(ZONE)" --trigger "$(TRIGGER)" $(if $(EXPECT),--expect "$(EXPECT)",) $(if $(OUT),--out "$(OUT)",)
 
 install: install-deps build build-bootstrap-config install-dirs install-bins install-bootstrap-config install-boot-healthcheck install-version install-model-manifest install-config install-models install-web install-mediamtx install-vision-worker install-face-data install-diagnostics install-systemd enable-services
 	@echo "Synora runtime installation complete."

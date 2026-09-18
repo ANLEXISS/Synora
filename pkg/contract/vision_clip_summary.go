@@ -55,6 +55,18 @@ type VisionClipMedia struct {
 	BestROIRefs []string `json:"best_roi_refs"`
 }
 
+type VisionClipBackendDiagnostic struct {
+	Name            string  `json:"name"`
+	ModelVersion    string  `json:"model_version"`
+	RealModel       bool    `json:"real_model"`
+	Status          string  `json:"status"`
+	FramesSampled   int     `json:"frames_sampled"`
+	DetectionsTotal int     `json:"detections_total"`
+	LatencyMS       float64 `json:"latency_ms"`
+	NonHumanIgnored int     `json:"non_human_ignored"`
+	ErrorCode       string  `json:"error_code,omitempty"`
+}
+
 type VisionPreliminaryTrack struct {
 	ID          string `json:"id"`
 	SubjectType string `json:"subject_type"`
@@ -77,17 +89,18 @@ type VisionPreliminaryAlert struct {
 }
 
 type VisionClipSummary struct {
-	Schema    string                 `json:"schema"`
-	EpisodeID string                 `json:"episode_id"`
-	ClipID    string                 `json:"clip_id"`
-	CameraID  string                 `json:"camera_id"`
-	Topology  VisionClipTopology     `json:"topology"`
-	Trigger   VisionClipTrigger      `json:"trigger"`
-	Track     VisionClipTrack        `json:"track"`
-	Identity  VisionClipIdentity     `json:"identity"`
-	Plate     VisionClipPlate        `json:"plate"`
-	Sensitive VisionSensitiveObjects `json:"sensitive_objects"`
-	Media     VisionClipMedia        `json:"media"`
+	Schema    string                      `json:"schema"`
+	EpisodeID string                      `json:"episode_id"`
+	ClipID    string                      `json:"clip_id"`
+	CameraID  string                      `json:"camera_id"`
+	Topology  VisionClipTopology          `json:"topology"`
+	Trigger   VisionClipTrigger           `json:"trigger"`
+	Track     VisionClipTrack             `json:"track"`
+	Identity  VisionClipIdentity          `json:"identity"`
+	Plate     VisionClipPlate             `json:"plate"`
+	Sensitive VisionSensitiveObjects      `json:"sensitive_objects"`
+	Media     VisionClipMedia             `json:"media"`
+	Backend   VisionClipBackendDiagnostic `json:"backend"`
 }
 
 func (s VisionClipSummary) Validate() error {
@@ -108,6 +121,9 @@ func (s VisionClipSummary) Validate() error {
 	}
 	if !validSensitiveStatus(s.Sensitive.Status) {
 		return fmt.Errorf("invalid vision clip summary sensitive status")
+	}
+	if err := s.Backend.Validate(); err != nil {
+		return err
 	}
 	if s.Identity.Status == "recognized" && s.Identity.EmbeddingRef == nil {
 		return fmt.Errorf("recognized identity requires an embedding reference")
@@ -135,6 +151,33 @@ func (s VisionClipSummary) Validate() error {
 	return nil
 }
 
+func (d VisionClipBackendDiagnostic) Validate() error {
+	if !validScalar(d.Name) || !validScalar(d.ModelVersion) {
+		return fmt.Errorf("invalid vision backend identity")
+	}
+	switch d.Status {
+	case "ok", "unavailable", "failed", "timeout":
+	default:
+		return fmt.Errorf("invalid vision backend status")
+	}
+	if d.FramesSampled < 0 || d.FramesSampled > 1000000 || d.DetectionsTotal < 0 || d.DetectionsTotal > 10000000 || d.NonHumanIgnored < 0 || d.NonHumanIgnored > 10000000 {
+		return fmt.Errorf("invalid vision backend counters")
+	}
+	if math.IsNaN(d.LatencyMS) || math.IsInf(d.LatencyMS, 0) || d.LatencyMS < 0 || d.LatencyMS > 3600000 {
+		return fmt.Errorf("invalid vision backend latency")
+	}
+	if d.Status == "ok" && !d.RealModel {
+		return fmt.Errorf("ok vision backend must have a real model")
+	}
+	if d.Status == "unavailable" && d.RealModel {
+		return fmt.Errorf("unavailable vision backend cannot have a real model")
+	}
+	if d.Status != "ok" && d.ErrorCode != "" && !validScalar(d.ErrorCode) {
+		return fmt.Errorf("invalid vision backend error code")
+	}
+	return nil
+}
+
 func (s VisionPreliminaryAlert) Validate() error {
 	if s.Schema != EventVisionPreliminaryAlertV1 || !validScalar(s.EpisodeID) || !validScalar(s.ClipID) || !validScalar(s.CameraID) {
 		return fmt.Errorf("invalid preliminary alert identity")
@@ -156,6 +199,7 @@ func DecodeVisionClipSummary(data []byte) (VisionClipSummary, error) {
 	if err := decodeTypedPayload(data, map[string]struct{}{
 		"schema": {}, "episode_id": {}, "clip_id": {}, "camera_id": {}, "topology": {}, "trigger": {},
 		"track": {}, "identity": {}, "plate": {}, "sensitive_objects": {}, "media": {},
+		"backend":   {},
 		"device_id": {}, "node_id": {}, "track_id": {}, "event_id": {}, "activation_id": {}, "sequence_key": {}, "clip_index": {},
 	}, &summary); err != nil {
 		return VisionClipSummary{}, err

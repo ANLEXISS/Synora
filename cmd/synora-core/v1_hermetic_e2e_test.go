@@ -335,6 +335,7 @@ func TestV1HermeticScenarioAcrossBusCoreDiscoveryVisionActionsAndMediaMTX(t *tes
 		Plate:     contract.VisionClipPlate{Status: "not_available", Confidence: 0},
 		Sensitive: contract.VisionSensitiveObjects{Status: "not_available"},
 		Media:     contract.VisionClipMedia{BestROIRefs: []string{"local://clip-v1/roi-0"}},
+		Backend:   contract.VisionClipBackendDiagnostic{Name: "existing_detector", ModelVersion: "fixture", RealModel: false, Status: "unavailable", FramesSampled: 1, DetectionsTotal: 0, ErrorCode: "backend_unavailable"},
 	}
 	if err := clipSummary.Validate(); err != nil {
 		t.Fatal(err)

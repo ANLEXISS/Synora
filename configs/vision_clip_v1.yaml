@@ -2,6 +2,11 @@
 # pipeline: clip-v1; this file does not enable it globally.
 vision_clip_v1:
   enabled: false
+  # The real detector is opt-in and shadow-only. Runtime wiring mirrors this
+  # as SYNORA_VISION_CLIP_V1_DETECTOR_MODE=real_shadow.
+  detector_mode: unavailable
+  detector_backend: existing_detector
+  detector_timeout_seconds: 2.0
   max_duration_seconds: 10
   episode_continuity_window_seconds: 5
   max_crops_per_track: 5
@@ -12,4 +17,3 @@ vision_clip_v1:
   plate_backend: unavailable_until_configured
   sensitive_objects_backend: unavailable_until_configured
   publish_preliminary_alerts: true
-
