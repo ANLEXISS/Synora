@@ -15,6 +15,7 @@ from core.clip_pipeline_v1 import (  # noqa: E402
     ClipMetadata,
     ClipTrackerV1,
     Detection,
+    EpisodeVisionContext,
     FixedClipManager,
     FrameObservation,
     IdentityResult,
@@ -73,6 +74,44 @@ class ClipPipelineV1Tests(unittest.TestCase):
             {"bbox": [8, 0, 48, 40], "score": .6},
         ], self.base + timedelta(seconds=1.0))
         self.assertEqual([item["track_id"] for item in crossing], ["human-0", "human-1"])
+
+    def test_episode_context_keeps_one_person_stable_across_three_segments(self):
+        context = EpisodeVisionContext.from_config("episode-1")
+        ids = []
+        for offset in range(3):
+            assigned = context.tracker.update(
+                [{"bbox": [offset, 0, 40 + offset, 40], "score": .8}],
+                self.base + timedelta(seconds=offset),
+            )
+            ids.append(assigned[0]["track_id"])
+        self.assertEqual(ids, [ids[0], ids[0], ids[0]])
+
+    def test_episode_context_does_not_merge_disappeared_person_with_new_person(self):
+        context = EpisodeVisionContext.from_config("episode-1")
+        first = context.tracker.update([{"bbox": [0, 0, 40, 40], "score": .8}], self.base)[0]["track_id"]
+        second = context.tracker.update([{"bbox": [100, 0, 140, 40], "score": .8}], self.base + timedelta(seconds=3))[0]["track_id"]
+        self.assertNotEqual(first, second)
+
+    def test_episode_context_keeps_two_simultaneous_people_distinct(self):
+        context = EpisodeVisionContext.from_config("episode-1")
+        first = context.tracker.update([
+            {"bbox": [0, 0, 40, 40], "score": .8},
+            {"bbox": [100, 0, 140, 40], "score": .8},
+        ], self.base)
+        second = context.tracker.update([
+            {"bbox": [2, 0, 42, 40], "score": .8},
+            {"bbox": [102, 0, 142, 40], "score": .8},
+        ], self.base + timedelta(seconds=1))
+        self.assertEqual({item["track_id"] for item in first}, {item["track_id"] for item in second})
+        self.assertEqual(len({item["track_id"] for item in first}), 2)
+
+    def test_episode_context_reset_uses_new_track_namespace(self):
+        previous = EpisodeVisionContext.from_config("episode-1")
+        restarted = EpisodeVisionContext.from_config("episode-1", continuity_reset=True)
+        previous_id = previous.tracker.update([{"bbox": [0, 0, 40, 40], "score": .8}], self.base)[0]["track_id"]
+        restarted_id = restarted.tracker.update([{"bbox": [0, 0, 40, 40], "score": .8}], self.base + timedelta(seconds=1))[0]["track_id"]
+        self.assertNotEqual(previous_id, restarted_id)
+        self.assertTrue(restarted.continuity_reset_pending)
 
     def test_tracker_rejects_tiny_boxes_and_expires_tracks_before_allocating(self):
         tracker = ClipTrackerV1(max_track_gap_seconds=1.0, max_active_tracks=1,

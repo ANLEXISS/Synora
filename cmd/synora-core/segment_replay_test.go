@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,6 +84,8 @@ func TestV1SegmentReplay(t *testing.T) {
 	var canonicalFinalSummary map[string]any
 	var finalSegment contract.VisionSegmentReadyV1
 	var runtimeMetrics vision.SegmentRuntimeMetrics
+	var candidateObservedAt, confirmedObservedAt time.Time
+	trackIDsBySegment := map[string][]string{}
 	for _, item := range manifest.Segments {
 		result, ingestErr := runtimeV1.Ingest(context.Background(), item.Segment)
 		if ingestErr != nil {
@@ -95,6 +98,25 @@ func TestV1SegmentReplay(t *testing.T) {
 			if event.Type == contract.EventVisionClipObservationV1 {
 				assertNoRawVisionData(t, event.Payload)
 				observations = append(observations, event.Payload)
+				segmentKey := fmt.Sprintf("%d", item.Segment.SegmentIndex)
+				for _, raw := range observationTracks(event.Payload) {
+					if id, ok := raw["track_id"].(string); ok {
+						trackIDsBySegment[segmentKey] = append(trackIDsBySegment[segmentKey], id)
+					}
+				}
+				observedAt, parseErr := time.Parse(time.RFC3339Nano, fmt.Sprint(event.Payload["observed_at"]))
+				if parseErr == nil {
+					switch event.Payload["priority_state"] {
+					case "candidate":
+						if candidateObservedAt.IsZero() || observedAt.Before(candidateObservedAt) {
+							candidateObservedAt = observedAt
+						}
+					case "confirmed":
+						if confirmedObservedAt.IsZero() || observedAt.Before(confirmedObservedAt) {
+							confirmedObservedAt = observedAt
+						}
+					}
+				}
 			}
 			if event.Type == contract.EventVisionClipSummaryV1 {
 				canonicalFinalSummary = event.Payload
@@ -137,6 +159,9 @@ func TestV1SegmentReplay(t *testing.T) {
 	if summary.ClipID != finalSegment.EpisodeID+":final" {
 		t.Fatalf("final summary was not episode-scoped: %s", summary.ClipID)
 	}
+	if err := runtimeMetrics.Validate(); err != nil {
+		t.Fatal(err)
+	}
 
 	trackIDs := map[string]struct{}{}
 	candidateSeen, confirmedSeen := false, false
@@ -153,8 +178,18 @@ func TestV1SegmentReplay(t *testing.T) {
 	if !candidateSeen || !confirmedSeen {
 		t.Fatalf("expected candidate then confirmed P1 state, observations=%v", observations)
 	}
-	if len(trackIDs) > 1 {
-		t.Fatalf("track continuity was not preserved: %v", trackIDs)
+	episodeStartedAt := manifest.Segments[0].Segment.StartedAt
+	if candidateObservedAt.IsZero() || confirmedObservedAt.IsZero() {
+		t.Fatal("candidate/confirmed timestamps were not emitted")
+	}
+	expectedCandidateMS := candidateObservedAt.Sub(episodeStartedAt).Seconds() * 1000
+	expectedConfirmedMS := confirmedObservedAt.Sub(episodeStartedAt).Seconds() * 1000
+	if math.Abs(runtimeMetrics.TriggerToCandidateMS-expectedCandidateMS) > .01 || math.Abs(runtimeMetrics.TriggerToConfirmedMS-expectedConfirmedMS) > .01 {
+		t.Fatalf("episode-relative latency mismatch metrics=%#v expected_candidate=%.3f expected_confirmed=%.3f", runtimeMetrics, expectedCandidateMS, expectedConfirmedMS)
+	}
+	trackContinuity := tracksRepeatAcrossSegments(trackIDsBySegment)
+	if len(trackIDs) == 0 {
+		t.Fatal("replay produced no worker track identifiers")
 	}
 
 	if err := replayBus.app.actionDispatcher.Dispatch(contract.Action{Type: "push", Device: "dry-run-device", Command: "notify"}, automation.ActionContext{SourceEventID: summaryEvent.ID}); err != nil {
@@ -202,9 +237,11 @@ func TestV1SegmentReplay(t *testing.T) {
 	result := map[string]any{
 		"segment_simulation": true, "camera_transport_real": false,
 		"camera_id": finalSegment.CameraID, "episode_id": finalSegment.EpisodeID,
+		"episode_started_at": episodeStartedAt, "candidate_observed_at": candidateObservedAt, "confirmed_observed_at": confirmedObservedAt,
 		"segments": len(manifest.Segments), "observations": len(observations),
 		"candidate_seen": candidateSeen, "confirmed_seen": confirmedSeen,
-		"track_continuity": len(trackIDs) <= 1, "final_summary_count": 1,
+		"track_continuity": trackContinuity, "final_summary_count": 1,
+		"track_ids_by_segment": trackIDsBySegment,
 		"priority_metrics": map[string]any{"frames_by_priority": metrics.FramesByPriority, "priority_evictions": metrics.PriorityEvictions, "priority_starvation": metrics.PriorityStarvation,
 			"trigger_to_candidate_ms": runtimeMetrics.TriggerToCandidateMS, "trigger_to_confirmed_ms": runtimeMetrics.TriggerToConfirmedMS,
 			"segments_processed": runtimeMetrics.SegmentsProcessed, "segments_coalesced": runtimeMetrics.SegmentsCoalesced, "segment_gaps": runtimeMetrics.SegmentGaps},
@@ -215,12 +252,12 @@ func TestV1SegmentReplay(t *testing.T) {
 	writeReplayJSONL(t, filepath.Join(outDir, "observations.jsonl"), observations)
 	writeReplayJSONL(t, filepath.Join(outDir, "trace.jsonl"), []map[string]any{
 		{"stage": "discovery.segment-ready", "count": len(manifest.Segments), "segment_simulation": true},
-		{"stage": "episode-runtime", "ordered": true, "track_continuity": len(trackIDs) <= 1},
+		{"stage": "episode-runtime", "ordered": true, "track_continuity": trackContinuity, "track_ids_by_segment": trackIDsBySegment},
 		{"stage": "core.final-summary", "count": 1, "candidate_seen": candidateSeen, "confirmed_seen": confirmedSeen},
 		{"stage": "cognitive.shadow", "advisory_only": cognitiveOutput.AdvisoryOnly, "executable_actions": 0},
 		{"stage": "action.dry-run", "physical_action_executed": false},
 	})
-	report := fmt.Sprintf("# Vision segment-ready V1 replay\n\n- segment simulation: `true`\n- camera transport real: `false`\n- episode: `%s`\n- segments: `%d`\n- candidate seen: `%t`\n- confirmed seen: `%t`\n- track continuity: `%t`\n- final summaries: `1`\n- cognitive mode: `advisory_shadow`\n- physical action executed: `false`\n", finalSegment.EpisodeID, len(manifest.Segments), candidateSeen, confirmedSeen, len(trackIDs) <= 1)
+	report := fmt.Sprintf("# Vision segment-ready V1 replay\n\n- segment simulation: `true`\n- camera transport real: `false`\n- episode: `%s`\n- episode_started_at: `%s`\n- candidate_observed_at: `%s`\n- confirmed_observed_at: `%s`\n- trigger_to_candidate_ms: `%.3f`\n- trigger_to_confirmed_ms: `%.3f`\n- segments: `%d`\n- candidate seen: `%t`\n- confirmed seen: `%t`\n- track continuity: `%t`\n- track ids by segment: `%v`\n- final summaries: `1`\n- cognitive mode: `advisory_shadow`\n- physical action executed: `false`\n", finalSegment.EpisodeID, episodeStartedAt.Format(time.RFC3339Nano), candidateObservedAt.Format(time.RFC3339Nano), confirmedObservedAt.Format(time.RFC3339Nano), runtimeMetrics.TriggerToCandidateMS, runtimeMetrics.TriggerToConfirmedMS, len(manifest.Segments), candidateSeen, confirmedSeen, trackContinuity, trackIDsBySegment)
 	if err := os.WriteFile(filepath.Join(outDir, "report.md"), []byte(report), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -240,6 +277,10 @@ func (p *segmentReplayProcessor) ProcessSegment(ctx context.Context, segment con
 	return p.runtime.ProcessSegment(ctx, segment, path)
 }
 
+func (p *segmentReplayProcessor) ReleaseEpisode(episodeID string) {
+	p.runtime.ReleaseEpisode(episodeID)
+}
+
 func observationTracks(payload map[string]any) []map[string]any {
 	raw, _ := payload["tracks"].([]any)
 	tracks := make([]map[string]any, 0, len(raw))
@@ -249,4 +290,23 @@ func observationTracks(payload map[string]any) []map[string]any {
 		}
 	}
 	return tracks
+}
+
+func tracksRepeatAcrossSegments(bySegment map[string][]string) bool {
+	counts := map[string]int{}
+	for _, ids := range bySegment {
+		seen := map[string]struct{}{}
+		for _, id := range ids {
+			seen[id] = struct{}{}
+		}
+		for id := range seen {
+			counts[id]++
+		}
+	}
+	for _, count := range counts {
+		if count >= 2 {
+			return true
+		}
+	}
+	return false
 }

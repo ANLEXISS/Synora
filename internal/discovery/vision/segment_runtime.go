@@ -50,6 +50,21 @@ type SegmentProcessor interface {
 	ProcessSegment(context.Context, contract.VisionSegmentReadyV1) ([]Event, error)
 }
 
+type EpisodeContextReleaser interface {
+	ReleaseEpisode(string)
+}
+
+type segmentContinuityResetContextKey struct{}
+
+func withSegmentContinuityReset(ctx context.Context, reset bool) context.Context {
+	return context.WithValue(ctx, segmentContinuityResetContextKey{}, reset)
+}
+
+func segmentContinuityReset(ctx context.Context) bool {
+	reset, _ := ctx.Value(segmentContinuityResetContextKey{}).(bool)
+	return reset
+}
+
 type SegmentRuntimeMetrics struct {
 	SegmentsReceived     int     `json:"segments_received"`
 	SegmentsProcessed    int     `json:"segments_processed"`
@@ -60,6 +75,13 @@ type SegmentRuntimeMetrics struct {
 	TriggerToConfirmedMS float64 `json:"trigger_to_confirmed_ms"`
 	EpisodeWallLatencyMS float64 `json:"episode_wall_latency_ms"`
 	ContinuityResets     int     `json:"continuity_resets"`
+}
+
+func (m SegmentRuntimeMetrics) Validate() error {
+	if m.TriggerToCandidateMS < 0 || m.TriggerToConfirmedMS < 0 || m.TriggerToConfirmedMS < m.TriggerToCandidateMS {
+		return fmt.Errorf("invalid segment trigger latency ordering")
+	}
+	return nil
 }
 
 type SegmentRuntimeResult struct {
@@ -83,11 +105,11 @@ type segmentEpisodeState struct {
 	Processed               map[int]string                        `json:"processed"`
 	Pending                 map[int]contract.VisionSegmentReadyV1 `json:"pending"`
 	Evidence                []map[string]any                      `json:"evidence"`
-	Tracks                  map[string]string                     `json:"tracks"`
 	LastSeen                time.Time                             `json:"last_seen"`
 	StartedAt               time.Time                             `json:"started_at"`
 	Finalized               bool                                  `json:"finalized"`
 	ContinuityReset         bool                                  `json:"continuity_reset"`
+	WorkerContinuityReset   bool                                  `json:"-"`
 	Metrics                 SegmentRuntimeMetrics                 `json:"metrics"`
 	LastSummary             map[string]any                        `json:"last_summary,omitempty"`
 }
@@ -162,10 +184,9 @@ func (r *EpisodeRuntimeV1) Ingest(ctx context.Context, segment contract.VisionSe
 		_ = r.save()
 		return result, nil
 	}
-	if state.ContinuityReset {
+	continuityResetPending := state.ContinuityReset
+	if continuityResetPending {
 		result.ContinuityReset = true
-		state.ContinuityReset = false
-		state.Metrics.ContinuityResets++
 	}
 	if state.Finalized {
 		state.Metrics.SegmentsRejected++
@@ -182,13 +203,15 @@ func (r *EpisodeRuntimeV1) Ingest(ctx context.Context, segment contract.VisionSe
 	}
 	state.Pending[segment.SegmentIndex] = segment
 	finalProcessed := false
+	continuityResetSent := false
 	for {
 		next, ok := state.Pending[state.NextIndex]
 		if !ok {
 			break
 		}
 		delete(state.Pending, state.NextIndex)
-		events, processErr := r.processOne(ctx, state, next)
+		resetForProcess := continuityResetPending && !continuityResetSent
+		events, processErr := r.processOne(ctx, state, next, resetForProcess)
 		if processErr != nil {
 			state.Metrics.SegmentsRejected++
 			return result, processErr
@@ -197,6 +220,17 @@ func (r *EpisodeRuntimeV1) Ingest(ctx context.Context, segment contract.VisionSe
 		state.Processed[next.SegmentIndex] = next.ContentSHA256
 		state.NextIndex++
 		state.Metrics.SegmentsProcessed++
+		if resetForProcess {
+			state.ContinuityReset = false
+			state.Metrics.ContinuityResets++
+			state.WorkerContinuityReset = false
+			continuityResetSent = true
+		}
+		if state.WorkerContinuityReset && !resetForProcess {
+			result.ContinuityReset = true
+			state.Metrics.ContinuityResets++
+			state.WorkerContinuityReset = false
+		}
 		if next.IsFinal {
 			finalProcessed = true
 		}
@@ -207,6 +241,9 @@ func (r *EpisodeRuntimeV1) Ingest(ctx context.Context, segment contract.VisionSe
 		}
 		state.Finalized = true
 		result.Finalized = true
+		if releaser, ok := r.processor.(EpisodeContextReleaser); ok {
+			releaser.ReleaseEpisode(state.EpisodeID)
+		}
 	} else if segment.IsFinal && len(state.Pending) != 0 {
 		state.Metrics.SegmentGaps++
 		result.GapDetected = true
@@ -235,20 +272,27 @@ func (r *EpisodeRuntimeV1) episode(segment contract.VisionSegmentReadyV1) (*segm
 	state = &segmentEpisodeState{
 		CameraID: segment.CameraID, NodeID: segment.NodeID, EpisodeID: segment.EpisodeID,
 		TopologyClass: segment.TopologyClass, Trigger: segment.Trigger, Processed: map[int]string{}, Pending: map[int]contract.VisionSegmentReadyV1{},
-		Tracks: map[string]string{}, LastSeen: now, StartedAt: segment.StartedAt,
+		LastSeen: now, StartedAt: segment.StartedAt,
 	}
 	r.episodes[segment.EpisodeID] = state
 	return state, nil
 }
 
-func (r *EpisodeRuntimeV1) processOne(ctx context.Context, state *segmentEpisodeState, segment contract.VisionSegmentReadyV1) ([]Event, error) {
-	events, err := r.processor.ProcessSegment(ctx, segment)
+func (r *EpisodeRuntimeV1) processOne(ctx context.Context, state *segmentEpisodeState, segment contract.VisionSegmentReadyV1, continuityReset bool) ([]Event, error) {
+	events, err := r.processor.ProcessSegment(withSegmentContinuityReset(ctx, continuityReset), segment)
 	if err != nil {
 		return nil, err
 	}
 	filtered := make([]Event, 0, len(events))
 	for index := range events {
 		event := &events[index]
+		if event.Type == workerContinuityResetEvent {
+			state.WorkerContinuityReset = true
+			continue
+		}
+		if eventHasReason(event, "continuity_reset") {
+			state.WorkerContinuityReset = true
+		}
 		if event.Type == contract.EventVisionClipObservationV1 {
 			r.rewriteObservation(state, event.Payload, segment)
 			state.Evidence = appendUniqueEvidence(state.Evidence, timelineFromPayload(event.Payload)...)
@@ -260,11 +304,6 @@ func (r *EpisodeRuntimeV1) processOne(ctx context.Context, state *segmentEpisode
 			state.LastSummary["topology"] = map[string]any{"node_id": state.NodeID, "zone": state.TopologyClass}
 			state.LastSummary["topology_class"] = state.TopologyClass
 			state.LastSummary["trigger"] = map[string]any{"reason": state.Trigger, "started_at": state.StartedAt}
-			if track, ok := state.LastSummary["track"].(map[string]any); ok {
-				if local, ok := track["id"].(string); ok {
-					track["id"] = r.stableTrack(state, local)
-				}
-			}
 			continue
 		}
 		filtered = append(filtered, *event)
@@ -272,22 +311,25 @@ func (r *EpisodeRuntimeV1) processOne(ctx context.Context, state *segmentEpisode
 	return filtered, nil
 }
 
-func (r *EpisodeRuntimeV1) stableTrack(state *segmentEpisodeState, local string) string {
-	if stable := state.Tracks[local]; stable != "" {
-		return stable
+func eventHasReason(event *Event, wanted string) bool {
+	if event.Type != contract.EventVisionClipObservationV1 && event.Type != contract.EventVisionClipSummaryV1 {
+		return false
 	}
-	// A segment-local tracker may restart with a new opaque id. When the
-	// episode has exactly one known subject, preserve continuity without
-	// carrying any pixels or biometric material across the boundary.
-	if len(state.Tracks) == 1 {
-		for _, stable := range state.Tracks {
-			state.Tracks[local] = stable
-			return stable
+	if reasons, ok := event.Payload["reason_codes"].([]any); ok {
+		for _, reason := range reasons {
+			if value, ok := reason.(string); ok && value == wanted {
+				return true
+			}
 		}
 	}
-	stable := fmt.Sprintf("episode-human-%d", len(state.Tracks))
-	state.Tracks[local] = stable
-	return stable
+	if reasonStrings, ok := event.Payload["reason_codes"].([]string); ok {
+		for _, reason := range reasonStrings {
+			if reason == wanted {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *EpisodeRuntimeV1) rewriteObservation(state *segmentEpisodeState, payload map[string]any, segment contract.VisionSegmentReadyV1) {
@@ -308,28 +350,13 @@ func (r *EpisodeRuntimeV1) rewriteObservation(state *segmentEpisodeState, payloa
 		}
 	}
 	if priorityState, _ := payload["priority_state"].(string); priorityState == "candidate" && state.Metrics.TriggerToCandidateMS == 0 {
-		state.Metrics.TriggerToCandidateMS = maxDurationMS(observedAt.Sub(segment.StartedAt))
+		state.Metrics.TriggerToCandidateMS = maxDurationMS(observedAt.Sub(state.StartedAt))
 	}
 	if priorityState, _ := payload["priority_state"].(string); priorityState == "confirmed" && state.Metrics.TriggerToConfirmedMS == 0 {
-		state.Metrics.TriggerToConfirmedMS = maxDurationMS(observedAt.Sub(segment.StartedAt))
+		state.Metrics.TriggerToConfirmedMS = maxFloat(state.Metrics.TriggerToCandidateMS, maxDurationMS(observedAt.Sub(state.StartedAt)))
 	}
 	state.NextObservationSequence++
 	payload["sequence"] = state.NextObservationSequence
-	tracks, ok := payload["tracks"].([]any)
-	if !ok {
-		return
-	}
-	for _, raw := range tracks {
-		track, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		local, _ := track["track_id"].(string)
-		if local == "" {
-			continue
-		}
-		track["track_id"] = r.stableTrack(state, local)
-	}
 }
 
 func maxDurationMS(duration time.Duration) float64 {
@@ -337,6 +364,13 @@ func maxDurationMS(duration time.Duration) float64 {
 		return 0
 	}
 	return duration.Seconds() * 1000
+}
+
+func maxFloat(left, right float64) float64 {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func timelineFromPayload(payload map[string]any) []map[string]any {
@@ -389,9 +423,6 @@ func (r *EpisodeRuntimeV1) load() error {
 		if state.Pending == nil {
 			state.Pending = map[int]contract.VisionSegmentReadyV1{}
 		}
-		if state.Tracks == nil {
-			state.Tracks = map[string]string{}
-		}
 		if !state.Finalized {
 			state.ContinuityReset = true
 		}
@@ -420,6 +451,9 @@ func (r *EpisodeRuntimeV1) Expire(now time.Time) []SegmentRuntimeResult {
 			result.Events = []Event{{Type: contract.EventVisionClipSummaryV1, TrackID: "episode-final", Payload: clonePayload(state.LastSummary)}}
 		}
 		results = append(results, result)
+		if releaser, ok := r.processor.(EpisodeContextReleaser); ok {
+			releaser.ReleaseEpisode(state.EpisodeID)
+		}
 	}
 	_ = r.save()
 	return results

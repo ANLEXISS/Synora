@@ -15,6 +15,7 @@ from core.events import ALLOWED_EVENT_TYPES, EventBuilder
 from core.clip_pipeline_v1 import (
     ClipMetadata,
     Detection,
+    EpisodeVisionContext,
     FrameObservation,
     IdentityResult,
     IdentityStatus,
@@ -42,6 +43,7 @@ PROTOCOL_VERSION = "synora.vision.v1"
 PROTOCOL_HELLO = "protocol.hello"
 CLIP_PROCESS = "clip.process"
 SEGMENT_PROCESS = "segment.process"
+EPISODE_RELEASE = "episode.release"
 ARCFACE_EMBEDDING_DIMENSION = 512
 FACE_DATA_ROOT = os.path.abspath(os.path.realpath(os.getenv("SYNORA_FACE_DATA_ROOT", "/var/lib/synora/vision/face")))
 MODEL_ROOT = os.getenv("SYNORA_MODEL_ROOT", "/var/lib/synora/models")
@@ -104,6 +106,8 @@ class VisionWorker:
             "SYNORA_VISION_DETECTOR_STRATEGY", "three_pinned_workers"
         )
         self.detector_backend = None
+        self._episode_contexts = {}
+        self._episode_contexts_lock = threading.RLock()
 
         if dry_run:
             self.face_recognizer = None
@@ -349,6 +353,9 @@ class VisionWorker:
                     "failure_code": "invalid_request",
                 })
             return self._with_request_id(request_id, self.process_segment_v1(req))
+        if operation == EPISODE_RELEASE:
+            self.release_episode_context(req.get("episode_id") or "")
+            return self._with_request_id(request_id, {"status": "released", "events": []})
         if operation and operation != CLIP_PROCESS:
             return self._with_request_id(request_id, {
                 "error": "unsupported worker operation",
@@ -472,7 +479,41 @@ class VisionWorker:
 
         return {"request_id": request_id, "events": events}
 
-    def process_clip_v1(self, req):
+    def _clip_v1_config(self):
+        return {
+            "max_crops_per_track": int(os.getenv("SYNORA_VISION_V1_MAX_CROPS", "5")),
+            "critical_alert_threshold": _worker_float("SYNORA_VISION_V1_CRITICAL_THRESHOLD", .90),
+            "tracker_iou_threshold": _worker_float("SYNORA_VISION_V1_TRACKER_IOU", .20),
+            "tracker_max_gap_seconds": _worker_float("SYNORA_VISION_V1_TRACKER_MAX_GAP", 2.5),
+            "tracker_max_active_tracks": int(os.getenv("SYNORA_VISION_V1_TRACKER_MAX_ACTIVE", "16")),
+            "tracker_min_bbox_width": int(os.getenv("SYNORA_VISION_V1_TRACKER_MIN_WIDTH", "20")),
+            "tracker_min_bbox_height": int(os.getenv("SYNORA_VISION_V1_TRACKER_MIN_HEIGHT", "20")),
+            "sampling_initial_fps": _worker_float("SYNORA_VISION_V1_INITIAL_FPS", 5.0),
+            "sampling_active_fps": _worker_float("SYNORA_VISION_V1_ACTIVE_FPS", 5.0),
+            "sampling_stable_fps": _worker_float("SYNORA_VISION_V1_STABLE_FPS", 1.0),
+            "sampling_quiet_fps": _worker_float("SYNORA_VISION_V1_QUIET_FPS", 2.0),
+            "sampling_quiet_after_clean_samples": int(os.getenv("SYNORA_VISION_V1_QUIET_AFTER_CLEAN_SAMPLES", "5")),
+            "sampling_lost_track_recovery_fps": _worker_float("SYNORA_VISION_V1_LOST_TRACK_RECOVERY_FPS", 5.0),
+            "sampling_minimum_detection_fps": _worker_float("SYNORA_VISION_V1_MINIMUM_DETECTION_FPS", 1.0),
+            "enrichment_max_occlusion_samples": int(os.getenv("SYNORA_VISION_V1_ENRICHMENT_MAX_OCCLUSION_SAMPLES", "5")),
+        }
+
+    def _episode_context(self, episode_id, segment_index, *, continuity_reset=False):
+        with self._episode_contexts_lock:
+            existing = self._episode_contexts.get(episode_id)
+            reset = bool(continuity_reset) or (existing is None and int(segment_index or 0) > 0)
+            if existing is None or reset:
+                existing = EpisodeVisionContext.from_config(
+                    episode_id, self._clip_v1_config(), continuity_reset=reset,
+                )
+                self._episode_contexts[episode_id] = existing
+            return existing
+
+    def release_episode_context(self, episode_id):
+        with self._episode_contexts_lock:
+            self._episode_contexts.pop(episode_id, None)
+
+    def process_clip_v1(self, req, episode_context=None):
         """Run the opt-in clip pipeline and return observations before final summaries."""
         if not req.get("clip_path") and not self.dry_run:
             return {"error": "missing clip_path"}
@@ -520,26 +561,11 @@ class VisionWorker:
             face = ConfiguredFaceEnricher(self.pipeline,
                                           min_crops=int(os.getenv("SYNORA_VISION_V1_MIN_FACE_CROPS", "2")),
                                           stability_threshold=_worker_float("SYNORA_VISION_V1_IDENTITY_STABILITY", .67))
-            pipeline = VisionClipPipelineV1({
-                "max_crops_per_track": int(os.getenv("SYNORA_VISION_V1_MAX_CROPS", "5")),
-                "critical_alert_threshold": _worker_float("SYNORA_VISION_V1_CRITICAL_THRESHOLD", .90),
-                "tracker_iou_threshold": _worker_float("SYNORA_VISION_V1_TRACKER_IOU", .20),
-                "tracker_max_gap_seconds": _worker_float("SYNORA_VISION_V1_TRACKER_MAX_GAP", 2.5),
-                "tracker_max_active_tracks": int(os.getenv("SYNORA_VISION_V1_TRACKER_MAX_ACTIVE", "16")),
-                "tracker_min_bbox_width": int(os.getenv("SYNORA_VISION_V1_TRACKER_MIN_WIDTH", "20")),
-                "tracker_min_bbox_height": int(os.getenv("SYNORA_VISION_V1_TRACKER_MIN_HEIGHT", "20")),
-                "sampling_initial_fps": _worker_float("SYNORA_VISION_V1_INITIAL_FPS", 5.0),
-                "sampling_active_fps": _worker_float("SYNORA_VISION_V1_ACTIVE_FPS", 5.0),
-                "sampling_stable_fps": _worker_float("SYNORA_VISION_V1_STABLE_FPS", 1.0),
-                "sampling_quiet_fps": _worker_float("SYNORA_VISION_V1_QUIET_FPS", 2.0),
-                "sampling_quiet_after_clean_samples": int(os.getenv("SYNORA_VISION_V1_QUIET_AFTER_CLEAN_SAMPLES", "5")),
-                "sampling_lost_track_recovery_fps": _worker_float("SYNORA_VISION_V1_LOST_TRACK_RECOVERY_FPS", 5.0),
-                "sampling_minimum_detection_fps": _worker_float("SYNORA_VISION_V1_MINIMUM_DETECTION_FPS", 1.0),
-                "enrichment_max_occlusion_samples": int(os.getenv("SYNORA_VISION_V1_ENRICHMENT_MAX_OCCLUSION_SAMPLES", "5")),
-            }, face, UnavailablePlateEnricher(), UnavailableSensitiveObjectEnricher(), preliminary_sink)
+            pipeline = VisionClipPipelineV1(self._clip_v1_config(), face, UnavailablePlateEnricher(), UnavailableSensitiveObjectEnricher(), preliminary_sink)
             try:
                 events = pipeline.process_video(clip, req["clip_path"], self.detector_backend,
-                                                _worker_float("SYNORA_VISION_V1_SAMPLE_PERIOD", .2))
+                                                _worker_float("SYNORA_VISION_V1_SAMPLE_PERIOD", .2),
+                                                episode_context=episode_context)
             except Exception as exc:
                 return {"error": str(exc), "failure_code": "clip_processing_failed"}
 
@@ -555,7 +581,20 @@ class VisionWorker:
         segment_req["ends_at"] = req.get("ends_at") or req.get("ended_at")
         segment_req["zone"] = req.get("zone") or req.get("topology_class") or "unknown"
         segment_req["trigger_reason"] = req.get("trigger_reason") or req.get("trigger") or "unknown"
-        return self.process_clip_v1(segment_req)
+        episode_id = segment_req["episode_id"]
+        context = self._episode_context(
+            episode_id, req.get("segment_index", 0),
+            continuity_reset=bool(req.get("continuity_reset", False)),
+        )
+        continuity_reset = context.continuity_reset_pending
+        try:
+            result = self.process_clip_v1(segment_req, episode_context=context)
+            if continuity_reset and "error" not in result:
+                result["continuity_reset"] = True
+            return result
+        finally:
+            if bool(req.get("is_final", False)):
+                self.release_episode_context(episode_id)
 
     @staticmethod
     def _with_request_id(request_id, response):

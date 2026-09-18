@@ -151,6 +151,25 @@ class WorkerRuntimeTests(unittest.TestCase):
         self.assertEqual(response["events"][-1]["type"], "synora.vision.clip-summary/v1")
         self.assertEqual(response["events"][-1]["payload"]["episode_id"], "episode-1")
 
+    def test_episode_context_is_released_on_expiration(self):
+        worker = VisionWorker(dry_run=True)
+        worker._episode_context("episode-expire", 0)
+        self.assertIn("episode-expire", worker._episode_contexts)
+        worker.release_episode_context("episode-expire")
+        self.assertNotIn("episode-expire", worker._episode_contexts)
+
+    def test_worker_restart_signals_continuity_reset_without_detections(self):
+        worker = VisionWorker(dry_run=True)
+        response = worker.process_request({
+            "request_id": "segment-restart", "operation": "segment.process", "pipeline": "clip-v1",
+            "segment_id": "segment-restart", "segment_index": 1, "clip_path": "/tmp/segment.mp4",
+            "camera_id": "cam-1", "episode_id": "episode-restart", "node_id": "entry",
+            "zone": "protected_interior", "topology_class": "protected_interior", "trigger_reason": "motion",
+            "started_at": "2026-09-18T10:00:00Z", "ends_at": "2026-09-18T10:00:01Z",
+            "mock_frames": [],
+        })
+        self.assertTrue(response["continuity_reset"])
+
 
 if __name__ == "__main__":
     unittest.main()

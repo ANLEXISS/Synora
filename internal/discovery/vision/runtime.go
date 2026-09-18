@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	SocketPath      = runtimeconfig.DefaultVisionWorkerSocket
-	connectAttempts = 5
-	connectDelay    = 100 * time.Millisecond
+	SocketPath                 = runtimeconfig.DefaultVisionWorkerSocket
+	connectAttempts            = 5
+	connectDelay               = 100 * time.Millisecond
+	workerContinuityResetEvent = "internal.vision.continuity-reset"
 )
 
 type Runtime struct {
@@ -39,24 +40,25 @@ type Runtime struct {
 }
 
 type Request struct {
-	RequestID     string    `json:"request_id"`
-	Operation     string    `json:"operation"`
-	ID            string    `json:"id"`
-	ActivationID  string    `json:"activation_id,omitempty"`
-	ClipIndex     int       `json:"clip_index,omitempty"`
-	SegmentID     string    `json:"segment_id,omitempty"`
-	SegmentIndex  int       `json:"segment_index,omitempty"`
-	IsFinal       bool      `json:"is_final,omitempty"`
-	NodeID        string    `json:"node_id,omitempty"`
-	SequenceKey   string    `json:"sequence_key,omitempty"`
-	TrackID       string    `json:"track_id,omitempty"`
-	EpisodeID     string    `json:"episode_id,omitempty"`
-	Zone          string    `json:"zone,omitempty"`
-	TopologyClass string    `json:"topology_class,omitempty"`
-	TriggerReason string    `json:"trigger_reason,omitempty"`
-	StartedAt     time.Time `json:"started_at,omitempty"`
-	EndsAt        time.Time `json:"ends_at,omitempty"`
-	Pipeline      string    `json:"pipeline,omitempty"`
+	RequestID       string    `json:"request_id"`
+	Operation       string    `json:"operation"`
+	ID              string    `json:"id"`
+	ActivationID    string    `json:"activation_id,omitempty"`
+	ClipIndex       int       `json:"clip_index,omitempty"`
+	SegmentID       string    `json:"segment_id,omitempty"`
+	SegmentIndex    int       `json:"segment_index,omitempty"`
+	IsFinal         bool      `json:"is_final,omitempty"`
+	NodeID          string    `json:"node_id,omitempty"`
+	SequenceKey     string    `json:"sequence_key,omitempty"`
+	TrackID         string    `json:"track_id,omitempty"`
+	EpisodeID       string    `json:"episode_id,omitempty"`
+	Zone            string    `json:"zone,omitempty"`
+	TopologyClass   string    `json:"topology_class,omitempty"`
+	TriggerReason   string    `json:"trigger_reason,omitempty"`
+	StartedAt       time.Time `json:"started_at,omitempty"`
+	EndsAt          time.Time `json:"ends_at,omitempty"`
+	Pipeline        string    `json:"pipeline,omitempty"`
+	ContinuityReset bool      `json:"continuity_reset,omitempty"`
 
 	ClipPath string `json:"clip_path"`
 
@@ -80,8 +82,9 @@ type Event struct {
 }
 
 type WorkerResponse struct {
-	RequestID string  `json:"request_id"`
-	Events    []Event `json:"events"`
+	RequestID       string  `json:"request_id"`
+	Events          []Event `json:"events"`
+	ContinuityReset bool    `json:"continuity_reset,omitempty"`
 
 	Error string `json:"error,omitempty"`
 }
@@ -425,6 +428,10 @@ func (v *Runtime) Process(
 // protocol as clip-v1. Episode ordering, idempotency and final closure stay in
 // EpisodeRuntimeV1; this method is only the camera-independent worker bridge.
 func (v *Runtime) ProcessSegment(ctx context.Context, segment contract.VisionSegmentReadyV1, mediaPath string) ([]Event, error) {
+	return v.processSegment(ctx, segment, mediaPath, false)
+}
+
+func (v *Runtime) processSegment(ctx context.Context, segment contract.VisionSegmentReadyV1, mediaPath string, continuityReset bool) ([]Event, error) {
 	if v == nil {
 		return nil, fmt.Errorf("vision runtime unavailable")
 	}
@@ -459,7 +466,8 @@ func (v *Runtime) ProcessSegment(ctx context.Context, segment contract.VisionSeg
 		NodeID: segment.NodeID, EpisodeID: segment.EpisodeID, Zone: segment.TopologyClass,
 		TopologyClass: segment.TopologyClass, TriggerReason: segment.Trigger,
 		StartedAt: segment.StartedAt, EndsAt: segment.EndedAt, Pipeline: "clip-v1",
-		ClipPath: mediaPath, CameraID: segment.CameraID,
+		ContinuityReset: continuityReset || segmentContinuityReset(ctx),
+		ClipPath:        mediaPath, CameraID: segment.CameraID,
 	}
 	if err := json.NewEncoder(v.conn).Encode(req); err != nil {
 		v.closeConn()
@@ -482,7 +490,33 @@ func (v *Runtime) ProcessSegment(ctx context.Context, segment contract.VisionSeg
 	if resp.Error != "" {
 		return nil, fmt.Errorf("vision worker error: %s", resp.Error)
 	}
+	if resp.ContinuityReset {
+		resp.Events = append(resp.Events, Event{Type: workerContinuityResetEvent, Payload: map[string]any{}})
+	}
 	return resp.Events, nil
+}
+
+func (v *Runtime) ReleaseEpisode(episodeID string) {
+	if v == nil || strings.TrimSpace(episodeID) == "" {
+		return
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err := v.connect(); err != nil {
+		return
+	}
+	_ = v.conn.SetDeadline(time.Now().UTC().Add(v.workerTimeout))
+	defer func() { _ = v.conn.SetDeadline(time.Time{}) }()
+	requestID := "episode-release-" + episodeID
+	request := map[string]any{"request_id": requestID, "operation": VisionEpisodeRelease, "episode_id": episodeID}
+	if err := json.NewEncoder(v.conn).Encode(request); err != nil {
+		v.closeConn()
+		return
+	}
+	var response map[string]any
+	if err := json.NewDecoder(v.reader).Decode(&response); err != nil {
+		v.closeConn()
+	}
 }
 
 func (v *Runtime) processLocked(

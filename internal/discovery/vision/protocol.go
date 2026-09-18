@@ -11,6 +11,7 @@ const (
 	VisionProtocolHello       = "protocol.hello"
 	VisionClipProcess         = "clip.process"
 	VisionSegmentProcess      = "segment.process"
+	VisionEpisodeRelease      = "episode.release"
 	ArcFaceEmbeddingDimension = 512
 )
 

@@ -769,7 +769,8 @@ class ClipTrackerV1:
                  max_track_gap_seconds: float = 1.0,
                  max_active_tracks: int = 16,
                  min_bbox_width: int = 20,
-                 min_bbox_height: int = 20):
+                 min_bbox_height: int = 20,
+                 track_id_prefix: str = "human"):
         if not 0.0 <= float(iou_threshold) <= 1.0:
             raise ValueError("iou threshold must be between 0 and 1")
         if max_track_gap_seconds < 0 or max_active_tracks <= 0:
@@ -781,6 +782,7 @@ class ClipTrackerV1:
         self.max_active_tracks = int(max_active_tracks)
         self.min_bbox_width = int(min_bbox_width)
         self.min_bbox_height = int(min_bbox_height)
+        self.track_id_prefix = str(track_id_prefix).strip() or "human"
         self._next_track = 0
         self._active: dict[str, _TrackCandidate] = {}
 
@@ -831,7 +833,7 @@ class ClipTrackerV1:
         for detection_order, (_, bbox, score, item) in enumerate(clean):
             if detection_order in matched_detections or len(self._active) >= self.max_active_tracks:
                 continue
-            track_id = f"human-{self._next_track}"
+            track_id = f"{self.track_id_prefix}-{self._next_track}"
             self._next_track += 1
             self._active[track_id] = _TrackCandidate(track_id, bbox, observed_at)
             matched_detections.add(detection_order)
@@ -860,6 +862,57 @@ class ClipTrackerV1:
         return score if math.isfinite(score) else 0.0
 
 
+@dataclass
+class EpisodeVisionContext:
+    """In-memory Vision state that survives finalized segment boundaries."""
+
+    episode_id: str
+    tracker: ClipTrackerV1
+    priority_scheduler: VisionPriorityScheduler
+    enrichment_policy: TrackEnrichmentPolicy
+    evidence_ledger: EpisodeEvidenceLedger
+    priority_by_track: dict[str, PriorityDecision] = field(default_factory=dict)
+    track_records: dict[str, dict[str, Any]] = field(default_factory=dict)
+    observation_sequence: int = 0
+    last_observation_signature: Optional[str] = None
+    last_observation_at: Optional[datetime] = None
+    last_priority_state: str = ""
+    continuity_reset_pending: bool = False
+    last_seen: Optional[datetime] = None
+
+    @classmethod
+    def from_config(cls, episode_id: str, config: Optional[dict[str, Any]] = None,
+                    *, continuity_reset: bool = False,
+                    track_id_prefix: Optional[str] = None) -> "EpisodeVisionContext":
+        cfg = dict(config or {})
+        token = track_id_prefix or f"human-{uuid.uuid4().hex[:10]}"
+        scheduler = VisionPriorityScheduler(
+            human_confidence_threshold=float(cfg.get("priority_human_confidence_threshold", .4)),
+            max_inflight=3,
+        )
+        tracker = ClipTrackerV1(
+            iou_threshold=float(cfg.get("tracker_iou_threshold", .20)),
+            max_track_gap_seconds=float(cfg.get("tracker_max_gap_seconds", 2.5)),
+            max_active_tracks=int(cfg.get("tracker_max_active_tracks", 16)),
+            min_bbox_width=int(cfg.get("tracker_min_bbox_width", 20)),
+            min_bbox_height=int(cfg.get("tracker_min_bbox_height", 20)),
+            track_id_prefix=token,
+        )
+        return cls(
+            episode_id=episode_id,
+            tracker=tracker,
+            priority_scheduler=scheduler,
+            enrichment_policy=TrackEnrichmentPolicy(
+                max_occlusion_frames=int(cfg.get("enrichment_max_occlusion_samples", 5)),
+                max_requests_per_track=int(cfg.get("max_crops_per_track", 5)),
+            ),
+            evidence_ledger=EpisodeEvidenceLedger(
+                max_entries=int(cfg.get("priority_ledger_max_entries", 256)),
+            ),
+            continuity_reset_pending=continuity_reset,
+        )
+
+
 class VisionClipPipelineV1:
     def __init__(self, config: Optional[dict[str, Any]] = None,
                  face_enricher: Optional[FaceEnricher] = None,
@@ -875,11 +928,15 @@ class VisionClipPipelineV1:
         self.sensitive_enricher = sensitive_enricher or UnavailableSensitiveObjectEnricher()
         self.preliminary_sink = preliminary_sink
 
+    def new_episode_context(self, episode_id: str, *, continuity_reset: bool = False) -> EpisodeVisionContext:
+        return EpisodeVisionContext.from_config(episode_id, self._config, continuity_reset=continuity_reset)
+
     def process_frames(self, clip: ClipMetadata, frames: Iterable[FrameObservation],
                        backend_diagnostic: Optional[dict[str, Any]] = None,
                        metrics: Optional[dict[str, Any]] = None,
                        evidence_ledger: Optional[EpisodeEvidenceLedger] = None,
-                       priority_by_track: Optional[dict[str, PriorityDecision]] = None) -> list[dict[str, Any]]:
+                       priority_by_track: Optional[dict[str, PriorityDecision]] = None,
+                       confirmed_tracks: Optional[set[str]] = None) -> list[dict[str, Any]]:
         tracks: dict[str, TrackState] = {}
         emitted_alerts: set[str] = set()
         events: list[dict[str, Any]] = []
@@ -933,7 +990,8 @@ class VisionClipPipelineV1:
                     trigger_reason=clip.trigger_reason)
                 if decision.priority_hint == VisionPriority.P1_URGENT_PRESENCE.value:
                     decision = PriorityDecision(decision.priority_hint, decision.reason_codes,
-                                                "confirmed" if _p1_confirmed(state.confidences, state.first_seen_at, state.last_seen_at) else "candidate")
+                                                "confirmed" if (state.track_id in (confirmed_tracks or set()) or
+                                                                 _p1_confirmed(state.confidences, state.first_seen_at, state.last_seen_at)) else "candidate")
                 events.append(self._summary(clip, state, backend_diagnostic, metrics, decision, ledger.snapshot()))
                 if metrics is not None:
                     metrics["enrichment_wall_ms"] = metrics.get("enrichment_wall_ms", 0.0) + (time.perf_counter() - enrichment_started) * 1000.0
@@ -1019,7 +1077,8 @@ class VisionClipPipelineV1:
                                      strongest.confidence)
 
     def process_video(self, clip: ClipMetadata, video_path: str, detector: Any,
-                      sample_period_seconds: float = 0.2) -> list[dict[str, Any]]:
+                      sample_period_seconds: float = 0.2,
+                      episode_context: Optional[EpisodeVisionContext] = None) -> list[dict[str, Any]]:
         """Run bounded progressive observation, adaptive sampling and final summaries."""
         import cv2
         vision_started = time.perf_counter()
@@ -1031,6 +1090,9 @@ class VisionClipPipelineV1:
         frames: list[FrameObservation] = []
         index = 0
         metrics = ClipProcessingMetrics()
+        context = episode_context or EpisodeVisionContext.from_config(clip.episode_id, self._config, track_id_prefix="human")
+        if context.episode_id != clip.episode_id:
+            raise ValueError("episode context does not match clip episode")
         sampling = AdaptiveSamplingPolicy(
             initial_fps=float(self._config.get("sampling_initial_fps", 5.0)),
             active_fps=float(self._config.get("sampling_active_fps", 5.0)),
@@ -1040,33 +1102,21 @@ class VisionClipPipelineV1:
             lost_track_recovery_fps=float(self._config.get("sampling_lost_track_recovery_fps", 5.0)),
             minimum_detection_fps=float(self._config.get("sampling_minimum_detection_fps", 1.0)),
         )
-        tracker = ClipTrackerV1(
-            iou_threshold=float(self._config.get("tracker_iou_threshold", 0.20)),
-            max_track_gap_seconds=float(self._config.get("tracker_max_gap_seconds", 2.5)),
-            max_active_tracks=int(self._config.get("tracker_max_active_tracks", 16)),
-            min_bbox_width=int(self._config.get("tracker_min_bbox_width", 20)),
-            min_bbox_height=int(self._config.get("tracker_min_bbox_height", 20)),
-        )
+        tracker = context.tracker
         frame_period = fps or 5.0
         batch: list[tuple[int, datetime, Any, int]] = []
         next_sample_index = 0
-        enrichment_policy = TrackEnrichmentPolicy(
-            max_occlusion_frames=int(self._config.get("enrichment_max_occlusion_samples", 5)),
-            max_requests_per_track=self.max_crops,
-        )
-        track_records: dict[str, dict[str, Any]] = {}
-        priority_scheduler = VisionPriorityScheduler(
-            human_confidence_threshold=float(self._config.get("priority_human_confidence_threshold", .4)),
-            max_inflight=3)
-        evidence_ledger = EpisodeEvidenceLedger(
-            max_entries=int(self._config.get("priority_ledger_max_entries", 256)))
-        priority_by_track: dict[str, PriorityDecision] = {}
+        enrichment_policy = context.enrichment_policy
+        track_records = context.track_records
+        priority_scheduler = context.priority_scheduler
+        evidence_ledger = context.evidence_ledger
+        priority_by_track = context.priority_by_track
         priority_queue = PriorityFrameQueue(priority_scheduler)
         observation_events: list[dict[str, Any]] = []
-        last_observation_signature: Optional[str] = None
-        last_observation_at: Optional[datetime] = None
-        observation_sequence = 0
-        last_priority_state = ""
+        observation_sequence = context.observation_sequence
+        last_observation_signature = context.last_observation_signature
+        last_observation_at = context.last_observation_at
+        last_priority_state = context.last_priority_state
 
         def backend_diagnostic() -> dict[str, Any]:
             if hasattr(detector, "diagnostic"):
@@ -1246,7 +1296,9 @@ class VisionClipPipelineV1:
         summary_started = time.perf_counter()
         summary_events = self.process_frames(clip, frames, diagnostic, metric_values,
                                              evidence_ledger=evidence_ledger,
-                                             priority_by_track=priority_by_track)
+                                             priority_by_track=priority_by_track,
+                                             confirmed_tracks={track_id for track_id, record in track_records.items()
+                                                              if _p1_confirmed(record.get("scores", []), record["first_at"], record["last_at"])} )
         metrics.summary_wall_ms = (time.perf_counter() - summary_started) * 1000.0
         metrics.enrichment_wall_ms = float(metric_values.get("enrichment_wall_ms", 0.0) or 0.0)
         metrics.vision_wall_latency_ms = (time.perf_counter() - vision_started) * 1000.0
@@ -1256,7 +1308,22 @@ class VisionClipPipelineV1:
         metric_values = metrics.as_dict()
         for event in summary_events:
             event["payload"]["metrics"] = metric_values
-        return observation_events + summary_events
+
+        output_events = observation_events + summary_events
+        if context.continuity_reset_pending:
+            for event in output_events:
+                payload = event.get("payload", {})
+                reasons = list(payload.get("reason_codes", []))
+                if "continuity_reset" not in reasons:
+                    reasons.append("continuity_reset")
+                payload["reason_codes"] = reasons
+            context.continuity_reset_pending = False
+        context.observation_sequence = observation_sequence
+        context.last_observation_signature = last_observation_signature
+        context.last_observation_at = last_observation_at
+        context.last_priority_state = last_priority_state
+        context.last_seen = clip.ends_at
+        return output_events
 
     @staticmethod
     def _iou(left: tuple[int, int, int, int], right: tuple[int, int, int, int]) -> float:

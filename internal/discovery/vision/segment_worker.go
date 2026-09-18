@@ -22,6 +22,20 @@ func PublishSegmentRuntimeResult(publisher Publisher, segment contract.VisionSeg
 	if result.Duplicate {
 		return nil
 	}
+	if result.ContinuityReset {
+		resetPayload, _ := json.Marshal(map[string]any{
+			"schema_version": contract.EventVisionContinuityResetV1,
+			"episode_id":     segment.EpisodeID, "camera_id": segment.CameraID,
+			"segment_index": segment.SegmentIndex, "continuity_reset": true,
+		})
+		if err := publisher.Send(contract.Message{
+			ID: segment.SegmentID + ":continuity-reset", Type: contract.EventVisionContinuityResetV1,
+			Kind: contract.KindEvent, Source: "discovery", Target: "core", Timestamp: time.Now().UTC(),
+			Priority: contract.PriorityHigh, Payload: resetPayload,
+		}); err != nil {
+			return err
+		}
+	}
 	segmentPayload, err := segment.MarshalPayload()
 	if err != nil {
 		return err

@@ -52,6 +52,7 @@ const (
 	EventVisionClipObservationV1  = "synora.vision.clip-observation/v1"
 	EventVisionSegmentReadyV1     = "synora.vision.segment-ready/v1"
 	EventVisionSegmentGapV1       = "synora.vision.segment-gap/v1"
+	EventVisionContinuityResetV1  = "synora.vision.continuity-reset/v1"
 
 	// Device events
 	EventDeviceTrigger = "device.trigger"
@@ -298,7 +299,8 @@ func EventCategory(eventType string) string {
 		EventVisionPreliminaryAlertV1,
 		EventVisionClipObservationV1,
 		EventVisionSegmentReadyV1,
-		EventVisionSegmentGapV1:
+		EventVisionSegmentGapV1,
+		EventVisionContinuityResetV1:
 		return EventCategoryVision
 	case EventActionRequest,
 		EventActionResult,
@@ -359,6 +361,7 @@ func NormalizeEventType(raw string) string {
 		EventVisionClipObservationV1,
 		EventVisionSegmentReadyV1,
 		EventVisionSegmentGapV1,
+		EventVisionContinuityResetV1,
 		EventDeviceTrigger,
 		EventDeviceOffline,
 		EventDiscoveryCameraObserved,
@@ -442,6 +445,7 @@ func EventPriority(eventType string) int {
 		EventVisionClipObservationV1,
 		EventVisionSegmentReadyV1,
 		EventVisionSegmentGapV1,
+		EventVisionContinuityResetV1,
 		EventDeviceTrigger,
 		EventDiscoveryCameraObserved,
 		EventDiscoveryCameraOnline,
