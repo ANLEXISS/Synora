@@ -41,6 +41,7 @@ SOCKET_PATH = os.getenv("SYNORA_VISION_SOCKET", "/run/synora/vision-worker.sock"
 PROTOCOL_VERSION = "synora.vision.v1"
 PROTOCOL_HELLO = "protocol.hello"
 CLIP_PROCESS = "clip.process"
+SEGMENT_PROCESS = "segment.process"
 ARCFACE_EMBEDDING_DIMENSION = 512
 FACE_DATA_ROOT = os.path.abspath(os.path.realpath(os.getenv("SYNORA_FACE_DATA_ROOT", "/var/lib/synora/vision/face")))
 MODEL_ROOT = os.getenv("SYNORA_MODEL_ROOT", "/var/lib/synora/models")
@@ -341,6 +342,13 @@ class VisionWorker:
             return self._with_request_id(request_id, self.process_face_embed(req))
         if operation == "face_dataset.reload":
             return self._with_request_id(request_id, self.process_face_reload(req))
+        if operation == SEGMENT_PROCESS:
+            if req.get("pipeline") != "clip-v1":
+                return self._with_request_id(request_id, {
+                    "error": "segment processing requires clip-v1",
+                    "failure_code": "invalid_request",
+                })
+            return self._with_request_id(request_id, self.process_segment_v1(req))
         if operation and operation != CLIP_PROCESS:
             return self._with_request_id(request_id, {
                 "error": "unsupported worker operation",
@@ -537,6 +545,17 @@ class VisionWorker:
 
         return {"events": [{"type": event["type"], "track_id": event.get("track_id"), "payload": event["payload"]}
                            for event in events]}
+
+    def process_segment_v1(self, req):
+        """Process one closed segment using the authoritative segment metadata."""
+        segment_req = dict(req)
+        segment_req["clip_id"] = req.get("segment_id") or req.get("id") or "segment-v1"
+        segment_req["id"] = segment_req["clip_id"]
+        segment_req["episode_id"] = req.get("episode_id") or f"episode-{segment_req['clip_id']}"
+        segment_req["ends_at"] = req.get("ends_at") or req.get("ended_at")
+        segment_req["zone"] = req.get("zone") or req.get("topology_class") or "unknown"
+        segment_req["trigger_reason"] = req.get("trigger_reason") or req.get("trigger") or "unknown"
+        return self.process_clip_v1(segment_req)
 
     @staticmethod
     def _with_request_id(request_id, response):

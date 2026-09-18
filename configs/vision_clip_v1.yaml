@@ -17,3 +17,11 @@ vision_clip_v1:
   plate_backend: unavailable_until_configured
   sensitive_objects_backend: unavailable_until_configured
   publish_preliminary_alerts: true
+
+# Central finalized-segment assembly is opt-in and camera-independent.
+vision_segment_runtime_v1:
+  enabled: false
+  segment_seconds: 1.0
+  reorder_window_segments: 4
+  episode_ttl_seconds: 45
+  max_active_episodes: 32

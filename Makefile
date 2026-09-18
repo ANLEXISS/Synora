@@ -8,7 +8,7 @@ SHELL := /usr/bin/env bash
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	dev-tools diagnostics install-dev-tools
 
-.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 replay-vision-v1 benchmark-vision-inference
+.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 replay-vision-v1 replay-vision-segments-v1 benchmark-vision-inference
 
 COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
 COGNITIVE_MODEL_DIR ?= build/cognitive-mlp-v1
@@ -199,6 +199,16 @@ replay-vision-v1: check-go
 	@test -n "$(ZONE)" || { echo "FAIL: ZONE is required" >&2; exit 2; }
 	@test -n "$(TRIGGER)" || { echo "FAIL: TRIGGER is required" >&2; exit 2; }
 	GO="$(GO)" $(PYTHON) services/vision-worker/replay_v1.py --clip "$(CLIP)" --camera-id "$(CAMERA_ID)" --node-id "$(NODE_ID)" --zone "$(ZONE)" --trigger "$(TRIGGER)" $(if $(EXPECT),--expect "$(EXPECT)",) $(if $(OUT),--out "$(OUT)",)
+
+replay-vision-segments-v1: check-go
+	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }
+	@test -n "$(SEGMENT_SECONDS)" || { echo "FAIL: SEGMENT_SECONDS is required" >&2; exit 2; }
+	@test -n "$(CAMERA_ID)" || { echo "FAIL: CAMERA_ID is required" >&2; exit 2; }
+	@test -n "$(NODE_ID)" || { echo "FAIL: NODE_ID is required" >&2; exit 2; }
+	@test -n "$(ZONE)" || { echo "FAIL: ZONE is required" >&2; exit 2; }
+	@test -n "$(TRIGGER)" || { echo "FAIL: TRIGGER is required" >&2; exit 2; }
+	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
+	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds "$(SEGMENT_SECONDS)" --camera-id "$(CAMERA_ID)" --node-id "$(NODE_ID)" --zone "$(ZONE)" --trigger "$(TRIGGER)" --out "$(OUT)"
 
 benchmark-vision-inference: check-go
 	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/tools/vision_inference_benchmark.py $(if $(CLIP),--clip "$(CLIP)",) $(if $(OUT),--out "$(OUT)",) $(if $(SKIP_ONNX),--skip-onnx,)

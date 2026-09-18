@@ -37,6 +37,7 @@ from core.clip_pipeline_v1 import (  # noqa: E402
     Topology,
     UnavailablePlateEnricher,
     VisionClipPipelineV1,
+    _p1_confirmed,
 )
 from core.unix_bus import UnixBusPublisher
 
@@ -145,6 +146,12 @@ class ClipPipelineV1Tests(unittest.TestCase):
         self.assertEqual(len(drained), 3)
         self.assertIn(urgent, drained)
         self.assertEqual(scheduler.priority_evictions, 1)
+
+    def test_p1_candidate_promotes_to_confirmed_with_bounded_evidence(self):
+        self.assertFalse(_p1_confirmed([.45], self.base, self.base))
+        self.assertTrue(_p1_confirmed([.45, .46], self.base, self.base + timedelta(seconds=1)))
+        self.assertTrue(_p1_confirmed([.70], self.base, self.base))
+        self.assertFalse(_p1_confirmed([.45, .46], self.base, self.base + timedelta(seconds=2)))
 
     def test_evidence_ledger_is_bounded_and_deduplicated(self):
         ledger = EpisodeEvidenceLedger(max_entries=2)
@@ -274,6 +281,9 @@ class ClipPipelineV1Tests(unittest.TestCase):
         self.assertEqual(metrics["peak_frames_in_flight"], 3)
         self.assertGreaterEqual(metrics["frames_sampled"], 1)
         self.assertGreaterEqual(metrics["vision_wall_latency_ms"], metrics["first_observation_wall_ms"])
+        states = [event["payload"]["priority_state"] for event in observations]
+        self.assertTrue(all(state in {"candidate", "confirmed"} for state in states))
+        self.assertEqual(len(sequences), len(set(sequences)))
 
     def test_open_close_is_fixed_and_continuity_reuses_episode(self):
         ids = {"episode": 0, "clip": 0}

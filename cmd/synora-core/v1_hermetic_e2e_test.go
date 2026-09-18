@@ -336,7 +336,7 @@ func TestV1HermeticScenarioAcrossBusCoreDiscoveryVisionActionsAndMediaMTX(t *tes
 		Sensitive:    contract.VisionSensitiveObjects{Status: "not_available"},
 		Media:        contract.VisionClipMedia{BestROIRefs: []string{"local://clip-v1/roi-0"}},
 		Backend:      contract.VisionClipBackendDiagnostic{Name: "existing_detector", ModelVersion: "fixture", RealModel: false, Status: "unavailable", FramesSampled: 1, DetectionsTotal: 0, ErrorCode: "backend_unavailable"},
-		PriorityHint: contract.VisionPriorityP4, ReasonCodes: []string{"human_detected", "unknown_topology"},
+		PriorityHint: contract.VisionPriorityP4, PriorityState: "candidate", ReasonCodes: []string{"human_detected", "unknown_topology"},
 	}
 	if err := clipSummary.Validate(); err != nil {
 		t.Fatal(err)

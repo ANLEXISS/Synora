@@ -84,7 +84,7 @@ func TestClipManagerOnlyLearnsTrackFromValidatedSummaryWithinEpisode(t *testing.
 		Identity: contract.VisionClipIdentity{Status: "uncertain"}, Plate: contract.VisionClipPlate{Status: "not_available"},
 		Sensitive:    contract.VisionSensitiveObjects{Status: "not_available"},
 		Backend:      contract.VisionClipBackendDiagnostic{Name: "existing_detector", ModelVersion: "yolov8.rknn", RealModel: true, Status: "ok", FramesSampled: 1, DetectionsTotal: 1},
-		PriorityHint: contract.VisionPriorityP4, ReasonCodes: []string{"human_detected", "unknown_topology"},
+		PriorityHint: contract.VisionPriorityP4, PriorityState: "candidate", ReasonCodes: []string{"human_detected", "unknown_topology"},
 	}
 	if err := m.ObserveSummary(summary); err != nil {
 		t.Fatal(err)

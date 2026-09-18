@@ -70,9 +70,10 @@ _PRIORITY_RANK = {
 class PriorityDecision:
     priority_hint: str
     reason_codes: tuple[str, ...]
+    priority_state: str = "candidate"
 
     def as_dict(self) -> dict[str, Any]:
-        return {"priority_hint": self.priority_hint, "reason_codes": list(self.reason_codes)}
+        return {"priority_hint": self.priority_hint, "priority_state": self.priority_state, "reason_codes": list(self.reason_codes)}
 
 
 class VisionPriorityScheduler:
@@ -132,7 +133,7 @@ class VisionPriorityScheduler:
     def merge_with_core(self, vision_decision: PriorityDecision, core_priority: Optional[str] = None) -> PriorityDecision:
         """Preserve a Core P0 and never let a Vision result downgrade it."""
         if core_priority == VisionPriority.P0_SYSTEM_CRITICAL.value:
-            return PriorityDecision(core_priority, ("core_system_critical",))
+            return PriorityDecision(core_priority, ("core_system_critical",), "confirmed")
         return vision_decision
 
     def order(self, items: Iterable[Any], priority_getter: Callable[[Any], str]) -> list[Any]:
@@ -404,6 +405,12 @@ def _utc(value: Optional[datetime]) -> datetime:
 
 def _bounded(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
+
+
+def _p1_confirmed(confidences: list[float], first_seen: datetime, last_seen: datetime) -> bool:
+    if max(confidences or [0.0]) >= .65:
+        return True
+    return len(confidences) >= 2 and min(confidences) >= .40 and (_utc(last_seen) - _utc(first_seen)).total_seconds() <= 1.2
 
 
 def _local_ref(value: Optional[str]) -> Optional[str]:
@@ -924,6 +931,9 @@ class VisionClipPipelineV1:
                 decision = decisions.get(state.track_id) or scheduler.classify(
                     state.subject_type, max(state.confidences, default=0.0), clip.topology.topology_class,
                     trigger_reason=clip.trigger_reason)
+                if decision.priority_hint == VisionPriority.P1_URGENT_PRESENCE.value:
+                    decision = PriorityDecision(decision.priority_hint, decision.reason_codes,
+                                                "confirmed" if _p1_confirmed(state.confidences, state.first_seen_at, state.last_seen_at) else "candidate")
                 events.append(self._summary(clip, state, backend_diagnostic, metrics, decision, ledger.snapshot()))
                 if metrics is not None:
                     metrics["enrichment_wall_ms"] = metrics.get("enrichment_wall_ms", 0.0) + (time.perf_counter() - enrichment_started) * 1000.0
@@ -982,6 +992,7 @@ class VisionClipPipelineV1:
             "media": {"clip_ref": _local_ref(clip.clip_ref), "best_roi_refs": refs},
             "metrics": dict(metrics or {}),
             "priority_hint": priority.priority_hint,
+            "priority_state": priority.priority_state,
             "reason_codes": list(priority.reason_codes),
             "priority_timeline": list(priority_timeline or []),
         }
@@ -1055,6 +1066,7 @@ class VisionClipPipelineV1:
         last_observation_signature: Optional[str] = None
         last_observation_at: Optional[datetime] = None
         observation_sequence = 0
+        last_priority_state = ""
 
         def backend_diagnostic() -> dict[str, Any]:
             if hasattr(detector, "diagnostic"):
@@ -1065,7 +1077,7 @@ class VisionClipPipelineV1:
                     "latency_ms": 0.0, "detector_compute_sum_ms": 0.0, "non_human_ignored": 0}
 
         def maybe_observe(at: datetime) -> None:
-            nonlocal last_observation_signature, last_observation_at, observation_sequence
+            nonlocal last_observation_signature, last_observation_at, observation_sequence, last_priority_state
             diagnostic = backend_diagnostic()
             active_ids = tracker.active_track_ids
             if not active_ids and diagnostic.get("status") == "ok":
@@ -1075,6 +1087,12 @@ class VisionClipPipelineV1:
                 decision = min(active_decisions, key=lambda item: _PRIORITY_RANK.get(item.priority_hint, 4))
             else:
                 decision = PriorityDecision(VisionPriority.P4_LOW_PRIORITY_CONTEXT.value, ("backend_error",))
+            if decision.priority_hint == VisionPriority.P1_URGENT_PRESENCE.value and active_ids:
+                confirmed = any(_p1_confirmed(track_records[track_id].get("scores", []),
+                                              track_records[track_id]["first_at"], track_records[track_id]["last_at"])
+                                for track_id in active_ids if track_id in track_records)
+                decision = PriorityDecision(decision.priority_hint, decision.reason_codes,
+                                            "confirmed" if confirmed else "candidate")
             tracks = []
             for track_id in active_ids:
                 record = track_records.get(track_id)
@@ -1096,18 +1114,23 @@ class VisionClipPipelineV1:
                 "sequence": observation_sequence + 1, "tracks": tracks,
                 "backend": {"status": diagnostic.get("status", "unavailable"), "real_model": bool(diagnostic.get("real_model", False))},
                 "priority_hint": decision.priority_hint,
+                "priority_state": decision.priority_state,
                 "reason_codes": list(decision.reason_codes),
             }
-            signature = repr((payload["tracks"], payload["backend"]))
+            signature = repr(([(item["track_id"], item["state"]) for item in tracks],
+                              decision.priority_hint, decision.priority_state, decision.reason_codes,
+                              payload["topology_class"], payload["backend"].get("status")))
             if signature == last_observation_signature:
                 return
-            if last_observation_at is not None and (_utc(at) - last_observation_at).total_seconds() < 0.5:
+            heartbeat_window = 2.0 if decision.priority_hint == VisionPriority.P1_URGENT_PRESENCE.value else .5
+            if last_observation_at is not None and decision.priority_state == last_priority_state and (_utc(at) - last_observation_at).total_seconds() < heartbeat_window:
                 return
             observation_sequence += 1
             payload["sequence"] = observation_sequence
             observation_events.append({"type": "synora.vision.clip-observation/v1", "payload": payload})
             last_observation_signature = signature
             last_observation_at = _utc(at)
+            last_priority_state = decision.priority_state
             primary_track = active_ids[0] if active_ids else "clip-backend"
             evidence_ledger.append(observation_sequence, decision.priority_hint, decision.reason_codes,
                                    primary_track, at)
@@ -1154,9 +1177,12 @@ class VisionClipPipelineV1:
                     roi = frame[max(0, y1):max(0, y2), max(0, x1):max(0, x2)]
                     ref = f"local://clips/{clip.clip_id}/roi/{sample_index}-{len(detections)}"
                     track_id = assigned["track_id"]
-                    record = track_records.setdefault(track_id, {"detection_count": 0, "score_sum": 0.0})
+                    record = track_records.setdefault(track_id, {"detection_count": 0, "score_sum": 0.0, "scores": [], "first_at": at, "last_at": at})
                     record["detection_count"] += 1
                     record["score_sum"] += float(assigned["score"])
+                    record["scores"].append(float(assigned["score"]))
+                    record["first_at"] = min(record["first_at"], at)
+                    record["last_at"] = max(record["last_at"], at)
                     enrichment_policy.observe(track_id, at)
                     decision = priority_scheduler.classify(
                         SubjectType.HUMAN, assigned["score"], clip.topology.topology_class,

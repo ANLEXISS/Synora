@@ -10,6 +10,7 @@ const (
 	VisionProtocolVersion     = "synora.vision.v1"
 	VisionProtocolHello       = "protocol.hello"
 	VisionClipProcess         = "clip.process"
+	VisionSegmentProcess      = "segment.process"
 	ArcFaceEmbeddingDimension = 512
 )
 

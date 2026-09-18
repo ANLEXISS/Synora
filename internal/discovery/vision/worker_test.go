@@ -111,7 +111,7 @@ func TestRunClipWorkerPublishesProgressiveObservationBeforeSummary(t *testing.T)
 				"node_id": job.NodeID, "zone": job.Zone, "trigger": job.TriggerReason, "observed_at": job.StartedAt,
 				"sequence": 1, "tracks": []any{map[string]any{"track_id": "human-0", "subject_type": "human", "confidence": .8, "state": "candidate", "detection_count": 1}},
 				"backend":        map[string]any{"status": "ok", "real_model": true},
-				"topology_class": contract.VisionTopologyUnknown, "priority_hint": contract.VisionPriorityP4,
+				"topology_class": contract.VisionTopologyUnknown, "priority_hint": contract.VisionPriorityP4, "priority_state": "candidate",
 				"reason_codes": []string{"human_detected", "unknown_topology"}, "priority_timeline": []any{},
 			}},
 			{Type: contract.EventVisionClipSummaryV1, TrackID: "track-1", Payload: validSummaryPayload("clip-v1", "cam-1", "episode-1", "front", "exterior", "motion.sensor.front", "track-1")},
@@ -132,7 +132,7 @@ func TestRunClipWorkerRejectsDuplicateObservationSequence(t *testing.T) {
 		"schema_version": contract.EventVisionClipObservationV1, "clip_id": "clip-v1", "episode_id": "episode-1", "camera_id": "cam-1",
 		"node_id": "front", "zone": "exterior", "trigger": "motion.sensor.front", "observed_at": "2026-09-17T12:00:00Z", "sequence": 1,
 		"tracks": []any{}, "backend": map[string]any{"status": "ok", "real_model": true},
-		"topology_class": contract.VisionTopologyUnknown, "priority_hint": contract.VisionPriorityP4,
+		"topology_class": contract.VisionTopologyUnknown, "priority_hint": contract.VisionPriorityP4, "priority_state": "candidate",
 		"reason_codes": []string{"backend_error"}, "priority_timeline": []any{},
 	}
 	err := RunClipWorker(clipProcessorFunc(func(*ClipJob) (*WorkerResponse, error) {
@@ -160,7 +160,7 @@ func validSummaryPayload(clipID, cameraID, episodeID, nodeID, zone, reason, trac
 		"sensitive_objects": map[string]any{"status": "not_available", "detections": []any{}},
 		"media":             map[string]any{"clip_ref": "local://clips/clip-v1", "best_roi_refs": []string{"local://clips/clip-v1/roi/1"}},
 		"backend":           map[string]any{"name": "existing_detector", "model_version": "yolov8.rknn", "real_model": true, "status": "ok", "frames_sampled": 2, "detections_total": 2, "latency_ms": 1.5, "non_human_ignored": 0},
-		"priority_hint":     contract.VisionPriorityP4, "reason_codes": []string{"human_detected", "unknown_topology"}, "priority_timeline": []any{},
+		"priority_hint":     contract.VisionPriorityP4, "priority_state": "candidate", "reason_codes": []string{"human_detected", "unknown_topology"}, "priority_timeline": []any{},
 	}
 }
 

@@ -16,7 +16,7 @@ func TestVisionClipSummaryV1Validation(t *testing.T) {
 		Identity: VisionClipIdentity{Status: "uncertain", Confidence: .2}, Plate: VisionClipPlate{Status: "not_available"},
 		Sensitive: VisionSensitiveObjects{Status: "not_available"}, Media: VisionClipMedia{ClipRef: &clipRef, BestROIRefs: []string{"local://clips/clip-1/roi/1"}},
 		Backend:      VisionClipBackendDiagnostic{Name: "existing_detector", ModelVersion: "yolov8.rknn", RealModel: true, Status: "ok", FramesSampled: 2, DetectionsTotal: 2, LatencyMS: 1.5},
-		PriorityHint: VisionPriorityP1, ReasonCodes: []string{"human_detected", "protected_interior"},
+		PriorityHint: VisionPriorityP1, PriorityState: "confirmed", ReasonCodes: []string{"human_detected", "protected_interior"},
 	}
 	if err := summary.Validate(); err != nil {
 		t.Fatal(err)
@@ -34,7 +34,7 @@ func TestVisionClipObservationV1ValidationAndRawDataRejection(t *testing.T) {
 		NodeID: "front", Zone: "exterior", TopologyClass: VisionTopologyProtectedInterior, Trigger: "motion.sensor.front", ObservedAt: at, Sequence: 1,
 		Tracks:       []VisionClipObservationTrack{{ID: "human-0", SubjectType: "human", Confidence: .8, State: "candidate", DetectionCount: 1}},
 		Backend:      VisionClipObservationBackend{Status: "ok", RealModel: true},
-		PriorityHint: VisionPriorityP1, ReasonCodes: []string{"human_detected", "protected_interior"},
+		PriorityHint: VisionPriorityP1, PriorityState: "candidate", ReasonCodes: []string{"human_detected", "protected_interior"},
 	}
 	if err := observation.Validate(); err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestVisionPriorityAndTopologyValidation(t *testing.T) {
 		Trigger: "motion", ObservedAt: time.Now().UTC(), Sequence: 1,
 		Tracks:       []VisionClipObservationTrack{{ID: "human-0", SubjectType: "human", Confidence: .9, State: "candidate", DetectionCount: 1}},
 		Backend:      VisionClipObservationBackend{Status: "ok", RealModel: true},
-		PriorityHint: VisionPriorityP1, ReasonCodes: []string{"human_detected", "restricted_threshold"},
+		PriorityHint: VisionPriorityP1, PriorityState: "candidate", ReasonCodes: []string{"human_detected", "restricted_threshold"},
 	}
 	if err := observation.Validate(); err != nil {
 		t.Fatal(err)

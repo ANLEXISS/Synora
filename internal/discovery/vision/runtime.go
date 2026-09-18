@@ -44,6 +44,9 @@ type Request struct {
 	ID            string    `json:"id"`
 	ActivationID  string    `json:"activation_id,omitempty"`
 	ClipIndex     int       `json:"clip_index,omitempty"`
+	SegmentID     string    `json:"segment_id,omitempty"`
+	SegmentIndex  int       `json:"segment_index,omitempty"`
+	IsFinal       bool      `json:"is_final,omitempty"`
 	NodeID        string    `json:"node_id,omitempty"`
 	SequenceKey   string    `json:"sequence_key,omitempty"`
 	TrackID       string    `json:"track_id,omitempty"`
@@ -416,6 +419,70 @@ func (v *Runtime) Process(
 	}
 
 	return returnValue, nil
+}
+
+// ProcessSegment sends one already-closed segment through the same worker
+// protocol as clip-v1. Episode ordering, idempotency and final closure stay in
+// EpisodeRuntimeV1; this method is only the camera-independent worker bridge.
+func (v *Runtime) ProcessSegment(ctx context.Context, segment contract.VisionSegmentReadyV1, mediaPath string) ([]Event, error) {
+	if v == nil {
+		return nil, fmt.Errorf("vision runtime unavailable")
+	}
+	if err := segment.Validate(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(mediaPath) == "" {
+		return nil, fmt.Errorf("segment media path is required")
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err := v.connect(); err != nil {
+		return nil, err
+	}
+	deadline := time.Now().UTC().Add(v.workerTimeout)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	if err := v.conn.SetDeadline(deadline); err != nil {
+		v.closeConn()
+		return nil, err
+	}
+	defer func() { _ = v.conn.SetDeadline(time.Time{}) }()
+	req := Request{
+		RequestID: segment.SegmentID, Operation: VisionSegmentProcess, ID: segment.SegmentID,
+		SegmentID: segment.SegmentID, SegmentIndex: segment.SegmentIndex, IsFinal: segment.IsFinal,
+		NodeID: segment.NodeID, EpisodeID: segment.EpisodeID, Zone: segment.TopologyClass,
+		TopologyClass: segment.TopologyClass, TriggerReason: segment.Trigger,
+		StartedAt: segment.StartedAt, EndsAt: segment.EndedAt, Pipeline: "clip-v1",
+		ClipPath: mediaPath, CameraID: segment.CameraID,
+	}
+	if err := json.NewEncoder(v.conn).Encode(req); err != nil {
+		v.closeConn()
+		return nil, err
+	}
+	var raw json.RawMessage
+	if err := json.NewDecoder(v.reader).Decode(&raw); err != nil {
+		v.closeConn()
+		return nil, err
+	}
+	resp, err := decodeWorkerResponse(raw)
+	if err != nil {
+		v.closeConn()
+		return nil, err
+	}
+	if resp.RequestID != req.RequestID {
+		v.closeConn()
+		return nil, fmt.Errorf("%w: response correlation mismatch", ErrVisionMalformedResponse)
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("vision worker error: %s", resp.Error)
+	}
+	return resp.Events, nil
 }
 
 func (v *Runtime) processLocked(

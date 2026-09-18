@@ -137,6 +137,20 @@ class WorkerRuntimeTests(unittest.TestCase):
         })
         self.assertEqual(response["failure_code"], "vision_clip_v1_disabled")
 
+    def test_segment_process_reuses_clip_v1_contract_in_dry_run(self):
+        worker = VisionWorker(dry_run=True)
+        response = worker.process_request({
+            "request_id": "segment-1", "operation": "segment.process", "pipeline": "clip-v1",
+            "segment_id": "segment-1", "clip_path": "/tmp/segment.mp4", "camera_id": "cam-1",
+            "episode_id": "episode-1", "node_id": "entry", "zone": "protected_interior",
+            "topology_class": "protected_interior", "trigger_reason": "motion",
+            "started_at": "2026-09-18T10:00:00Z", "ends_at": "2026-09-18T10:00:01Z",
+            "mock_frames": [{"at": "2026-09-18T10:00:00.500Z", "detections": []}],
+        })
+        self.assertEqual(response["request_id"], "segment-1")
+        self.assertEqual(response["events"][-1]["type"], "synora.vision.clip-summary/v1")
+        self.assertEqual(response["events"][-1]["payload"]["episode_id"], "episode-1")
+
 
 if __name__ == "__main__":
     unittest.main()

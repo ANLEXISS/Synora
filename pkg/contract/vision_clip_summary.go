@@ -188,6 +188,7 @@ type VisionClipObservation struct {
 	Tracks           []VisionClipObservationTrack  `json:"tracks"`
 	Backend          VisionClipObservationBackend  `json:"backend"`
 	PriorityHint     string                        `json:"priority_hint"`
+	PriorityState    string                        `json:"priority_state"`
 	ReasonCodes      []string                      `json:"reason_codes"`
 	PriorityTimeline []VisionPriorityTimelineEntry `json:"priority_timeline"`
 }
@@ -198,6 +199,9 @@ func (o VisionClipObservation) Validate() error {
 	}
 	if !ValidVisionPriorityHint(o.PriorityHint) || o.PriorityHint == VisionPriorityP0 {
 		return fmt.Errorf("invalid vision observation priority")
+	}
+	if o.PriorityState != "candidate" && o.PriorityState != "confirmed" {
+		return fmt.Errorf("invalid vision observation priority state")
 	}
 	if err := validateVisionReasons(o.ReasonCodes); err != nil {
 		return err
@@ -258,6 +262,7 @@ type VisionClipSummary struct {
 	Backend          VisionClipBackendDiagnostic   `json:"backend"`
 	Metrics          VisionClipMetrics             `json:"metrics"`
 	PriorityHint     string                        `json:"priority_hint"`
+	PriorityState    string                        `json:"priority_state"`
 	ReasonCodes      []string                      `json:"reason_codes"`
 	PriorityTimeline []VisionPriorityTimelineEntry `json:"priority_timeline"`
 }
@@ -271,6 +276,9 @@ func (s VisionClipSummary) Validate() error {
 	}
 	if !ValidVisionPriorityHint(s.PriorityHint) || s.PriorityHint == VisionPriorityP0 {
 		return fmt.Errorf("invalid vision summary priority")
+	}
+	if s.PriorityState != "candidate" && s.PriorityState != "confirmed" {
+		return fmt.Errorf("invalid vision summary priority state")
 	}
 	if err := validateVisionReasons(s.ReasonCodes); err != nil {
 		return err
@@ -370,8 +378,8 @@ func DecodeVisionClipSummary(data []byte) (VisionClipSummary, error) {
 	if err := decodeTypedPayload(data, map[string]struct{}{
 		"schema": {}, "episode_id": {}, "clip_id": {}, "camera_id": {}, "topology": {}, "topology_class": {}, "trigger": {},
 		"track": {}, "identity": {}, "plate": {}, "sensitive_objects": {}, "media": {},
-		"backend": {}, "metrics": {}, "priority_hint": {}, "reason_codes": {}, "priority_timeline": {},
-		"device_id": {}, "node_id": {}, "track_id": {}, "event_id": {}, "activation_id": {}, "sequence_key": {}, "clip_index": {},
+		"backend": {}, "metrics": {}, "priority_hint": {}, "priority_state": {}, "reason_codes": {}, "priority_timeline": {},
+		"device_id": {}, "node_id": {}, "track_id": {}, "event_id": {}, "source_type": {}, "activation_id": {}, "sequence_key": {}, "clip_index": {},
 	}, &summary); err != nil {
 		return VisionClipSummary{}, err
 	}
@@ -384,8 +392,8 @@ func DecodeVisionClipSummary(data []byte) (VisionClipSummary, error) {
 func DecodeVisionClipObservation(data []byte) (VisionClipObservation, error) {
 	var observation VisionClipObservation
 	if err := decodeTypedPayload(data, map[string]struct{}{
-		"schema_version": {}, "clip_id": {}, "episode_id": {}, "camera_id": {}, "node_id": {}, "zone": {}, "topology_class": {}, "trigger": {}, "observed_at": {}, "sequence": {}, "tracks": {}, "backend": {}, "priority_hint": {}, "reason_codes": {}, "priority_timeline": {},
-		"device_id": {}, "event_id": {}, "clip_index": {}, "activation_id": {}, "sequence_key": {}, "track_id": {},
+		"schema_version": {}, "clip_id": {}, "episode_id": {}, "camera_id": {}, "node_id": {}, "zone": {}, "topology_class": {}, "trigger": {}, "observed_at": {}, "sequence": {}, "tracks": {}, "backend": {}, "priority_hint": {}, "priority_state": {}, "reason_codes": {}, "priority_timeline": {},
+		"device_id": {}, "event_id": {}, "source_type": {}, "clip_index": {}, "activation_id": {}, "sequence_key": {}, "track_id": {},
 	}, &observation); err != nil {
 		return VisionClipObservation{}, err
 	}
