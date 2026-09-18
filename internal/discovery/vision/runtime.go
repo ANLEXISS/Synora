@@ -49,6 +49,7 @@ type Request struct {
 	TrackID       string    `json:"track_id,omitempty"`
 	EpisodeID     string    `json:"episode_id,omitempty"`
 	Zone          string    `json:"zone,omitempty"`
+	TopologyClass string    `json:"topology_class,omitempty"`
 	TriggerReason string    `json:"trigger_reason,omitempty"`
 	StartedAt     time.Time `json:"started_at,omitempty"`
 	EndsAt        time.Time `json:"ends_at,omitempty"`
@@ -448,6 +449,7 @@ func (v *Runtime) processLocked(
 		TrackID:       job.TrackID,
 		EpisodeID:     job.EpisodeID,
 		Zone:          job.Zone,
+		TopologyClass: authoritativeTopologyClass(job),
 		TriggerReason: job.TriggerReason,
 		StartedAt:     job.StartedAt,
 		EndsAt:        job.EndsAt,

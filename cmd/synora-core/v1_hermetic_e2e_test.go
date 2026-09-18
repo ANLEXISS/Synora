@@ -328,14 +328,15 @@ func TestV1HermeticScenarioAcrossBusCoreDiscoveryVisionActionsAndMediaMTX(t *tes
 	clipV1.Pipeline = "clip-v1"
 	clipSummary := contract.VisionClipSummary{
 		Schema: contract.EventVisionClipSummaryV1, EpisodeID: "episode-v1", ClipID: clipV1.ID, CameraID: clipV1.CameraID,
-		Topology:  contract.VisionClipTopology{NodeID: "entry", Zone: "entry"},
-		Trigger:   contract.VisionClipTrigger{Reason: "hermetic_fixture", StartedAt: when},
-		Track:     contract.VisionClipTrack{ID: "track-v1", SubjectType: "human", FirstSeenAt: when, LastSeenAt: when.Add(2 * time.Second), Confidence: 0.93},
-		Identity:  contract.VisionClipIdentity{Status: "not_available", Confidence: 0},
-		Plate:     contract.VisionClipPlate{Status: "not_available", Confidence: 0},
-		Sensitive: contract.VisionSensitiveObjects{Status: "not_available"},
-		Media:     contract.VisionClipMedia{BestROIRefs: []string{"local://clip-v1/roi-0"}},
-		Backend:   contract.VisionClipBackendDiagnostic{Name: "existing_detector", ModelVersion: "fixture", RealModel: false, Status: "unavailable", FramesSampled: 1, DetectionsTotal: 0, ErrorCode: "backend_unavailable"},
+		Topology: contract.VisionClipTopology{NodeID: "entry", Zone: "entry"}, TopologyClass: contract.VisionTopologyUnknown,
+		Trigger:      contract.VisionClipTrigger{Reason: "hermetic_fixture", StartedAt: when},
+		Track:        contract.VisionClipTrack{ID: "track-v1", SubjectType: "human", FirstSeenAt: when, LastSeenAt: when.Add(2 * time.Second), Confidence: 0.93},
+		Identity:     contract.VisionClipIdentity{Status: "not_available", Confidence: 0},
+		Plate:        contract.VisionClipPlate{Status: "not_available", Confidence: 0},
+		Sensitive:    contract.VisionSensitiveObjects{Status: "not_available"},
+		Media:        contract.VisionClipMedia{BestROIRefs: []string{"local://clip-v1/roi-0"}},
+		Backend:      contract.VisionClipBackendDiagnostic{Name: "existing_detector", ModelVersion: "fixture", RealModel: false, Status: "unavailable", FramesSampled: 1, DetectionsTotal: 0, ErrorCode: "backend_unavailable"},
+		PriorityHint: contract.VisionPriorityP4, ReasonCodes: []string{"human_detected", "unknown_topology"},
 	}
 	if err := clipSummary.Validate(); err != nil {
 		t.Fatal(err)

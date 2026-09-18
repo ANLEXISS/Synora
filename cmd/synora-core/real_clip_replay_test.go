@@ -123,6 +123,7 @@ func TestV1RealClipReplay(t *testing.T) {
 		"request_id": "replay-clip", "operation": vision.VisionClipProcess, "pipeline": "clip-v1",
 		"clip_path": job.Path, "clip_id": job.ID, "camera_id": job.CameraID,
 		"episode_id": job.EpisodeID, "node_id": job.NodeID, "zone": job.Zone,
+		"topology_class": job.TopologyClass,
 		"trigger_reason": job.TriggerReason, "started_at": job.StartedAt, "ends_at": job.EndsAt,
 	}); err != nil {
 		t.Fatal(err)
@@ -264,6 +265,15 @@ func TestV1RealClipReplay(t *testing.T) {
 		"observations": len(observations), "worker_latency_ms": backend.LatencyMS,
 		"first_observation_wall_ms": metrics.FirstObservationWallMS, "vision_wall_latency_ms": metrics.VisionWallLatencyMS,
 		"detector_compute_sum_ms": metrics.DetectorComputeSumMS, "metrics": metrics,
+		"priority_hint": summaryEvent.Payload["priority_hint"],
+		"first_observation_priority": func() any {
+			if len(observations) == 0 {
+				return nil
+			}
+			return observations[0]["priority_hint"]
+		}(),
+		"reason_codes":             summaryEvent.Payload["reason_codes"],
+		"priority_timeline":        summaryEvent.Payload["priority_timeline"],
 		"physical_action_executed": false, "cognitive_mode": "advisory_shadow",
 	}
 	writeReplayJSON(t, filepath.Join(outDir, "summary.json"), summary)
@@ -277,7 +287,7 @@ func TestV1RealClipReplay(t *testing.T) {
 		{"stage": "action", "execution_mode": string(actions.ExecutionDryRun), "physical_action_executed": false},
 	}
 	writeReplayJSONL(t, filepath.Join(outDir, "trace.jsonl"), traceLines)
-	report := fmt.Sprintf("# Vision Clip V1 progressive replay\n\n- clip: `%s`\n- episode: `%s`\n- detector: `%s` (`%s`)\n- frames sampled: `%d`\n- human detections: `%d`\n- tracks final: `%d`\n- progressive observations: `%d`\n- first observation wall time: %.3f ms\n- final vision wall time: %.3f ms\n- detector compute sum (cumulative NPU): %.3f ms\n- physical action executed: `false`\n- cognitive mode: `advisory_shadow`\n", job.ID, job.EpisodeID, backend.Name, backend.Status, backend.FramesSampled, humanDetections, tracksFinal, len(observations), metrics.FirstObservationWallMS, metrics.VisionWallLatencyMS, metrics.DetectorComputeSumMS)
+	report := fmt.Sprintf("# Vision Clip V1 priority replay\n\n- clip: `%s`\n- episode: `%s`\n- detector: `%s` (`%s`)\n- topology class: `%v`\n- first observation priority: `%v`\n- first observation wall time: %.3f ms\n- final vision wall time: %.3f ms\n- detector compute sum (cumulative NPU): %.3f ms\n- frames sampled: `%d`\n- frames by priority: `%v`\n- tracks final: `%d`\n- progressive observations: `%d`\n- priority timeline entries: `%d`\n- enrichments executed: `%d`\n- enrichments avoided: `%d`\n- priority evictions: `%d`\n- priority starvation: `%d`\n- physical action executed: `false`\n- cognitive mode: `advisory_shadow`\n", job.ID, job.EpisodeID, backend.Name, backend.Status, summaryEvent.Payload["topology_class"], summary["first_observation_priority"], metrics.FirstObservationWallMS, metrics.VisionWallLatencyMS, metrics.DetectorComputeSumMS, backend.FramesSampled, metrics.FramesByPriority, tracksFinal, len(observations), len(observations), metrics.EnrichmentsExecuted, metrics.EnrichmentsAvoided, metrics.PriorityEvictions, metrics.PriorityStarvation)
 	if err := os.WriteFile(filepath.Join(outDir, "report.md"), []byte(report), 0600); err != nil {
 		t.Fatal(err)
 	}

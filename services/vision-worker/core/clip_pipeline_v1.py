@@ -41,6 +41,170 @@ class TrackEnrichmentState(str, Enum):
     UNKNOWN = "unknown"
 
 
+class TopologyClass(str, Enum):
+    PUBLIC_OUTDOOR = "public_outdoor"
+    PRIVATE_PERIMETER = "private_perimeter"
+    RESTRICTED_THRESHOLD = "restricted_threshold"
+    PROTECTED_INTERIOR = "protected_interior"
+    UNKNOWN = "unknown"
+
+
+class VisionPriority(str, Enum):
+    P0_SYSTEM_CRITICAL = "P0_system_critical"
+    P1_URGENT_PRESENCE = "P1_urgent_presence"
+    P2_CONTEXTUAL_ENRICHMENT = "P2_contextual_enrichment"
+    P3_BEST_EFFORT_ENRICHMENT = "P3_best_effort_enrichment"
+    P4_LOW_PRIORITY_CONTEXT = "P4_low_priority_context"
+
+
+_PRIORITY_RANK = {
+    VisionPriority.P0_SYSTEM_CRITICAL.value: 0,
+    VisionPriority.P1_URGENT_PRESENCE.value: 1,
+    VisionPriority.P2_CONTEXTUAL_ENRICHMENT.value: 2,
+    VisionPriority.P3_BEST_EFFORT_ENRICHMENT.value: 3,
+    VisionPriority.P4_LOW_PRIORITY_CONTEXT.value: 4,
+}
+
+
+@dataclass(frozen=True)
+class PriorityDecision:
+    priority_hint: str
+    reason_codes: tuple[str, ...]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"priority_hint": self.priority_hint, "reason_codes": list(self.reason_codes)}
+
+
+class VisionPriorityScheduler:
+    """Deterministic Vision-only priority policy; it cannot create executable P0."""
+
+    def __init__(self, human_confidence_threshold: float = 0.4, max_inflight: int = 3):
+        self.human_confidence_threshold = _bounded(human_confidence_threshold)
+        self.max_inflight = max(1, min(3, int(max_inflight)))
+        self.priority_evictions = 0
+        self.priority_starvation = 0
+
+    def classify(self, subject_type: SubjectType | str, confidence: float,
+                 topology_class: TopologyClass | str, *, trigger_reason: str = "",
+                 track_state: TrackEnrichmentState | str = TrackEnrichmentState.CANDIDATE,
+                 needs_enrichment: bool = False) -> PriorityDecision:
+        try:
+            subject = SubjectType(subject_type)
+        except ValueError:
+            subject = SubjectType.UNKNOWN
+        try:
+            topology = TopologyClass(topology_class)
+        except ValueError:
+            topology = TopologyClass.UNKNOWN
+        try:
+            state = TrackEnrichmentState(track_state)
+        except ValueError:
+            state = TrackEnrichmentState.UNKNOWN
+        confidence = _bounded(confidence)
+        explicit_trigger = bool(str(trigger_reason).strip()) and str(trigger_reason).strip().lower() not in {"none", "unknown"}
+        topology_reason = topology.value
+        if subject == SubjectType.HUMAN and confidence >= self.human_confidence_threshold:
+            if topology in (TopologyClass.PROTECTED_INTERIOR, TopologyClass.RESTRICTED_THRESHOLD):
+                return PriorityDecision(VisionPriority.P1_URGENT_PRESENCE.value,
+                                        ("human_detected", topology_reason))
+            if topology == TopologyClass.PRIVATE_PERIMETER:
+                reasons = ["human_detected", topology_reason]
+                if state in (TrackEnrichmentState.UNKNOWN, TrackEnrichmentState.UNCERTAIN):
+                    reasons.append("identity_unknown")
+                return PriorityDecision(VisionPriority.P2_CONTEXTUAL_ENRICHMENT.value, tuple(reasons))
+            if topology == TopologyClass.PUBLIC_OUTDOOR and explicit_trigger:
+                return PriorityDecision(VisionPriority.P2_CONTEXTUAL_ENRICHMENT.value,
+                                        ("human_detected", topology_reason, "explicit_trigger"))
+            if topology == TopologyClass.PUBLIC_OUTDOOR:
+                return PriorityDecision(VisionPriority.P4_LOW_PRIORITY_CONTEXT.value,
+                                        ("human_detected", topology_reason))
+            return PriorityDecision(VisionPriority.P4_LOW_PRIORITY_CONTEXT.value,
+                                    ("human_detected", "unknown_topology"))
+        if subject == SubjectType.VEHICLE and topology in (TopologyClass.PRIVATE_PERIMETER, TopologyClass.RESTRICTED_THRESHOLD) and explicit_trigger:
+            return PriorityDecision(VisionPriority.P2_CONTEXTUAL_ENRICHMENT.value,
+                                    ("vehicle_detected", topology_reason, "explicit_trigger"))
+        if needs_enrichment:
+            return PriorityDecision(VisionPriority.P3_BEST_EFFORT_ENRICHMENT.value,
+                                    ("targeted_enrichment", topology_reason))
+        return PriorityDecision(VisionPriority.P4_LOW_PRIORITY_CONTEXT.value,
+                                (f"{subject.value}_detected", topology_reason))
+
+    def merge_with_core(self, vision_decision: PriorityDecision, core_priority: Optional[str] = None) -> PriorityDecision:
+        """Preserve a Core P0 and never let a Vision result downgrade it."""
+        if core_priority == VisionPriority.P0_SYSTEM_CRITICAL.value:
+            return PriorityDecision(core_priority, ("core_system_critical",))
+        return vision_decision
+
+    def order(self, items: Iterable[Any], priority_getter: Callable[[Any], str]) -> list[Any]:
+        return sorted(items, key=lambda item: (_PRIORITY_RANK.get(priority_getter(item), 4), getattr(item, "frame_index", 0)))
+
+
+class PriorityFrameQueue:
+    """Bounded priority queue used for scheduling metadata, never unbounded work."""
+
+    def __init__(self, scheduler: VisionPriorityScheduler):
+        self.scheduler = scheduler
+        self._items: list[Any] = []
+
+    def enqueue(self, item: Any, priority_hint: str) -> bool:
+        setattr(item, "priority_hint", priority_hint) if hasattr(item, "__dict__") else None
+        if len(self._items) < self.scheduler.max_inflight:
+            self._items.append(item)
+            return True
+        lowest = max(range(len(self._items)), key=lambda index: _PRIORITY_RANK.get(getattr(self._items[index], "priority_hint", VisionPriority.P4_LOW_PRIORITY_CONTEXT.value), 4))
+        current = _PRIORITY_RANK.get(getattr(self._items[lowest], "priority_hint", VisionPriority.P4_LOW_PRIORITY_CONTEXT.value), 4)
+        incoming = _PRIORITY_RANK.get(priority_hint, 4)
+        if incoming < current:
+            self._items.pop(lowest)
+            self._items.append(item)
+            self.scheduler.priority_evictions += 1
+            return True
+        self.scheduler.priority_starvation += 1
+        return False
+
+    def drain_temporal(self) -> list[Any]:
+        items = sorted(self._items, key=lambda item: getattr(item, "frame_index", 0))
+        self._items.clear()
+        return items
+
+
+@dataclass
+class _PendingPriorityFrame:
+    frame_index: int
+    at: datetime
+    frame: Any
+    raw_detections: list[dict[str, Any]]
+    priority_hint: str = VisionPriority.P4_LOW_PRIORITY_CONTEXT.value
+
+
+@dataclass
+class EpisodeEvidenceLedger:
+    max_entries: int = 256
+    entries: list[dict[str, Any]] = field(default_factory=list)
+    _keys: set[str] = field(default_factory=set, init=False, repr=False)
+    dropped_entries: int = 0
+
+    def append(self, sequence: int, priority_hint: str, reason_codes: Iterable[str],
+               track_id: str, observed_at: datetime) -> bool:
+        item = {
+            "sequence": int(sequence), "priority_hint": str(priority_hint),
+            "reason_codes": sorted({str(code) for code in reason_codes if str(code)}),
+            "track_id": str(track_id), "observed_at": _utc(observed_at).isoformat(),
+        }
+        key = repr(item)
+        if key in self._keys:
+            return False
+        if len(self.entries) >= max(1, int(self.max_entries)):
+            self.dropped_entries += 1
+            return False
+        self._keys.add(key)
+        self.entries.append(item)
+        return True
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        return [dict(item, reason_codes=list(item["reason_codes"])) for item in self.entries]
+
+
 @dataclass
 class _TrackEnrichment:
     state: TrackEnrichmentState = TrackEnrichmentState.UNSEEN
@@ -193,6 +357,11 @@ class ClipProcessingMetrics:
     sampling_state_transitions: list[dict[str, Any]] = field(default_factory=list)
     peak_frames_in_flight: int = 0
     enrichment: dict[str, int] = field(default_factory=dict)
+    frames_by_priority: dict[str, int] = field(default_factory=dict)
+    enrichments_executed: int = 0
+    enrichments_avoided: int = 0
+    priority_evictions: int = 0
+    priority_starvation: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -209,6 +378,11 @@ class ClipProcessingMetrics:
             "frames_sampled": self.frames_sampled,
             "sampling_state_transitions": list(self.sampling_state_transitions),
             "peak_frames_in_flight": self.peak_frames_in_flight,
+            "frames_by_priority": dict(self.frames_by_priority),
+            "enrichments_executed": self.enrichments_executed,
+            "enrichments_avoided": self.enrichments_avoided,
+            "priority_evictions": self.priority_evictions,
+            "priority_starvation": self.priority_starvation,
             **self.enrichment,
         }
 
@@ -248,9 +422,19 @@ def _local_ref(value: Optional[str]) -> Optional[str]:
 class Topology:
     node_id: str
     zone: str
+    topology_class: TopologyClass | str = TopologyClass.UNKNOWN
+
+    def __post_init__(self) -> None:
+        try:
+            object.__setattr__(self, "topology_class", TopologyClass(self.topology_class))
+        except ValueError:
+            object.__setattr__(self, "topology_class", TopologyClass.UNKNOWN)
 
     def as_dict(self) -> dict[str, str]:
         return {"node_id": self.node_id, "zone": self.zone}
+
+    def topology_dict(self) -> dict[str, str]:
+        return {"node_id": self.node_id, "zone": self.zone, "topology_class": self.topology_class.value}
 
 
 @dataclass(frozen=True)
@@ -686,10 +870,19 @@ class VisionClipPipelineV1:
 
     def process_frames(self, clip: ClipMetadata, frames: Iterable[FrameObservation],
                        backend_diagnostic: Optional[dict[str, Any]] = None,
-                       metrics: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
+                       metrics: Optional[dict[str, Any]] = None,
+                       evidence_ledger: Optional[EpisodeEvidenceLedger] = None,
+                       priority_by_track: Optional[dict[str, PriorityDecision]] = None) -> list[dict[str, Any]]:
         tracks: dict[str, TrackState] = {}
         emitted_alerts: set[str] = set()
         events: list[dict[str, Any]] = []
+        record_evidence = evidence_ledger is None
+        ledger = evidence_ledger or EpisodeEvidenceLedger(
+            max_entries=int(self._config.get("priority_ledger_max_entries", 256)))
+        decisions = priority_by_track if priority_by_track is not None else {}
+        scheduler = VisionPriorityScheduler(
+            human_confidence_threshold=float(self._config.get("priority_human_confidence_threshold", .4)))
+        next_sequence = len(ledger.entries) + 1
         for frame in frames:
             at = _utc(frame.at)
             if at < clip.started_at or at > clip.ends_at:
@@ -702,6 +895,15 @@ class VisionClipPipelineV1:
                 elif state.subject_type != detection.subject_type:
                     state.subject_type = SubjectType.UNKNOWN
                 state.add(detection, at, self.max_crops)
+                decision = scheduler.classify(detection.subject_type, detection.confidence,
+                                              clip.topology.topology_class,
+                                              trigger_reason=clip.trigger_reason)
+                previous = decisions.get(detection.track_id)
+                if previous is None or _PRIORITY_RANK.get(decision.priority_hint, 4) < _PRIORITY_RANK.get(previous.priority_hint, 4):
+                    decisions[detection.track_id] = decision
+                if record_evidence and ledger.append(next_sequence, decision.priority_hint, decision.reason_codes,
+                                                     detection.track_id, at):
+                    next_sequence += 1
                 sensitive = self.sensitive_enricher.inspect(detection)
                 state.sensitive.append(sensitive)
                 if (getattr(self.sensitive_enricher, "available", False)
@@ -714,11 +916,15 @@ class VisionClipPipelineV1:
                             self.preliminary_sink(alert)
         if not tracks and backend_diagnostic is not None:
             empty = TrackState("clip-no-human", SubjectType.UNKNOWN, _utc(clip.started_at), _utc(clip.started_at))
-            events.append(self._summary(clip, empty, backend_diagnostic, metrics))
+            decision = scheduler.classify(SubjectType.UNKNOWN, 0.0, clip.topology.topology_class)
+            events.append(self._summary(clip, empty, backend_diagnostic, metrics, decision, ledger.snapshot()))
         else:
             for state in sorted(tracks.values(), key=lambda item: item.track_id):
                 enrichment_started = time.perf_counter()
-                events.append(self._summary(clip, state, backend_diagnostic, metrics))
+                decision = decisions.get(state.track_id) or scheduler.classify(
+                    state.subject_type, max(state.confidences, default=0.0), clip.topology.topology_class,
+                    trigger_reason=clip.trigger_reason)
+                events.append(self._summary(clip, state, backend_diagnostic, metrics, decision, ledger.snapshot()))
                 if metrics is not None:
                     metrics["enrichment_wall_ms"] = metrics.get("enrichment_wall_ms", 0.0) + (time.perf_counter() - enrichment_started) * 1000.0
         return events
@@ -742,7 +948,12 @@ class VisionClipPipelineV1:
 
     def _summary(self, clip: ClipMetadata, track: TrackState,
                  backend_diagnostic: Optional[dict[str, Any]] = None,
-                 metrics: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+                 metrics: Optional[dict[str, Any]] = None,
+                 priority: Optional[PriorityDecision] = None,
+                 priority_timeline: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
+        priority = priority or VisionPriorityScheduler().classify(
+            track.subject_type, max(track.confidences, default=0.0), clip.topology.topology_class,
+            trigger_reason=clip.trigger_reason)
         identity = IdentityResult(IdentityStatus.NOT_AVAILABLE)
         plate = PlateResult(IdentityStatus.NOT_AVAILABLE)
         if track.subject_type == SubjectType.HUMAN:
@@ -759,6 +970,7 @@ class VisionClipPipelineV1:
             "clip_id": clip.clip_id,
             "camera_id": clip.camera_id,
             "topology": clip.topology.as_dict(),
+            "topology_class": clip.topology.topology_class.value,
             "trigger": {"reason": clip.trigger_reason, "started_at": _utc(clip.started_at).isoformat()},
             "track": {"id": track.track_id, "subject_type": track.subject_type.value,
                       "first_seen_at": _utc(track.first_seen_at).isoformat(),
@@ -769,6 +981,9 @@ class VisionClipPipelineV1:
             "sensitive_objects": sensitive.as_dict(),
             "media": {"clip_ref": _local_ref(clip.clip_ref), "best_roi_refs": refs},
             "metrics": dict(metrics or {}),
+            "priority_hint": priority.priority_hint,
+            "reason_codes": list(priority.reason_codes),
+            "priority_timeline": list(priority_timeline or []),
         }
         if backend_diagnostic is not None:
             payload["backend"] = dict(backend_diagnostic)
@@ -829,6 +1044,13 @@ class VisionClipPipelineV1:
             max_requests_per_track=self.max_crops,
         )
         track_records: dict[str, dict[str, Any]] = {}
+        priority_scheduler = VisionPriorityScheduler(
+            human_confidence_threshold=float(self._config.get("priority_human_confidence_threshold", .4)),
+            max_inflight=3)
+        evidence_ledger = EpisodeEvidenceLedger(
+            max_entries=int(self._config.get("priority_ledger_max_entries", 256)))
+        priority_by_track: dict[str, PriorityDecision] = {}
+        priority_queue = PriorityFrameQueue(priority_scheduler)
         observation_events: list[dict[str, Any]] = []
         last_observation_signature: Optional[str] = None
         last_observation_at: Optional[datetime] = None
@@ -848,6 +1070,11 @@ class VisionClipPipelineV1:
             active_ids = tracker.active_track_ids
             if not active_ids and diagnostic.get("status") == "ok":
                 return
+            active_decisions = [priority_by_track[track_id] for track_id in active_ids if track_id in priority_by_track]
+            if active_decisions:
+                decision = min(active_decisions, key=lambda item: _PRIORITY_RANK.get(item.priority_hint, 4))
+            else:
+                decision = PriorityDecision(VisionPriority.P4_LOW_PRIORITY_CONTEXT.value, ("backend_error",))
             tracks = []
             for track_id in active_ids:
                 record = track_records.get(track_id)
@@ -864,9 +1091,12 @@ class VisionClipPipelineV1:
                 "schema_version": "synora.vision.clip-observation/v1",
                 "clip_id": clip.clip_id, "episode_id": clip.episode_id, "camera_id": clip.camera_id,
                 "node_id": clip.topology.node_id, "zone": clip.topology.zone,
+                "topology_class": clip.topology.topology_class.value,
                 "trigger": clip.trigger_reason, "observed_at": _utc(at).isoformat(),
                 "sequence": observation_sequence + 1, "tracks": tracks,
                 "backend": {"status": diagnostic.get("status", "unavailable"), "real_model": bool(diagnostic.get("real_model", False))},
+                "priority_hint": decision.priority_hint,
+                "reason_codes": list(decision.reason_codes),
             }
             signature = repr((payload["tracks"], payload["backend"]))
             if signature == last_observation_signature:
@@ -878,6 +1108,10 @@ class VisionClipPipelineV1:
             observation_events.append({"type": "synora.vision.clip-observation/v1", "payload": payload})
             last_observation_signature = signature
             last_observation_at = _utc(at)
+            primary_track = active_ids[0] if active_ids else "clip-backend"
+            evidence_ledger.append(observation_sequence, decision.priority_hint, decision.reason_codes,
+                                   primary_track, at)
+            payload["priority_timeline"] = evidence_ledger.snapshot()
             if metrics.first_observation_wall_ms == 0.0:
                 metrics.first_observation_wall_ms = (time.perf_counter() - vision_started) * 1000.0
 
@@ -899,6 +1133,19 @@ class VisionClipPipelineV1:
                 ]
             metrics.detector_wall_ms += (time.perf_counter() - detector_started) * 1000.0
             for (sample_index, at, frame, _), raw_detections in zip(batch, raw_batches):
+                raw_detections = list(raw_detections or [])
+                raw_decisions = []
+                for raw in raw_detections:
+                    if isinstance(raw, dict):
+                        raw_decisions.append(priority_scheduler.classify(
+                            SubjectType.HUMAN, raw.get("confidence", raw.get("score", 0.0)),
+                            clip.topology.topology_class, trigger_reason=clip.trigger_reason))
+                raw_priority = min(raw_decisions, key=lambda item: _PRIORITY_RANK.get(item.priority_hint, 4)).priority_hint if raw_decisions else VisionPriority.P4_LOW_PRIORITY_CONTEXT.value
+                pending = _PendingPriorityFrame(sample_index, at, frame, raw_detections, raw_priority)
+                if not priority_queue.enqueue(pending, raw_priority):
+                    metrics.frames_skipped_by_policy += 1
+            for pending in priority_queue.drain_temporal():
+                sample_index, at, frame, raw_detections = pending.frame_index, pending.at, pending.frame, pending.raw_detections
                 detections: list[Detection] = []
                 tracking_started = time.perf_counter()
                 previous_active = set(tracker.active_track_ids)
@@ -911,8 +1158,20 @@ class VisionClipPipelineV1:
                     record["detection_count"] += 1
                     record["score_sum"] += float(assigned["score"])
                     enrichment_policy.observe(track_id, at)
+                    decision = priority_scheduler.classify(
+                        SubjectType.HUMAN, assigned["score"], clip.topology.topology_class,
+                        trigger_reason=clip.trigger_reason,
+                        track_state=enrichment_policy.state(track_id))
+                    previous_decision = priority_by_track.get(track_id)
+                    if previous_decision is None or _PRIORITY_RANK.get(decision.priority_hint, 4) < _PRIORITY_RANK.get(previous_decision.priority_hint, 4):
+                        priority_by_track[track_id] = decision
+                    record["decision"] = priority_by_track[track_id]
                     if enrichment_policy.state(track_id) == TrackEnrichmentState.CANDIDATE:
-                        enrichment_policy.begin_enrichment(track_id)
+                        occupied = any(_PRIORITY_RANK.get(item.priority_hint, 4) <= 2 for item in priority_by_track.values())
+                        if decision.priority_hint == VisionPriority.P4_LOW_PRIORITY_CONTEXT.value or (decision.priority_hint == VisionPriority.P3_BEST_EFFORT_ENRICHMENT.value and occupied):
+                            metrics.enrichments_avoided += 1
+                        elif enrichment_policy.begin_enrichment(track_id):
+                            metrics.enrichments_executed += 1
                     detections.append(Detection(assigned["track_id"], SubjectType.HUMAN,
                                                 assigned["score"], ref, roi))
                 current_active = set(tracker.active_track_ids)
@@ -920,7 +1179,12 @@ class VisionClipPipelineV1:
                     enrichment_policy.observe(track_id, at, visible=False)
                 metrics.tracking_wall_ms += (time.perf_counter() - tracking_started) * 1000.0
                 metrics.frames_sampled += 1
-                sampling.observe(has_human=bool(detections), recently_lost=bool(previous_active - current_active))
+                frame_decisions = [priority_by_track[item.track_id] for item in detections if item.track_id in priority_by_track]
+                frame_decision = min(frame_decisions, key=lambda item: _PRIORITY_RANK.get(item.priority_hint, 4)) if frame_decisions else PriorityDecision(VisionPriority.P4_LOW_PRIORITY_CONTEXT.value, ("no_human_detected",))
+                metrics.frames_by_priority[frame_decision.priority_hint] = metrics.frames_by_priority.get(frame_decision.priority_hint, 0) + 1
+                sampling.observe(has_human=bool(detections), all_stable=bool(detections) and all(
+                    enrichment_policy.state(item.track_id) == TrackEnrichmentState.RECOGNIZED_STABLE for item in detections),
+                    recently_lost=bool(previous_active - current_active))
                 maybe_observe(at)
                 frames.append(FrameObservation.from_values(at, detections))
             batch.clear()
@@ -954,9 +1218,15 @@ class VisionClipPipelineV1:
         metrics.enrichment = enrichment_policy.counters()
         metric_values = metrics.as_dict()
         summary_started = time.perf_counter()
-        summary_events = self.process_frames(clip, frames, diagnostic, metric_values)
+        summary_events = self.process_frames(clip, frames, diagnostic, metric_values,
+                                             evidence_ledger=evidence_ledger,
+                                             priority_by_track=priority_by_track)
         metrics.summary_wall_ms = (time.perf_counter() - summary_started) * 1000.0
+        metrics.enrichment_wall_ms = float(metric_values.get("enrichment_wall_ms", 0.0) or 0.0)
         metrics.vision_wall_latency_ms = (time.perf_counter() - vision_started) * 1000.0
+        metric_values = metrics.as_dict()
+        metrics.priority_evictions = priority_scheduler.priority_evictions
+        metrics.priority_starvation = priority_scheduler.priority_starvation
         metric_values = metrics.as_dict()
         for event in summary_events:
             event["payload"]["metrics"] = metric_values

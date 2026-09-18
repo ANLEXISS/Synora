@@ -14,6 +14,48 @@ type VisionClipTopology struct {
 	Zone   string `json:"zone"`
 }
 
+const (
+	VisionTopologyPublicOutdoor       = "public_outdoor"
+	VisionTopologyPrivatePerimeter    = "private_perimeter"
+	VisionTopologyRestrictedThreshold = "restricted_threshold"
+	VisionTopologyProtectedInterior   = "protected_interior"
+	VisionTopologyUnknown             = "unknown"
+
+	VisionPriorityP0 = "P0_system_critical"
+	VisionPriorityP1 = "P1_urgent_presence"
+	VisionPriorityP2 = "P2_contextual_enrichment"
+	VisionPriorityP3 = "P3_best_effort_enrichment"
+	VisionPriorityP4 = "P4_low_priority_context"
+)
+
+func ValidVisionTopologyClass(value string) bool {
+	switch value {
+	case VisionTopologyPublicOutdoor, VisionTopologyPrivatePerimeter,
+		VisionTopologyRestrictedThreshold, VisionTopologyProtectedInterior,
+		VisionTopologyUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func ValidVisionPriorityHint(value string) bool {
+	switch value {
+	case VisionPriorityP0, VisionPriorityP1, VisionPriorityP2, VisionPriorityP3, VisionPriorityP4:
+		return true
+	default:
+		return false
+	}
+}
+
+type VisionPriorityTimelineEntry struct {
+	Sequence     int       `json:"sequence"`
+	PriorityHint string    `json:"priority_hint"`
+	ReasonCodes  []string  `json:"reason_codes"`
+	TrackID      string    `json:"track_id"`
+	ObservedAt   time.Time `json:"observed_at"`
+}
+
 type VisionClipTrigger struct {
 	Reason    string    `json:"reason"`
 	StartedAt time.Time `json:"started_at"`
@@ -86,6 +128,11 @@ type VisionClipMetrics struct {
 	EnrichmentSkippedRecognized int              `json:"enrichment_skipped_recognized"`
 	EnrichmentSkippedBudget     int              `json:"enrichment_skipped_budget"`
 	EnrichmentReopened          int              `json:"enrichment_reopened"`
+	FramesByPriority            map[string]int   `json:"frames_by_priority"`
+	EnrichmentsExecuted         int              `json:"enrichments_executed"`
+	EnrichmentsAvoided          int              `json:"enrichments_avoided"`
+	PriorityEvictions           int              `json:"priority_evictions"`
+	PriorityStarvation          int              `json:"priority_starvation"`
 }
 
 func (m VisionClipMetrics) Validate() error {
@@ -98,13 +145,18 @@ func (m VisionClipMetrics) Validate() error {
 	if m.FirstObservationWallMS > m.VisionWallLatencyMS {
 		return fmt.Errorf("first observation occurs after final vision result")
 	}
-	for _, value := range []int{m.FramesSkippedByPolicy, m.FramesSampled, m.PeakFramesInFlight, m.EnrichmentRequests, m.EnrichmentSkippedRecognized, m.EnrichmentSkippedBudget, m.EnrichmentReopened} {
+	for _, value := range []int{m.FramesSkippedByPolicy, m.FramesSampled, m.PeakFramesInFlight, m.EnrichmentRequests, m.EnrichmentSkippedRecognized, m.EnrichmentSkippedBudget, m.EnrichmentReopened, m.EnrichmentsExecuted, m.EnrichmentsAvoided, m.PriorityEvictions, m.PriorityStarvation} {
 		if value < 0 || value > 1000000 {
 			return fmt.Errorf("invalid vision processing counters")
 		}
 	}
 	if m.PeakFramesInFlight > 3 {
 		return fmt.Errorf("vision frames in flight exceeded bound")
+	}
+	for priority, count := range m.FramesByPriority {
+		if !ValidVisionPriorityHint(priority) || count < 0 || count > 1000000 {
+			return fmt.Errorf("invalid vision priority frame counter")
+		}
 	}
 	return nil
 }
@@ -123,22 +175,35 @@ type VisionClipObservationBackend struct {
 }
 
 type VisionClipObservation struct {
-	SchemaVersion string                       `json:"schema_version"`
-	ClipID        string                       `json:"clip_id"`
-	EpisodeID     string                       `json:"episode_id"`
-	CameraID      string                       `json:"camera_id"`
-	NodeID        string                       `json:"node_id"`
-	Zone          string                       `json:"zone"`
-	Trigger       string                       `json:"trigger"`
-	ObservedAt    time.Time                    `json:"observed_at"`
-	Sequence      int                          `json:"sequence"`
-	Tracks        []VisionClipObservationTrack `json:"tracks"`
-	Backend       VisionClipObservationBackend `json:"backend"`
+	SchemaVersion    string                        `json:"schema_version"`
+	ClipID           string                        `json:"clip_id"`
+	EpisodeID        string                        `json:"episode_id"`
+	CameraID         string                        `json:"camera_id"`
+	NodeID           string                        `json:"node_id"`
+	Zone             string                        `json:"zone"`
+	TopologyClass    string                        `json:"topology_class"`
+	Trigger          string                        `json:"trigger"`
+	ObservedAt       time.Time                     `json:"observed_at"`
+	Sequence         int                           `json:"sequence"`
+	Tracks           []VisionClipObservationTrack  `json:"tracks"`
+	Backend          VisionClipObservationBackend  `json:"backend"`
+	PriorityHint     string                        `json:"priority_hint"`
+	ReasonCodes      []string                      `json:"reason_codes"`
+	PriorityTimeline []VisionPriorityTimelineEntry `json:"priority_timeline"`
 }
 
 func (o VisionClipObservation) Validate() error {
-	if o.SchemaVersion != EventVisionClipObservationV1 || !validScalar(o.ClipID) || !validScalar(o.EpisodeID) || !validScalar(o.CameraID) || !validScalar(o.NodeID) || !validScalar(o.Zone) || !validScalar(o.Trigger) || o.ObservedAt.IsZero() || o.Sequence < 1 || o.Sequence > 1000000 {
+	if o.SchemaVersion != EventVisionClipObservationV1 || !validScalar(o.ClipID) || !validScalar(o.EpisodeID) || !validScalar(o.CameraID) || !validScalar(o.NodeID) || !validScalar(o.Zone) || !ValidVisionTopologyClass(o.TopologyClass) || !validScalar(o.Trigger) || o.ObservedAt.IsZero() || o.Sequence < 1 || o.Sequence > 1000000 {
 		return fmt.Errorf("invalid vision clip observation identity")
+	}
+	if !ValidVisionPriorityHint(o.PriorityHint) || o.PriorityHint == VisionPriorityP0 {
+		return fmt.Errorf("invalid vision observation priority")
+	}
+	if err := validateVisionReasons(o.ReasonCodes); err != nil {
+		return err
+	}
+	if err := validateVisionTimeline(o.PriorityTimeline); err != nil {
+		return err
 	}
 	if o.Backend.Status != "ok" && o.Backend.Status != "unavailable" && o.Backend.Status != "failed" && o.Backend.Status != "timeout" {
 		return fmt.Errorf("invalid vision observation backend status")
@@ -178,27 +243,40 @@ type VisionPreliminaryAlert struct {
 }
 
 type VisionClipSummary struct {
-	Schema    string                      `json:"schema"`
-	EpisodeID string                      `json:"episode_id"`
-	ClipID    string                      `json:"clip_id"`
-	CameraID  string                      `json:"camera_id"`
-	Topology  VisionClipTopology          `json:"topology"`
-	Trigger   VisionClipTrigger           `json:"trigger"`
-	Track     VisionClipTrack             `json:"track"`
-	Identity  VisionClipIdentity          `json:"identity"`
-	Plate     VisionClipPlate             `json:"plate"`
-	Sensitive VisionSensitiveObjects      `json:"sensitive_objects"`
-	Media     VisionClipMedia             `json:"media"`
-	Backend   VisionClipBackendDiagnostic `json:"backend"`
-	Metrics   VisionClipMetrics           `json:"metrics"`
+	Schema           string                        `json:"schema"`
+	EpisodeID        string                        `json:"episode_id"`
+	ClipID           string                        `json:"clip_id"`
+	CameraID         string                        `json:"camera_id"`
+	Topology         VisionClipTopology            `json:"topology"`
+	TopologyClass    string                        `json:"topology_class"`
+	Trigger          VisionClipTrigger             `json:"trigger"`
+	Track            VisionClipTrack               `json:"track"`
+	Identity         VisionClipIdentity            `json:"identity"`
+	Plate            VisionClipPlate               `json:"plate"`
+	Sensitive        VisionSensitiveObjects        `json:"sensitive_objects"`
+	Media            VisionClipMedia               `json:"media"`
+	Backend          VisionClipBackendDiagnostic   `json:"backend"`
+	Metrics          VisionClipMetrics             `json:"metrics"`
+	PriorityHint     string                        `json:"priority_hint"`
+	ReasonCodes      []string                      `json:"reason_codes"`
+	PriorityTimeline []VisionPriorityTimelineEntry `json:"priority_timeline"`
 }
 
 func (s VisionClipSummary) Validate() error {
 	if s.Schema != EventVisionClipSummaryV1 || !validScalar(s.EpisodeID) || !validScalar(s.ClipID) || !validScalar(s.CameraID) {
 		return fmt.Errorf("invalid vision clip summary identity")
 	}
-	if !validScalar(s.Topology.NodeID) || !validScalar(s.Topology.Zone) || !validScalar(s.Trigger.Reason) || s.Trigger.StartedAt.IsZero() {
+	if !validScalar(s.Topology.NodeID) || !validScalar(s.Topology.Zone) || !ValidVisionTopologyClass(s.TopologyClass) || !validScalar(s.Trigger.Reason) || s.Trigger.StartedAt.IsZero() {
 		return fmt.Errorf("invalid vision clip summary context")
+	}
+	if !ValidVisionPriorityHint(s.PriorityHint) || s.PriorityHint == VisionPriorityP0 {
+		return fmt.Errorf("invalid vision summary priority")
+	}
+	if err := validateVisionReasons(s.ReasonCodes); err != nil {
+		return err
+	}
+	if err := validateVisionTimeline(s.PriorityTimeline); err != nil {
+		return err
 	}
 	if !validScalar(s.Track.ID) || !validVisionSubjectType(s.Track.SubjectType) || s.Track.FirstSeenAt.IsZero() || s.Track.LastSeenAt.IsZero() || s.Track.LastSeenAt.Before(s.Track.FirstSeenAt) || s.Track.FirstSeenAt.Before(s.Trigger.StartedAt) {
 		return fmt.Errorf("invalid vision clip summary track")
@@ -290,9 +368,9 @@ func (s VisionPreliminaryAlert) Validate() error {
 func DecodeVisionClipSummary(data []byte) (VisionClipSummary, error) {
 	var summary VisionClipSummary
 	if err := decodeTypedPayload(data, map[string]struct{}{
-		"schema": {}, "episode_id": {}, "clip_id": {}, "camera_id": {}, "topology": {}, "trigger": {},
+		"schema": {}, "episode_id": {}, "clip_id": {}, "camera_id": {}, "topology": {}, "topology_class": {}, "trigger": {},
 		"track": {}, "identity": {}, "plate": {}, "sensitive_objects": {}, "media": {},
-		"backend": {}, "metrics": {},
+		"backend": {}, "metrics": {}, "priority_hint": {}, "reason_codes": {}, "priority_timeline": {},
 		"device_id": {}, "node_id": {}, "track_id": {}, "event_id": {}, "activation_id": {}, "sequence_key": {}, "clip_index": {},
 	}, &summary); err != nil {
 		return VisionClipSummary{}, err
@@ -306,7 +384,7 @@ func DecodeVisionClipSummary(data []byte) (VisionClipSummary, error) {
 func DecodeVisionClipObservation(data []byte) (VisionClipObservation, error) {
 	var observation VisionClipObservation
 	if err := decodeTypedPayload(data, map[string]struct{}{
-		"schema_version": {}, "clip_id": {}, "episode_id": {}, "camera_id": {}, "node_id": {}, "zone": {}, "trigger": {}, "observed_at": {}, "sequence": {}, "tracks": {}, "backend": {},
+		"schema_version": {}, "clip_id": {}, "episode_id": {}, "camera_id": {}, "node_id": {}, "zone": {}, "topology_class": {}, "trigger": {}, "observed_at": {}, "sequence": {}, "tracks": {}, "backend": {}, "priority_hint": {}, "reason_codes": {}, "priority_timeline": {},
 		"device_id": {}, "event_id": {}, "clip_index": {}, "activation_id": {}, "sequence_key": {}, "track_id": {},
 	}, &observation); err != nil {
 		return VisionClipObservation{}, err
@@ -375,6 +453,35 @@ func validVisionSubjectType(value string) bool {
 		return true
 	}
 	return false
+}
+
+func validateVisionReasons(reasons []string) error {
+	if len(reasons) == 0 || len(reasons) > 8 {
+		return fmt.Errorf("invalid vision priority reasons")
+	}
+	for _, reason := range reasons {
+		if !validScalar(reason) {
+			return fmt.Errorf("invalid vision priority reason")
+		}
+	}
+	return nil
+}
+
+func validateVisionTimeline(timeline []VisionPriorityTimelineEntry) error {
+	if len(timeline) > 256 {
+		return fmt.Errorf("vision priority timeline exceeds bound")
+	}
+	last := 0
+	for _, entry := range timeline {
+		if entry.Sequence < 1 || entry.Sequence <= last || !ValidVisionPriorityHint(entry.PriorityHint) || entry.PriorityHint == VisionPriorityP0 || !validScalar(entry.TrackID) || entry.ObservedAt.IsZero() {
+			return fmt.Errorf("invalid vision priority timeline")
+		}
+		if err := validateVisionReasons(entry.ReasonCodes); err != nil {
+			return err
+		}
+		last = entry.Sequence
+	}
+	return nil
 }
 
 func validIdentityStatus(value string) bool {

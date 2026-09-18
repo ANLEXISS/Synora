@@ -135,6 +135,7 @@ func runClipWorker(
 				Target: "core",
 
 				Timestamp: time.Now().UTC(),
+				Priority:  visionEventPriority(evt.Type, payloadMap),
 
 				Payload: payload,
 			},
@@ -167,6 +168,17 @@ func runClipWorker(
 		}
 	}
 	return nil
+}
+
+func visionEventPriority(eventType string, payload map[string]any) int {
+	priority := contract.EventPriority(eventType)
+	if eventType != contract.EventVisionClipObservationV1 && eventType != contract.EventVisionClipSummaryV1 {
+		return priority
+	}
+	if hint, ok := payload["priority_hint"].(string); ok && hint == contract.VisionPriorityP1 {
+		return contract.PriorityHigh
+	}
+	return priority
 }
 
 func prepareVisionEvent(evt Event, job *ClipJob, index int) (map[string]any, error) {
@@ -210,7 +222,12 @@ func prepareVisionEvent(evt Event, job *ClipJob, index int) (map[string]any, err
 	if job.EpisodeID == "" || job.NodeID == "" || job.Zone == "" || job.TriggerReason == "" || job.StartedAt.IsZero() {
 		return nil, errors.New("vision contract invalid: incomplete authoritative clip metadata")
 	}
+	topologyClass := authoritativeTopologyClass(job)
+	if !contract.ValidVisionTopologyClass(topologyClass) {
+		return nil, fmt.Errorf("vision contract invalid: unknown topology class %q", topologyClass)
+	}
 	payloadMap["episode_id"] = job.EpisodeID
+	payloadMap["topology_class"] = topologyClass
 	payloadMap["topology"] = map[string]any{"node_id": job.NodeID, "zone": job.Zone}
 	payloadMap["trigger"] = map[string]any{"reason": job.TriggerReason, "started_at": job.StartedAt}
 	if evt.Type == contract.EventVisionClipObservationV1 {
@@ -221,7 +238,7 @@ func prepareVisionEvent(evt Event, job *ClipJob, index int) (map[string]any, err
 		if err != nil {
 			return nil, fmt.Errorf("vision contract invalid: %w", err)
 		}
-		if observation.EpisodeID != job.EpisodeID || observation.ClipID != job.ID || observation.CameraID != job.CameraID || observation.NodeID != job.NodeID || observation.Zone != job.Zone || observation.Trigger != job.TriggerReason {
+		if observation.EpisodeID != job.EpisodeID || observation.ClipID != job.ID || observation.CameraID != job.CameraID || observation.NodeID != job.NodeID || observation.Zone != job.Zone || observation.TopologyClass != topologyClass || observation.Trigger != job.TriggerReason {
 			return nil, errors.New("vision contract invalid: authoritative observation metadata mismatch")
 		}
 		return payloadMap, nil
@@ -234,7 +251,7 @@ func prepareVisionEvent(evt Event, job *ClipJob, index int) (map[string]any, err
 		if err != nil {
 			return nil, fmt.Errorf("vision contract invalid: %w", err)
 		}
-		if summary.EpisodeID != job.EpisodeID || summary.ClipID != job.ID || summary.CameraID != job.CameraID || summary.Topology.NodeID != job.NodeID || summary.Topology.Zone != job.Zone || summary.Trigger.Reason != job.TriggerReason || summary.Track.ID != fmt.Sprint(evt.TrackID) {
+		if summary.EpisodeID != job.EpisodeID || summary.ClipID != job.ID || summary.CameraID != job.CameraID || summary.Topology.NodeID != job.NodeID || summary.Topology.Zone != job.Zone || summary.TopologyClass != topologyClass || summary.Trigger.Reason != job.TriggerReason || summary.Track.ID != fmt.Sprint(evt.TrackID) {
 			return nil, errors.New("vision contract invalid: authoritative metadata mismatch")
 		}
 		return payloadMap, nil
@@ -254,6 +271,9 @@ func rejectAuthoritativeSpoof(payload map[string]any, job *ClipJob) error {
 		if value, ok := payload[key]; ok && !sameAuthoritativeScalar(value, expected) {
 			return fmt.Errorf("vision contract invalid: worker spoofed %s", key)
 		}
+	}
+	if value, exists := payload["topology_class"]; exists && !sameAuthoritativeScalar(value, authoritativeTopologyClass(job)) {
+		return fmt.Errorf("vision contract invalid: worker spoofed topology_class")
 	}
 	if rawTopology, exists := payload["topology"]; exists {
 		topology, ok := rawTopology.(map[string]any)

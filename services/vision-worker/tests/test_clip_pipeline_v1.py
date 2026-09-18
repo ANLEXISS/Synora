@@ -28,6 +28,11 @@ from core.clip_pipeline_v1 import (  # noqa: E402
     TrackEnrichmentPolicy,
     TrackEnrichmentState,
     AdaptiveSamplingPolicy,
+    EpisodeEvidenceLedger,
+    PriorityFrameQueue,
+    VisionPriority,
+    VisionPriorityScheduler,
+    TopologyClass,
     SubjectType,
     Topology,
     UnavailablePlateEnricher,
@@ -106,6 +111,70 @@ class ClipPipelineV1Tests(unittest.TestCase):
         policy.observe(has_human=True)
         self.assertEqual(policy.state, "active")
         self.assertGreaterEqual(policy.fps(), 1.0)
+
+    def test_priority_taxonomy_and_core_p0_boundary(self):
+        scheduler = VisionPriorityScheduler()
+        self.assertEqual(scheduler.classify("human", .9, TopologyClass.PROTECTED_INTERIOR).priority_hint,
+                         VisionPriority.P1_URGENT_PRESENCE.value)
+        self.assertEqual(scheduler.classify("human", .9, TopologyClass.RESTRICTED_THRESHOLD).priority_hint,
+                         VisionPriority.P1_URGENT_PRESENCE.value)
+        self.assertEqual(scheduler.classify("human", .9, TopologyClass.PRIVATE_PERIMETER).priority_hint,
+                         VisionPriority.P2_CONTEXTUAL_ENRICHMENT.value)
+        self.assertEqual(scheduler.classify("human", .9, TopologyClass.PUBLIC_OUTDOOR).priority_hint,
+                         VisionPriority.P4_LOW_PRIORITY_CONTEXT.value)
+        self.assertEqual(scheduler.classify("human", .9, TopologyClass.PUBLIC_OUTDOOR,
+                                            trigger_reason="motion.sensor.gate").priority_hint,
+                         VisionPriority.P2_CONTEXTUAL_ENRICHMENT.value)
+        self.assertEqual(scheduler.classify("animal", .9, TopologyClass.PROTECTED_INTERIOR).priority_hint,
+                         VisionPriority.P4_LOW_PRIORITY_CONTEXT.value)
+        self.assertEqual(scheduler.classify("human", .9, TopologyClass.UNKNOWN).priority_hint,
+                         VisionPriority.P4_LOW_PRIORITY_CONTEXT.value)
+        p2 = scheduler.classify("human", .9, TopologyClass.PRIVATE_PERIMETER)
+        self.assertEqual(scheduler.merge_with_core(p2, VisionPriority.P0_SYSTEM_CRITICAL.value).priority_hint,
+                         VisionPriority.P0_SYSTEM_CRITICAL.value)
+
+    def test_priority_queue_preempts_low_priority_without_exceeding_three(self):
+        scheduler = VisionPriorityScheduler()
+        queue = PriorityFrameQueue(scheduler)
+        items = [types.SimpleNamespace(frame_index=index) for index in range(3)]
+        for item in items:
+            self.assertTrue(queue.enqueue(item, VisionPriority.P4_LOW_PRIORITY_CONTEXT.value))
+        urgent = types.SimpleNamespace(frame_index=3)
+        self.assertTrue(queue.enqueue(urgent, VisionPriority.P1_URGENT_PRESENCE.value))
+        drained = queue.drain_temporal()
+        self.assertEqual(len(drained), 3)
+        self.assertIn(urgent, drained)
+        self.assertEqual(scheduler.priority_evictions, 1)
+
+    def test_evidence_ledger_is_bounded_and_deduplicated(self):
+        ledger = EpisodeEvidenceLedger(max_entries=2)
+        self.assertTrue(ledger.append(1, VisionPriority.P1_URGENT_PRESENCE.value,
+                                      ["human_detected", "protected_interior"], "human-0", self.base))
+        self.assertFalse(ledger.append(1, VisionPriority.P1_URGENT_PRESENCE.value,
+                                       ["human_detected", "protected_interior"], "human-0", self.base))
+        self.assertTrue(ledger.append(2, VisionPriority.P2_CONTEXTUAL_ENRICHMENT.value,
+                                      ["human_detected", "private_perimeter"], "human-0", self.base))
+        self.assertFalse(ledger.append(3, VisionPriority.P4_LOW_PRIORITY_CONTEXT.value,
+                                       ["animal_detected"], "animal-0", self.base))
+        self.assertEqual([entry["sequence"] for entry in ledger.snapshot()], [1, 2])
+        self.assertEqual(ledger.dropped_entries, 1)
+
+    def test_process_frames_carries_priority_timeline_without_raw_data(self):
+        frames = [self.frame(0.1, Detection("human-0", "human", .9, "local://roi/0"))]
+        clip = ClipMetadata(clip_id="clip-1", episode_id="episode-1", camera_id="cam-1",
+                            topology=Topology("entry", "protected", TopologyClass.PROTECTED_INTERIOR),
+                            trigger_reason="motion.sensor.front", started_at=self.base,
+                            ends_at=self.base + timedelta(seconds=10))
+        events = VisionClipPipelineV1().process_frames(clip, frames,
+                                                       {"name": "existing_detector", "model_version": "test", "real_model": True,
+                                                        "status": "ok", "frames_sampled": 1, "detections_total": 1,
+                                                        "latency_ms": 1.0, "non_human_ignored": 0})
+        summary = events[0]["payload"]
+        self.assertEqual(summary["priority_hint"], VisionPriority.P1_URGENT_PRESENCE.value)
+        self.assertEqual(summary["topology_class"], TopologyClass.PROTECTED_INTERIOR.value)
+        self.assertEqual(summary["priority_timeline"][0]["priority_hint"], VisionPriority.P1_URGENT_PRESENCE.value)
+        self.assertNotIn('"bbox"', json.dumps(summary))
+        self.assertNotIn('"crop"', json.dumps(summary))
 
     def test_process_video_uses_fake_capture_detector_and_honors_clip_duration(self):
         class FakeFrame:

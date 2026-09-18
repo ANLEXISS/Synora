@@ -343,7 +343,7 @@ func NewHandler(cfg Config) http.Handler {
 			http.Error(w, "analysis queue unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		if err := cfg.Queue.Enqueue(&vision.ClipJob{ID: clipID, CameraID: deviceID, Path: finalPath, CreatedAt: now, ActivationID: activationID, ClipIndex: clipIndex, NodeID: nodeID, SequenceKey: sequenceKey, TrackID: trackID, EpisodeID: episodeID, Zone: zone, TriggerReason: triggerReason, StartedAt: startedAt, EndsAt: endsAt, Pipeline: pipeline}); err != nil {
+		if err := cfg.Queue.Enqueue(&vision.ClipJob{ID: clipID, CameraID: deviceID, Path: finalPath, CreatedAt: now, ActivationID: activationID, ClipIndex: clipIndex, NodeID: nodeID, SequenceKey: sequenceKey, TrackID: trackID, EpisodeID: episodeID, Zone: zone, TopologyClass: zone, TriggerReason: triggerReason, StartedAt: startedAt, EndsAt: endsAt, Pipeline: pipeline}); err != nil {
 			log.Printf("analysis queue unavailable clip=%s err=%v", clipID, err)
 			_ = publishLifecycle(cfg.Publisher, contract.EventClipFailed, clip, "analysis_queue_full", clipID+":failed")
 			http.Error(w, "analysis queue full", http.StatusServiceUnavailable)
