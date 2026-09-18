@@ -174,7 +174,7 @@ func (b *Boundary) ExecuteAction(request ActionRequest) (contract.Event, error) 
 	if err != nil {
 		return contract.Event{}, err
 	}
-	return contract.Event{ID: idgen.New("act-result"), Type: ActionResultEvent, Source: "discovery", Timestamp: b.now(), Payload: map[string]any{"request": request, "result": json.RawMessage(body)}}, nil
+	return contract.Event{ID: idgen.New("act-result"), Type: ActionResultEvent, Source: "discovery", Timestamp: b.now(), Payload: map[string]any{"request": request, "result": json.RawMessage(body), "status": result.Status, "physical_action_executed": false}}, nil
 }
 
 func (b *Boundary) capabilityAvailable(capability string) bool {

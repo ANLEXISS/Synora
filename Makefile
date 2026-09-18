@@ -8,7 +8,7 @@ SHELL := /usr/bin/env bash
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	dev-tools diagnostics install-dev-tools
 
-.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 e2e-vision-mlp-v1 e2e-stateframe-v5-shadow-v1 perf-baseline-v1 replay-vision-v1 replay-vision-segments-v1 benchmark-vision-inference
+.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 perf-baseline-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
 
 COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
 COGNITIVE_MODEL_DIR ?= build/cognitive-mlp-v1
@@ -108,8 +108,8 @@ help:
 		'  make build-web             Build the React/Vite webapp statically' \
 		'  make test                  Run Go tests and Python compileall' \
 		'  make e2e-v1                Run the hermetic and real-worker V1 trace harnesses' \
-		'  make e2e-vision-mlp-v1    Run the segmented Vision -> Core -> four-head MLP shadow replay' \
-		'  make e2e-stateframe-v5-shadow-v1  Compare frozen V4 with shadow-only StateFrame V5 fixtures' \
+		'  make e2e-vision-mlp-v1    Run the segmented Vision -> Core V1 dry-run replay' \
+		'  make e2e-cognitive-core-v1  Run the Core snapshot, Store and action-loop scenarios' \
 		'  make perf-baseline-v1     Run and compare the reproducible Vision/MLP before-after benchmark' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
 		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
@@ -208,31 +208,13 @@ e2e-v1: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1ArchitectureHasNoLegacyDecisionImports$$' -count=1 -v
 
 e2e-vision-mlp-v1: check-go
-	@test -n "$(COGNITIVE_BUNDLE)" || { echo "FAIL: COGNITIVE_BUNDLE is required" >&2; exit 2; }
 	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }
 	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
 	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
-	@mkdir -p "$(OUT)/mlp-export" "$(OUT)/segment-replay"
-	@if "$(COGNITIVE_PYTHON)" tools/cognitive/export_models.py --bundle "$(COGNITIVE_BUNDLE)" --output "$(OUT)/mlp-export" >"$(OUT)/export.json" 2>"$(OUT)/export.error.log"; then \
-		echo "MLP export: available"; \
-	else \
-		echo "MLP export: unavailable; teacher-only fail-closed replay"; \
-		rm -f "$(OUT)/mlp-export/MANIFEST.runtime.json"; \
-		printf '%s\n' '{"schema":"synora.cognitive-mlp-parity/v1","fixtures":0,"passed":false,"available":false,"reason":"MLP export unavailable"}' >"$(OUT)/parity.json"; \
-	fi
-	@if test -f "$(OUT)/mlp-export/MANIFEST.runtime.json"; then \
-		if "$(COGNITIVE_PYTHON)" tools/cognitive/parity.py --bundle "$(COGNITIVE_BUNDLE)" --export "$(OUT)/mlp-export" --fixtures "$(OUT)/mlp_parity_100.jsonl" --report "$(OUT)/parity.json" >"$(OUT)/parity.stdout.log" 2>"$(OUT)/parity.error.log"; then \
-			echo "MLP parity: passed"; \
-		else \
-			echo "MLP parity: failed; teacher-only fail-closed replay"; \
-			if test ! -f "$(OUT)/parity.json"; then printf '%s\n' '{"schema":"synora.cognitive-mlp-parity/v1","fixtures":0,"passed":false,"available":false,"reason":"MLP parity unavailable"}' >"$(OUT)/parity.json"; fi; \
-		fi; \
-	fi
-	PYTHONPATH=services/vision-worker "$(VISION_PYTHON)" services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segment-replay"
-	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-vision-mlp-e2e --bundle "$(COGNITIVE_BUNDLE)" --runtime-manifest "$(COGNITIVE_RUNTIME_MANIFEST)" --model-dir "$(OUT)/mlp-export" --clip "$(CLIP)" --out "$(OUT)" --observations "$(OUT)/segment-replay/observations.jsonl" --summary-contract "$(OUT)/segment-replay/summary.contract.json" --segment-manifest "$(OUT)/segment-replay/manifest.json" --parity "$(OUT)/parity.json" --fixtures "$(VISION_MLP_FIXTURES)"
+	$(MAKE) replay-vision-core-v1 CLIP="$(CLIP)" OUT="$(OUT)"
 
-e2e-stateframe-v5-shadow-v1: check-go
-	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-stateframe-v5-shadow-e2e --fixtures "$(STATEFRAME_V5_FIXTURES)" --out "$(STATEFRAME_V5_OUT)"
+e2e-cognitive-core-v1: check-go
+	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$|^TestV1DiscoveryCoreStoreDiscoveryActionResultLoop$$|^TestV1ArchitectureHasNoLegacyDecisionImports$$' -count=1 -v
 
 perf-baseline-v1: check-go
 	@test -f "$(PERF_CLIP)" || { echo "FAIL: PERF_CLIP is not a regular file: $(PERF_CLIP)" >&2; exit 2; }
@@ -257,6 +239,13 @@ replay-vision-segments-v1: check-go
 	@test -n "$(TRIGGER)" || { echo "FAIL: TRIGGER is required" >&2; exit 2; }
 	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
 	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds "$(SEGMENT_SECONDS)" --camera-id "$(CAMERA_ID)" --node-id "$(NODE_ID)" --zone "$(ZONE)" --trigger "$(TRIGGER)" --out "$(OUT)"
+
+replay-vision-core-v1: check-go
+	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
+	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
+	@mkdir -p "$(OUT)/segments"
+	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segments"
+	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-v1-replay --observations "$(OUT)/segments/observations.jsonl" --out "$(OUT)/core-replay.json"
 
 benchmark-vision-inference: check-go
 	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/tools/vision_inference_benchmark.py $(if $(CLIP),--clip "$(CLIP)",) $(if $(OUT),--out "$(OUT)",) $(if $(SKIP_ONNX),--skip-onnx,)
