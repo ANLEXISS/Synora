@@ -1,0 +1,18 @@
+{
+  "schema": "synora.stateframe-v5-fixture/v1",
+  "name": "normal_no_vision",
+  "description": "Core state without a Vision observation",
+  "state": {
+    "captured_at": "2026-01-01T00:00:00Z",
+    "security": {"armed": true, "known": true},
+    "topology_class": "unknown",
+    "priority": "P4_low_priority_context",
+    "priority_origin": "core",
+    "episode_phase": "initial",
+    "enrichment_status": "not_requested",
+    "continuity": {"segment_count": 0, "gap_count": 0},
+    "quality": {"observation_count": 0},
+    "co_evidence": {"access_state": "unknown", "alarm_state": "armed"}
+  },
+  "expected": {"topology": "unknown", "priority": "P4_low_priority_context", "phase": "initial", "enrichment": "not_requested", "human_present": false, "track_count": 0, "track_confirmed": false, "segment_count": 0, "gap_count": 0}
+}

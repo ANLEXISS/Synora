@@ -8,13 +8,15 @@ SHELL := /usr/bin/env bash
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	dev-tools diagnostics install-dev-tools
 
-.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 e2e-vision-mlp-v1 perf-baseline-v1 replay-vision-v1 replay-vision-segments-v1 benchmark-vision-inference
+.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 e2e-vision-mlp-v1 e2e-stateframe-v5-shadow-v1 perf-baseline-v1 replay-vision-v1 replay-vision-segments-v1 benchmark-vision-inference
 
 COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
 COGNITIVE_MODEL_DIR ?= build/cognitive-mlp-v1
 COGNITIVE_FIXTURES ?= testdata/cognitive/mlp_parity_100.jsonl
 COGNITIVE_RUNTIME_MANIFEST ?= models/cognitive/MANIFEST.runtime.json
 VISION_MLP_FIXTURES ?= testdata/vision-mlp-e2e
+STATEFRAME_V5_FIXTURES ?= testdata/stateframe-v5
+STATEFRAME_V5_OUT ?= /tmp/synora-stateframe-v5-shadow-v1
 PERF_CLIP ?= /home/rock/test3.mp4
 PERF_BEFORE ?= /tmp/synora-perf-v1-before
 PERF_AFTER ?= /tmp/synora-perf-v1-after
@@ -109,6 +111,7 @@ help:
 		'  make test                  Run Go tests and Python compileall' \
 		'  make e2e-v1                Run the hermetic and real-worker V1 trace harnesses' \
 		'  make e2e-vision-mlp-v1    Run the segmented Vision -> Core -> four-head MLP shadow replay' \
+		'  make e2e-stateframe-v5-shadow-v1  Compare frozen V4 with shadow-only StateFrame V5 fixtures' \
 		'  make perf-baseline-v1     Run and compare the reproducible Vision/MLP before-after benchmark' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
 		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
@@ -228,7 +231,10 @@ e2e-vision-mlp-v1: check-go
 		fi; \
 	fi
 	PYTHONPATH=services/vision-worker "$(VISION_PYTHON)" services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segment-replay"
-	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-vision-mlp-e2e --bundle "$(COGNITIVE_BUNDLE)" --runtime-manifest "$(COGNITIVE_RUNTIME_MANIFEST)" --model-dir "$(OUT)/mlp-export" --clip "$(CLIP)" --out "$(OUT)" --observations "$(OUT)/segment-replay/observations.jsonl" --summary-contract "$(OUT)/segment-replay/summary.contract.json" --parity "$(OUT)/parity.json" --fixtures "$(VISION_MLP_FIXTURES)"
+	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-vision-mlp-e2e --bundle "$(COGNITIVE_BUNDLE)" --runtime-manifest "$(COGNITIVE_RUNTIME_MANIFEST)" --model-dir "$(OUT)/mlp-export" --clip "$(CLIP)" --out "$(OUT)" --observations "$(OUT)/segment-replay/observations.jsonl" --summary-contract "$(OUT)/segment-replay/summary.contract.json" --segment-manifest "$(OUT)/segment-replay/manifest.json" --parity "$(OUT)/parity.json" --fixtures "$(VISION_MLP_FIXTURES)"
+
+e2e-stateframe-v5-shadow-v1: check-go
+	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-stateframe-v5-shadow-e2e --fixtures "$(STATEFRAME_V5_FIXTURES)" --out "$(STATEFRAME_V5_OUT)"
 
 perf-baseline-v1: check-go
 	@test -f "$(PERF_CLIP)" || { echo "FAIL: PERF_CLIP is not a regular file: $(PERF_CLIP)" >&2; exit 2; }

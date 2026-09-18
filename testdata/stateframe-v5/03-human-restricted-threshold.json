@@ -1,0 +1,19 @@
+{
+  "schema": "synora.stateframe-v5-fixture/v1",
+  "name": "human_restricted_threshold",
+  "description": "Human presence at the restricted threshold",
+  "state": {
+    "captured_at": "2026-01-01T00:00:03Z",
+    "security": {"armed": true, "known": true},
+    "presence": {"human_present": true, "track_count": 1, "track_confirmed": true},
+    "topology_class": "restricted_threshold",
+    "priority": "P1_urgent_presence",
+    "priority_origin": "vision",
+    "episode_phase": "confirmed",
+    "enrichment_status": "not_requested",
+    "continuity": {"seconds_since_first_observation": 2, "seconds_since_last_observation": 0, "segment_count": 3, "gap_count": 0},
+    "quality": {"real_detection": true, "observation_count": 3, "aggregate_confidence": 0.77},
+    "co_evidence": {"access_state": "open", "movement": true, "sensor_evidence": true, "alarm_state": "armed"}
+  },
+  "expected": {"topology": "restricted_threshold", "priority": "P1_urgent_presence", "phase": "confirmed", "enrichment": "not_requested", "human_present": true, "track_count": 1, "track_confirmed": true, "segment_count": 3, "gap_count": 0}
+}

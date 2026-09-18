@@ -1,0 +1,19 @@
+{
+  "schema": "synora.stateframe-v5-fixture/v1",
+  "name": "human_private_perimeter",
+  "description": "Known human presence at a private perimeter",
+  "state": {
+    "captured_at": "2026-01-01T00:00:02Z",
+    "security": {"armed": true, "known": true},
+    "presence": {"human_present": true, "track_count": 1},
+    "topology_class": "private_perimeter",
+    "priority": "P2_contextual_enrichment",
+    "priority_origin": "vision",
+    "episode_phase": "candidate",
+    "enrichment_status": "uncertain",
+    "continuity": {"seconds_since_first_observation": 1, "seconds_since_last_observation": 0, "segment_count": 2, "gap_count": 0},
+    "quality": {"real_detection": true, "observation_count": 2, "aggregate_confidence": 0.8},
+    "co_evidence": {"access_state": "closed", "movement": true, "sensor_evidence": true, "alarm_state": "armed"}
+  },
+  "expected": {"topology": "private_perimeter", "priority": "P2_contextual_enrichment", "phase": "candidate", "enrichment": "uncertain", "human_present": true, "track_count": 1, "track_confirmed": false, "segment_count": 2, "gap_count": 0}
+}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"synora/internal/cognitive"
+	"synora/pkg/contract"
 )
 
 const (
@@ -27,13 +28,16 @@ const (
 )
 
 type visionObservation struct {
-	EpisodeID     string    `json:"episode_id"`
-	TopologyClass string    `json:"topology_class"`
-	Trigger       string    `json:"trigger"`
-	ObservedAt    time.Time `json:"observed_at"`
-	Sequence      int       `json:"sequence"`
-	PriorityHint  string    `json:"priority_hint"`
-	PriorityState string    `json:"priority_state"`
+	EpisodeID     string                                `json:"episode_id"`
+	TopologyClass string                                `json:"topology_class"`
+	Trigger       string                                `json:"trigger"`
+	ObservedAt    time.Time                             `json:"observed_at"`
+	Sequence      int                                   `json:"sequence"`
+	PriorityHint  string                                `json:"priority_hint"`
+	PriorityState string                                `json:"priority_state"`
+	ReasonCodes   []string                              `json:"reason_codes"`
+	Tracks        []contract.VisionClipObservationTrack `json:"tracks"`
+	Backend       contract.VisionClipObservationBackend `json:"backend"`
 }
 
 type transitionInput struct {
@@ -63,6 +67,7 @@ type options struct {
 	out             string
 	observations    string
 	summaryContract string
+	segmentManifest string
 	parity          string
 	fixtures        string
 }
@@ -76,6 +81,7 @@ func main() {
 	flag.StringVar(&o.out, "out", "", "E2E artifact directory")
 	flag.StringVar(&o.observations, "observations", "", "safe observations JSONL from the segment replay")
 	flag.StringVar(&o.summaryContract, "summary-contract", "", "final Core summary JSON")
+	flag.StringVar(&o.segmentManifest, "segment-manifest", "", "segment manifest used for continuity aggregation")
 	flag.StringVar(&o.parity, "parity", "", "PyTorch/ONNX/CPU parity report")
 	flag.StringVar(&o.fixtures, "fixtures", "testdata/vision-mlp-e2e", "declarative fixture directory")
 	flag.Parse()
@@ -107,6 +113,13 @@ func run(o options) error {
 	}
 	if len(observations) == 0 {
 		return errors.New("segment replay produced no observations")
+	}
+	if strings.TrimSpace(o.segmentManifest) == "" {
+		o.segmentManifest = filepath.Join(filepath.Dir(o.observations), "manifest.json")
+	}
+	segments, err := readStateFrameV5Segments(o.segmentManifest)
+	if err != nil {
+		return err
 	}
 	episodeID := observations[0].EpisodeID
 	if episodeID == "" {
@@ -180,17 +193,39 @@ func run(o options) error {
 	traces = append(traces, map[string]any{"schema": traceSchema, "stage": "core_event_store_topology_security", "security_mode": "armed_away", "known_residents_present": false, "topology_class": "protected_interior", "trigger": "motion"})
 	transitions := make([]map[string]any, 0, len(inputs))
 	teacherLines := make([]map[string]any, 0, len(inputs))
+	v5Captures := make([]map[string]any, 0, len(inputs))
 	latency := map[string]float64{cognitive.DangerHead: 0, cognitive.IncidentHead: 0, cognitive.TaskHead: 0, cognitive.ActionHead: 0}
+	stateframeV4LatencyMS := float64(0)
+	stateframeV5LatencyMS := float64(0)
+	v5Encoder := cognitive.V5StateEncoder{}
 	for index, input := range inputs {
 		frame := frameFor(input, index)
 		catalog := actionCatalog()
 		ledger := ledgerFor(input.Name)
+		v4Started := time.Now()
 		cognitiveInput, buildErr := cognitive.BuildInput(context.Background(), "vision-mlp-"+input.Name, cognitive.Task{ID: "vision-mlp-" + input.Name, Kind: "vision_segment_event", RequestedCapabilities: []string{cognitive.CapabilityEventReasoning}, RequestedModalities: []string{cognitive.ModalityEvent, cognitive.ModalityStructured, cognitive.ModalityTopology}}, frame, catalog, cognitive.V4StateEncoder{})
 		if buildErr != nil {
 			return buildErr
 		}
+		stateframeV4LatencyMS += float64(time.Since(v4Started).Microseconds()) / 1000
 		cognitiveInput.CreatedAt = input.At.UTC()
 		cognitiveInput.ActionLedger = ledger
+		v5Input := input
+		if input.Name == transitionFinal && len(observations) > 0 {
+			v5Input.At = observations[len(observations)-1].ObservedAt.Add(time.Second)
+		}
+		v5Frame := stateFrameV5For(v5Input, frame, observations, segments)
+		v5Started := time.Now()
+		v5Encoded, v5Err := v5Encoder.Encode(context.Background(), v5Frame)
+		if v5Err != nil {
+			return fmt.Errorf("stateframe v5 transition %s failed: %w", input.Name, v5Err)
+		}
+		v5LatencyMS := float64(time.Since(v5Started).Microseconds()) / 1000
+		stateframeV5LatencyMS += v5LatencyMS
+		v5Fingerprint, v5Err := v5Frame.Fingerprint()
+		if v5Err != nil {
+			return fmt.Errorf("stateframe v5 fingerprint %s failed: %w", input.Name, v5Err)
+		}
 		teacher := teacherFor(input)
 		var mlp map[string]any
 		safety := cognitive.SafetyDecision{AdvisoryOnly: true, AllowedActions: []string{}, BlockedActions: []cognitive.FilteredAction{}, ExecutorCalled: false}
@@ -221,12 +256,23 @@ func run(o options) error {
 		record := map[string]any{
 			"episode_id": input.EpisodeID, "transition": input.Name, "state_encoder_schema": cognitive.StateEncoderSchemaVersion,
 			"state_fingerprint": cognitiveInput.EncodedState.FrameChecksum, "vision_priority": priorityOrNone(input.Priority),
+			"stateframe_v5_schema": cognitive.StateEncoderV5SchemaVersion, "stateframe_v5_dimension": cognitive.EncoderV5Size,
+			"stateframe_v5_fingerprint": v5Fingerprint, "stateframe_v5_latency_ms": v5LatencyMS,
 			"teacher": teacher, "mlp": mlp, "safety": safety, "divergence": divergence,
 			"unrepresented_evidence": []string{"segment_index_and_track_continuity_not_projected_into_state_encoder_v4"},
 		}
 		transitions = append(transitions, record)
 		teacherLines = append(teacherLines, map[string]any{"episode_id": input.EpisodeID, "transition": input.Name, "teacher": teacher, "mlp": mlp, "divergence": divergence})
 		traces = append(traces, map[string]any{"schema": traceSchema, "stage": "state_frame", "transition": input.Name, "state_fingerprint": cognitiveInput.EncodedState.FrameChecksum, "state_encoder_schema": cognitive.StateEncoderSchemaVersion})
+		traces = append(traces, map[string]any{"schema": traceSchema, "stage": "state_frame_v5_shadow", "transition": input.Name, "stateframe_v5_fingerprint": v5Fingerprint, "state_encoder_schema": cognitive.StateEncoderV5SchemaVersion, "state_encoder_dimension": cognitive.EncoderV5Size, "latency_ms": v5LatencyMS, "forwarded_to_mlp": false})
+		v5Captures = append(v5Captures, map[string]any{
+			"schema": cognitive.StateFrameV5CaptureSchema, "state_encoder_schema": cognitive.StateEncoderV5SchemaVersion, "state_encoder_version": cognitive.EncoderV5Version,
+			"feature_dimension": cognitive.EncoderV5Size, "feature_order": cognitive.EncoderV5FeatureNames, "state": v5Frame.Normalized(),
+			"vector": v5Encoded.Values, "v5_fingerprint": v5Fingerprint,
+			"v4":              map[string]any{"schema": cognitive.StateEncoderSchemaVersion, "dimension": cognitive.EncoderV4Size, "frame_fingerprint": cognitiveInput.EncodedState.FrameChecksum},
+			"vision_evidence": stateFrameV5Evidence(v5Frame), "teacher": teacher,
+			"provenance": map[string]any{"source": "segmented_vision_replay", "replay_simulation": true, "physical_action_executed": false, "cognitive_mode": "advisory_shadow"},
+		})
 	}
 	traces = append(traces, map[string]any{"schema": traceSchema, "stage": "safety_gate", "advisory_only": true, "physical_action_executed": false, "executor_called": false})
 	if err := writeJSONL(filepath.Join(o.out, "trace.jsonl"), traces); err != nil {
@@ -236,6 +282,9 @@ func run(o options) error {
 		return err
 	}
 	if err := writeJSONL(filepath.Join(o.out, "teacher_vs_mlp.jsonl"), teacherLines); err != nil {
+		return err
+	}
+	if err := writeJSONL(filepath.Join(o.out, "stateframe-v5-capture.jsonl"), v5Captures); err != nil {
 		return err
 	}
 
@@ -258,6 +307,9 @@ func run(o options) error {
 		"teacher_available": true, "cognitive_mode": "advisory_shadow", "physical_action_executed": false,
 		"camera_transport_real": false, "segment_simulation": true, "episode_id": episodeID,
 		"state_encoder_schema": cognitive.StateEncoderSchemaVersion, "state_encoder_size": cognitive.EncoderV4Size,
+		"stateframe_v4_dimension": cognitive.EncoderV4Size, "stateframe_v5_schema": cognitive.StateEncoderV5SchemaVersion, "stateframe_v5_dimension": cognitive.EncoderV5Size,
+		"stateframe_v4_latency_ms": stateframeV4LatencyMS, "stateframe_v5_latency_ms": stateframeV5LatencyMS, "stateframe_v5_forwarded_to_mlp": false,
+		"stateframe_v5_capture": "stateframe-v5-capture.jsonl",
 		"bundle_manifest_sha256": func() string {
 			if verifyErr == nil {
 				return verification.ManifestSHA256
@@ -543,7 +595,7 @@ func writeReport(path string, summary map[string]any, transitions []map[string]a
 	if verification.ManifestSHA256 != "" {
 		fmt.Fprintf(&builder, "- source manifest SHA-256: `%s`\n", verification.ManifestSHA256)
 	}
-	fmt.Fprintf(&builder, "- verified heads: `%v`\n- state encoder: `%s` (%d)\n- parity: `%v`\n- fixtures: `%v`\n\n", verification.HeadNames(), cognitive.StateEncoderSchemaVersion, cognitive.EncoderV4Size, summary["parity_passed"], fixtures)
+	fmt.Fprintf(&builder, "- verified heads: `%v`\n- state encoder V4: `%s` (%d)\n- state encoder V5 shadow: `%s` (%d), forwarded to MLP: `%v`\n- parity: `%v`\n- fixtures: `%v`\n\n", verification.HeadNames(), cognitive.StateEncoderSchemaVersion, cognitive.EncoderV4Size, cognitive.StateEncoderV5SchemaVersion, cognitive.EncoderV5Size, summary["stateframe_v5_forwarded_to_mlp"], summary["parity_passed"], fixtures)
 	fmt.Fprintf(&builder, "- latency by head (ms): `%v`\n- outputs recorded: `danger`, `incident`, `task`, `action`\n- action filtering sources: `Device Store`, `Action Ledger`, `Safety Gate`\n\n", summary["latency_ms_by_head"])
 	builder.WriteString("## Teacher vs MLP transitions\n\n| transition | teacher danger | MLP danger/status | divergence |\n|---|---|---|---|\n")
 	for _, value := range transitions {
