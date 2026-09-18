@@ -78,6 +78,7 @@ class RKNNRunner(ModelRunner):
         self,
         model_path,
         core_mask,
+        input_data_format=None,
     ):
 
         if RKNNLite is None:
@@ -89,6 +90,7 @@ class RKNNRunner(ModelRunner):
 
         self.model_path = model_path
         self.core_mask = core_mask
+        self.input_data_format = input_data_format
         self._logged_outputs = False
 
         self.rknn = RKNNLite()
@@ -129,9 +131,10 @@ class RKNNRunner(ModelRunner):
             input_tensor
         )
 
-        outputs = self.rknn.inference(
-            inputs=[tensor]
-        )
+        kwargs = {"inputs": [tensor]}
+        if self.input_data_format is not None:
+            kwargs["data_format"] = [self.input_data_format]
+        outputs = self.rknn.inference(**kwargs)
 
         if (
             not self._logged_outputs
@@ -161,6 +164,8 @@ class RKNNRunner(ModelRunner):
 
 def create_model_runner(
     model_path,
+    core_mask=None,
+    input_data_format=None,
 ):
 
 
@@ -218,16 +223,18 @@ def create_model_runner(
             f"RKNNLite unavailable: {_RKNN_IMPORT_ERROR}",
         )
 
-    core_mask = getattr(
-        RKNNLite,
-        "NPU_CORE_0_1_2",
-        None,
-    )
-
     if core_mask is None:
-        core_mask = RKNNLite.NPU_CORE_0
+        core_mask = getattr(
+            RKNNLite,
+            "NPU_CORE_0_1_2",
+            None,
+        )
+
+        if core_mask is None:
+            core_mask = RKNNLite.NPU_CORE_0
 
     return RKNNRunner(
         model_path,
         core_mask,
+        input_data_format=input_data_format,
     )

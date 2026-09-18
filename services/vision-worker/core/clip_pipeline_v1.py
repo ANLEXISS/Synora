@@ -32,6 +32,85 @@ class IdentityStatus(str, Enum):
     NOT_AVAILABLE = "not_available"
 
 
+class TrackEnrichmentState(str, Enum):
+    UNSEEN = "unseen"
+    CANDIDATE = "candidate"
+    ENRICHING = "enriching"
+    RECOGNIZED_STABLE = "recognized_stable"
+    UNCERTAIN = "uncertain"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class _TrackEnrichment:
+    state: TrackEnrichmentState = TrackEnrichmentState.UNSEEN
+    identity: Optional[IdentityResult] = None
+    last_seen: Optional[datetime] = None
+    occluded_frames: int = 0
+
+
+class TrackEnrichmentPolicy:
+    """Per-track face-enrichment gate; it never gates human detection."""
+
+    def __init__(self, max_occlusion_frames: int = 5):
+        if max_occlusion_frames < 1:
+            raise ValueError("max_occlusion_frames must be positive")
+        self.max_occlusion_frames = int(max_occlusion_frames)
+        self._tracks: dict[str, _TrackEnrichment] = {}
+
+    def observe(self, track_id: str, at: datetime, *, visible: bool = True,
+                ambiguous: bool = False, strong_change: bool = False) -> TrackEnrichmentState:
+        entry = self._tracks.setdefault(track_id, _TrackEnrichment())
+        if not visible:
+            entry.occluded_frames += 1
+            if entry.occluded_frames >= self.max_occlusion_frames:
+                self._reopen(entry)
+            return entry.state
+        entry.last_seen = _utc(at)
+        entry.occluded_frames = 0
+        if ambiguous or strong_change:
+            self._reopen(entry)
+        if entry.state == TrackEnrichmentState.UNSEEN:
+            entry.state = TrackEnrichmentState.CANDIDATE
+        return entry.state
+
+    def begin_enrichment(self, track_id: str) -> bool:
+        entry = self._tracks.setdefault(track_id, _TrackEnrichment())
+        if entry.state == TrackEnrichmentState.RECOGNIZED_STABLE:
+            return False
+        entry.state = TrackEnrichmentState.ENRICHING
+        return True
+
+    def complete(self, track_id: str, result: IdentityResult, *, stable: bool = False) -> TrackEnrichmentState:
+        entry = self._tracks.setdefault(track_id, _TrackEnrichment())
+        entry.identity = result
+        if result.status == IdentityStatus.RECOGNIZED and stable:
+            entry.state = TrackEnrichmentState.RECOGNIZED_STABLE
+        elif result.status == IdentityStatus.UNKNOWN:
+            entry.state = TrackEnrichmentState.UNKNOWN
+        else:
+            entry.state = TrackEnrichmentState.UNCERTAIN
+        return entry.state
+
+    def should_enrich(self, track_id: str) -> bool:
+        return self._tracks.get(track_id, _TrackEnrichment()).state != TrackEnrichmentState.RECOGNIZED_STABLE
+
+    def identity(self, track_id: str) -> Optional[IdentityResult]:
+        entry = self._tracks.get(track_id)
+        return entry.identity if entry else None
+
+    def expire(self, track_id: str) -> None:
+        self._tracks.pop(track_id, None)
+
+    def state(self, track_id: str) -> TrackEnrichmentState:
+        return self._tracks.get(track_id, _TrackEnrichment()).state
+
+    def _reopen(self, entry: _TrackEnrichment) -> None:
+        entry.state = TrackEnrichmentState.CANDIDATE
+        entry.identity = None
+        entry.occluded_frames = 0
+
+
 class SensitiveStatus(str, Enum):
     CLEAR = "clear"
     DETECTED = "detected"
@@ -618,13 +697,39 @@ class VisionClipPipelineV1:
         frames: list[FrameObservation] = []
         index = 0
         tracker = ClipTrackerV1(
-            iou_threshold=float(self._config.get("tracker_iou_threshold", 0.30)),
-            max_track_gap_seconds=float(self._config.get("tracker_max_gap_seconds", 1.0)),
+            iou_threshold=float(self._config.get("tracker_iou_threshold", 0.20)),
+            max_track_gap_seconds=float(self._config.get("tracker_max_gap_seconds", 2.5)),
             max_active_tracks=int(self._config.get("tracker_max_active_tracks", 16)),
             min_bbox_width=int(self._config.get("tracker_min_bbox_width", 20)),
             min_bbox_height=int(self._config.get("tracker_min_bbox_height", 20)),
         )
         frame_period = fps or 5.0
+        batch: list[tuple[int, datetime, Any, int]] = []
+
+        def process_batch() -> None:
+            if not batch:
+                return
+            if hasattr(detector, "detect_many"):
+                raw_batches = detector.detect_many(
+                    [item[2] for item in batch], [item[3] for item in batch]
+                )
+            else:
+                raw_batches = [
+                    detector.detect(item[2], item[3]) if hasattr(detector, "diagnostic")
+                    else detector.detect(item[2])
+                    for item in batch
+                ]
+            for (sample_index, at, frame, _), raw_detections in zip(batch, raw_batches):
+                detections: list[Detection] = []
+                for assigned in tracker.update(list(raw_detections), at):
+                    x1, y1, x2, y2 = assigned["bbox"]
+                    roi = frame[max(0, y1):max(0, y2), max(0, x1):max(0, x2)]
+                    ref = f"local://clips/{clip.clip_id}/roi/{sample_index}-{len(detections)}"
+                    detections.append(Detection(assigned["track_id"], SubjectType.HUMAN,
+                                                assigned["score"], ref, roi))
+                frames.append(FrameObservation.from_values(at, detections))
+            batch.clear()
+
         try:
             while True:
                 ok, frame = cap.read()
@@ -634,20 +739,12 @@ class VisionClipPipelineV1:
                     at = clip.started_at + timedelta(seconds=index / frame_period)
                     if at > clip.ends_at:
                         break
-                    detections: list[Detection] = []
                     timestamp_ms = int(round((at - clip.started_at).total_seconds() * 1000.0))
-                    if hasattr(detector, "diagnostic"):
-                        raw_detections = list(detector.detect(frame, timestamp_ms))
-                    else:
-                        raw_detections = list(detector.detect(frame))
-                    for assigned in tracker.update(raw_detections, at):
-                        x1, y1, x2, y2 = assigned["bbox"]
-                        roi = frame[max(0, y1):max(0, y2), max(0, x1):max(0, x2)]
-                        ref = f"local://clips/{clip.clip_id}/roi/{index}-{len(detections)}"
-                        detections.append(Detection(assigned["track_id"], SubjectType.HUMAN,
-                                                    assigned["score"], ref, roi))
-                    frames.append(FrameObservation.from_values(at, detections))
+                    batch.append((index, at, frame, timestamp_ms))
+                    if len(batch) >= (3 if hasattr(detector, "detect_many") else 1):
+                        process_batch()
                 index += 1
+            process_batch()
         finally:
             cap.release()
         if hasattr(detector, "diagnostic"):

@@ -25,6 +25,8 @@ from core.clip_pipeline_v1 import (  # noqa: E402
     StaticFaceEnricher,
     StaticPlateEnricher,
     StaticSensitiveObjectEnricher,
+    TrackEnrichmentPolicy,
+    TrackEnrichmentState,
     SubjectType,
     Topology,
     UnavailablePlateEnricher,
@@ -78,6 +80,20 @@ class ClipPipelineV1Tests(unittest.TestCase):
         ], self.base + timedelta(seconds=.5)), [])
         replacement = tracker.update([{"bbox": [100, 0, 130, 30], "score": .95}], self.base + timedelta(seconds=2))
         self.assertEqual(replacement[0]["track_id"], "human-1")
+
+    def test_track_enrichment_policy_only_stops_stable_track(self):
+        policy = TrackEnrichmentPolicy(max_occlusion_frames=2)
+        self.assertEqual(policy.observe("human-0", self.base), TrackEnrichmentState.CANDIDATE)
+        self.assertTrue(policy.begin_enrichment("human-0"))
+        state = policy.complete("human-0", IdentityResult(IdentityStatus.RECOGNIZED, .95), stable=True)
+        self.assertEqual(state, TrackEnrichmentState.RECOGNIZED_STABLE)
+        self.assertFalse(policy.should_enrich("human-0"))
+        self.assertEqual(policy.observe("human-1", self.base), TrackEnrichmentState.CANDIDATE)
+        self.assertTrue(policy.should_enrich("human-1"))
+        policy.observe("human-0", self.base, visible=False)
+        policy.observe("human-0", self.base, visible=False)
+        self.assertTrue(policy.should_enrich("human-0"))
+        self.assertEqual(policy.state("human-0"), TrackEnrichmentState.CANDIDATE)
 
     def test_process_video_uses_fake_capture_detector_and_honors_clip_duration(self):
         class FakeFrame:

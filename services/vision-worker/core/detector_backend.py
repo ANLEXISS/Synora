@@ -230,3 +230,62 @@ class ExistingDetectorBackend(DetectorBackend):
 
     def close(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)
+
+
+class ThreePinnedDetectorBackend(DetectorBackend):
+    """Three independent RKNN runners with a bounded, ordered batch API."""
+
+    name = "existing_detector"
+
+    def __init__(self, detectors: list[Any], timeout_seconds: float = 2.0):
+        if len(detectors) != 3:
+            raise ValueError("three pinned detector backend requires exactly three detectors")
+        self.backends = [ExistingDetectorBackend(detector, timeout_seconds) for detector in detectors]
+        self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="vision-detector")
+        self.model_version = self.backends[0].model_version
+
+    def detect(self, frame: Any, frame_timestamp_ms: int = 0) -> list[dict[str, Any]]:
+        return self.backends[0].detect(frame, frame_timestamp_ms)
+
+    def detect_many(self, frames: list[Any], frame_timestamps_ms: list[int]) -> list[list[dict[str, Any]]]:
+        if len(frames) != len(frame_timestamps_ms) or len(frames) > 3:
+            raise ValueError("three pinned detector batch must contain one to three frames")
+        futures = [
+            self._executor.submit(self.backends[index].detect, frame, timestamp)
+            for index, (frame, timestamp) in enumerate(zip(frames, frame_timestamps_ms))
+        ]
+        return [future.result() for future in futures]
+
+    def diagnostic(self) -> dict[str, Any]:
+        diagnostics = [backend.diagnostic() for backend in self.backends]
+        statuses = {item["status"] for item in diagnostics}
+        if "failed" in statuses:
+            status = "failed"
+        elif "timeout" in statuses:
+            status = "timeout"
+        elif "unavailable" in statuses:
+            status = "unavailable"
+        else:
+            status = "ok"
+        return BackendDiagnostic(
+            name=self.name,
+            model_version=self.model_version,
+            real_model=any(item["real_model"] for item in diagnostics),
+            status=status,
+            frames_sampled=sum(item["frames_sampled"] for item in diagnostics),
+            detections_total=sum(item["detections_total"] for item in diagnostics),
+            latency_ms=sum(item["latency_ms"] for item in diagnostics),
+            non_human_ignored=sum(item["non_human_ignored"] for item in diagnostics),
+            error_code=next((item.get("error_code") for item in diagnostics if item.get("error_code")), None),
+        ).as_dict()
+
+    def capability(self) -> dict[str, Any]:
+        capability = dict(self.backends[0].capability())
+        capability["strategy"] = "three_pinned_workers"
+        capability["workers"] = 3
+        return capability
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=True, cancel_futures=True)
+        for backend in self.backends:
+            backend.close()

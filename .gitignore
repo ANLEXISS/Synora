@@ -83,6 +83,10 @@ tools/mediamtx/mediamtx
 # Local system-test reports
 artifacts/system-test/
 
+# Local inference benchmark output and fixture derived from test3.mp4
+out/
+testdata/vision/*.fixture.json
+
 # Local audit exports
 .audit/
 audit-export/

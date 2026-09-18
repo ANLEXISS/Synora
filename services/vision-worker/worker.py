@@ -32,7 +32,7 @@ from core.clip_pipeline_v1 import (
     UnavailablePlateEnricher,
     UnavailableSensitiveObjectEnricher,
 )
-from core.detector_backend import ExistingDetectorBackend
+from core.detector_backend import ExistingDetectorBackend, ThreePinnedDetectorBackend
 from core.model_runner import model_status
 from face_dataset import FaceDatasetError, FaceDatasetManager, safe_component, _regular_file
 
@@ -99,6 +99,9 @@ class VisionWorker:
         self.face_dataset_startup_error = None
         self.clip_v1_enabled = dry_run or os.getenv("SYNORA_VISION_CLIP_V1_ENABLED", "0") == "1"
         self.detector_mode = os.getenv("SYNORA_VISION_CLIP_V1_DETECTOR_MODE", "unavailable")
+        self.detector_strategy = os.getenv(
+            "SYNORA_VISION_DETECTOR_STRATEGY", "three_pinned_workers"
+        )
         self.detector_backend = None
 
         if dry_run:
@@ -111,7 +114,14 @@ class VisionWorker:
             self.pipeline = None
             try:
                 from modules.detect.person_detector import PersonDetector
-                self.person_detector = PersonDetector()
+                detector_core_mask = None
+                if self.detector_strategy == "three_pinned_workers":
+                    try:
+                        from rknnlite.api import RKNNLite
+                        detector_core_mask = RKNNLite.NPU_CORE_0
+                    except Exception:
+                        detector_core_mask = None
+                self.person_detector = PersonDetector(core_mask=detector_core_mask)
             except Exception as exc:
                 self.detector_error = str(exc)
                 log.exception("HUMAN DETECTOR degraded during initialization")
@@ -136,10 +146,25 @@ class VisionWorker:
             if self.detector_error:
                 self.pipeline_error = self.detector_error
         if not dry_run and self.detector_backend is None:
-            self.detector_backend = ExistingDetectorBackend(
-                self.person_detector,
-                timeout_seconds=_worker_float("SYNORA_VISION_V1_DETECTOR_TIMEOUT", 2.0),
-            )
+            detector_timeout = _worker_float("SYNORA_VISION_V1_DETECTOR_TIMEOUT", 2.0)
+            if self.detector_strategy == "three_pinned_workers" and self.person_detector is not None:
+                try:
+                    from rknnlite.api import RKNNLite
+                    masks = [RKNNLite.NPU_CORE_0, RKNNLite.NPU_CORE_1, RKNNLite.NPU_CORE_2]
+                    pinned = [self.person_detector]
+                    pinned.extend(PersonDetector(core_mask=mask) for mask in masks[1:])
+                    if not all(detector.available for detector in pinned):
+                        raise RuntimeError("one or more pinned NPU cores are unavailable")
+                    self.detector_backend = ThreePinnedDetectorBackend(pinned, detector_timeout)
+                except Exception as exc:
+                    log.warning("three pinned detector setup failed; falling back to single runner: %s", exc)
+                    for detector in locals().get("pinned", [])[1:]:
+                        try:
+                            detector.close()
+                        except Exception:
+                            pass
+            if self.detector_backend is None:
+                self.detector_backend = ExistingDetectorBackend(self.person_detector, detector_timeout)
 
         self.debug_app = self.create_debug_app() if DEBUG_HTTP_ENABLED else None
         if not DEBUG_HTTP_ENABLED:
@@ -489,8 +514,8 @@ class VisionWorker:
             pipeline = VisionClipPipelineV1({
                 "max_crops_per_track": int(os.getenv("SYNORA_VISION_V1_MAX_CROPS", "5")),
                 "critical_alert_threshold": _worker_float("SYNORA_VISION_V1_CRITICAL_THRESHOLD", .90),
-                "tracker_iou_threshold": _worker_float("SYNORA_VISION_V1_TRACKER_IOU", .30),
-                "tracker_max_gap_seconds": _worker_float("SYNORA_VISION_V1_TRACKER_MAX_GAP", 1.0),
+                "tracker_iou_threshold": _worker_float("SYNORA_VISION_V1_TRACKER_IOU", .20),
+                "tracker_max_gap_seconds": _worker_float("SYNORA_VISION_V1_TRACKER_MAX_GAP", 2.5),
                 "tracker_max_active_tracks": int(os.getenv("SYNORA_VISION_V1_TRACKER_MAX_ACTIVE", "16")),
                 "tracker_min_bbox_width": int(os.getenv("SYNORA_VISION_V1_TRACKER_MIN_WIDTH", "20")),
                 "tracker_min_bbox_height": int(os.getenv("SYNORA_VISION_V1_TRACKER_MIN_HEIGHT", "20")),

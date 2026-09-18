@@ -40,6 +40,24 @@ def detector_with_outputs(outputs):
 
 class PersonDetectorTests(unittest.TestCase):
 
+    def test_rknn_preprocess_is_explicit_rgb_nhwc(self):
+        detector = detector_with_outputs([])
+        tensor, meta = detector.preprocess(np.zeros((240, 320, 3), dtype=np.uint8))
+        self.assertEqual(tensor.shape, (1, 640, 640, 3))
+        self.assertEqual(tensor.dtype, np.float32)
+        self.assertEqual(meta["pad_x"], 0)
+
+    def test_vectorized_yolov8_layout_keeps_two_humans(self):
+        output = np.zeros((1, 84, 8400), dtype=np.float32)
+        output[0, :4, 100] = [120, 320, 80, 160]
+        output[0, 4, 100] = .91
+        output[0, :4, 200] = [500, 320, 80, 160]
+        output[0, 4, 200] = .88
+        detector = detector_with_outputs([output])
+        detections = detector.detect(np.zeros((240, 640, 3), dtype=np.uint8))
+        self.assertEqual(len(detections), 2)
+        self.assertTrue(all(item["bbox"][2] > item["bbox"][0] for item in detections))
+
     def test_single_numpy_detection_and_transposed_output(self):
         row = np.array([[0.50, 0.50, 0.40, 0.80, 0.95, 0.05]], dtype=np.float32)
         for outputs in (row, row.transpose()):

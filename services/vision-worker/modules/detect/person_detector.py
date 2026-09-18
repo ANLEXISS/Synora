@@ -1,46 +1,52 @@
-import cv2
+import json
 import logging
 import os
-import numpy as np
 import time
+
+import cv2
+import numpy as np
 
 from core.model_runner import create_model_runner, ModelUnavailableError, model_status
 
-DEBUG_LOG = "/tmp/yolo_debug.txt"
-log = logging.getLogger(
-    "synora.vision.person_detector"
-)
+
+log = logging.getLogger("synora.vision.person_detector")
 
 
 class PersonDetector:
+    """Existing YOLOv8 human detector with explicit RKNN runtime layout.
+
+    The converted RKNN model accepts an NHWC runtime buffer even though its
+    source ONNX graph is NCHW.  Keeping that distinction explicit is critical:
+    passing the old NCHW buffer without ``data_format`` produced plausible
+    tensors but no usable class-0 detections.
+    """
 
     MAX_PERSONS = 10
-
     DEBUG_DIR = "/var/lib/synora/debug/yolo"
 
-    def __init__(self):
-
-        log.info(
-            "PERSON DETECTOR INIT"
-        )
-
+    def __init__(self, core_mask=None, debug_enabled=None, debug_max_frames=None):
+        log.info("PERSON DETECTOR INIT")
         cv2.setNumThreads(1)
-
-        os.makedirs(
-            self.DEBUG_DIR,
-            exist_ok=True,
-        )
-
-        model_path = (
-            "/var/lib/synora/models/yolov8.rknn"
-        )
+        model_path = "/var/lib/synora/models/yolov8.rknn"
         self.model_path = model_path
         self.available = False
         self.error = None
         self.capability_status = model_status(model_path)
         self.runner = None
+        self.core_mask = core_mask
+        self.debug_enabled = (
+            os.getenv("SYNORA_VISION_DETECTOR_DEBUG", "0") == "1"
+            if debug_enabled is None else bool(debug_enabled)
+        )
+        self.debug_max_frames = max(
+            0,
+            int(os.getenv("SYNORA_VISION_DETECTOR_DEBUG_MAX_FRAMES", "3"))
+            if debug_max_frames is None else int(debug_max_frames),
+        )
+        self.debug_frames = 0
+        self.debug_counter = 0
         try:
-            self.runner = create_model_runner(model_path)
+            self.runner = create_model_runner(model_path, core_mask=core_mask, input_data_format="nhwc")
             self.available = True
         except ModelUnavailableError as exc:
             self.error = exc.message
@@ -48,606 +54,233 @@ class PersonDetector:
             log.error("YOLO unavailable code=%s model=%s error=%s", exc.code, model_path, exc.message)
         except Exception as exc:
             self.error = str(exc)
-            self.capability_status = {"status": "unavailable", "code": "rknn_runtime_error", "path": model_path, "error": self.error}
+            self.capability_status = {
+                "status": "unavailable", "code": "rknn_runtime_error", "path": model_path,
+                "error": self.error,
+            }
             log.exception("YOLO unavailable model=%s", model_path)
 
         self.input_size = 640
-
-        # plus strict pour éviter
-        # les faux positifs absurdes
         self.conf_threshold = 0.40
-
         self.nms_threshold = 0.45
-
-        self.canvas = np.zeros(
-            (
-                self.input_size,
-                self.input_size,
-                3,
-            ),
-            dtype=np.uint8,
-        )
-
-        self.debug_counter = 0
-
+        self.canvas = np.zeros((self.input_size, self.input_size, 3), dtype=np.uint8)
         if self.available:
-            log.info(
-                "PERSON DETECTOR READY backend=%s model=%s",
-                self.runner.backend,
-                model_path,
-            )
+            log.info("PERSON DETECTOR READY backend=%s model=%s", self.runner.backend, model_path)
 
     def capability(self):
         status = dict(self.capability_status or {})
         status.setdefault("path", self.model_path)
         status["status"] = "available" if self.available else "unavailable"
+        status["input_size"] = self.input_size
+        status["input_layout"] = "nhwc"
+        status["confidence_threshold"] = self.conf_threshold
+        status["nms_threshold"] = self.nms_threshold
         if self.error:
             status["error"] = self.error
         return status
 
-    # ------------------------------------------------
+    def begin_clip(self):
+        self.debug_frames = 0
 
-    def preprocess(
-        self,
-        frame,
-    ):
-
+    def preprocess(self, frame):
         h, w = frame.shape[:2]
-
-        scale = min(
-            self.input_size / w,
-            self.input_size / h,
-        )
-
+        scale = min(self.input_size / w, self.input_size / h)
         new_w = int(w * scale)
         new_h = int(h * scale)
-
-        resized = cv2.resize(
-            frame,
-            (new_w, new_h),
-            interpolation=cv2.INTER_LINEAR,
-        )
-
+        resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
         self.canvas.fill(0)
-
-        pad_x = (
-            self.input_size - new_w
-        ) // 2
-
-        pad_y = (
-            self.input_size - new_h
-        ) // 2
-
-        self.canvas[
-            pad_y:pad_y + new_h,
-            pad_x:pad_x + new_w
-        ] = resized
-
-        img = self.canvas[
-            :,
-            :,
-            ::-1
-        ].astype(np.float32)
-
-        img /= 255.0
-
-        tensor = np.transpose(
-            img,
-            (2, 0, 1),
-        )
-
-        tensor = np.expand_dims(
-            tensor,
-            0,
-        )
-
+        pad_x = (self.input_size - new_w) // 2
+        pad_y = (self.input_size - new_h) // 2
+        self.canvas[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = resized
+        # BGR camera frames become RGB float32, retaining NHWC for RKNNLite.
+        image = self.canvas[:, :, ::-1].astype(np.float32) / 255.0
         meta = {
-            "scale": scale,
-            "pad_x": pad_x,
-            "pad_y": pad_y,
-            "orig_h": h,
-            "orig_w": w,
+            "scale": scale, "pad_x": pad_x, "pad_y": pad_y,
+            "orig_h": h, "orig_w": w,
         }
+        return np.ascontiguousarray(image[None, ...]), meta
 
-        return (
-            np.ascontiguousarray(
-                tensor
-            ),
-            meta,
+    def _debug_active(self):
+        return bool(
+            getattr(self, "debug_enabled", False)
+            and getattr(self, "debug_frames", 0) < getattr(self, "debug_max_frames", 0)
         )
 
-    # ------------------------------------------------
-
-    def save_detection_frame(
-        self,
-        frame,
-        boxes,
-    ):
-
+    def save_detection_frame(self, frame, boxes):
+        if not self._debug_active():
+            return
         debug = frame.copy()
+        for x1, y1, x2, y2 in boxes:
+            cv2.rectangle(debug, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        self._write_debug_image(debug, f"detection_{int(time.time() * 1000)}_{self.debug_counter}.jpg")
 
-        for box in boxes:
-
-            x1, y1, x2, y2 = box
-
-            cv2.rectangle(
-                debug,
-                (x1, y1),
-                (x2, y2),
-                (0, 255, 0),
-                2,
-            )
-
-        ts = int(
-            time.time() * 1000
-        )
-
-        path = os.path.join(
-            self.DEBUG_DIR,
-            f"detection_{ts}_{self.debug_counter}.jpg",
-        )
-
-        self.debug_counter += 1
-
-        cv2.imwrite(
-            path,
-            debug,
-        )
-
-    def save_person_roi(
-        self,
-        roi,
-    ):
-
-        if roi is None:
+    def save_person_roi(self, roi):
+        if not self._debug_active() or roi is None or roi.size == 0:
             return
+        self._write_debug_image(roi, f"person_roi_{int(time.time() * 1000)}_{self.debug_counter}.jpg")
 
-        if roi.size == 0:
-            return
-
-        ts = int(
-            time.time() * 1000
-        )
-
-        path = os.path.join(
-            self.DEBUG_DIR,
-            f"person_roi_{ts}_{self.debug_counter}.jpg",
-        )
-
-        self.debug_counter += 1
-
-        cv2.imwrite(
-            path,
-            roi,
-        )
-
-    # ------------------------------------------------
-
-    def detect(
-        self,
-        frame,
-    ):
-
-        if (
-            not self.available or
-            self.runner is None or
-            not isinstance(frame, np.ndarray) or
-            frame.ndim != 3 or
-            frame.shape[0] == 0 or
-            frame.shape[1] == 0
-        ):
-            return []
-
-        blob, meta = self.preprocess(
-            frame
-        )
-
+    def _write_debug_image(self, image, filename):
         try:
-
-            outputs = self.runner.infer(
-                blob
-            )
-
-            with open(DEBUG_LOG, "a") as f:
-
-                f.write("\n")
-                f.write("=" * 80 + "\n")
-                f.write("NEW INFERENCE\n")
-                f.write("=" * 80 + "\n")
-
-                f.write(f"Number outputs: {len(outputs)}\n")
-
-                for idx, out in enumerate(outputs):
-
-                    arr = np.asarray(out)
-
-                    f.write(
-                        f"OUTPUT {idx}\n"
-                    )
-
-                    f.write(
-                        f"shape={arr.shape}\n"
-                    )
-
-                    f.write(
-                        f"dtype={arr.dtype}\n"
-                    )
-
-                    f.write(
-                        f"min={arr.min()}\n"
-                    )
-
-                    f.write(
-                        f"max={arr.max()}\n"
-                    )
-
-                    f.write(
-                        f"mean={arr.mean()}\n"
-                    )
-
-                    flat = arr.flatten()
-
-                    f.write(
-                        f"sample={flat[:50]}\n"
-                    )
-
+            os.makedirs(self.DEBUG_DIR, exist_ok=True)
+            cv2.imwrite(os.path.join(self.DEBUG_DIR, filename), image)
+            self.debug_counter = getattr(self, "debug_counter", 0) + 1
         except Exception:
+            # Debug output must never make an inference fail.
+            log.debug("detector debug image write failed", exc_info=True)
 
-            log.exception(
-                "YOLO inference failed"
-            )
+    def detect(self, frame):
+        return self.detect_timed(frame)[0]
 
-            return []
-
-        if outputs is None:
-            return []
-
+    def detect_timed(self, frame):
+        started = time.perf_counter()
+        timings = {
+            "decode_ms": 0.0,
+            "preprocess_ms": 0.0,
+            "rknn_inference_ms": 0.0,
+            "postprocess_ms": 0.0,
+            "nms_ms": 0.0,
+            "debug_io_ms": 0.0,
+            "total_ms": 0.0,
+        }
+        if (
+            not self.available or self.runner is None
+            or not isinstance(frame, np.ndarray) or frame.ndim != 3
+            or frame.shape[0] == 0 or frame.shape[1] == 0
+        ):
+            timings["total_ms"] = (time.perf_counter() - started) * 1000.0
+            return [], timings
+        stage = time.perf_counter()
+        blob, meta = self.preprocess(frame)
+        timings["preprocess_ms"] = (time.perf_counter() - stage) * 1000.0
+        stage = time.perf_counter()
         try:
-            outputs = self._normalize_outputs(outputs)
-        except (TypeError, ValueError):
-            log.exception("YOLO output normalization failed")
+            outputs = self.runner.infer(blob)
+        except Exception:
+            log.exception("YOLO inference failed")
+            timings["rknn_inference_ms"] = (time.perf_counter() - stage) * 1000.0
+            timings["total_ms"] = (time.perf_counter() - started) * 1000.0
+            return [], timings
+        timings["rknn_inference_ms"] = (time.perf_counter() - stage) * 1000.0
+
+        debug_this_frame = self._debug_active()
+        stage = time.perf_counter()
+        try:
+            rows = self._normalize_outputs(outputs)
+            decoded = self._decode_candidates(rows, meta)
+        except (TypeError, ValueError, IndexError):
+            log.exception("YOLO output post-processing failed")
+            timings["postprocess_ms"] = (time.perf_counter() - stage) * 1000.0
+            timings["total_ms"] = (time.perf_counter() - started) * 1000.0
+            return [], timings
+        timings["postprocess_ms"] = (time.perf_counter() - stage) * 1000.0
+        if debug_this_frame:
+            stage = time.perf_counter()
+            self._write_debug_output(outputs, rows, decoded)
+            timings["debug_io_ms"] = (time.perf_counter() - stage) * 1000.0
+        if not decoded:
+            if debug_this_frame:
+                self.debug_frames += 1
+            timings["total_ms"] = (time.perf_counter() - started) * 1000.0
+            return [], timings
+        stage = time.perf_counter()
+        try:
+            results = self._apply_nms(frame, decoded)
+        except Exception:
+            log.exception("YOLO NMS failed")
+            timings["nms_ms"] = (time.perf_counter() - stage) * 1000.0
+            timings["total_ms"] = (time.perf_counter() - started) * 1000.0
+            return [], timings
+        timings["nms_ms"] = (time.perf_counter() - stage) * 1000.0
+        if debug_this_frame:
+            self.debug_frames += 1
+        timings["total_ms"] = (time.perf_counter() - started) * 1000.0
+        return results, timings
+
+    def _apply_nms(self, frame, decoded):
+        boxes = [item["bbox"] for item in decoded]
+        scores = [item["score"] for item in decoded]
+        # OpenCV NMSBoxes consumes [x, y, width, height], not corner points.
+        nms_boxes = [[x1, y1, x2 - x1, y2 - y1] for x1, y1, x2, y2 in boxes]
+        indices = np.asarray(
+            cv2.dnn.NMSBoxes(nms_boxes, scores, self.conf_threshold, self.nms_threshold)
+        ).reshape(-1)
+        results = []
+        for index in indices:
+            index = int(index)
+            x1, y1, x2, y2 = boxes[index]
+            self.save_person_roi(frame[y1:y2, x1:x2])
+            results.append({"bbox": (x1, y1, x2, y2), "score": float(scores[index])})
+        results.sort(key=lambda item: (-item["score"], item["bbox"]))
+        if results:
+            self.save_detection_frame(frame, [item["bbox"] for item in results])
+        return results[: self.MAX_PERSONS]
+
+    def _decode_candidates(self, rows, meta):
+        if rows is None or rows.ndim != 2 or rows.shape[1] < 6:
             return []
-
-        if outputs is None:
+        rows = np.asarray(rows, dtype=np.float32)
+        rows = rows[np.all(np.isfinite(rows), axis=1)]
+        if rows.size == 0:
             return []
-
-        with open(DEBUG_LOG, "a") as f:
-
-            f.write(
-                f"\nAFTER outputs[0]\n"
-            )
-
-            f.write(
-                f"shape={outputs.shape}\n"
-            )
-
-            f.write(
-                f"dtype={outputs.dtype}\n"
-            )
-
-        log.info(
-            "YOLO output_shape=%s",
-            outputs.shape,
-        )
-
-        boxes = []
-
-        scores = []
+        # Keep geometric arithmetic in float64 so de-letterboxing preserves
+        # the historical truncation at image boundaries.
+        boxes = rows[:, :4].astype(np.float64, copy=True)
+        if np.nanmax(boxes) <= 2.0:
+            boxes *= self.input_size
+        if rows.shape[1] >= 85:
+            objectness = self._score_values(rows[:, 4])
+            class_values = self._score_values(rows[:, 5:])
+        else:
+            objectness = np.ones(rows.shape[0], dtype=np.float32)
+            class_values = self._score_values(rows[:, 4:])
+        class_ids = np.argmax(class_values, axis=1)
+        confidence = objectness * class_values[np.arange(rows.shape[0]), class_ids]
+        keep = (class_ids == 0) & (confidence >= self.conf_threshold) & np.isfinite(confidence)
+        boxes = boxes[keep]
+        confidence = confidence[keep]
+        if boxes.size == 0:
+            return []
 
         scale = meta["scale"]
-
-        pad_x = meta["pad_x"]
-
-        pad_y = meta["pad_y"]
-
-        orig_w = meta["orig_w"]
-
-        orig_h = meta["orig_h"]
-
-        row_debug = 0
-        for row in outputs:
-
-
-            if row_debug < 20:
-
-                with open(DEBUG_LOG, "a") as f:
-
-                    f.write(
-                        f"\nROW {row_debug}\n"
-                    )
-
-                    f.write(
-                        f"len={len(row)}\n"
-                    )
-
-                    f.write(
-                        f"data={row[:20]}\n"
-                    )
-
-                row_debug += 1
-
-            if len(row) < 6 or not np.all(np.isfinite(row)):
-                continue
-
-            cx, cy, bw, bh = row[:4]
-
-            if max(cx, cy, bw, bh) <= 2.0:
-                cx *= self.input_size
-                cy *= self.input_size
-                bw *= self.input_size
-                bh *= self.input_size
-
-            # RKNN YOLOv8 exports are commonly either:
-            # [x y w h cls0 cls1 ...] or [x y w h obj cls0 cls1 ...].
-            if len(row) >= 85:
-                obj_raw = row[4]
-                cls_raw = row[5:]
-                obj_conf = self._score_value(obj_raw)
-            else:
-                obj_conf = 1.0
-                cls_raw = row[4:]
-
-            class_scores = self._score_values(
-                cls_raw
-            )
-            if row_debug < 5:
-
-                with open(DEBUG_LOG, "a") as f:
-
-                    f.write("\nCLASS DEBUG\n")
-
-                    f.write(
-                        f"raw_cls_min={np.min(cls_raw)}\n"
-                    )
-
-                    f.write(
-                        f"raw_cls_max={np.max(cls_raw)}\n"
-                    )
-
-                    f.write(
-                        f"raw_cls_mean={np.mean(cls_raw)}\n"
-                    )
-
-                    top_idx = np.argsort(cls_raw)[-10:]
-
-                    f.write(
-                        f"top10_raw_idx={top_idx.tolist()}\n"
-                    )
-
-                    f.write(
-                        f"top10_raw_values={cls_raw[top_idx].tolist()}\n"
-                    )
-
-            class_id = int(
-                np.argmax(
-                    class_scores
-                )
-            )
-
-            if row_debug < 5:
-
-                with open(DEBUG_LOG, "a") as f:
-
-                    f.write(
-                        f"argmax_class={class_id}\n"
-                    )
-
-                    f.write(
-                        f"best_score={class_scores[class_id]}\n"
-                    )
-
-            class_conf = float(
-                class_scores[
-                    class_id
-                ]
-            )
-
-
-            confidence = (
-                obj_conf *
-                class_conf
-            )
-
-            if len(boxes) < 20:
-                if row_debug < 20:
-                    with open(DEBUG_LOG, "a") as f:
-
-                        f.write(
-                            f"class_id={class_id} "
-                            f"class_conf={class_conf} "
-                            f"obj_conf={obj_conf} "
-                            f"confidence={confidence}\n"
-                        )
-
-            # personne uniquement
-            if class_id != 0:
-                continue
-
-            if confidence < self.conf_threshold:
-                continue
-
-            x1 = cx - bw / 2
-            y1 = cy - bh / 2
-
-            x2 = cx + bw / 2
-            y2 = cy + bh / 2
-
-            x1 = (
-                x1 - pad_x
-            ) / scale
-
-            y1 = (
-                y1 - pad_y
-            ) / scale
-
-            x2 = (
-                x2 - pad_x
-            ) / scale
-
-            y2 = (
-                y2 - pad_y
-            ) / scale
-
-            x1 = int(np.clip(
-                x1,
-                0,
-                orig_w,
-            ))
-
-            y1 = int(np.clip(
-                y1,
-                0,
-                orig_h,
-            ))
-
-            x2 = int(np.clip(
-                x2,
-                0,
-                orig_w,
-            ))
-
-            y2 = int(np.clip(
-                y2,
-                0,
-                orig_h,
-            ))
-
-            if (
-                x2 <= x1 or
-                y2 <= y1
-            ):
-                continue
-
-            # évite les boxes absurdes
-            box_w = x2 - x1
-            box_h = y2 - y1
-
-            aspect = (
-                box_h /
-                max(box_w, 1)
-            )
-
-            if aspect > 5.0:
-                continue
-
-            if aspect < 0.5:
-                continue
-
-            if box_w < 40:
-                continue
-
-            if box_h < 80:
-                continue
-
-            boxes.append([
-                x1,
-                y1,
-                x2,
-                y2,
-            ])
-
-            scores.append(
-                confidence
-            )
-
-            log.info(
-                "YOLO person conf=%.3f obj=%.3f class=%.3f bbox=(%d,%d,%d,%d)",
-                confidence,
-                obj_conf,
-                class_conf,
-                x1,
-                y1,
-                x2,
-                y2,
-            )
-
-        if not boxes:
-            return []
-
-        nms_boxes = []
-
-        for b in boxes:
-
-            x1, y1, x2, y2 = b
-
-            nms_boxes.append([
-                x1,
-                y1,
-                x2 - x1,
-                y2 - y1,
-            ])
-
-        indices = cv2.dnn.NMSBoxes(
-            nms_boxes,
-            scores,
-            self.conf_threshold,
-            self.nms_threshold,
+        translated = np.empty_like(boxes)
+        translated[:, 0] = (boxes[:, 0] - boxes[:, 2] / 2 - meta["pad_x"]) / scale
+        translated[:, 1] = (boxes[:, 1] - boxes[:, 3] / 2 - meta["pad_y"]) / scale
+        translated[:, 2] = (boxes[:, 0] + boxes[:, 2] / 2 - meta["pad_x"]) / scale
+        translated[:, 3] = (boxes[:, 1] + boxes[:, 3] / 2 - meta["pad_y"]) / scale
+        translated[:, [0, 2]] = np.clip(translated[:, [0, 2]], 0, meta["orig_w"])
+        translated[:, [1, 3]] = np.clip(translated[:, [1, 3]], 0, meta["orig_h"])
+        widths = translated[:, 2] - translated[:, 0]
+        heights = translated[:, 3] - translated[:, 1]
+        aspect = heights / np.maximum(widths, 1)
+        keep = (
+            (widths >= 40) & (heights >= 80)
+            & (aspect >= 0.5) & (aspect <= 5.0)
+            & (translated[:, 2] > translated[:, 0])
+            & (translated[:, 3] > translated[:, 1])
         )
-
-        results = []
-
-        indices = np.asarray(indices).reshape(-1)
-
-        if len(indices) > 0:
-
-            for i in indices.flatten(): # type: ignore
-
-                x1, y1, x2, y2 = boxes[i]
-
-                roi = frame[
-                    y1:y2,
-                    x1:x2,
-                ]
-
-                self.save_person_roi(
-                    roi
-                )
-
-                results.append({
-                    "bbox": (
-                        x1,
-                        y1,
-                        x2,
-                        y2,
-                    ),
-                    "score": float(
-                        scores[i]
-                    ),
-                })
-
-        results.sort(
-            key=lambda r: r["score"],
-            reverse=True,
-        )
-
-        if results:
-
-            self.save_detection_frame(
-                frame,
-                [
-                    r["bbox"]
-                    for r in results
-                ],
-            )
-
-            best = results[0]
-
-            log.info(
-                "YOLO FINAL persons=%d best=%.3f bbox=%s",
-                len(results),
-                best["score"],
-                best["bbox"],
-            )
-
-        return results[
-            :self.MAX_PERSONS
+        return [
+            {"bbox": tuple(int(value) for value in box), "score": float(score)}
+            for box, score in zip(translated[keep], confidence[keep])
         ]
+
+    def _write_debug_output(self, raw_outputs, rows, decoded):
+        try:
+            os.makedirs(self.DEBUG_DIR, exist_ok=True)
+            outputs = raw_outputs if isinstance(raw_outputs, (list, tuple)) else [raw_outputs]
+            with open(os.getenv("SYNORA_VISION_DETECTOR_DEBUG_LOG", "/tmp/yolo_debug.txt"), "a", encoding="utf-8") as stream:
+                stream.write(json.dumps({
+                    "raw_shapes": [list(np.asarray(output).shape) for output in outputs],
+                    "normalized_shape": list(rows.shape) if rows is not None else None,
+                    "decoded": decoded,
+                }, default=str) + "\n")
+        except Exception:
+            log.debug("detector debug output write failed", exc_info=True)
 
     @staticmethod
     def _normalize_outputs(outputs):
-        """Normalize common RKNN YOLO layouts to one row per candidate."""
+        """Normalize YOLO [1,84,8400] and row-major test outputs."""
         if isinstance(outputs, (list, tuple)):
-            if len(outputs) == 0:
+            if not outputs:
                 return None
             outputs = outputs[0]
         array = np.asarray(outputs, dtype=np.float32)
@@ -657,48 +290,32 @@ class PersonDetector:
             array = array[0]
         if array.ndim != 2:
             return None
-        if array.shape[1] >= 6 and array.shape[0] < 6:
+        if array.shape[0] in (84, 85) and array.shape[1] > array.shape[0]:
+            return array.transpose()
+        if array.shape[1] in (84, 85):
             return array
-        if array.shape[0] >= 6 and array.shape[1] < 6:
+        if array.shape[1] < 6 <= array.shape[0]:
             return array.transpose()
-        if array.shape[0] < 6 and array.shape[1] < 6:
-            return None
-        if array.shape[0] <= 128 and array.shape[1] > array.shape[0]:
-            return array.transpose()
-        return array
+        if array.shape[0] < 6 <= array.shape[1]:
+            return array
+        return array if array.shape[1] >= 6 else None
 
-    def _score_value(
-        self,
-        value,
-    ):
-
+    @staticmethod
+    def _score_value(value):
         value = float(value)
-
         if 0.0 <= value <= 1.0:
             return value
-
         return float(1.0 / (1.0 + np.exp(-np.clip(value, -60.0, 60.0))))
 
-    def _score_values(
-        self,
-        values,
-    ):
-
-        values = np.asarray(
-            values,
-            dtype=np.float32,
-        )
-
+    @staticmethod
+    def _score_values(values):
+        values = np.asarray(values, dtype=np.float32)
         if values.size == 0:
             return values
-
-        if (
-            np.nanmin(values) >= 0.0 and
-            np.nanmax(values) <= 1.0
-        ):
+        if np.nanmin(values) >= 0.0 and np.nanmax(values) <= 1.0:
             return values
+        return 1.0 / (1.0 + np.exp(-np.clip(values, -60.0, 60.0)))
 
-        return (
-            1.0 /
-            (1.0 + np.exp(-values))
-        )
+    def close(self):
+        if self.runner is not None:
+            self.runner.close()

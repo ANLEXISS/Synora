@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 from typing import Any
+import shutil
 
 import cv2
 
@@ -88,7 +89,11 @@ def main(argv: list[str] | None = None) -> int:
         env["SYNORA_REPLAY_EXPECT"] = str(Path(args.expect).expanduser().resolve())
 
     print(json.dumps({"validated_clip": metadata, "output_dir": str(output_dir.resolve())}, sort_keys=True))
-    command = ["go", "test", "./cmd/synora-core", "-run", "^TestV1RealClipReplay$", "-count=1", "-v"]
+    go_binary = os.environ.get("GO") or os.environ.get("SYNORA_GO") or shutil.which("go")
+    if not go_binary:
+        print("REPLAY_VALIDATION_FAILED: Go compiler not found; set GO=/path/to/go", file=sys.stderr)
+        return 2
+    command = [go_binary, "test", "./cmd/synora-core", "-run", "^TestV1RealClipReplay$", "-count=1", "-v"]
     result = subprocess.run(command, cwd=project_root, env=env, check=False)
     if result.returncode == 0:
         print(f"REPLAY_OUTPUT_DIR {output_dir.resolve()}")

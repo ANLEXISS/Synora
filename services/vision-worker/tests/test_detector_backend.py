@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from core.detector_backend import ExistingDetectorBackend
+from core.detector_backend import ExistingDetectorBackend, ThreePinnedDetectorBackend
 
 
 class FakeDetector:
@@ -27,6 +27,8 @@ class FakeDetector:
     def detect(self, _frame):
         if self.delay:
             time.sleep(self.delay)
+        if callable(self.result):
+            return self.result(_frame)
         return self.result
 
 
@@ -84,6 +86,20 @@ class DetectorBackendTests(unittest.TestCase):
         try:
             self.assertEqual(backend.detect(object(), 0), [])
             self.assertEqual(backend.diagnostic()["non_human_ignored"], 1)
+        finally:
+            backend.close()
+
+    def test_three_pinned_backend_keeps_batch_order_and_aggregates_diagnostics(self):
+        detector = FakeDetector(lambda frame: [{"bbox": [frame, 0, frame + 30, 30], "score": .9}])
+        backend = ThreePinnedDetectorBackend([detector, detector, detector])
+        try:
+            batches = backend.detect_many([10, 20, 30], [100, 200, 300])
+            self.assertEqual([item[0]["bbox"] for item in batches], [[10, 0, 40, 30], [20, 0, 50, 30], [30, 0, 60, 30]])
+            diagnostic = backend.diagnostic()
+            self.assertEqual(diagnostic["frames_sampled"], 3)
+            self.assertEqual(diagnostic["detections_total"], 3)
+            self.assertTrue(diagnostic["real_model"])
+            self.assertEqual(diagnostic["status"], "ok")
         finally:
             backend.close()
 

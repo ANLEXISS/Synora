@@ -148,10 +148,15 @@ func TestV1RealClipReplay(t *testing.T) {
 	})
 
 	var summaryEvent *contract.Event
+	trackIDs := map[string]struct{}{}
 	for _, event := range replayBus.app.eventStore.List() {
 		if event != nil && event.Type == contract.EventVisionClipSummaryV1 {
-			summaryEvent = event
-			break
+			if summaryEvent == nil {
+				summaryEvent = event
+			}
+			if event.TrackID != "" && event.TrackID != "clip-no-human" {
+				trackIDs[event.TrackID] = struct{}{}
+			}
 		}
 	}
 	if summaryEvent == nil {
@@ -203,10 +208,7 @@ func TestV1RealClipReplay(t *testing.T) {
 	}
 
 	humanDetections := backend.DetectionsTotal
-	tracksFinal := 0
-	if summaryEvent.TrackID != "clip-no-human" {
-		tracksFinal = 1
-	}
+	tracksFinal := len(trackIDs)
 	if expectation.MinimumHumanDetections > humanDetections || expectation.MinimumTracks > tracksFinal || (expectation.BackendStatus != "" && expectation.BackendStatus != backend.Status) || expectation.PhysicalActionExecuted {
 		t.Fatalf("replay expectation failed: backend=%#v human_detections=%d tracks=%d expectation=%#v", backend, humanDetections, tracksFinal, expectation)
 	}

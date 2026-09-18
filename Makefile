@@ -8,7 +8,7 @@ SHELL := /usr/bin/env bash
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	dev-tools diagnostics install-dev-tools
 
-.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 replay-vision-v1
+.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 replay-vision-v1 benchmark-vision-inference
 
 COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
 COGNITIVE_MODEL_DIR ?= build/cognitive-mlp-v1
@@ -198,7 +198,10 @@ replay-vision-v1: check-go
 	@test -n "$(NODE_ID)" || { echo "FAIL: NODE_ID is required" >&2; exit 2; }
 	@test -n "$(ZONE)" || { echo "FAIL: ZONE is required" >&2; exit 2; }
 	@test -n "$(TRIGGER)" || { echo "FAIL: TRIGGER is required" >&2; exit 2; }
-	$(PYTHON) services/vision-worker/replay_v1.py --clip "$(CLIP)" --camera-id "$(CAMERA_ID)" --node-id "$(NODE_ID)" --zone "$(ZONE)" --trigger "$(TRIGGER)" $(if $(EXPECT),--expect "$(EXPECT)",) $(if $(OUT),--out "$(OUT)",)
+	GO="$(GO)" $(PYTHON) services/vision-worker/replay_v1.py --clip "$(CLIP)" --camera-id "$(CAMERA_ID)" --node-id "$(NODE_ID)" --zone "$(ZONE)" --trigger "$(TRIGGER)" $(if $(EXPECT),--expect "$(EXPECT)",) $(if $(OUT),--out "$(OUT)",)
+
+benchmark-vision-inference: check-go
+	$(PYTHON) services/vision-worker/tools/vision_inference_benchmark.py $(if $(CLIP),--clip "$(CLIP)",) $(if $(OUT),--out "$(OUT)",) $(if $(SKIP_ONNX),--skip-onnx,)
 
 install: install-deps build build-bootstrap-config install-dirs install-bins install-bootstrap-config install-boot-healthcheck install-version install-model-manifest install-config install-models install-web install-mediamtx install-vision-worker install-face-data install-diagnostics install-systemd enable-services
 	@echo "Synora runtime installation complete."
