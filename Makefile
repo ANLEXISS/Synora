@@ -8,11 +8,13 @@ SHELL := /usr/bin/env bash
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	dev-tools diagnostics install-dev-tools
 
-.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 replay-vision-v1 replay-vision-segments-v1 benchmark-vision-inference
+.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 e2e-vision-mlp-v1 replay-vision-v1 replay-vision-segments-v1 benchmark-vision-inference
 
 COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
 COGNITIVE_MODEL_DIR ?= build/cognitive-mlp-v1
 COGNITIVE_FIXTURES ?= testdata/cognitive/mlp_parity_100.jsonl
+COGNITIVE_RUNTIME_MANIFEST ?= models/cognitive/MANIFEST.runtime.json
+VISION_MLP_FIXTURES ?= testdata/vision-mlp-e2e
 
 PREFIX ?= /opt/synora
 BINDIR ?= $(PREFIX)/bin
@@ -42,6 +44,11 @@ SERVICE_USER ?= synora
 GO ?= $(shell if command -v go >/dev/null 2>&1; then command -v go; elif [ -x /usr/local/go/bin/go ]; then printf '%s' /usr/local/go/bin/go; else printf '%s' go; fi)
 GO_BUILD_FLAGS ?= -trimpath -buildvcs=false
 PYTHON ?= python3
+VISION_PYTHON ?= /usr/bin/python3
+COGNITIVE_PYTHON ?= $(PYTHON)
+ifneq ($(strip $(SYNORA_PYTORCH_RUNTIME)),)
+COGNITIVE_PYTHON := $(patsubst %/lib/python3.11/site-packages,%,$(SYNORA_PYTORCH_RUNTIME))/bin/python
+endif
 GOCACHE ?= /tmp/synora-gocache
 
 EXPECTED_RKNN_MODELS := arcface_w600k_r50.rknn det_10g.rknn yolov8.rknn
@@ -96,6 +103,7 @@ help:
 		'  make build-web             Build the React/Vite webapp statically' \
 		'  make test                  Run Go tests and Python compileall' \
 		'  make e2e-v1                Run the hermetic and real-worker V1 trace harnesses' \
+		'  make e2e-vision-mlp-v1    Run the segmented Vision -> Core -> four-head MLP shadow replay' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
 		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
 		'  persistent face data     Keep resident face files in $(FACE_DATA_DIR)' \
@@ -119,11 +127,11 @@ help:
 
 cognitive-export:
 	@mkdir -p $(COGNITIVE_MODEL_DIR)
-	$(PYTHON) tools/cognitive/export_models.py --bundle $(COGNITIVE_BUNDLE) --output $(COGNITIVE_MODEL_DIR)
+	$(COGNITIVE_PYTHON) tools/cognitive/export_models.py --bundle $(COGNITIVE_BUNDLE) --output $(COGNITIVE_MODEL_DIR)
 
 cognitive-parity: cognitive-export
 	@mkdir -p $$(dirname $(COGNITIVE_FIXTURES))
-	$(PYTHON) tools/cognitive/parity.py --bundle $(COGNITIVE_BUNDLE) --export $(COGNITIVE_MODEL_DIR) --fixtures $(COGNITIVE_FIXTURES) --report $(COGNITIVE_MODEL_DIR)/parity.json
+	$(COGNITIVE_PYTHON) tools/cognitive/parity.py --bundle $(COGNITIVE_BUNDLE) --export $(COGNITIVE_MODEL_DIR) --fixtures $(COGNITIVE_FIXTURES) --report $(COGNITIVE_MODEL_DIR)/parity.json
 
 cognitive-demo:
 	@test "$(SYNORA_COGNITIVE_DRY_RUN)" = "1" || (echo 'SYNORA_COGNITIVE_DRY_RUN=1 is required' >&2; exit 1)
@@ -191,6 +199,30 @@ test: check-go
 e2e-v1: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1HermeticScenarioAcrossBusCoreDiscoveryVisionActionsAndMediaMTX$$' -count=1
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1PythonWorkerRealProtocolThroughUnixBusCoreShadowAndDryRun$$' -count=1 -v
+
+e2e-vision-mlp-v1: check-go
+	@test -n "$(COGNITIVE_BUNDLE)" || { echo "FAIL: COGNITIVE_BUNDLE is required" >&2; exit 2; }
+	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }
+	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
+	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
+	@mkdir -p "$(OUT)/mlp-export" "$(OUT)/segment-replay"
+	@if "$(COGNITIVE_PYTHON)" tools/cognitive/export_models.py --bundle "$(COGNITIVE_BUNDLE)" --output "$(OUT)/mlp-export" >"$(OUT)/export.json" 2>"$(OUT)/export.error.log"; then \
+		echo "MLP export: available"; \
+	else \
+		echo "MLP export: unavailable; teacher-only fail-closed replay"; \
+		rm -f "$(OUT)/mlp-export/MANIFEST.runtime.json"; \
+		printf '%s\n' '{"schema":"synora.cognitive-mlp-parity/v1","fixtures":0,"passed":false,"available":false,"reason":"MLP export unavailable"}' >"$(OUT)/parity.json"; \
+	fi
+	@if test -f "$(OUT)/mlp-export/MANIFEST.runtime.json"; then \
+		if "$(COGNITIVE_PYTHON)" tools/cognitive/parity.py --bundle "$(COGNITIVE_BUNDLE)" --export "$(OUT)/mlp-export" --fixtures "$(OUT)/mlp_parity_100.jsonl" --report "$(OUT)/parity.json" >"$(OUT)/parity.stdout.log" 2>"$(OUT)/parity.error.log"; then \
+			echo "MLP parity: passed"; \
+		else \
+			echo "MLP parity: failed; teacher-only fail-closed replay"; \
+			if test ! -f "$(OUT)/parity.json"; then printf '%s\n' '{"schema":"synora.cognitive-mlp-parity/v1","fixtures":0,"passed":false,"available":false,"reason":"MLP parity unavailable"}' >"$(OUT)/parity.json"; fi; \
+		fi; \
+	fi
+	PYTHONPATH=services/vision-worker "$(VISION_PYTHON)" services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segment-replay"
+	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-vision-mlp-e2e --bundle "$(COGNITIVE_BUNDLE)" --runtime-manifest "$(COGNITIVE_RUNTIME_MANIFEST)" --model-dir "$(OUT)/mlp-export" --clip "$(CLIP)" --out "$(OUT)" --observations "$(OUT)/segment-replay/observations.jsonl" --summary-contract "$(OUT)/segment-replay/summary.contract.json" --parity "$(OUT)/parity.json" --fixtures "$(VISION_MLP_FIXTURES)"
 
 replay-vision-v1: check-go
 	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }

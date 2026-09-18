@@ -1,0 +1,1 @@
+{"schema":"synora.vision-mlp-e2e-fixture/v1","name":"action_already_ledgered","description":"A repeated proposal is filtered by the Action Ledger.","expected":["ledger_executed_or_rejected","no_executor"]}

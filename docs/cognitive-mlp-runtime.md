@@ -65,9 +65,30 @@ conversion and NPU parity/latency measurements are deliberately not claimed.
 The CPU backend is the reference fallback. No RKNN model is loaded by the
 cognitive service.
 
+## Vision segmented advisory shadow E2E
+
+The permanent, isolated replay command is:
+
+```bash
+make e2e-vision-mlp-v1 \
+  COGNITIVE_BUNDLE=/home/rock/synora-cognitive-mlp-v1 \
+  CLIP=/home/rock/test3.mp4 \
+  OUT=/tmp/synora-vision-mlp-e2e
+```
+
+It runs the real local clip through the segment-ready EpisodeRuntime, Core
+EventStore/topology/security projection, the four CPU reference heads and the
+advisory Safety Gate. The output directory contains `trace.jsonl`,
+`mlp_transitions.jsonl`, `teacher_vs_mlp.jsonl`, `summary.json`, `report.md`
+and `parity.json`. Cognitive records contain state fingerprints and structured
+labels only; media, crops, boxes, embeddings and biometric data are excluded.
+
+The bundle and exported runtime are fail-closed. If the bundle, export,
+ONNX validation or parity is unavailable, the report says `MLP unavailable`,
+the teacher remains available, and no MLP action proposal is produced.
+
 ## Out of scope
 
 No backbone selection, LLM/VLM inference, LoRA, State Encoder learning,
 paging, custom kernels, autonomous action execution, notifications, locks,
 alarms, sirens or shutters are enabled by this change.
-

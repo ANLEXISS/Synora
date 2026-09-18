@@ -1,0 +1,1 @@
+{"schema":"synora.vision-mlp-e2e-fixture/v1","name":"unknown_topology","description":"Unknown topology does not cause artificial elevation.","expected":["no_artificial_elevation","teacher_only"]}

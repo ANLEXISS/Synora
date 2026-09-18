@@ -1,0 +1,1 @@
+{"schema":"synora.vision-mlp-e2e-fixture/v1","name":"mlp_bundle_unavailable","description":"Teacher-only fail-closed path when the bundle or parity is unavailable.","expected":["MLP unavailable","teacher_continues","no_action_proposal"],"teacher_only":true,"fail_closed":true}

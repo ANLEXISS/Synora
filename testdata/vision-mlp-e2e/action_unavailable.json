@@ -1,0 +1,1 @@
+{"schema":"synora.vision-mlp-e2e-fixture/v1","name":"action_unavailable","description":"A proposed action is filtered by the Device Store snapshot.","expected":["device_store_unavailable","no_executor"]}

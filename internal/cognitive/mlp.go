@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -45,15 +46,19 @@ type cpuHeadFile struct {
 }
 
 type CPUMLPHead struct {
-	Name         string
-	InputSize    int
-	OutputSize   int
-	Labels       []string
-	Thresholds   []float32
-	VectorSchema string
-	Layers       []cpuLinear
-	SharedLayers []cpuLinear
-	Heads        map[string]cpuLinear
+	Name             string
+	InputSize        int
+	OutputSize       int
+	Labels           []string
+	PhaseLabels      []string
+	Thresholds       []float32
+	VectorSchema     string
+	Postprocess      string
+	PolicyCost       [][]float32
+	PolicyCostWeight *float32
+	Layers           []cpuLinear
+	SharedLayers     []cpuLinear
+	Heads            map[string]cpuLinear
 }
 
 func loadCPUHead(path string) (CPUMLPHead, error) {
@@ -129,10 +134,13 @@ func runLinear(values []float32, layer cpuLinear, relu bool) ([]float32, error) 
 }
 
 type CPUMLPBackend struct {
-	Danger   CPUMLPHead
-	Incident CPUMLPHead
-	Task     CPUMLPHead
-	Action   *CPUMLPHead
+	Danger                CPUMLPHead
+	Incident              CPUMLPHead
+	Task                  CPUMLPHead
+	Action                *CPUMLPHead
+	RuntimeManifestSHA256 string
+	latencyMu             sync.RWMutex
+	lastHeadLatencyMS     map[string]float64
 }
 
 func NewCPUMLPBackend(modelDir string) (*CPUMLPBackend, error) {
@@ -161,7 +169,82 @@ func NewCPUMLPBackend(modelDir string) (*CPUMLPBackend, error) {
 	return backend, nil
 }
 
+// NewVerifiedCPUMLPBackend is the only constructor used by the E2E shadow
+// path. The exported JSON weights provide arithmetic only; all dimensions,
+// labels, thresholds and post-processing metadata are taken from the checked
+// runtime manifest after the immutable source bundle has been verified.
+func NewVerifiedCPUMLPBackend(modelDir string, verification BundleVerification) (*CPUMLPBackend, error) {
+	if err := verification.Runtime.Validate(); err != nil {
+		return nil, err
+	}
+	if err := VerifyExport(modelDir, verification); err != nil {
+		return nil, err
+	}
+	backend, err := NewCPUMLPBackend(modelDir)
+	if err != nil {
+		return nil, err
+	}
+	applyRuntimeHead := func(head *CPUMLPHead, name string) error {
+		manifestHead, ok := verification.Runtime.Heads[name]
+		if !ok || head == nil {
+			return fmt.Errorf("verified runtime head %q is missing", name)
+		}
+		if head.InputSize != manifestHead.InputSize {
+			return fmt.Errorf("runtime head %q input size mismatch", name)
+		}
+		head.Labels = append([]string(nil), manifestHead.Labels...)
+		head.Thresholds = append([]float32(nil), manifestHead.Thresholds...)
+		head.Postprocess = manifestHead.Postprocess
+		head.PolicyCost = append([][]float32(nil), manifestHead.PolicyCost...)
+		head.PolicyCostWeight = manifestHead.PolicyCostWeight
+		if name == IncidentHead {
+			head.PhaseLabels = append([]string(nil), manifestHead.Phases...)
+			head.OutputSize = len(manifestHead.Labels)
+		}
+		return nil
+	}
+	if err := applyRuntimeHead(&backend.Danger, DangerHead); err != nil {
+		return nil, err
+	}
+	if err := applyRuntimeHead(&backend.Incident, IncidentHead); err != nil {
+		return nil, err
+	}
+	if err := applyRuntimeHead(&backend.Task, TaskHead); err != nil {
+		return nil, err
+	}
+	if backend.Action == nil {
+		return nil, fmt.Errorf("verified action head is unavailable")
+	}
+	if err := applyRuntimeHead(backend.Action, ActionHead); err != nil {
+		return nil, err
+	}
+	backend.RuntimeManifestSHA256 = verification.ManifestSHA256
+	return backend, nil
+}
+
 func (b *CPUMLPBackend) ID() string { return "mlp-cpu-v1" }
+
+func (b *CPUMLPBackend) HeadLatencyMS() map[string]float64 {
+	if b == nil {
+		return map[string]float64{}
+	}
+	b.latencyMu.RLock()
+	defer b.latencyMu.RUnlock()
+	result := make(map[string]float64, len(b.lastHeadLatencyMS))
+	for name, value := range b.lastHeadLatencyMS {
+		result[name] = value
+	}
+	return result
+}
+
+func (b *CPUMLPBackend) recordHeadLatency(values map[string]float64) {
+	b.latencyMu.Lock()
+	defer b.latencyMu.Unlock()
+	b.lastHeadLatencyMS = make(map[string]float64, len(values))
+	for name, value := range values {
+		b.lastHeadLatencyMS[name] = value
+	}
+}
 
 func (b *CPUMLPBackend) Run(ctx context.Context, input CognitiveInput, descriptor AdapterDescriptor) (CognitiveOutput, error) {
 	if err := ctx.Err(); err != nil {
@@ -170,44 +253,62 @@ func (b *CPUMLPBackend) Run(ctx context.Context, input CognitiveInput, descripto
 	if b == nil {
 		return CognitiveOutput{}, ErrCPUModelUnavailable
 	}
+	headLatency := map[string]float64{}
+	defer b.recordHeadLatency(headLatency)
 	if input.EncodedState.SchemaVersion != StateEncoderSchemaVersion || len(input.EncodedState.Values) != EncoderV4Size {
 		return CognitiveOutput{}, fmt.Errorf("CPU MLP requires %s/%d features", StateEncoderSchemaVersion, EncoderV4Size)
 	}
 	state := append([]float32(nil), input.EncodedState.Values...)
+	dangerStarted := time.Now()
 	dangerLogits, err := b.Danger.run(state)
 	if err != nil {
 		return CognitiveOutput{}, err
 	}
+	headLatency[DangerHead] = float64(time.Since(dangerStarted).Microseconds()) / 1000
 	dangerProb := softmax(dangerLogits)
 	masked := append([]float32(nil), state...)
 	for i := 33; i < 37; i++ {
 		masked[i] = 0
 	}
+	incidentStarted := time.Now()
 	incidentTagsLogits, incidentPhaseLogits, err := b.Incident.runIncident(masked)
 	if err != nil {
 		return CognitiveOutput{}, err
 	}
+	headLatency[IncidentHead] = float64(time.Since(incidentStarted).Microseconds()) / 1000
 	incidentTags := sigmoidAll(incidentTagsLogits)
 	incidentPhase := softmax(incidentPhaseLogits)
 	taskVector := append(append(append(append([]float32(nil), masked...), dangerProb...), incidentTags...), incidentPhase...)
+	taskStarted := time.Now()
 	taskLogits, err := b.Task.run(taskVector)
 	if err != nil {
 		return CognitiveOutput{}, err
 	}
+	headLatency[TaskHead] = float64(time.Since(taskStarted).Microseconds()) / 1000
 	taskProb := sigmoidAll(taskLogits)
 
-	output := CognitiveOutput{SchemaVersion: SchemaVersion, RequestID: input.RequestID, TaskID: input.Task.ID, AdapterID: descriptor.ID, BackendID: b.ID(), AdvisoryOnly: true, Classification: labelAt(b.Danger.Labels, argmax(dangerProb)), InferredState: labelAt(b.Incident.Labels[len(b.Incident.Labels)-len(b.Incident.Heads["phase_logits"].Bias):], argmax(incidentPhase)), RequestedCapabilities: append([]string(nil), input.Task.RequestedCapabilities...), Confidence: float64(maxFloat(dangerProb)), DangerProbabilities: dangerProb, DangerLabel: labelAt(b.Danger.Labels, argmax(dangerProb)), GeneratedAt: nowUTC()}
+	phaseLabels := b.Incident.PhaseLabels
+	if len(phaseLabels) == 0 {
+		phaseCount := len(b.Incident.Heads["phase_logits"].Bias)
+		if phaseCount <= len(b.Incident.Labels) {
+			phaseLabels = b.Incident.Labels[len(b.Incident.Labels)-phaseCount:]
+		}
+	}
+	generatedAt := input.CreatedAt.UTC()
+	output := CognitiveOutput{SchemaVersion: SchemaVersion, RequestID: input.RequestID, TaskID: input.Task.ID, AdapterID: descriptor.ID, BackendID: b.ID(), AdvisoryOnly: true, Classification: labelAt(b.Danger.Labels, argmax(dangerProb)), InferredState: labelAt(phaseLabels, argmax(incidentPhase)), RequestedCapabilities: append([]string(nil), input.Task.RequestedCapabilities...), Confidence: float64(maxFloat(dangerProb)), DangerProbabilities: dangerProb, DangerLabel: labelAt(b.Danger.Labels, argmax(dangerProb)), GeneratedAt: generatedAt}
 	output.DangerLogits = dangerContract(dangerLogits)
 	output.IncidentTags = scoredLabels(b.Incident.Labels[:len(incidentTags)], incidentTags, b.Incident.Thresholds)
-	output.IncidentPhase = labelAt(b.Incident.Labels[len(incidentTags):], argmax(incidentPhase))
+	output.IncidentPhase = labelAt(phaseLabels, argmax(incidentPhase))
 	output.TaskScores = scoredLabels(b.Task.Labels, taskProb, b.Task.Thresholds)
 
 	if b.Action != nil {
+		actionStarted := time.Now()
 		actionVector, availability, reasons := actionInput(state, dangerProb, input.ActionCatalog, input.ActionLedger, b.Action.Labels)
 		actionLogits, actionErr := b.Action.run(actionVector)
 		if actionErr != nil {
 			return CognitiveOutput{}, actionErr
 		}
+		headLatency[ActionHead] = float64(time.Since(actionStarted).Microseconds()) / 1000
 		actionProb := sigmoidAll(actionLogits)
 		for i, slot := range b.Action.Labels {
 			if i >= len(actionProb) || availability[i] == 0 {
