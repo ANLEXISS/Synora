@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"synora/pkg/contract"
 )
 
 // ClipWindow is the lifecycle metadata assigned before an uploaded V1 clip
@@ -25,6 +26,7 @@ type episodeState struct {
 	episodeID string
 	cameraID  string
 	nodeID    string
+	zone      string
 	endsAt    time.Time
 	trackIDs  map[string]struct{}
 }
@@ -54,21 +56,45 @@ func (m *ClipManager) Open(clipID, cameraID, nodeID, zone, reason, trackID strin
 		startedAt = m.now()
 	}
 	startedAt = startedAt.UTC()
-	key := cameraID + "\x00" + nodeID
+	key := episodeKey(cameraID, nodeID, zone)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	previous, ok := m.last[key]
-	_, sameTrack := previous.trackIDs[trackID]
 	near := ok && startedAt.Sub(previous.endsAt) >= 0 && startedAt.Sub(previous.endsAt) <= m.continuityWindow
 	episodeID := "episode-" + uuid.NewString()
-	if ok && (near || sameTrack) {
+	if near {
 		episodeID = previous.episodeID
 	}
 	window := ClipWindow{ClipID: clipID, EpisodeID: episodeID, CameraID: cameraID, NodeID: nodeID, Zone: zone, TriggerReason: reason, StartedAt: startedAt, EndsAt: startedAt.Add(m.maxDuration)}
-	tracks := map[string]struct{}{}
-	if trackID != "" {
-		tracks[trackID] = struct{}{}
-	}
-	m.last[key] = episodeState{episodeID: episodeID, cameraID: cameraID, nodeID: nodeID, endsAt: window.EndsAt, trackIDs: tracks}
+	// A worker-supplied track is intentionally not recorded here. Track IDs
+	// become episode evidence only after ObserveSummary has accepted a typed,
+	// validated summary.
+	m.last[key] = episodeState{episodeID: episodeID, cameraID: cameraID, nodeID: nodeID, zone: zone, endsAt: window.EndsAt, trackIDs: map[string]struct{}{}}
 	return window, nil
+}
+
+// ObserveSummary records a worker track only after the summary has passed the
+// typed V1 contract. The manager is in-memory by design; a new manager after a
+// restart has no prior evidence and therefore starts a safe new episode.
+func (m *ClipManager) ObserveSummary(summary contract.VisionClipSummary) error {
+	if m == nil {
+		return fmt.Errorf("clip manager unavailable")
+	}
+	if err := summary.Validate(); err != nil {
+		return fmt.Errorf("invalid vision summary: %w", err)
+	}
+	key := episodeKey(summary.CameraID, summary.Topology.NodeID, summary.Topology.Zone)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state, ok := m.last[key]
+	if !ok || state.episodeID != summary.EpisodeID {
+		return fmt.Errorf("summary does not belong to an active episode")
+	}
+	state.trackIDs[summary.Track.ID] = struct{}{}
+	m.last[key] = state
+	return nil
+}
+
+func episodeKey(cameraID, nodeID, zone string) string {
+	return cameraID + "\x00" + nodeID + "\x00" + zone
 }

@@ -31,12 +31,11 @@ from core.clip_pipeline_v1 import (
     UnavailableFaceEnricher,
     UnavailablePlateEnricher,
 )
-from core.unix_bus import UnixBusPublisher
 from core.model_runner import model_status
 from face_dataset import FaceDatasetError, FaceDatasetManager, safe_component, _regular_file
 
 
-SOCKET_PATH = "/run/synora/vision-worker.sock"
+SOCKET_PATH = os.getenv("SYNORA_VISION_SOCKET", "/run/synora/vision-worker.sock")
 PROTOCOL_VERSION = "synora.vision.v1"
 PROTOCOL_HELLO = "protocol.hello"
 CLIP_PROCESS = "clip.process"
@@ -46,6 +45,8 @@ MODEL_ROOT = os.getenv("SYNORA_MODEL_ROOT", "/var/lib/synora/models")
 ARCFACE_MODEL = os.getenv("SYNORA_ARCFACE_MODEL", os.path.join(MODEL_ROOT, "arcface_w600k_r50.rknn"))
 MAX_REQUEST_BYTES = 1 << 20
 COMMAND_TIMEOUT_SECONDS = float(os.getenv("SYNORA_VISION_COMMAND_TIMEOUT", "30"))
+DEBUG_HTTP_ENABLED = os.getenv("SYNORA_VISION_DEBUG", "1") == "1"
+DEBUG_HTTP_PORT = int(os.getenv("SYNORA_VISION_DEBUG_PORT", "8094"))
 
 
 logging.basicConfig(
@@ -121,14 +122,16 @@ class VisionWorker:
                 self.pipeline = None
                 log.exception("VISION PIPELINE degraded during initialization")
 
-        self.debug_app = self.create_debug_app()
+        self.debug_app = self.create_debug_app() if DEBUG_HTTP_ENABLED else None
+        if not DEBUG_HTTP_ENABLED:
+            self.debug_http_error = "disabled_by_configuration"
         self.debug_thread = None
         if self.debug_app is not None:
             self.debug_thread = threading.Thread(
                 target=self.debug_app.run,
                 kwargs={
                     "host": "127.0.0.1",
-                    "port": 8094,
+                    "port": DEBUG_HTTP_PORT,
                     "threaded": True,
                     "use_reloader": False,
                 },
@@ -426,57 +429,42 @@ class VisionWorker:
             clip_ref=f"local://clips/{clip_id}",
         )
 
-        preliminary_published = set()
-        bus = None
-        if not self.dry_run and os.getenv("SYNORA_VISION_PRELIMINARY_BUS", "1") == "1":
-            socket_path = os.getenv("SYNORA_BUS_SOCKET", "/run/synora/bus.sock")
-            bus = UnixBusPublisher(socket_path)
+        # Discovery is the sole bus bridge. Keeping this sink disabled avoids
+        # an unvalidated worker-side path around the Go contract boundary.
+        preliminary_sink = None
+        if self.dry_run:
+            face_status = req.get("mock_identity_status", "uncertain")
+            face = StaticFaceEnricher(IdentityResult(face_status, req.get("mock_identity_confidence", 0.0)))
+            plate = StaticPlateEnricher(PlateResult("not_available"))
+            sensitive = StaticSensitiveObjectEnricher(SensitiveObjectResult(SensitiveStatus.NOT_AVAILABLE))
+            pipeline = VisionClipPipelineV1({}, face, plate, sensitive, preliminary_sink)
+            frames = []
+            for item in req.get("mock_frames", []):
+                detections = [Detection(d.get("track_id", "track-0"), d.get("subject_type", "human"),
+                                         d.get("confidence", 0.0), d.get("roi_ref"))
+                              for d in item.get("detections", [])]
+                frames.append(FrameObservation.from_values(_parse_worker_time(item.get("at")) or started, detections))
+            events = pipeline.process_frames(clip, frames)
+        else:
+            if self.pipeline is None or self.person_detector is None:
+                return {"error": "no_models_available", "message": "person detector unavailable"}
+            face = ConfiguredFaceEnricher(self.pipeline,
+                                          min_crops=int(os.getenv("SYNORA_VISION_V1_MIN_FACE_CROPS", "2")),
+                                          stability_threshold=_worker_float("SYNORA_VISION_V1_IDENTITY_STABILITY", .67))
+            pipeline = VisionClipPipelineV1({
+                "max_crops_per_track": int(os.getenv("SYNORA_VISION_V1_MAX_CROPS", "5")),
+                "critical_alert_threshold": _worker_float("SYNORA_VISION_V1_CRITICAL_THRESHOLD", .90),
+                "tracker_iou_threshold": _worker_float("SYNORA_VISION_V1_TRACKER_IOU", .30),
+                "tracker_max_gap_seconds": _worker_float("SYNORA_VISION_V1_TRACKER_MAX_GAP", 1.0),
+                "tracker_max_active_tracks": int(os.getenv("SYNORA_VISION_V1_TRACKER_MAX_ACTIVE", "16")),
+                "tracker_min_bbox_width": int(os.getenv("SYNORA_VISION_V1_TRACKER_MIN_WIDTH", "20")),
+                "tracker_min_bbox_height": int(os.getenv("SYNORA_VISION_V1_TRACKER_MIN_HEIGHT", "20")),
+            }, face, UnavailablePlateEnricher(), UnavailableSensitiveObjectEnricher(), preliminary_sink)
+            events = pipeline.process_video(clip, req["clip_path"], self.person_detector,
+                                            _worker_float("SYNORA_VISION_V1_SAMPLE_PERIOD", .2))
 
-        def preliminary_sink(event):
-            if bus is None:
-                return
-            try:
-                bus.publish(event["type"], event["payload"])
-                preliminary_published.add(event.get("track_id"))
-            except Exception as exc:
-                log.warning("V1 preliminary alert bus publication deferred: %s", exc)
-
-        try:
-            if self.dry_run:
-                face_status = req.get("mock_identity_status", "uncertain")
-                face = StaticFaceEnricher(IdentityResult(face_status, req.get("mock_identity_confidence", 0.0)))
-                plate = StaticPlateEnricher(PlateResult("not_available"))
-                sensitive = StaticSensitiveObjectEnricher(SensitiveObjectResult(SensitiveStatus.NOT_AVAILABLE))
-                pipeline = VisionClipPipelineV1({}, face, plate, sensitive, preliminary_sink)
-                frames = []
-                for item in req.get("mock_frames", []):
-                    detections = [Detection(d.get("track_id", "track-0"), d.get("subject_type", "human"),
-                                             d.get("confidence", 0.0), d.get("roi_ref"))
-                                  for d in item.get("detections", [])]
-                    frames.append(FrameObservation.from_values(_parse_worker_time(item.get("at")) or started, detections))
-                events = pipeline.process_frames(clip, frames)
-            else:
-                if self.pipeline is None or self.person_detector is None:
-                    return {"error": "no_models_available", "message": "person detector unavailable"}
-                face = ConfiguredFaceEnricher(self.pipeline,
-                                              min_crops=int(os.getenv("SYNORA_VISION_V1_MIN_FACE_CROPS", "2")),
-                                              stability_threshold=_worker_float("SYNORA_VISION_V1_IDENTITY_STABILITY", .67))
-                pipeline = VisionClipPipelineV1({
-                    "max_crops_per_track": int(os.getenv("SYNORA_VISION_V1_MAX_CROPS", "5")),
-                    "critical_alert_threshold": _worker_float("SYNORA_VISION_V1_CRITICAL_THRESHOLD", .90),
-                }, face, UnavailablePlateEnricher(), UnavailableSensitiveObjectEnricher(), preliminary_sink)
-                events = pipeline.process_video(clip, req["clip_path"], self.person_detector,
-                                                _worker_float("SYNORA_VISION_V1_SAMPLE_PERIOD", .2))
-        finally:
-            if bus is not None:
-                bus.close()
-
-        result_events = []
-        for event in events:
-            if event["type"] == "synora.vision.preliminary-alert/v1" and event.get("track_id") in preliminary_published:
-                continue
-            result_events.append({"type": event["type"], "track_id": event.get("track_id"), "payload": event["payload"]})
-        return {"events": result_events}
+        return {"events": [{"type": event["type"], "track_id": event.get("track_id"), "payload": event["payload"]}
+                           for event in events]}
 
     @staticmethod
     def _with_request_id(request_id, response):

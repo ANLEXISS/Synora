@@ -110,7 +110,8 @@ func eventACLAllowed(service, eventType, target string) bool {
 	case "api":
 		return (hasPrefix("network.") || hasPrefix("vision.") || hasPrefix("discovery.")) && targetOK("", "core")
 	case "discovery":
-		return (hasPrefix("discovery.") || hasPrefix("clip.") || hasPrefix("residents.") || eventType == contract.EventDeviceOffline) && targetOK("", "core")
+		return (hasPrefix("discovery.") || hasPrefix("clip.") || hasPrefix("residents.") || eventType == contract.EventDeviceOffline ||
+			eventType == contract.EventVisionClipSummaryV1 || eventType == contract.EventVisionPreliminaryAlertV1 || eventType == contract.EventVisionEnd) && targetOK("", "core")
 	case "vision":
 		return (hasPrefix("vision.") || eventType == "delivery.ack") && target == "core"
 	case "lab":

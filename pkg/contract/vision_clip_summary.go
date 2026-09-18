@@ -1,7 +1,10 @@
 package contract
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -52,6 +55,27 @@ type VisionClipMedia struct {
 	BestROIRefs []string `json:"best_roi_refs"`
 }
 
+type VisionPreliminaryTrack struct {
+	ID          string `json:"id"`
+	SubjectType string `json:"subject_type"`
+}
+
+type VisionPreliminaryAlertBody struct {
+	Kind       string                     `json:"kind"`
+	Confidence float64                    `json:"confidence"`
+	Detections []VisionSensitiveDetection `json:"detections"`
+}
+
+type VisionPreliminaryAlert struct {
+	Schema    string                     `json:"schema"`
+	EpisodeID string                     `json:"episode_id"`
+	ClipID    string                     `json:"clip_id"`
+	CameraID  string                     `json:"camera_id"`
+	Topology  VisionClipTopology         `json:"topology"`
+	Track     VisionPreliminaryTrack     `json:"track"`
+	Alert     VisionPreliminaryAlertBody `json:"alert"`
+}
+
 type VisionClipSummary struct {
 	Schema    string                 `json:"schema"`
 	EpisodeID string                 `json:"episode_id"`
@@ -67,13 +91,13 @@ type VisionClipSummary struct {
 }
 
 func (s VisionClipSummary) Validate() error {
-	if s.Schema != EventVisionClipSummaryV1 || s.EpisodeID == "" || s.ClipID == "" || s.CameraID == "" {
+	if s.Schema != EventVisionClipSummaryV1 || !validScalar(s.EpisodeID) || !validScalar(s.ClipID) || !validScalar(s.CameraID) {
 		return fmt.Errorf("invalid vision clip summary identity")
 	}
-	if s.Topology.NodeID == "" || s.Topology.Zone == "" || s.Trigger.Reason == "" || s.Trigger.StartedAt.IsZero() {
+	if !validScalar(s.Topology.NodeID) || !validScalar(s.Topology.Zone) || !validScalar(s.Trigger.Reason) || s.Trigger.StartedAt.IsZero() {
 		return fmt.Errorf("invalid vision clip summary context")
 	}
-	if s.Track.ID == "" || !validVisionSubjectType(s.Track.SubjectType) || s.Track.FirstSeenAt.IsZero() || s.Track.LastSeenAt.IsZero() {
+	if !validScalar(s.Track.ID) || !validVisionSubjectType(s.Track.SubjectType) || s.Track.FirstSeenAt.IsZero() || s.Track.LastSeenAt.IsZero() || s.Track.LastSeenAt.Before(s.Track.FirstSeenAt) || s.Track.FirstSeenAt.Before(s.Trigger.StartedAt) {
 		return fmt.Errorf("invalid vision clip summary track")
 	}
 	if !validConfidence(s.Track.Confidence) || !validConfidence(s.Identity.Confidence) || !validConfidence(s.Plate.Confidence) {
@@ -84,6 +108,15 @@ func (s VisionClipSummary) Validate() error {
 	}
 	if !validSensitiveStatus(s.Sensitive.Status) {
 		return fmt.Errorf("invalid vision clip summary sensitive status")
+	}
+	if s.Identity.Status == "recognized" && s.Identity.EmbeddingRef == nil {
+		return fmt.Errorf("recognized identity requires an embedding reference")
+	}
+	if s.Plate.Status == "recognized" && s.Plate.ValueRef == nil {
+		return fmt.Errorf("recognized plate requires a value reference")
+	}
+	if err := validateSensitiveDetections(s.Sensitive.Detections); err != nil {
+		return err
 	}
 	for _, ref := range s.Media.BestROIRefs {
 		if !validLocalReference(ref) {
@@ -98,6 +131,82 @@ func (s VisionClipSummary) Validate() error {
 	}
 	if s.Plate.ValueRef != nil && !validLocalReference(*s.Plate.ValueRef) {
 		return fmt.Errorf("invalid plate reference")
+	}
+	return nil
+}
+
+func (s VisionPreliminaryAlert) Validate() error {
+	if s.Schema != EventVisionPreliminaryAlertV1 || !validScalar(s.EpisodeID) || !validScalar(s.ClipID) || !validScalar(s.CameraID) {
+		return fmt.Errorf("invalid preliminary alert identity")
+	}
+	if !validScalar(s.Topology.NodeID) || !validScalar(s.Topology.Zone) || !validScalar(s.Track.ID) || !validVisionSubjectType(s.Track.SubjectType) {
+		return fmt.Errorf("invalid preliminary alert context")
+	}
+	if !validScalar(s.Alert.Kind) || !validConfidence(s.Alert.Confidence) || len(s.Alert.Detections) == 0 {
+		return fmt.Errorf("invalid preliminary alert body")
+	}
+	return validateSensitiveDetections(s.Alert.Detections)
+}
+
+// DecodeVisionClipSummary accepts only the transport metadata added by
+// Discovery plus the typed summary fields. DisallowUnknownFields protects the
+// bus boundary from raw image/embedding/plate fields hidden in extensions.
+func DecodeVisionClipSummary(data []byte) (VisionClipSummary, error) {
+	var summary VisionClipSummary
+	if err := decodeTypedPayload(data, map[string]struct{}{
+		"schema": {}, "episode_id": {}, "clip_id": {}, "camera_id": {}, "topology": {}, "trigger": {},
+		"track": {}, "identity": {}, "plate": {}, "sensitive_objects": {}, "media": {},
+		"device_id": {}, "node_id": {}, "track_id": {}, "event_id": {}, "activation_id": {}, "sequence_key": {}, "clip_index": {},
+	}, &summary); err != nil {
+		return VisionClipSummary{}, err
+	}
+	if err := summary.Validate(); err != nil {
+		return VisionClipSummary{}, err
+	}
+	return summary, nil
+}
+
+func DecodeVisionPreliminaryAlert(data []byte) (VisionPreliminaryAlert, error) {
+	var alert VisionPreliminaryAlert
+	if err := decodeTypedPayload(data, map[string]struct{}{
+		"schema": {}, "episode_id": {}, "clip_id": {}, "camera_id": {}, "topology": {}, "track": {}, "alert": {},
+		"device_id": {}, "node_id": {}, "track_id": {}, "event_id": {},
+	}, &alert); err != nil {
+		return VisionPreliminaryAlert{}, err
+	}
+	if err := alert.Validate(); err != nil {
+		return VisionPreliminaryAlert{}, err
+	}
+	return alert, nil
+}
+
+func decodeTypedPayload(data []byte, allowed map[string]struct{}, target any) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil || fields == nil {
+		return fmt.Errorf("vision payload must be a JSON object")
+	}
+	for key := range fields {
+		if _, ok := allowed[key]; !ok {
+			return fmt.Errorf("unknown vision payload field %q", key)
+		}
+	}
+	clean := make(map[string]json.RawMessage, len(fields))
+	for key, value := range fields {
+		switch key {
+		case "device_id", "node_id", "track_id", "event_id", "activation_id", "sequence_key", "clip_index":
+			continue
+		default:
+			clean[key] = value
+		}
+	}
+	encoded, err := json.Marshal(clean)
+	if err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("invalid typed vision payload: %w", err)
 	}
 	return nil
 }
@@ -126,9 +235,35 @@ func validSensitiveStatus(value string) bool {
 	return false
 }
 
-func validConfidence(value float64) bool { return value >= 0 && value <= 1 }
+func validConfidence(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 1
+}
+
+func validScalar(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && len(value) <= 256 && !strings.ContainsAny(value, "\r\n")
+}
+
+func validateSensitiveDetections(detections []VisionSensitiveDetection) error {
+	for _, detection := range detections {
+		if !validScalar(detection.Kind) || !validConfidence(detection.Confidence) {
+			return fmt.Errorf("invalid sensitive detection")
+		}
+		if detection.ROIRef != nil && !validLocalReference(*detection.ROIRef) {
+			return fmt.Errorf("invalid sensitive ROI reference")
+		}
+	}
+	return nil
+}
 
 func validLocalReference(value string) bool {
 	value = strings.TrimSpace(value)
-	return strings.HasPrefix(value, "local://") || strings.HasPrefix(value, "/var/lib/synora/")
+	if !strings.HasPrefix(value, "local://") || len(value) > 256 {
+		return false
+	}
+	value = strings.TrimPrefix(value, "local://")
+	if value == "" || strings.Contains(value, "..") || strings.ContainsAny(value, "\r\n\t \"'") {
+		return false
+	}
+	return !strings.Contains(value, "//")
 }

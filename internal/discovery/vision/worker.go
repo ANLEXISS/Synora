@@ -71,56 +71,24 @@ func runClipWorker(
 		}
 		return errors.New("vision worker returned no result")
 	}
+	if job.Pipeline == "clip-v1" && len(result.Events) == 0 {
+		err := errors.New("vision contract invalid: no clip-v1 summary")
+		_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_contract_invalid", job.ID+":failed")
+		return err
+	}
+	prepared := make([]map[string]any, len(result.Events))
+	for index, evt := range result.Events {
+		payloadMap, prepareErr := prepareVisionEvent(evt, job, index)
+		if prepareErr != nil {
+			_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_contract_invalid", job.ID+":failed")
+			return prepareErr
+		}
+		prepared[index] = payloadMap
+	}
 
 	for index, evt := range result.Events {
-		payloadMap := clonePayload(evt.Payload)
+		payloadMap := prepared[index]
 		stableEventID := fmt.Sprintf("%s:event:%d:%s", job.ID, index, evt.Type)
-		// Camera identity comes from the accepted upload, not model output.
-		payloadMap["device_id"] = job.CameraID
-		payloadMap["camera_id"] = job.CameraID
-		// The physical job is authoritative for clip identity. A model payload
-		// cannot redirect an event to another clip or manufacture a reference.
-		payloadMap["clip_id"] = job.ID
-		if evt.TrackID != nil {
-			if _, ok := payloadMap["track_id"]; !ok {
-				payloadMap["track_id"] = evt.TrackID
-			}
-		}
-		payloadMap["event_id"] = stableEventID
-		payloadMap["activation_id"] = firstNonEmpty(payloadMap["activation_id"], job.ActivationID)
-		payloadMap["sequence_key"] = firstNonEmpty(payloadMap["sequence_key"], job.SequenceKey)
-		payloadMap["clip_index"] = firstInt(payloadMap["clip_index"], job.ClipIndex)
-		if _, ok := payloadMap["node_id"]; !ok && job.NodeID != "" {
-			payloadMap["node_id"] = job.NodeID
-		}
-		if _, ok := payloadMap["track_id"]; !ok && job.TrackID != "" {
-			payloadMap["track_id"] = job.TrackID
-		}
-		if evt.Type == contract.EventVisionClipSummaryV1 {
-			// Upload/job metadata is authoritative at this boundary. A model
-			// result cannot move a summary to another episode or topology node.
-			if job.EpisodeID != "" {
-				payloadMap["episode_id"] = job.EpisodeID
-			}
-			if topology, ok := payloadMap["topology"].(map[string]any); ok {
-				if job.NodeID != "" {
-					topology["node_id"] = job.NodeID
-				}
-				if job.Zone != "" {
-					topology["zone"] = job.Zone
-				}
-			} else if job.NodeID != "" || job.Zone != "" {
-				payloadMap["topology"] = map[string]any{"node_id": job.NodeID, "zone": job.Zone}
-			}
-			if trigger, ok := payloadMap["trigger"].(map[string]any); ok {
-				if job.TriggerReason != "" {
-					trigger["reason"] = job.TriggerReason
-				}
-				if !job.StartedAt.IsZero() {
-					trigger["started_at"] = job.StartedAt
-				}
-			}
-		}
 
 		payload, err := json.Marshal(
 			payloadMap,
@@ -185,6 +153,125 @@ func runClipWorker(
 	return nil
 }
 
+func prepareVisionEvent(evt Event, job *ClipJob, index int) (map[string]any, error) {
+	payloadMap := clonePayload(evt.Payload)
+	stableEventID := fmt.Sprintf("%s:event:%d:%s", job.ID, index, evt.Type)
+	if job.Pipeline == "clip-v1" {
+		if err := rejectAuthoritativeSpoof(payloadMap, job); err != nil {
+			return nil, err
+		}
+	}
+	// Camera and clip identity come from the accepted job, never the model.
+	payloadMap["device_id"] = job.CameraID
+	payloadMap["camera_id"] = job.CameraID
+	payloadMap["clip_id"] = job.ID
+	payloadMap["event_id"] = stableEventID
+	if job.ActivationID != "" {
+		payloadMap["activation_id"] = job.ActivationID
+	} else {
+		delete(payloadMap, "activation_id")
+	}
+	if job.SequenceKey != "" {
+		payloadMap["sequence_key"] = job.SequenceKey
+	} else {
+		delete(payloadMap, "sequence_key")
+	}
+	payloadMap["clip_index"] = job.ClipIndex
+	if evt.TrackID != nil {
+		payloadMap["track_id"] = evt.TrackID
+	} else if job.TrackID != "" {
+		payloadMap["track_id"] = job.TrackID
+	}
+	if job.NodeID != "" {
+		payloadMap["node_id"] = job.NodeID
+	}
+	if job.Pipeline != "clip-v1" {
+		return payloadMap, nil
+	}
+	if evt.Type != contract.EventVisionClipSummaryV1 && evt.Type != contract.EventVisionPreliminaryAlertV1 {
+		return nil, fmt.Errorf("vision contract invalid: event %q is not admitted for clip-v1", evt.Type)
+	}
+	if job.EpisodeID == "" || job.NodeID == "" || job.Zone == "" || job.TriggerReason == "" || job.StartedAt.IsZero() {
+		return nil, errors.New("vision contract invalid: incomplete authoritative clip metadata")
+	}
+	payloadMap["episode_id"] = job.EpisodeID
+	payloadMap["topology"] = map[string]any{"node_id": job.NodeID, "zone": job.Zone}
+	payloadMap["trigger"] = map[string]any{"reason": job.TriggerReason, "started_at": job.StartedAt}
+	if evt.TrackID == nil {
+		return nil, errors.New("vision contract invalid: track id is required")
+	}
+	if evt.Type == contract.EventVisionClipSummaryV1 {
+		summary, err := contract.DecodeVisionClipSummary(mustJSON(payloadMap))
+		if err != nil {
+			return nil, fmt.Errorf("vision contract invalid: %w", err)
+		}
+		if summary.EpisodeID != job.EpisodeID || summary.ClipID != job.ID || summary.CameraID != job.CameraID || summary.Topology.NodeID != job.NodeID || summary.Topology.Zone != job.Zone || summary.Trigger.Reason != job.TriggerReason || summary.Track.ID != fmt.Sprint(evt.TrackID) {
+			return nil, errors.New("vision contract invalid: authoritative metadata mismatch")
+		}
+		return payloadMap, nil
+	}
+	alert, err := contract.DecodeVisionPreliminaryAlert(mustJSON(payloadMap))
+	if err != nil {
+		return nil, fmt.Errorf("vision contract invalid: %w", err)
+	}
+	if alert.EpisodeID != job.EpisodeID || alert.ClipID != job.ID || alert.CameraID != job.CameraID || alert.Topology.NodeID != job.NodeID || alert.Topology.Zone != job.Zone || alert.Track.ID != fmt.Sprint(evt.TrackID) {
+		return nil, errors.New("vision contract invalid: authoritative metadata mismatch")
+	}
+	return payloadMap, nil
+}
+
+func rejectAuthoritativeSpoof(payload map[string]any, job *ClipJob) error {
+	for key, expected := range map[string]string{"clip_id": job.ID, "camera_id": job.CameraID, "episode_id": job.EpisodeID, "node_id": job.NodeID} {
+		if value, ok := payload[key]; ok && !sameAuthoritativeScalar(value, expected) {
+			return fmt.Errorf("vision contract invalid: worker spoofed %s", key)
+		}
+	}
+	if rawTopology, exists := payload["topology"]; exists {
+		topology, ok := rawTopology.(map[string]any)
+		if !ok {
+			return errors.New("vision contract invalid: worker spoofed topology")
+		}
+		if value, exists := topology["node_id"]; exists && !sameAuthoritativeScalar(value, job.NodeID) {
+			return errors.New("vision contract invalid: worker spoofed topology.node_id")
+		}
+		if value, exists := topology["zone"]; exists && !sameAuthoritativeScalar(value, job.Zone) {
+			return errors.New("vision contract invalid: worker spoofed topology.zone")
+		}
+	}
+	if rawTrigger, exists := payload["trigger"]; exists {
+		trigger, ok := rawTrigger.(map[string]any)
+		if !ok {
+			return errors.New("vision contract invalid: worker spoofed trigger")
+		}
+		if value, exists := trigger["reason"]; exists && !sameAuthoritativeScalar(value, job.TriggerReason) {
+			return errors.New("vision contract invalid: worker spoofed trigger.reason")
+		}
+		if value, exists := trigger["started_at"]; exists && !sameAuthoritativeTime(value, job.StartedAt) {
+			return errors.New("vision contract invalid: worker spoofed trigger.started_at")
+		}
+	}
+	return nil
+}
+
+func sameAuthoritativeScalar(value any, expected string) bool {
+	text, ok := value.(string)
+	return ok && text == expected
+}
+
+func sameAuthoritativeTime(value any, expected time.Time) bool {
+	text, ok := value.(string)
+	if !ok {
+		return false
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, text)
+	return err == nil && parsed.Equal(expected)
+}
+
+func mustJSON(value map[string]any) []byte {
+	encoded, _ := json.Marshal(value)
+	return encoded
+}
+
 func publishVisionEnd(publisher Publisher, job *ClipJob) error {
 	payload, err := json.Marshal(map[string]any{
 		"event_id":      job.ID + ":end",
@@ -234,28 +321,6 @@ func PublishClipFailure(publisher Publisher, job *ClipJob, failureCode string) e
 		return publishVisionEnd(publisher, job)
 	}
 	return nil
-}
-
-func firstNonEmpty(values ...any) string {
-	for _, value := range values {
-		if text, ok := value.(string); ok && text != "" {
-			return text
-		}
-	}
-	return ""
-}
-
-func firstInt(value any, fallback int) int {
-	if value == nil {
-		return fallback
-	}
-	switch typed := value.(type) {
-	case int:
-		return typed
-	case float64:
-		return int(typed)
-	}
-	return fallback
 }
 
 func clonePayload(source map[string]any) map[string]any {

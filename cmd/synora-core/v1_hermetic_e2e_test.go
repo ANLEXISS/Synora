@@ -1,13 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +22,7 @@ import (
 
 	"synora/internal/actions"
 	"synora/internal/automation"
+	buspkg "synora/internal/bus"
 	"synora/internal/cognitive"
 	"synora/internal/discovery/ingress"
 	"synora/internal/discovery/vision"
@@ -543,6 +550,261 @@ func TestV1HermeticScenarioAcrossBusCoreDiscoveryVisionActionsAndMediaMTX(t *tes
 	if acknowledged, ok := restarted.state.Incident(incidents[0].ID); !ok || acknowledged.Status != contract.IncidentStatusAcknowledged {
 		t.Fatalf("incident was not acknowledged: %#v ok=%t", acknowledged, ok)
 	}
+}
+
+func TestV1PythonWorkerRealProtocolThroughUnixBusCoreShadowAndDryRun(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate E2E source")
+	}
+	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(sourceFile)))
+	workerScript := filepath.Join(repoRoot, "services", "vision-worker", "worker.py")
+	if _, err := os.Stat(workerScript); err != nil {
+		t.Fatal(err)
+	}
+
+	busPath := filepath.Join(t.TempDir(), "bus.sock")
+	unixBus := buspkg.NewServer(busPath)
+	serverErr := make(chan error, 1)
+	go func() { serverErr <- unixBus.Start() }()
+	var coreClient, discoveryClient, actionClient *buspkg.Client
+	var err error
+	for attempt := 0; attempt < 100; attempt++ {
+		coreClient, err = buspkg.NewClient(busPath, "core")
+		if err == nil {
+			discoveryClient, err = buspkg.NewClient(busPath, "discovery")
+		}
+		if err == nil {
+			actionClient, err = buspkg.NewClient(busPath, "actions")
+		}
+		if err == nil {
+			break
+		}
+		if coreClient != nil {
+			_ = coreClient.Close()
+		}
+		if discoveryClient != nil {
+			_ = discoveryClient.Close()
+		}
+		if actionClient != nil {
+			_ = actionClient.Close()
+		}
+		coreClient, discoveryClient, actionClient = nil, nil, nil
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	app, _ := newTestCoreApp(t)
+	app.bus = coreClient
+	app.snapshotPublisher.Bus = coreClient
+	app.actionDispatcher.Bus = coreClient
+	app.actionDispatcher.Now = func() time.Time { return time.Now().UTC() }
+	stop := make(chan struct{})
+	app.processStop = stop
+	ctx, cancel := context.WithCancel(context.Background())
+	coreLoopDone := make(chan error, 1)
+	app.startBackgroundLoops()
+	go func() { coreLoopDone <- app.runBusLoopContext(ctx) }()
+	actionExec := &hermeticActionExecutor{}
+	actionService := &actions.Service{
+		Bus: actionClient, Deduper: actions.NewDeduper(), Executor: actionExec,
+		ExecutionMode: actions.ExecutionDryRun, EnforceExecutionMode: true,
+		Now: func() time.Time { return time.Now().UTC() },
+	}
+	t.Cleanup(func() {
+		cancel()
+		close(stop)
+		app.lifecycleWG.Wait()
+		_ = coreClient.Close()
+		_ = discoveryClient.Close()
+		_ = actionClient.Close()
+		_ = unixBus.Close()
+		select {
+		case <-coreLoopDone:
+		case <-time.After(time.Second):
+		}
+		select {
+		case <-serverErr:
+		case <-time.After(time.Second):
+		}
+	})
+
+	clipRoot := t.TempDir()
+	t.Setenv("SYNORA_CLIP_DIR", clipRoot)
+	queue := &integrationClipQueue{}
+	clipID := "clip-python-real"
+	when := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	handler := ingress.NewHandler(ingress.Config{
+		ClipDir: clipRoot, Queue: queue, Publisher: discoveryClient, AllowInsecure: true,
+		MaxClipSize: 1024, MaxClipCount: 20, MaxClipBytes: 20 * 1024 * 1024,
+	})
+	request := multipartClipRequest(t, "cam_01", clipID, []byte("real-python-worker-input"))
+	request.Header.Set("X-Synora-Pipeline", "clip-v1")
+	request.Header.Set("X-Synora-Episode-ID", "episode-python-real")
+	request.Header.Set("X-Synora-Node-ID", "entry")
+	request.Header.Set("X-Synora-Zone", "entry")
+	request.Header.Set("X-Synora-Trigger-Reason", "e2e.python.worker")
+	request.Header.Set("X-Synora-Started-At", when.Format(time.RFC3339Nano))
+	request.Header.Set("X-Synora-Activation-ID", "activation-python-real")
+	request.Header.Set("X-Synora-Sequence-Key", "sequence-python-real")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || len(queue.jobs) != 1 {
+		t.Fatalf("clip ingress failed status=%d body=%s jobs=%d", response.Code, response.Body.String(), len(queue.jobs))
+	}
+	job := queue.jobs[0]
+	waitHermetic(t, "real clip ready", func() bool {
+		value, ok := app.state.Clip(clipID)
+		return ok && value != nil && value.Status == contract.ClipStatusReady
+	})
+
+	workerSocket := filepath.Join(t.TempDir(), "vision-worker.sock")
+	workerCmd := exec.Command("python3", workerScript, "--dry-run")
+	workerCmd.Dir = filepath.Dir(workerScript)
+	workerCmd.Env = append(os.Environ(),
+		"SYNORA_VISION_SOCKET="+workerSocket,
+		"SYNORA_VISION_DEBUG=0",
+		"PYTHONUNBUFFERED=1",
+	)
+	var workerLogs bytes.Buffer
+	workerCmd.Stdout = &workerLogs
+	workerCmd.Stderr = &workerLogs
+	if err := workerCmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if workerCmd.Process != nil {
+			_ = workerCmd.Process.Kill()
+		}
+		_ = workerCmd.Wait()
+	})
+	workerConn, err := dialEventually(workerSocket, 5*time.Second)
+	if err != nil {
+		t.Fatalf("real Python worker did not start: %v logs=%s", err, workerLogs.String())
+	}
+	defer workerConn.Close()
+	workerEncoder := json.NewEncoder(workerConn)
+	workerDecoder := json.NewDecoder(workerConn)
+	if err := workerEncoder.Encode(map[string]any{
+		"request_id": "hello-python-real", "operation": "protocol.hello", "protocol_version": "synora.vision.v1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var hello map[string]any
+	if err := workerDecoder.Decode(&hello); err != nil || hello["protocol_version"] != "synora.vision.v1" || hello["status"] != "normal" {
+		t.Fatalf("worker handshake failed response=%#v err=%v logs=%s", hello, err, workerLogs.String())
+	}
+	if err := workerEncoder.Encode(map[string]any{
+		"request_id": "request-python-real", "operation": "clip.process", "pipeline": "clip-v1",
+		"clip_path": job.Path, "clip_id": job.ID, "camera_id": job.CameraID,
+		"episode_id": job.EpisodeID, "node_id": job.NodeID, "zone": job.Zone,
+		"trigger_reason": job.TriggerReason, "started_at": job.StartedAt,
+		"ends_at": job.EndsAt, "mock_identity_status": "uncertain",
+		"mock_frames": []map[string]any{
+			{"at": when.Add(time.Second), "detections": []map[string]any{{"track_id": "track-python-real", "subject_type": "human", "confidence": .91, "roi_ref": "local://clips/clip-python-real/roi/0"}}},
+			{"at": when.Add(2 * time.Second), "detections": []map[string]any{{"track_id": "track-python-real", "subject_type": "human", "confidence": .93, "roi_ref": "local://clips/clip-python-real/roi/1"}}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var workerResponse vision.WorkerResponse
+	if err := workerDecoder.Decode(&workerResponse); err != nil {
+		t.Fatalf("worker protocol response failed: %v logs=%s", err, workerLogs.String())
+	}
+	if workerResponse.RequestID != "request-python-real" || len(workerResponse.Events) != 1 || workerResponse.Events[0].Type != contract.EventVisionClipSummaryV1 {
+		t.Fatalf("unexpected real worker response: %#v logs=%s", workerResponse, workerLogs.String())
+	}
+	if err := vision.RunClipWorker(visionProcessorFunc(func(*vision.ClipJob) (*vision.WorkerResponse, error) {
+		return &workerResponse, nil
+	}), discoveryClient, job); err != nil {
+		t.Fatal(err)
+	}
+	waitHermetic(t, "real Python summary processed by Core", func() bool {
+		value, ok := app.state.Clip(job.ID)
+		return ok && value != nil && value.Status == contract.ClipStatusProcessed
+	})
+
+	var summaryEvent *contract.Event
+	for _, event := range app.eventStore.List() {
+		if event != nil && event.Type == contract.EventVisionClipSummaryV1 {
+			summaryEvent = event
+			break
+		}
+	}
+	if summaryEvent == nil || summaryEvent.ClipID != job.ID || summaryEvent.NodeID != job.NodeID || summaryEvent.TrackID != "track-python-real" {
+		t.Fatalf("Core did not retain the validated summary: %#v", summaryEvent)
+	}
+
+	// Exercise the existing Core-to-actions boundary with the production
+	// execution guard configured to dry_run; the injected executor must remain untouched.
+	if err := app.actionDispatcher.Dispatch(contract.Action{Type: "push", Device: "dry-run-device", Command: "notify"}, automation.ActionContext{SourceEventID: summaryEvent.ID}); err != nil {
+		t.Fatal(err)
+	}
+	actionDeadline := time.After(3 * time.Second)
+	for len(app.state.ActionResultsList()) == 0 {
+		select {
+		case message := <-actionClient.SubscribeChannel("actions"):
+			if message.Type == contract.EventActionRequest {
+				actionService.HandleMessage(context.Background(), message)
+			}
+		case <-time.After(10 * time.Millisecond):
+		case <-actionDeadline:
+			t.Fatal("timed out waiting for dry_run action request")
+		}
+	}
+	if len(actionExec.requests) != 0 {
+		t.Fatalf("physical executor was reached in dry_run: %#v", actionExec.requests)
+	}
+
+	cognitiveInput, err := cognitive.BuildInput(context.Background(), "python-real-cognitive-request", cognitive.Task{
+		ID: "python-real-cognitive-task", Kind: "event_reasoning", RequestedCapabilities: []string{cognitive.CapabilityEventReasoning},
+	}, cognitive.StateFrame{
+		SchemaVersion: cognitive.StateFrameSchemaVersion, Revision: app.coreRevision.Load(), CapturedAt: when,
+		CurrentEvent: cognitive.StateEventFromContract(summaryEvent), System: cognitive.StateSystem{DangerLevel: "advisory"},
+	}, cognitive.ActionCatalog{SchemaVersion: cognitive.ActionCatalogSchemaVersion, Revision: 1}, cognitive.DeterministicStateEncoder{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cognitiveOutput, err := cognitive.NewScheduler(cognitive.DefaultRegistry()).Run(context.Background(), cognitiveInput)
+	if err != nil || !cognitiveOutput.AdvisoryOnly || len(cognitiveOutput.ExecutableActions) != 0 {
+		t.Fatalf("cognitive shadow crossed advisory boundary: output=%#v err=%v", cognitiveOutput, err)
+	}
+
+	trace := map[string]any{
+		"python_worker_real": true, "vision_model_real": false, "physical_action_executed": false,
+		"cognitive_mode": "advisory_shadow", "clip_id": job.ID, "episode_id": job.EpisodeID,
+		"track_id": summaryEvent.TrackID, "summary_event_id": summaryEvent.ID,
+		"events": []string{contract.EventClipProcessing, contract.EventVisionClipSummaryV1, contract.EventClipProcessed, contract.EventActionRequest, contract.EventActionResult},
+	}
+	traceBytes, err := json.Marshal(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracePath := filepath.Join(t.TempDir(), "e2e-v1.jsonl")
+	if err := os.WriteFile(tracePath, append(traceBytes, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(tracePath)
+	if err != nil || len(contents) == 0 || !bytes.HasSuffix(contents, []byte{'\n'}) {
+		t.Fatalf("JSONL trace was not persisted: path=%s err=%v", tracePath, err)
+	}
+	t.Logf("E2E_TRACE %s", strings.TrimSpace(string(contents)))
+}
+
+func dialEventually(path string, timeout time.Duration) (net.Conn, error) {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		conn, err := net.Dial("unix", path)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+		time.Sleep(25 * time.Millisecond)
+	}
+	return nil, fmt.Errorf("dial %s: %w", path, lastErr)
 }
 
 type rejectingClipQueue struct {

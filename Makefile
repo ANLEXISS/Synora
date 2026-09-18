@@ -95,7 +95,7 @@ help:
 		'  make build                 Build Go runtime binaries into ./bin' \
 		'  make build-web             Build the React/Vite webapp statically' \
 		'  make test                  Run Go tests and Python compileall' \
-		'  make e2e-v1                Run the permanent hermetic V1 trace harness' \
+		'  make e2e-v1                Run the hermetic and real-worker V1 trace harnesses' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
 		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
 		'  persistent face data     Keep resident face files in $(FACE_DATA_DIR)' \
@@ -190,6 +190,7 @@ test: check-go
 
 e2e-v1: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1HermeticScenarioAcrossBusCoreDiscoveryVisionActionsAndMediaMTX$$' -count=1
+	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1PythonWorkerRealProtocolThroughUnixBusCoreShadowAndDryRun$$' -count=1 -v
 
 install: install-deps build build-bootstrap-config install-dirs install-bins install-bootstrap-config install-boot-healthcheck install-version install-model-manifest install-config install-models install-web install-mediamtx install-vision-worker install-face-data install-diagnostics install-systemd enable-services
 	@echo "Synora runtime installation complete."

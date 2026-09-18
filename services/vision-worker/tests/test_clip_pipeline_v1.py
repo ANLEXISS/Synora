@@ -6,11 +6,14 @@ import json
 import socket
 import tempfile
 import threading
+import types
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from core.clip_pipeline_v1 import (  # noqa: E402
     ClipMetadata,
+    ClipTrackerV1,
     Detection,
     FixedClipManager,
     FrameObservation,
@@ -44,6 +47,88 @@ class ClipPipelineV1Tests(unittest.TestCase):
 
     def frame(self, seconds, *detections):
         return FrameObservation.from_values(self.base + timedelta(seconds=seconds), detections)
+
+    def test_tracker_is_deterministic_and_keeps_track_through_short_occlusion(self):
+        tracker = ClipTrackerV1(iou_threshold=.2, max_track_gap_seconds=1.0,
+                                max_active_tracks=4, min_bbox_width=10, min_bbox_height=10)
+        first = tracker.update([
+            {"bbox": [0, 0, 40, 40], "score": .8},
+            {"bbox": [100, 0, 140, 40], "score": .7},
+        ], self.base)
+        self.assertEqual([item["track_id"] for item in first], ["human-0", "human-1"])
+        self.assertEqual(tracker.update([], self.base + timedelta(milliseconds=500)), [])
+        continued = tracker.update([{"bbox": [4, 0, 44, 40], "score": .9}], self.base + timedelta(seconds=.8))
+        self.assertEqual(continued[0]["track_id"], "human-0")
+        crossing = tracker.update([
+            {"bbox": [96, 0, 136, 40], "score": .7},
+            {"bbox": [8, 0, 48, 40], "score": .6},
+        ], self.base + timedelta(seconds=1.0))
+        self.assertEqual([item["track_id"] for item in crossing], ["human-0", "human-1"])
+
+    def test_tracker_rejects_tiny_boxes_and_expires_tracks_before_allocating(self):
+        tracker = ClipTrackerV1(max_track_gap_seconds=1.0, max_active_tracks=1,
+                                min_bbox_width=20, min_bbox_height=20)
+        self.assertEqual(tracker.update([{"bbox": [0, 0, 5, 5], "score": .99}], self.base), [])
+        self.assertEqual(tracker.update([{"bbox": [0, 0, 30, 30], "score": .9}], self.base),
+                         [{"track_id": "human-0", "bbox": (0, 0, 30, 30), "score": .9,
+                           "item": {"bbox": [0, 0, 30, 30], "score": .9}}])
+        self.assertEqual(tracker.update([
+            {"bbox": [50, 0, 80, 30], "score": .95},
+            {"bbox": [100, 0, 130, 30], "score": .94},
+        ], self.base + timedelta(seconds=.5)), [])
+        replacement = tracker.update([{"bbox": [100, 0, 130, 30], "score": .95}], self.base + timedelta(seconds=2))
+        self.assertEqual(replacement[0]["track_id"], "human-1")
+
+    def test_process_video_uses_fake_capture_detector_and_honors_clip_duration(self):
+        class FakeFrame:
+            def __getitem__(self, _key):
+                return self
+
+        class FakeCapture:
+            def __init__(self, _path):
+                self.frames = 0
+                self.released = False
+
+            def isOpened(self):
+                return True
+
+            def get(self, _prop):
+                return 5.0
+
+            def read(self):
+                if self.frames >= 20:
+                    return False, None
+                self.frames += 1
+                return True, FakeFrame()
+
+            def release(self):
+                self.released = True
+
+        class FakeDetector:
+            def __init__(self):
+                self.calls = 0
+
+            def detect(self, _frame):
+                self.calls += 1
+                return [{"bbox": [0, 0, 30, 30], "score": .8}]
+
+        capture = FakeCapture("clip.mp4")
+        cv2_fake = types.SimpleNamespace(VideoCapture=lambda path: capture, CAP_PROP_FPS=5)
+        detector = FakeDetector()
+        clip = ClipMetadata(
+            clip_id="clip-1", episode_id="episode-1", camera_id="cam-1", topology=self.topology,
+            trigger_reason="motion.sensor.front", started_at=self.base,
+            ends_at=self.base + timedelta(seconds=.4),
+        )
+        with patch.dict(sys.modules, {"cv2": cv2_fake}):
+            events = VisionClipPipelineV1({"tracker_min_bbox_width": 20, "tracker_min_bbox_height": 20}).process_video(
+                clip, "clip.mp4", detector, sample_period_seconds=.2)
+        summaries = [event for event in events if event["type"].endswith("clip-summary/v1")]
+        self.assertEqual(len(summaries), 1)
+        self.assertEqual(summaries[0]["payload"]["track"]["id"], "human-0")
+        self.assertEqual(summaries[0]["payload"]["track"]["last_seen_at"], (self.base + timedelta(seconds=.4)).isoformat())
+        self.assertLessEqual(detector.calls, 3)
+        self.assertTrue(capture.released)
 
     def test_open_close_is_fixed_and_continuity_reuses_episode(self):
         ids = {"episode": 0, "clip": 0}
@@ -151,4 +236,3 @@ class ClipPipelineV1Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

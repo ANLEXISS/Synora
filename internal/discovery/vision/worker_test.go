@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"synora/pkg/contract"
 )
@@ -82,10 +83,10 @@ func TestRunClipWorkerPublishesVersionedClipSummaryToCore(t *testing.T) {
 	processor := clipProcessorFunc(func(job *ClipJob) (*WorkerResponse, error) {
 		return &WorkerResponse{Events: []Event{{
 			Type: contract.EventVisionClipSummaryV1, TrackID: "track-1",
-			Payload: map[string]any{"schema": contract.EventVisionClipSummaryV1, "clip_id": "spoofed"},
+			Payload: validSummaryPayload("clip-v1", "cam-1", "episode-1", "front", "exterior", "motion.sensor.front", "track-1"),
 		}}}, nil
 	})
-	job := &ClipJob{ID: "clip-v1", CameraID: "cam-1", NodeID: "front", EpisodeID: "episode-1", Pipeline: "clip-v1"}
+	job := validV1Job()
 	if err := RunClipWorker(processor, publisher, job); err != nil {
 		t.Fatal(err)
 	}
@@ -98,5 +99,71 @@ func TestRunClipWorkerPublishesVersionedClipSummaryToCore(t *testing.T) {
 	}
 	if payload["schema"] != contract.EventVisionClipSummaryV1 || payload["clip_id"] != "clip-v1" || payload["track_id"] != "track-1" {
 		t.Fatalf("summary metadata not authoritative: %#v", payload)
+	}
+}
+
+func validV1Job() *ClipJob {
+	at := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	return &ClipJob{ID: "clip-v1", CameraID: "cam-1", NodeID: "front", Zone: "exterior", EpisodeID: "episode-1", TriggerReason: "motion.sensor.front", StartedAt: at, Pipeline: "clip-v1"}
+}
+
+func validSummaryPayload(clipID, cameraID, episodeID, nodeID, zone, reason, trackID string) map[string]any {
+	return map[string]any{
+		"schema": contract.EventVisionClipSummaryV1, "clip_id": clipID, "camera_id": cameraID, "episode_id": episodeID,
+		"topology":          map[string]any{"node_id": nodeID, "zone": zone},
+		"trigger":           map[string]any{"reason": reason, "started_at": "2026-09-17T12:00:00Z"},
+		"track":             map[string]any{"id": trackID, "subject_type": "human", "first_seen_at": "2026-09-17T12:00:01Z", "last_seen_at": "2026-09-17T12:00:02Z", "confidence": .8},
+		"identity":          map[string]any{"status": "uncertain", "confidence": .2, "embedding_ref": nil},
+		"plate":             map[string]any{"status": "not_available", "confidence": 0, "value_ref": nil},
+		"sensitive_objects": map[string]any{"status": "not_available", "detections": []any{}},
+		"media":             map[string]any{"clip_ref": "local://clips/clip-v1", "best_roi_refs": []string{"local://clips/clip-v1/roi/1"}},
+	}
+}
+
+func TestRunClipWorkerRejectsInvalidV1ContractWithoutBusinessPublication(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{"spoof camera", func(p map[string]any) { p["camera_id"] = "cam-spoof" }},
+		{"spoof clip", func(p map[string]any) { p["clip_id"] = "clip-spoof" }},
+		{"spoof episode", func(p map[string]any) { p["episode_id"] = "episode-spoof" }},
+		{"spoof node", func(p map[string]any) { p["node_id"] = "node-spoof" }},
+		{"spoof topology", func(p map[string]any) { p["topology"].(map[string]any)["node_id"] = "node-spoof" }},
+		{"spoof trigger", func(p map[string]any) { p["trigger"].(map[string]any)["reason"] = "trigger-spoof" }},
+		{"invalid schema", func(p map[string]any) { p["schema"] = "synora.vision.clip-summary/v9" }},
+		{"non-local reference", func(p map[string]any) { p["media"].(map[string]any)["clip_ref"] = "https://example.invalid/raw" }},
+		{"invalid identity status", func(p map[string]any) { p["identity"].(map[string]any)["status"] = "maybe" }},
+		{"invalid topology", func(p map[string]any) { p["topology"].(map[string]any)["zone"] = "" }},
+		{"out of range score", func(p map[string]any) { p["track"].(map[string]any)["confidence"] = 2.0 }},
+		{"invalid time order", func(p map[string]any) { p["track"].(map[string]any)["first_seen_at"] = "2026-09-17T12:00:03Z" }},
+		{"raw embedding field", func(p map[string]any) { p["embedding"] = []float64{1, 2, 3} }},
+		{"raw image field", func(p map[string]any) { p["image"] = "data:image/png;base64,raw" }},
+		{"unauthorized event", func(p map[string]any) { _ = p }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			publisher := &clipMessagePublisher{}
+			typ := contract.EventVisionClipSummaryV1
+			payload := validSummaryPayload("clip-v1", "cam-1", "episode-1", "front", "exterior", "motion.sensor.front", "track-1")
+			if tc.name == "unauthorized event" {
+				typ = "vision.unknown"
+			}
+			tc.mutate(payload)
+			err := RunClipWorker(clipProcessorFunc(func(*ClipJob) (*WorkerResponse, error) {
+				return &WorkerResponse{Events: []Event{{Type: typ, TrackID: "track-1", Payload: payload}}}, nil
+			}), publisher, validV1Job())
+			if err == nil {
+				t.Fatal("invalid V1 response accepted")
+			}
+			if len(publisher.messages) != 2 || publisher.messages[0].Type != contract.EventClipProcessing || publisher.messages[1].Type != contract.EventClipFailed {
+				t.Fatalf("unexpected messages=%#v", publisher.messages)
+			}
+			for _, message := range publisher.messages {
+				if message.Type == contract.EventVisionClipSummaryV1 || message.Type == contract.EventVisionPreliminaryAlertV1 || message.Type == contract.EventClipProcessed {
+					t.Fatalf("business event published after invalid contract: %#v", publisher.messages)
+				}
+			}
+		})
 	}
 }
