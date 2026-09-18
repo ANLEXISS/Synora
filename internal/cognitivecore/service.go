@@ -45,7 +45,15 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 		return err
 	}
 	if result.Result.Action != nil {
-		body, err := json.Marshal(result.Result.Action)
+		body, err := json.Marshal(struct {
+			SchemaVersion string `json:"schema_version"`
+			RequestID     string `json:"request_id"`
+			EpisodeID     string `json:"episode_id,omitempty"`
+			Action        string `json:"action"`
+			Topology      string `json:"topology,omitempty"`
+			Capability    string `json:"capability,omitempty"`
+			DryRun        bool   `json:"dry_run"`
+		}{"action-request/v1", result.Result.Action.RequestID, result.Result.Action.EpisodeID, result.Result.Action.Action.Action, result.Result.Action.Action.Topology, result.Result.Action.Action.Capability, true})
 		if err != nil {
 			return err
 		}

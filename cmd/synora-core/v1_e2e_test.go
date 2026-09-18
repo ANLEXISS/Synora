@@ -16,6 +16,11 @@ import (
 	"synora/pkg/contract"
 )
 
+type e2eBus struct{ sent []contract.Message }
+
+func (b *e2eBus) Send(message contract.Message) error             { b.sent = append(b.sent, message); return nil }
+func (b *e2eBus) SubscribeChannel(string) <-chan contract.Message { return make(chan contract.Message) }
+
 func TestV1CoreEndToEndScenarios(t *testing.T) {
 	store := cognitivecore.NewUniversalStore()
 	core := &cognitivecore.Core{Store: store, MLP: cognitivecore.UnavailableMLP{}, Gate: cognitivecore.SafetyGate{DryRun: true}, Now: func() time.Time { return time.Unix(100, 0).UTC() }}
@@ -98,6 +103,42 @@ func TestV1ArchitectureHasNoLegacyDecisionImports(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+func TestV1DiscoveryCoreStoreDiscoveryActionResultLoop(t *testing.T) {
+	bus := &e2eBus{}
+	store := cognitivecore.NewUniversalStore()
+	core := &cognitivecore.Core{Store: store, MLP: testMLP{output: cognitivecore.MLPOutput{DangerLabel: "high", DangerScore: 0.9, Action: cognitivecore.ActionIntent{Action: "notify", Capability: "notify"}}}, Gate: cognitivecore.SafetyGate{DryRun: true}, Now: func() time.Time { return time.Unix(200, 0).UTC() }}
+	service := &cognitivecore.Service{Bus: bus, Core: core}
+	if err := service.Handle(context.Background(), contract.Message{ID: "loop-1", Type: "sensor.anomaly", Kind: contract.KindEvent, Source: "discovery", Timestamp: time.Unix(200, 0).UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if len(bus.sent) != 2 || bus.sent[1].Type != "action.request" {
+		t.Fatalf("Core did not emit abstract action request: %#v", bus.sent)
+	}
+	var request discovery.ActionRequest
+	if err := json.Unmarshal(bus.sent[1].Payload, &request); err != nil {
+		t.Fatal(err)
+	}
+	resultEvent, err := (&discovery.Boundary{DryRun: true, Capabilities: map[string]bool{"notify": true}}).ExecuteAction(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := core.Process(context.Background(), resultEvent); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.Journal()) != 2 || store.Journal()[1].Event.Type != discovery.ActionResultEvent {
+		t.Fatalf("action result did not become a new Core fact: %#v", store.Journal())
+	}
+	if strings.Contains(string(mustMarshal(resultEvent)), `"physical_action_executed":true`) {
+		t.Fatal("physical action executed")
+	}
+}
+
+type testMLP struct{ output cognitivecore.MLPOutput }
+
+func (m testMLP) Run(context.Context, cognitivecore.EncodedSnapshot, cognitivecore.CognitiveSnapshot) (cognitivecore.MLPOutput, map[string]float64, error) {
+	return m.output, map[string]float64{"danger": .1, "incident": .1, "task": .1, "action": .1}, nil
 }
 
 func cognitivecoreAction(action string) discovery.ActionRequest {
