@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"synora/internal/bus"
@@ -31,7 +32,14 @@ func main() {
 		return
 	}
 	defer client.Close()
-	store := cognitivecore.NewUniversalStore()
+	storeDir := os.Getenv("SYNORA_STORE_DIR")
+	if storeDir == "" {
+		storeDir = filepath.Join(filepath.Dir(runtime.Paths.State), "universal-store")
+	}
+	store, err := cognitivecore.OpenUniversalStore(storeDir)
+	if err != nil {
+		log.Fatal("universal store unavailable; refusing to start Core: ", err)
+	}
 	core := &cognitivecore.Core{Store: store, MLP: cognitivecore.UnavailableMLP{Reason: "no promoted full-snapshot V1 bundle"}, Gate: cognitivecore.SafetyGate{DryRun: true}}
 	service := &cognitivecore.Service{Bus: client, Core: core, Name: "core"}
 	log.Printf("synora core V1 ready mode=active_dry_run model=unavailable encoder_dimension=%d", cognitivecore.CognitiveVectorSize)
