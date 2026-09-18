@@ -380,7 +380,7 @@ func startReplayWorker(t *testing.T, socket string) (*exec.Cmd, *bytes.Buffer) {
 	script := filepath.Join(root, "services", "vision-worker", "worker.py")
 	cmd := exec.Command("python3", script)
 	cmd.Dir = filepath.Dir(script)
-	cmd.Env = append(os.Environ(), "SYNORA_VISION_SOCKET="+socket, "SYNORA_VISION_DEBUG=0", "SYNORA_VISION_CLIP_V1_ENABLED=1", "SYNORA_VISION_CLIP_V1_DETECTOR_MODE=real_shadow", "PYTHONUNBUFFERED=1")
+	cmd.Env = append(os.Environ(), "SYNORA_VISION_SOCKET="+socket, "SYNORA_VISION_DEBUG=0", "SYNORA_VISION_CLIP_V1_ENABLED=1", "SYNORA_VISION_CLIP_V1_DETECTOR_MODE=real_shadow", "SYNORA_VISION_FACE_ENABLED=0", "SYNORA_VISION_PLATE_ENABLED=0", "SYNORA_VISION_SENSITIVE_OBJECTS_ENABLED=0", "PYTHONUNBUFFERED=1")
 	var logs bytes.Buffer
 	cmd.Stdout = &logs
 	cmd.Stderr = &logs

@@ -582,6 +582,8 @@ class SensitiveObjectResult:
 
 
 class FaceEnricher:
+    requires_roi = False
+
     def enrich(self, track: TrackState) -> IdentityResult:
         raise NotImplementedError
 
@@ -618,6 +620,8 @@ class ConfiguredFaceEnricher(FaceEnricher):
     It only reports ``recognized`` after multiple quality observations agree.
     A single good crop is intentionally still ``uncertain``.
     """
+
+    requires_roi = True
 
     def __init__(self, vision_pipeline: Any, min_crops: int = 2,
                  stability_threshold: float = 0.67):
@@ -926,6 +930,7 @@ class VisionClipPipelineV1:
         self.face_enricher = face_enricher or UnavailableFaceEnricher()
         self.plate_enricher = plate_enricher or UnavailablePlateEnricher()
         self.sensitive_enricher = sensitive_enricher or UnavailableSensitiveObjectEnricher()
+        self._retain_detection_roi = bool(getattr(self.face_enricher, "requires_roi", False))
         self.preliminary_sink = preliminary_sink
 
     def new_episode_context(self, episode_id: str, *, continuity_reset: bool = False) -> EpisodeVisionContext:
@@ -968,7 +973,10 @@ class VisionClipPipelineV1:
                 if record_evidence and ledger.append(next_sequence, decision.priority_hint, decision.reason_codes,
                                                      detection.track_id, at):
                     next_sequence += 1
-                sensitive = self.sensitive_enricher.inspect(detection)
+                if getattr(self.sensitive_enricher, "available", False):
+                    sensitive = self.sensitive_enricher.inspect(detection)
+                else:
+                    sensitive = SensitiveObjectResult(SensitiveStatus.NOT_AVAILABLE, reason="backend_unavailable")
                 state.sensitive.append(sensitive)
                 if (getattr(self.sensitive_enricher, "available", False)
                         and sensitive.critical and sensitive.confidence >= self.critical_threshold):
@@ -1224,7 +1232,7 @@ class VisionClipPipelineV1:
                 previous_active = set(tracker.active_track_ids)
                 for assigned in tracker.update(list(raw_detections), at):
                     x1, y1, x2, y2 = assigned["bbox"]
-                    roi = frame[max(0, y1):max(0, y2), max(0, x1):max(0, x2)]
+                    roi = frame[max(0, y1):max(0, y2), max(0, x1):max(0, x2)] if self._retain_detection_roi else None
                     ref = f"local://clips/{clip.clip_id}/roi/{sample_index}-{len(detections)}"
                     track_id = assigned["track_id"]
                     record = track_records.setdefault(track_id, {"detection_count": 0, "score_sum": 0.0, "scores": [], "first_at": at, "last_at": at})

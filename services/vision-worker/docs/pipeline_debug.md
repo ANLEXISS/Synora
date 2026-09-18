@@ -119,7 +119,7 @@ The implementation keeps model calls bounded:
 - Recognition uses a 10-observation buffer per track instead of deciding from a
   single embedding.
 
-`core/async_pipeline.py` provides bounded stages for RTSP, YOLO, SCRFD, ArcFace,
-and event emission. A full RTSP integration can feed those stages with handlers
-that wrap the existing synchronous stage methods while preserving queue
-occupancy, drop rate, and latency metrics.
+The active V1 shadow path uses `core/detector_backend.py`: the
+`ThreePinnedDetectorBackend` owns exactly three RKNN detector runners and
+accepts batches of at most three frames in logical order. The former unused
+generic async stage sketch is not part of the runtime.

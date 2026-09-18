@@ -15,6 +15,26 @@ from worker import VisionWorker
 
 class WorkerRuntimeTests(unittest.TestCase):
 
+    def test_disabled_face_enricher_does_not_import_or_initialize_face_path(self):
+        real_import = __import__
+
+        def import_without_face(name, *args, **kwargs):
+            if name.startswith("modules.face") or name == "core.pipeline":
+                raise AssertionError(f"disabled face path imported: {name}")
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch.dict(os.environ, {
+            "SYNORA_VISION_FACE_ENABLED": "0",
+            "SYNORA_VISION_DETECTOR_STRATEGY": "single",
+            "SYNORA_VISION_DEBUG": "0",
+        }, clear=False), mock.patch("builtins.__import__", side_effect=import_without_face):
+            worker = VisionWorker(dry_run=False)
+
+        self.assertFalse(worker.face_enabled)
+        self.assertIsNone(worker.face_recognizer)
+        self.assertIsNone(worker.pipeline)
+        self.assertEqual(worker.face_error, "disabled_by_configuration")
+
     def test_init_continues_when_flask_is_missing(self):
         real_import = __import__
 

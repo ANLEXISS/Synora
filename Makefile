@@ -8,13 +8,18 @@ SHELL := /usr/bin/env bash
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	dev-tools diagnostics install-dev-tools
 
-.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 e2e-vision-mlp-v1 replay-vision-v1 replay-vision-segments-v1 benchmark-vision-inference
+.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 e2e-vision-mlp-v1 perf-baseline-v1 replay-vision-v1 replay-vision-segments-v1 benchmark-vision-inference
 
 COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
 COGNITIVE_MODEL_DIR ?= build/cognitive-mlp-v1
 COGNITIVE_FIXTURES ?= testdata/cognitive/mlp_parity_100.jsonl
 COGNITIVE_RUNTIME_MANIFEST ?= models/cognitive/MANIFEST.runtime.json
 VISION_MLP_FIXTURES ?= testdata/vision-mlp-e2e
+PERF_CLIP ?= /home/rock/test3.mp4
+PERF_BEFORE ?= /tmp/synora-perf-v1-before
+PERF_AFTER ?= /tmp/synora-perf-v1-after
+PERF_COGNITIVE_PYTHON ?= $(COGNITIVE_PYTHON)
+PERF_VISION_PYTHON ?= $(VISION_PYTHON)
 
 PREFIX ?= /opt/synora
 BINDIR ?= $(PREFIX)/bin
@@ -104,6 +109,7 @@ help:
 		'  make test                  Run Go tests and Python compileall' \
 		'  make e2e-v1                Run the hermetic and real-worker V1 trace harnesses' \
 		'  make e2e-vision-mlp-v1    Run the segmented Vision -> Core -> four-head MLP shadow replay' \
+		'  make perf-baseline-v1     Run and compare the reproducible Vision/MLP before-after benchmark' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
 		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
 		'  persistent face data     Keep resident face files in $(FACE_DATA_DIR)' \
@@ -223,6 +229,12 @@ e2e-vision-mlp-v1: check-go
 	fi
 	PYTHONPATH=services/vision-worker "$(VISION_PYTHON)" services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segment-replay"
 	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-vision-mlp-e2e --bundle "$(COGNITIVE_BUNDLE)" --runtime-manifest "$(COGNITIVE_RUNTIME_MANIFEST)" --model-dir "$(OUT)/mlp-export" --clip "$(CLIP)" --out "$(OUT)" --observations "$(OUT)/segment-replay/observations.jsonl" --summary-contract "$(OUT)/segment-replay/summary.contract.json" --parity "$(OUT)/parity.json" --fixtures "$(VISION_MLP_FIXTURES)"
+
+perf-baseline-v1: check-go
+	@test -f "$(PERF_CLIP)" || { echo "FAIL: PERF_CLIP is not a regular file: $(PERF_CLIP)" >&2; exit 2; }
+	@test -d "$(PERF_BEFORE)" || { echo "FAIL: PERF_BEFORE is missing: $(PERF_BEFORE)" >&2; exit 2; }
+	@test ! -e "$(PERF_AFTER)" || { echo "FAIL: PERF_AFTER already exists: $(PERF_AFTER)" >&2; exit 2; }
+	"$(PYTHON)" tools/perf_baseline_v1.py --repo "$(CURDIR)" --clip "$(PERF_CLIP)" --before "$(PERF_BEFORE)" --after "$(PERF_AFTER)" --cognitive-python "$(PERF_COGNITIVE_PYTHON)" --vision-python "$(PERF_VISION_PYTHON)" --cognitive-bundle "$(COGNITIVE_BUNDLE)"
 
 replay-vision-v1: check-go
 	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }

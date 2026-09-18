@@ -399,6 +399,7 @@ class ClipPipelineV1Tests(unittest.TestCase):
     def test_no_available_enricher_does_not_emit_preliminary_or_physical_action(self):
         seen = []
         pipeline = VisionClipPipelineV1(preliminary_sink=seen.append)
+        self.assertFalse(pipeline._retain_detection_roi)
         events = pipeline.process_frames(self.clip(), [self.frame(1, Detection("t-1", "human", .9))])
         self.assertEqual(seen, [])
         self.assertEqual(events[-1]["payload"]["sensitive_objects"]["status"], "not_available")
