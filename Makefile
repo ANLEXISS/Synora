@@ -75,7 +75,6 @@ GO_BINS := \
 	synora-discovery:./cmd/synora-discovery \
 	synora-network-config:./cmd/synora-network-config \
 	synora-runtime-manager:./cmd/synora-runtime-manager \
-	synora-cognitive:./cmd/synora-cognitive \
 	synora-cognitive-demo:./cmd/synora-cognitive-demo \
 	synora-connect:./cmd/synora-connect \
 	synora-ota:./cmd/synora-ota
@@ -94,11 +93,10 @@ RUNTIME_SERVICES := \
 	synora-actions \
 	synora-api \
 	synora-discovery \
-	synora-cognitive \
 	synora-connect
 
 START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-actions synora-api synora-connect mediamtx
-STOP_ORDER := mediamtx synora-connect synora-cognitive synora-api synora-actions synora-discovery synora-core synora-runtime-manager synora-bus
+STOP_ORDER := mediamtx synora-connect synora-api synora-actions synora-discovery synora-core synora-runtime-manager synora-bus
 OTA_UNITS := synora-ota-mark-good
 START_ORDER += $(OTA_UNITS)
 SYSTEMD_UNITS := $(addsuffix .service,$(RUNTIME_SERVICES) $(OTA_UNITS)) mediamtx.service
@@ -206,8 +204,8 @@ test: check-go
 	$(PYTHON) -m compileall -q services/vision-worker
 
 e2e-v1: check-go
-	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1HermeticScenarioAcrossBusCoreDiscoveryVisionActionsAndMediaMTX$$' -count=1
-	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1PythonWorkerRealProtocolThroughUnixBusCoreShadowAndDryRun$$' -count=1 -v
+	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$' -count=1 -v
+	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1ArchitectureHasNoLegacyDecisionImports$$' -count=1 -v
 
 e2e-vision-mlp-v1: check-go
 	@test -n "$(COGNITIVE_BUNDLE)" || { echo "FAIL: COGNITIVE_BUNDLE is required" >&2; exit 2; }
@@ -581,7 +579,7 @@ doctor: check-go
 	failf() { echo "FAIL $$*"; fail=$$((fail+1)); }; \
 	command -v $(PYTHON) >/dev/null 2>&1 && ok "Python: $$($(PYTHON) --version 2>&1)" || failf "Python missing"; \
 	command -v jq >/dev/null 2>&1 && ok "jq: $$(jq --version)" || warnf "jq missing"; \
-	for bin in synora-bus synora-core synora-actions synora-api synora-discovery synora-runtime-manager synora-cognitive; do \
+	for bin in synora-bus synora-core synora-actions synora-api synora-discovery synora-runtime-manager; do \
 		[ -x "$(BINDIR)/$$bin" ] && ok "binary $(BINDIR)/$$bin" || failf "binary missing $(BINDIR)/$$bin"; \
 	done; \
 		for service in $(START_ORDER); do \
@@ -662,7 +660,6 @@ delete:
 		$(SYSTEMD_DIR)/synora-api.service \
 		$(SYSTEMD_DIR)/synora-discovery.service \
 		$(SYSTEMD_DIR)/synora-runtime-manager.service \
-		$(SYSTEMD_DIR)/synora-cognitive.service \
 		$(SYSTEMD_DIR)/mediamtx.service \
 		$(SYSTEMD_DIR)/synora-{web,vision,action}.service \
 		$(SYSTEMD_DIR)/mqtt"_bridge".service
