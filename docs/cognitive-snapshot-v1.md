@@ -1,6 +1,7 @@
 # CognitiveSnapshot V1
 
-`CognitiveSnapshot` est l’entrée canonique du State Encoder V1. Le bloc
+`CognitiveSnapshot` est l’entrée canonique du State Encoder V1. Le vecteur V1
+possède 86 dimensions fixes. Le bloc
 `VisionEvidence[44]` réutilise les faits normalisés du contrat
 `state-encoder/v5`, mais il n’est pas un snapshot complet et n’alimente pas à
 lui seul le MLP.

@@ -18,7 +18,7 @@ import (
 const (
 	SnapshotSchemaVersion = "cognitive-snapshot/v1"
 	EncoderSchemaVersion  = "cognitive-encoder/v1"
-	CognitiveVectorSize   = 80
+	CognitiveVectorSize   = 86
 )
 
 var CognitiveFeatureNames = cognitiveFeatureNames()

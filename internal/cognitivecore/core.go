@@ -23,6 +23,7 @@ type Core struct {
 	MLP     MLPBackend
 	Gate    SafetyGate
 	Now     func() time.Time
+	Capture *CaptureWriter
 }
 
 func (c *Core) now() time.Time {
@@ -68,7 +69,7 @@ func (c *Core) Process(ctx context.Context, event contract.Event) (ProcessResult
 		}
 	}
 	var action *ActionRequest
-	if decision.Status == "available" && decision.Action.Status == "allowed" && decision.Action.Proposed.Action != "no_action" {
+	if decision.Status == "available" && (decision.Action.Status == "allowed" || decision.Action.Status == "allowed_dry_run") && decision.Action.Proposed.Action != "no_action" {
 		action = &ActionRequest{SchemaVersion: "action-request/v1", RequestID: event.ID, EpisodeID: episodeID(event), Action: decision.Action.Proposed, DryRun: true}
 	}
 	snapshot.Revision = c.Store.Revision() + 1
@@ -79,6 +80,9 @@ func (c *Core) Process(ctx context.Context, event contract.Event) (ProcessResult
 		return ProcessResult{}, err
 	}
 	commit.Snapshot.Revision = result.Revision
+	if c.Capture != nil && !result.Duplicate {
+		c.Capture.Enqueue(commit, result)
+	}
 	return ProcessResult{Commit: commit, Result: result, Encoded: encoded}, nil
 }
 
@@ -146,6 +150,9 @@ func frameFromVisionEvent(previous CognitiveSnapshot, event contract.Event) (cog
 	priority := payloadString(p, "priority")
 	if priority == "" {
 		priority = payloadString(p, "priority_hint")
+	}
+	if priority == "" {
+		priority = contract.VisionPriorityP4
 	}
 	if priority == cognitiveContractP0() {
 		priority = contract.VisionPriorityP4

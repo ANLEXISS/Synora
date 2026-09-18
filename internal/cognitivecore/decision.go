@@ -136,7 +136,7 @@ func (g SafetyGate) Apply(output MLPOutput, snapshot CognitiveSnapshot, now time
 		return assessment
 	}
 	if g.DryRun {
-		assessment.Status = "blocked"
+		assessment.Status = "allowed_dry_run"
 		assessment.Reasons = []string{"dry_run"}
 		return assessment
 	}
