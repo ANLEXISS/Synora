@@ -344,6 +344,10 @@ class AdaptiveSamplingPolicy:
 
 @dataclass
 class ClipProcessingMetrics:
+    capture_open_wall_ms: float = 0.0
+    first_frame_decode_wall_ms: float = 0.0
+    first_detector_batch_wall_ms: float = 0.0
+    first_tracking_wall_ms: float = 0.0
     queue_wait_ms: float = 0.0
     clip_decode_wall_ms: float = 0.0
     detector_wall_ms: float = 0.0
@@ -366,6 +370,10 @@ class ClipProcessingMetrics:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "capture_open_wall_ms": round(max(0.0, self.capture_open_wall_ms), 3),
+            "first_frame_decode_wall_ms": round(max(0.0, self.first_frame_decode_wall_ms), 3),
+            "first_detector_batch_wall_ms": round(max(0.0, self.first_detector_batch_wall_ms), 3),
+            "first_tracking_wall_ms": round(max(0.0, self.first_tracking_wall_ms), 3),
             "queue_wait_ms": round(max(0.0, self.queue_wait_ms), 3),
             "clip_decode_wall_ms": round(max(0.0, self.clip_decode_wall_ms), 3),
             "detector_wall_ms": round(max(0.0, self.detector_wall_ms), 3),
@@ -1090,6 +1098,7 @@ class VisionClipPipelineV1:
         """Run bounded progressive observation, adaptive sampling and final summaries."""
         import cv2
         vision_started = time.perf_counter()
+        capture_started = time.perf_counter()
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             cap.release()
@@ -1098,6 +1107,7 @@ class VisionClipPipelineV1:
         frames: list[FrameObservation] = []
         index = 0
         metrics = ClipProcessingMetrics()
+        metrics.capture_open_wall_ms = (time.perf_counter() - capture_started) * 1000.0
         context = episode_context or EpisodeVisionContext.from_config(clip.episode_id, self._config, track_id_prefix="human")
         if context.episode_id != clip.episode_id:
             raise ValueError("episode context does not match clip episode")
@@ -1213,6 +1223,8 @@ class VisionClipPipelineV1:
                     for item in batch
                 ]
             metrics.detector_wall_ms += (time.perf_counter() - detector_started) * 1000.0
+            if metrics.first_detector_batch_wall_ms == 0.0:
+                metrics.first_detector_batch_wall_ms = (time.perf_counter() - detector_started) * 1000.0
             for (sample_index, at, frame, _), raw_detections in zip(batch, raw_batches):
                 raw_detections = list(raw_detections or [])
                 raw_decisions = []
@@ -1262,6 +1274,8 @@ class VisionClipPipelineV1:
                 for track_id in previous_active - current_active:
                     enrichment_policy.observe(track_id, at, visible=False)
                 metrics.tracking_wall_ms += (time.perf_counter() - tracking_started) * 1000.0
+                if metrics.first_tracking_wall_ms == 0.0:
+                    metrics.first_tracking_wall_ms = (time.perf_counter() - tracking_started) * 1000.0
                 metrics.frames_sampled += 1
                 frame_decisions = [priority_by_track[item.track_id] for item in detections if item.track_id in priority_by_track]
                 frame_decision = min(frame_decisions, key=lambda item: _PRIORITY_RANK.get(item.priority_hint, 4)) if frame_decisions else PriorityDecision(VisionPriority.P4_LOW_PRIORITY_CONTEXT.value, ("no_human_detected",))
@@ -1277,9 +1291,12 @@ class VisionClipPipelineV1:
             while True:
                 read_started = time.perf_counter()
                 ok, frame = cap.read()
-                metrics.clip_decode_wall_ms += (time.perf_counter() - read_started) * 1000.0
+                decode_wall_ms = (time.perf_counter() - read_started) * 1000.0
+                metrics.clip_decode_wall_ms += decode_wall_ms
                 if not ok:
                     break
+                if metrics.first_frame_decode_wall_ms == 0.0:
+                    metrics.first_frame_decode_wall_ms = decode_wall_ms
                 if index >= next_sample_index:
                     at = clip.started_at + timedelta(seconds=index / frame_period)
                     if at > clip.ends_at:

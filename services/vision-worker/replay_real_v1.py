@@ -63,7 +63,9 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
     os.environ["SYNORA_YOLO_MODEL_PATH"] = str(model)
     started = time.perf_counter()
+    detector_started = time.perf_counter()
     detector = PersonDetector(debug_enabled=False)
+    detector_init_wall_ms = (time.perf_counter() - detector_started) * 1000.0
     if not detector.available:
         return fail(output, f"RKNN detector unavailable: {detector.error or detector.capability_status}", model_path=str(model))
     backend = ExistingDetectorBackend(detector, timeout_seconds=float(os.getenv("SYNORA_VISION_V1_DETECTOR_TIMEOUT", "5")))
@@ -126,6 +128,7 @@ def main() -> int:
             "backend": diagnostic,
             "latencies": metrics,
             "wall_ms": round((time.perf_counter() - started) * 1000.0, 3),
+            "detector_init_wall_ms": round(detector_init_wall_ms, 3),
         }
         (output / "vision-real.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         go = os.environ.get("GO", "go")

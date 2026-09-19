@@ -48,6 +48,7 @@ def evaluate_model(model_path: Path, records: list[dict[str, Any]], redteam: boo
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=Path, default=Path("build/cognitive-incident-v3-dataset"))
+    parser.add_argument("--existing-dataset", type=Path, default=Path("build/cognitive-incident-v2-dataset"))
     parser.add_argument("--v2-bundle", type=Path, default=Path("build/cognitive-mlp-v1-incident-v2"))
     parser.add_argument("--v3-bundle", type=Path, default=Path("build/cognitive-mlp-v1-incident-v3"))
     parser.add_argument("--out", type=Path, default=Path("build/cognitive-mlp-v1-incident-v3/promotion-gate-report.json"))
@@ -57,6 +58,7 @@ def main() -> int:
     v2_path = args.dataset / "incident-redteam-v2.jsonl"
     v2 = V3.read_jsonl(v2_path)
     independent = V3.read_jsonl(args.dataset / "independent-test.jsonl")
+    existing_independent = V3.read_jsonl(args.existing_dataset / "independent-test.jsonl")
     v2_model = args.v2_bundle / "incident.cpu.json"
     v3_model = args.v3_bundle / "incident.cpu.json"
     old_v1 = evaluate_model(v2_model, v1, redteam=True)
@@ -65,6 +67,8 @@ def main() -> int:
     new_v2 = evaluate_model(v3_model, v2, redteam=True)
     old_independent = evaluate_model(v2_model, independent)
     new_independent = evaluate_model(v3_model, independent)
+    old_existing_independent = evaluate_model(v2_model, existing_independent)
+    new_existing_independent = evaluate_model(v3_model, existing_independent)
     unchanged = {head: sha256(args.v2_bundle / f"{head}.cpu.json") == sha256(args.v3_bundle / f"{head}.cpu.json") for head in ("danger", "task", "action")}
     parity_records = independent[:256]
     candidate = json.loads(v3_model.read_text(encoding="utf-8"))
@@ -79,6 +83,7 @@ def main() -> int:
     no_critical_class_regression = all(new_v1["recall"].get(label, 0) >= old_v1["recall"].get(label, 0) for label in critical_labels)
     gates = {
         "independent_improved": new_independent["accuracy"] > old_independent["accuracy"],
+        "existing_independent_improved": new_existing_independent["accuracy"] > old_existing_independent["accuracy"],
         "redteam_v1_improved": new_v1["accuracy"] > old_v1["accuracy"],
         "redteam_v2_coherent": new_v2["accuracy"] >= 0.80 and measurable,
         "anomaly_action_failure_measurable": measurable,
@@ -86,7 +91,7 @@ def main() -> int:
         "danger_task_action_byte_identical": all(unchanged.values()),
         "manifest_dimension": v3_manifest["input_dimension"] == v2_manifest["input_dimension"] == 86,
         "manifest_parity": parity,
-        "shadow_physical_action_false": bool(v3_report.get("redteam_v2_hidden")) and v3_manifest["physical_action_executed"] is False and v3_manifest["dry_run_required"] is True,
+        "physical_action_false": bool(v3_report.get("redteam_v2_hidden")) and v3_manifest["physical_action_executed"] is False and v3_manifest["dry_run_required"] is True,
     }
     passed = all(gates.values())
     report = {
@@ -95,7 +100,7 @@ def main() -> int:
         "runtime_bundle_retained": str(args.v2_bundle),
         "promoted": False,
         "gates": gates,
-        "metrics": {"v2_independent": old_independent, "v3_independent": new_independent, "v2_redteam_v1": old_v1, "v3_redteam_v1": new_v1, "v2_redteam_v2": old_v2, "v3_redteam_v2": new_v2},
+        "metrics": {"v2_independent": old_independent, "v3_independent": new_independent, "v2_existing_independent": old_existing_independent, "v3_existing_independent": new_existing_independent, "v2_redteam_v1": old_v1, "v3_redteam_v1": new_v1, "v2_redteam_v2": old_v2, "v3_redteam_v2": new_v2},
         "unchanged_heads": unchanged,
         "redteam_v1_sha256": sha256(v1_path),
         "training_forbidden": [str(v1_path), str(v2_path)],
