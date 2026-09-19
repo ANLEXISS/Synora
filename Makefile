@@ -8,9 +8,10 @@ SHELL := /usr/bin/env bash
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	dev-tools diagnostics install-dev-tools
 
-.PHONY: cognitive-export cognitive-parity cognitive-demo e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 perf-baseline-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
+.PHONY: cognitive-export cognitive-parity cognitive-demo build-dataset train validate test export parity package-model e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 perf-baseline-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
 
 COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
+COGNITIVE_V1_PIPELINE ?= tools/cognitive_v1_pipeline.py
 COGNITIVE_MODEL_DIR ?= build/cognitive-mlp-v1
 COGNITIVE_FIXTURES ?= testdata/cognitive/mlp_parity_100.jsonl
 PERF_CLIP ?= /home/rock/test3.mp4
@@ -138,6 +139,24 @@ cognitive-demo:
 	@test "$(SYNORA_COGNITIVE_DRY_RUN)" = "1" || (echo 'SYNORA_COGNITIVE_DRY_RUN=1 is required' >&2; exit 1)
 	SYNORA_COGNITIVE_DRY_RUN=1 SYNORA_COGNITIVE_MODEL_DIR=$(COGNITIVE_MODEL_DIR) $(GO) run ./cmd/synora-cognitive-demo --models $(COGNITIVE_MODEL_DIR) --trace build/cognitive-dry-run.jsonl
 
+build-dataset:
+	$(PYTHON) $(COGNITIVE_V1_PIPELINE) build-dataset
+
+train: build-dataset
+	$(PYTHON) $(COGNITIVE_V1_PIPELINE) train
+
+validate: build-dataset
+	$(PYTHON) $(COGNITIVE_V1_PIPELINE) validate
+
+export: train
+	$(PYTHON) $(COGNITIVE_V1_PIPELINE) export
+
+parity: test
+	$(PYTHON) $(COGNITIVE_V1_PIPELINE) parity
+
+package-model: parity
+	$(PYTHON) $(COGNITIVE_V1_PIPELINE) package-model
+
 check-go:
 	@if ! command -v "$(GO)" >/dev/null 2>&1 && [ ! -x "$(GO)" ]; then \
 		echo "FAIL: Go not found. Install Go or run make GO=/path/to/go <target>."; \
@@ -193,9 +212,10 @@ hash-password: check-go
 	@if [ -z "$(PASSWORD)" ]; then echo "FAIL: PASSWORD is required" >&2; exit 1; fi
 	@GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-auth-tool hash-password "$(PASSWORD)"
 
-test: check-go
+test: check-go validate export
 	GOCACHE=$(GOCACHE) "$(GO)" test ./...
 	$(PYTHON) -m compileall -q services/vision-worker
+	$(PYTHON) $(COGNITIVE_V1_PIPELINE) test
 
 e2e-v1: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$' -count=1 -v
