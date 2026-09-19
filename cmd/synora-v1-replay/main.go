@@ -50,17 +50,23 @@ type replayReport struct {
 	StorePersistent        bool               `json:"store_persistent"`
 	StoreRestarted         bool               `json:"store_restarted"`
 	StoreReplayIdentical   bool               `json:"store_replay_identical"`
+	EdgeEmulated           bool               `json:"edge_emulated"`
+	EdgeTrackingStatus     string             `json:"edge_tracking_status,omitempty"`
+	CentralTrackingCalls   int                `json:"central_visual_tracking_invocations"`
 }
 
 type visionReport struct {
-	VisionModelReal bool           `json:"vision_model_real"`
-	ModelLoaded     bool           `json:"model_loaded"`
-	ModelPath       string         `json:"model_path"`
-	Detections      int            `json:"detections"`
-	Segments        int            `json:"segments"`
-	Tracks          int            `json:"tracks"`
-	Observations    int            `json:"observations"`
-	Latencies       map[string]any `json:"latencies"`
+	VisionModelReal      bool           `json:"vision_model_real"`
+	ModelLoaded          bool           `json:"model_loaded"`
+	ModelPath            string         `json:"model_path"`
+	Detections           int            `json:"detections"`
+	Segments             int            `json:"segments"`
+	Tracks               int            `json:"tracks"`
+	Observations         int            `json:"observations"`
+	Latencies            map[string]any `json:"latencies"`
+	EdgeEmulated         bool           `json:"edge_emulated"`
+	EdgeTrackingStatus   string         `json:"edge_tracking_status"`
+	CentralTrackingCalls int            `json:"central_visual_tracking_invocations"`
 }
 
 func main() {
@@ -170,6 +176,9 @@ func main() {
 		report.VisionModelReal, report.ModelLoaded, report.ModelPath = vision.VisionModelReal, vision.ModelLoaded, vision.ModelPath
 		report.Detections, report.Segments, report.Tracks, report.VisionObservations = vision.Detections, vision.Segments, vision.Tracks, vision.Observations
 		report.VisionLatencies = vision.Latencies
+		report.EdgeEmulated = vision.EdgeEmulated
+		report.EdgeTrackingStatus = vision.EdgeTrackingStatus
+		report.CentralTrackingCalls = vision.CentralTrackingCalls
 	}
 	body, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
