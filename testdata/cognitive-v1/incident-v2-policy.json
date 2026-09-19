@@ -1,0 +1,13 @@
+{
+  "schema_version": "synora.cognitive-incident-v2-policy/v1",
+  "head": "incident",
+  "input_dimension": 86,
+  "feature_order": "cognitive-encoder/v1",
+  "evidence_revision": "categorical-one-hot-v2",
+  "splits": ["train", "validation", "independent-test"],
+  "split_keys": ["family_id", "template_id", "seed", "topology_key", "sequence_key"],
+  "enriched_dimensions": ["topology", "phase", "priority", "enrichment", "continuity", "vision_availability", "danger_context", "action_result"],
+  "forbidden_data": ["frame", "bbox", "crop", "embedding", "identity", "hardware_id", "media"],
+  "labels_source": "declarative scenario labels; never teacher or MLP output",
+  "other_heads": "byte-identical"
+}

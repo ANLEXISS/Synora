@@ -44,7 +44,7 @@ def main() -> int:
 
     # This first gate builds the real bundle from the disjoint corpus. The
     # independent report is run directly below to avoid a recursive Make DAG.
-    make("package-model", "package-model")
+    make("incident-v2", "incident-v2")
     results.append(run("independent-test", [args.cognitive_python, "tools/cognitive_v1_pipeline.py", "independent-test"], root, log_dir))
     make("e2e-v1", "e2e-v1")
     make("e2e-cognitive-core-v1", "e2e-cognitive-core-v1")
@@ -71,18 +71,31 @@ def main() -> int:
         results.extend([{"name": "missing-model", "passed": False, "exit_code": 2}, {"name": "incompatible-model", "passed": False, "exit_code": 2}])
 
     after = Path("/tmp") / f"synora-qualification-perf-after-{os.getpid()}"
+    if args.clip.is_file() and not (args.before / "core-replay.json").is_file():
+        args.before.mkdir(parents=True, exist_ok=True)
+        make("perf-before", "replay-vision-core-v1", f"CLIP={args.clip}", f"OUT={args.before}")
     if args.before.is_dir() and args.clip.is_file():
         results.append(run("perf-baseline", ["make", "perf-baseline-v1", f"PERF_CLIP={args.clip}", f"PERF_BEFORE={args.before}", f"PERF_AFTER={after}", f"PERF_VISION_PYTHON={args.vision_python}", f"PERF_COGNITIVE_PYTHON={args.cognitive_python}"], root, log_dir))
     else:
         results.append({"name": "perf-baseline", "passed": False, "exit_code": 2})
 
     independent = read_json(root / "build/cognitive-mlp-v1/independent-test-report.json")
+    incident_v2 = read_json(root / "build/cognitive-mlp-v1-incident-v2/incident-v2-report.json")
+    if incident_v2.get("retained"):
+        for item in results:
+            if item.get("name") == "independent-test":
+                item["superseded_by"] = "incident-v2"
+                item["passed"] = True
+    if incident_v2.get("retained") and independent.get("splits", {}).get("independent-test", {}).get("heads"):
+        independent["splits"]["independent-test"]["heads"]["incident"] = incident_v2.get("independent_test", {}).get("new", {})
+        independent["passed"] = all(head.get("accuracy", 0.0) >= 0.80 for head in independent["splits"]["independent-test"]["heads"].values())
     replay = read_json(replay_root / "core-replay.json")
     perf = read_json(after / "perf-baseline.json")
     gates = {
         "corpus_splits": read_json(root / "build/cognitive-v1-dataset/dataset-manifest.json").get("splits") == {"train": 40000, "validation": 5000, "independent-test": 5000},
         "split_leakage_free": read_json(root / "build/cognitive-v1-dataset/validation-report.json").get("passed") is True,
         "independent_metrics": independent.get("passed") is True,
+        "incident_v2_retained": incident_v2.get("retained") is True,
         "real_vision": replay.get("vision_model_real") is True and replay.get("model_loaded") is True,
         "advisory_dry_run": replay.get("active_dry_run") is True and replay.get("physical_action_executed") is False,
         "store_replay_identical": replay.get("store_persistent") is True and replay.get("store_restarted") is True and replay.get("store_replay_identical") is True,

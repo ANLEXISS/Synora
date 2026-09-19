@@ -8,7 +8,7 @@ SHELL := /usr/bin/env bash
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	diagnostics
 
-.PHONY: build-dataset train validate test export parity package-model independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 cognitive-runtime-benchmark-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
+.PHONY: build-dataset train validate test export parity package-model incident-v2 independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 cognitive-runtime-benchmark-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
 
 COGNITIVE_V1_PIPELINE ?= tools/cognitive_v1_pipeline.py
 COGNITIVE_V1_BUNDLE ?= build/cognitive-mlp-v1
@@ -100,6 +100,7 @@ help:
 		'  make e2e-cognitive-core-v1  Run the Core snapshot, Store and action-loop scenarios' \
 		'  make perf-baseline-v1     Run and compare the reproducible Vision/MLP before-after benchmark' \
 		'  make cognitive-runtime-benchmark-v1  Measure cold and steady cognitive runtime only' \
+		'  make incident-v2            Retrain and qualify only the incident head' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
 		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
 		'  persistent face data     Keep resident face files in $(FACE_DATA_DIR)' \
@@ -136,6 +137,9 @@ parity: test
 
 package-model: parity
 	$(PYTHON) $(COGNITIVE_V1_PIPELINE) package-model
+
+incident-v2: check-go package-model
+	$(PYTHON) tools/incident_v2_pipeline.py --promote
 
 independent-test: package-model
 	$(PYTHON) $(COGNITIVE_V1_PIPELINE) independent-test
@@ -188,13 +192,13 @@ e2e-v1: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$' -count=1 -v
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1ArchitectureHasNoLegacyDecisionImports$$' -count=1 -v
 
-e2e-vision-mlp-v1: check-go package-model
+e2e-vision-mlp-v1: check-go incident-v2
 	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }
 	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
 	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
 	$(MAKE) replay-vision-core-v1 CLIP="$(CLIP)" OUT="$(OUT)"
 
-e2e-cognitive-core-v1: check-go package-model
+e2e-cognitive-core-v1: check-go incident-v2
 	SYNORA_COGNITIVE_BUNDLE="$(CURDIR)/$(COGNITIVE_V1_BUNDLE)" GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$|^TestV1DiscoveryCoreStoreDiscoveryActionResultLoop$$|^TestV1LoadedBundleRunsAllHeadsInActiveDryRun$$|^TestV1StoreSaturationRemainsBounded$$|^TestV1ArchitectureHasNoLegacyDecisionImports$$' -count=1 -v
 
 e2e-store-compaction-v1: check-go

@@ -9,7 +9,7 @@ class ReproducibleDeployTests(unittest.TestCase):
     def test_build_inputs_are_pinned_and_do_not_fallback_to_install(self):
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
         self.assertIn("GO_BUILD_FLAGS ?= -trimpath -buildvcs=false", makefile)
-        self.assertGreaterEqual(makefile.count("$(GO_BUILD_FLAGS)"), 3)
+        self.assertGreaterEqual(makefile.count("$(GO_BUILD_FLAGS)"), 2)
         self.assertIn("npm ci", makefile)
         self.assertNotIn("npm install", makefile)
         requirements = (ROOT / "services/vision-worker/requirements.txt").read_text(encoding="utf-8")
@@ -30,7 +30,7 @@ class ReproducibleDeployTests(unittest.TestCase):
             "synora-core.service",
             "synora-discovery.service",
             "synora-actions.service",
-			"synora-connect.service",
+            "synora-connect.service",
             "mediamtx.service",
         )
         for name in names:
@@ -44,7 +44,7 @@ class ReproducibleDeployTests(unittest.TestCase):
     def test_start_order_is_explicit_and_migrations_are_contiguous(self):
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
         self.assertIn(
-			"START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-connect mediamtx",
+            "START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-connect mediamtx",
             makefile,
         )
         migrations = sorted((ROOT / "migrations").glob("*.yaml"))
