@@ -1,8 +1,8 @@
 package api
 
 // Server carries the minimal web configuration used by the static web handler.
-// The HTTP API server in cmd/synora-api has its own router; this package is
-// kept buildable for the web-serving path used by embedded/front-end consumers.
+// Discovery owns the HTTP API router; this package retains only shared web
+// and authentication primitives used by local tools.
 type Server struct {
 	WebEnabled bool
 	WebRoot    string

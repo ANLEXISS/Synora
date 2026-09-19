@@ -51,6 +51,10 @@ type Manager struct {
 	faceSyncMu    sync.Mutex
 	faceSyncRun   bool
 	faceSyncAgain bool
+
+	snapshotCache *SnapshotCache
+	apiServer     *externalAPIServer
+	securityCfg   *security.Config
 }
 
 func NewManager(
@@ -129,7 +133,9 @@ func NewManager(
 			busClient,
 		),
 
-		auth: auth,
+		auth:          auth,
+		securityCfg:   cfg,
+		snapshotCache: NewSnapshotCache(),
 	}
 	faceRoot := runtime.Paths.FaceDataRoot
 	if strings.TrimSpace(os.Getenv("SYNORA_FACE_DATA_ROOT")) == "" && strings.TrimSpace(cfg.Vision.FaceDataRoot) != "" {
@@ -219,6 +225,12 @@ func (m *Manager) StartContext(ctx context.Context) {
 	}
 	healthState.setSuccess(0)
 	go m.monitorVisionHealth(ctx)
+	boundary := &Boundary{DryRun: true, Store: m.snapshotCache}
+	api := NewExternalAPI(m.securityCfg, boundary, busEventPublisher{client: m.bus}, m.snapshotCache, func() map[string]any {
+		status := healthState.snapshot()
+		return map[string]any{"service": "discovery", "status": status.VisionWorkerStatus, "vision_worker": status.VisionWorkerStatus, "vision_ingress": status.VisionIngressStatus, "network": status.NetworkStatus}
+	})
+	m.apiServer = startExternalAPIServer(runtime, m.securityCfg, api)
 
 	clipDir := runtime.Paths.ClipRoot
 	m.ingressServer = ingress.StartServer(ingress.Config{
@@ -274,6 +286,12 @@ func (m *Manager) listenFaceMutations(ctx context.Context) {
 			switch msg.Type {
 			case "action.request":
 				m.handleV1ActionRequest(msg)
+			case "core.snapshot":
+				if m.snapshotCache != nil {
+					if err := m.snapshotCache.Apply(msg); err != nil {
+						log.Printf("discovery snapshot update rejected: %v", err)
+					}
+				}
 			case "resident.face_photo.updated", "resident.face_photo.removal_pending", "resident.updated", "residents.face_dataset.building":
 				m.requestFaceSync()
 			}
@@ -331,6 +349,11 @@ func (m *Manager) Close(ctx context.Context) error {
 	}
 	if m.ingressServer != nil {
 		if err := m.ingressServer.Shutdown(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if m.apiServer != nil {
+		if err := m.apiServer.shutdown(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}

@@ -97,7 +97,7 @@ func plan(opts options) error {
 		{"network.yaml", 0640, "safe network template; PSK is external"},
 		{"devices.yaml", 0640, "safe device registry template; pairing secrets are local"},
 		{"secrets/api_token", 0600, "generated locally; value never printed"},
-		{"secrets/session_secret", 0640, "generated locally; readable by synora-api"},
+		{"secrets/session_secret", 0640, "generated locally; readable by synora-discovery"},
 		{"secrets/synoranet_psk", 0600, "generated locally; value never printed"},
 		{"secrets/admin_initial_password", 0600, "generated locally; value never printed"},
 	} {

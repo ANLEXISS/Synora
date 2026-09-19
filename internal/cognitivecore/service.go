@@ -44,6 +44,18 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 	if err := s.Bus.Send(contract.Message{ID: event.ID + ":decision", Type: "core.decision", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "discovery", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: time.Now().UTC(), Payload: decisionPayload}); err != nil {
 		return err
 	}
+	snapshotPayload, err := json.Marshal(struct {
+		SchemaVersion          string            `json:"schema_version"`
+		Revision               uint64            `json:"revision"`
+		Snapshot               CognitiveSnapshot `json:"snapshot"`
+		PhysicalActionExecuted bool              `json:"physical_action_executed"`
+	}{"core-snapshot/v1", result.Result.Revision, result.Commit.Snapshot, false})
+	if err != nil {
+		return err
+	}
+	if err := s.Bus.Send(contract.Message{ID: event.ID + ":snapshot", Type: "core.snapshot", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "discovery", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: time.Now().UTC(), Payload: snapshotPayload}); err != nil {
+		return err
+	}
 	if result.Result.Action != nil {
 		body, err := json.Marshal(struct {
 			SchemaVersion string `json:"schema_version"`

@@ -34,7 +34,6 @@ var RuntimeServices = []string{
 	"synora-bus",
 	"synora-core",
 	"synora-actions",
-	"synora-api",
 	"synora-discovery",
 	"mediamtx",
 }

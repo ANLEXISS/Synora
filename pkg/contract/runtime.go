@@ -157,7 +157,7 @@ func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
 	if health.Services == nil {
 		health.Services = map[string]RuntimeServiceHealth{}
 	}
-	for _, name := range []string{"synora-api", "synora-bus", "synora-core", "synora-actions", "synora-discovery", "mediamtx"} {
+	for _, name := range []string{"synora-bus", "synora-core", "synora-actions", "synora-discovery", "mediamtx"} {
 		if _, ok := health.Services[name]; !ok {
 			health.Services[name] = unavailableRuntimeService(name, now, missingServiceMessage(name))
 		}
@@ -181,7 +181,7 @@ func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
 		health.Components = map[string]RuntimeServiceHealth{}
 	}
 	for _, mapping := range []struct{ alias, service string }{
-		{alias: "api", service: "synora-api"}, {alias: "bus", service: "synora-bus"},
+		{alias: "api", service: "synora-discovery"}, {alias: "bus", service: "synora-bus"},
 		{alias: "core", service: "synora-core"}, {alias: "actions", service: "synora-actions"},
 		{alias: "discovery", service: "synora-discovery"},
 	} {

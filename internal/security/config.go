@@ -184,7 +184,7 @@ func Save(path string, cfg *Config) error {
 
 // RotateAPIToken replaces both the bootstrap token and its verification hash
 // using an atomic write. The caller is responsible for backing up the config
-// and restarting synora-api so persisted web sessions are invalidated.
+// and restarting synora-discovery so persisted web sessions are invalidated.
 func RotateAPIToken(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		path = DefaultPath

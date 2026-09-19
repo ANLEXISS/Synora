@@ -66,7 +66,6 @@ endif
 GO_BINS := \
 	synora-bus:./cmd/synora-bus \
 	synora-core:./cmd/synora-core \
-	synora-api:./cmd/synora-api \
 	synora-discovery:./cmd/synora-discovery \
 	synora-network-config:./cmd/synora-network-config \
 	synora-runtime-manager:./cmd/synora-runtime-manager \
@@ -80,12 +79,11 @@ RUNTIME_SERVICES := \
 	synora-bus \
 	synora-runtime-manager \
 	synora-core \
-	synora-api \
 	synora-discovery \
 	synora-connect
 
-START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-api synora-connect mediamtx
-STOP_ORDER := mediamtx synora-connect synora-api synora-discovery synora-core synora-runtime-manager synora-bus
+START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-connect mediamtx
+STOP_ORDER := mediamtx synora-connect synora-discovery synora-core synora-runtime-manager synora-bus
 OTA_UNITS := synora-ota-mark-good
 START_ORDER += $(OTA_UNITS)
 SYSTEMD_UNITS := $(addsuffix .service,$(RUNTIME_SERVICES) $(OTA_UNITS)) mediamtx.service
@@ -104,7 +102,7 @@ help:
 		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
 		'  persistent face data     Keep resident face files in $(FACE_DATA_DIR)' \
 		'  make web-status            Show static webapp files and API reachability' \
-		'  make rotate-api-token      Rotate security.yaml token and restart synora-api' \
+		'  make rotate-api-token      Rotate security.yaml token and restart synora-discovery' \
 		'  make generate-local-cert  Generate a local self-signed TLS certificate' \
 		'  make generate-discovery-cert  Generate the Discovery vision ingress certificate' \
 		'  make hash-password PASSWORD=... Generate a bcrypt hash for auth.yaml' \
@@ -426,7 +424,7 @@ install-web: build-web
 
 restart-web:
 	$(MAKE) install-web
-	$(SUDO) systemctl restart synora-api
+	$(SUDO) systemctl restart synora-discovery
 
 web-status:
 	@echo "WEBAPP_DIR=$(WEBAPP_DIR)"
@@ -442,10 +440,10 @@ web-status:
 	else \
 		echo "  assets directory missing"; \
 	fi
-	@if systemctl is-active --quiet synora-api 2>/dev/null; then \
+	@if systemctl is-active --quiet synora-discovery 2>/dev/null; then \
 		curl -I http://127.0.0.1:8080/; \
 	else \
-		 echo "synora-api is not active; skipping HTTP check"; \
+		 echo "synora-discovery is not active; skipping HTTP check"; \
 	fi
 
 rotate-api-token: check-go
@@ -457,7 +455,7 @@ rotate-api-token: check-go
 	echo "Backing up $(SYNORA_SECURITY) to $$backup"; \
 	$(SUDO) cp -a "$(SYNORA_SECURITY)" "$$backup"
 	$(SUDO) "$(GO)" run ./cmd/synora-token-rotate -path "$(SYNORA_SECURITY)"
-	$(SUDO) systemctl restart synora-api
+	$(SUDO) systemctl restart synora-discovery
 
 generate-local-cert:
 	@if ! command -v openssl >/dev/null 2>&1; then echo "FAIL: openssl is required" >&2; exit 1; fi
@@ -556,7 +554,7 @@ doctor: check-go
 	failf() { echo "FAIL $$*"; fail=$$((fail+1)); }; \
 	command -v $(PYTHON) >/dev/null 2>&1 && ok "Python: $$($(PYTHON) --version 2>&1)" || failf "Python missing"; \
 	command -v jq >/dev/null 2>&1 && ok "jq: $$(jq --version)" || warnf "jq missing"; \
-	for bin in synora-bus synora-core synora-api synora-discovery synora-runtime-manager; do \
+	for bin in synora-bus synora-core synora-discovery synora-runtime-manager; do \
 		[ -x "$(BINDIR)/$$bin" ] && ok "binary $(BINDIR)/$$bin" || failf "binary missing $(BINDIR)/$$bin"; \
 	done; \
 		for service in $(START_ORDER); do \
@@ -633,7 +631,6 @@ delete:
 	$(SUDO) rm -f \
 		$(SYSTEMD_DIR)/synora-bus.service \
 		$(SYSTEMD_DIR)/synora-core.service \
-		$(SYSTEMD_DIR)/synora-api.service \
 		$(SYSTEMD_DIR)/synora-discovery.service \
 		$(SYSTEMD_DIR)/synora-runtime-manager.service \
 		$(SYSTEMD_DIR)/mediamtx.service \

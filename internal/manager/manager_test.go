@@ -627,7 +627,7 @@ func TestHandleRestartDecodesPayload(t *testing.T) {
 		context.Background(),
 		contract.Message{
 			Type:    contract.RPCRuntimeRestartService,
-			Payload: []byte(`{"service":"synora-api"}`),
+			Payload: []byte(`{"service":"synora-discovery"}`),
 		},
 	)
 	if err != nil {
@@ -639,7 +639,7 @@ func TestHandleRestartDecodesPayload(t *testing.T) {
 		t.Fatalf("result type=%T", result)
 	}
 
-	if restart.Service != "synora-api" {
+	if restart.Service != "synora-discovery" {
 		t.Fatalf("restart=%#v", restart)
 	}
 }

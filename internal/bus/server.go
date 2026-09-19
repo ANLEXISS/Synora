@@ -280,8 +280,6 @@ func expectedExecutables(service string) []string {
 	switch service {
 	case "actions":
 		return []string{"synora-actions"}
-	case "api":
-		return []string{"synora-api"}
 	case "connectivity":
 		return []string{"synora-connect"}
 	case "core", "core-2":

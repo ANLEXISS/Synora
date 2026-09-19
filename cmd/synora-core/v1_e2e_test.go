@@ -114,11 +114,11 @@ func TestV1DiscoveryCoreStoreDiscoveryActionResultLoop(t *testing.T) {
 	if err := service.Handle(context.Background(), contract.Message{ID: "loop-1", Type: "sensor.anomaly", Kind: contract.KindEvent, Source: "discovery", Timestamp: time.Unix(200, 0).UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	if len(bus.sent) != 2 || bus.sent[1].Type != "action.request" {
+	if len(bus.sent) != 3 || bus.sent[2].Type != "action.request" {
 		t.Fatalf("Core did not emit abstract action request: %#v", bus.sent)
 	}
 	var request discovery.ActionRequest
-	if err := json.Unmarshal(bus.sent[1].Payload, &request); err != nil {
+	if err := json.Unmarshal(bus.sent[2].Payload, &request); err != nil {
 		t.Fatal(err)
 	}
 	resultEvent, err := (&discovery.Boundary{DryRun: true, Capabilities: map[string]bool{"notify": true}}).ExecuteAction(request)

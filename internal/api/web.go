@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// WebHealth describes the state of the static web build served by synora-api.
+// WebHealth describes the state of the static web build served by Discovery.
 type WebHealth struct {
 	Enabled       bool   `json:"enabled"`
 	Root          string `json:"-"`
@@ -23,7 +23,7 @@ type WebHealth struct {
 }
 
 // Health inspects the static web root without making its availability a
-// startup requirement for synora-api.
+// startup requirement for Discovery.
 func (s *Server) Health() WebHealth {
 	root := strings.TrimSpace(s.WebRoot)
 	indexPath := filepath.Join(root, "index.html")
