@@ -17,6 +17,13 @@ Discovery ne contient aucun State Encoder, MLP, score de danger, règle
 décisionnelle ou écriture métier dans le Store. En V1, son adaptateur matériel
 reste en `dry_run` ; `physical_action_executed` est toujours `false`.
 
+La surface Web V1 Discovery fournit les lectures `state`, `history` et
+`health`, la souscription SSE `subscribe`, ainsi que `commands` et `messages`.
+Une commande ou un message entrant est toujours validé par `Boundary`, devient
+un événement versionné publié vers Core, et ne possède aucun chemin d’écriture
+direct vers Store ou périphérique. Les réponses d'historique sont des copies
+en lecture seule du Store.
+
 ## Protection de frontière
 
 Les payloads sont bornés et refusent les clés représentant un média brut,
