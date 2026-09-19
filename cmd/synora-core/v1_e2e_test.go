@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -132,6 +133,44 @@ func TestV1DiscoveryCoreStoreDiscoveryActionResultLoop(t *testing.T) {
 	}
 	if strings.Contains(string(mustMarshal(resultEvent)), `"physical_action_executed":true`) {
 		t.Fatal("physical action executed")
+	}
+}
+
+func TestV1LoadedBundleRunsAllHeadsInActiveDryRun(t *testing.T) {
+	bundle := os.Getenv("SYNORA_COGNITIVE_BUNDLE")
+	if bundle == "" {
+		t.Skip("set SYNORA_COGNITIVE_BUNDLE to execute the promoted bundle E2E")
+	}
+	mlp, err := cognitivecore.LoadCPUBundle(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := cognitivecore.NewUniversalStore()
+	core := &cognitivecore.Core{Store: store, MLP: mlp, Gate: cognitivecore.SafetyGate{DryRun: true}, Now: func() time.Time { return time.Unix(300, 0).UTC() }}
+	result, err := core.Process(context.Background(), contract.Event{ID: "loaded-bundle", Type: contract.EventVisionSegmentReadyV1, Source: "discovery", Timestamp: time.Unix(300, 0).UTC(), Payload: map[string]any{"topology": contract.VisionTopologyProtectedInterior, "human_present": true, "track_count": 1, "track_confirmed": true, "priority": contract.VisionPriorityP1, "real_detection": true, "observation_count": 1, "confidence": .9}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Commit.Decision.Status != "available" || result.Commit.Decision.Mode != "active_dry_run" || result.Commit.Decision.Action.PhysicalActionExecuted {
+		t.Fatalf("loaded bundle did not stay in active dry-run: %#v", result.Commit.Decision)
+	}
+	for _, head := range cognitivecore.HeadOrder {
+		if _, ok := result.Commit.Decision.HeadLatencyMS[head]; !ok {
+			t.Fatalf("missing latency for head %s: %#v", head, result.Commit.Decision.HeadLatencyMS)
+		}
+	}
+}
+
+func TestV1StoreSaturationRemainsBounded(t *testing.T) {
+	store := cognitivecore.NewUniversalStore()
+	core := &cognitivecore.Core{Store: store, MLP: testMLP{output: cognitivecore.MLPOutput{Action: cognitivecore.ActionIntent{Action: "notify"}}}, Gate: cognitivecore.SafetyGate{DryRun: true}}
+	for index := 0; index < cognitivecore.MaxJournalEntries+32; index++ {
+		if _, err := core.Process(context.Background(), contract.Event{ID: "saturation-" + strconv.Itoa(index), Type: "sensor.motion", Source: "discovery", Timestamp: time.Unix(int64(index+1), 0).UTC(), Payload: map[string]any{"movement": true}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.ValidateBounds(); err != nil {
+		t.Fatal(err)
 	}
 }
 

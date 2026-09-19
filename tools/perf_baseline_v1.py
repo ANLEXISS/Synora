@@ -49,7 +49,7 @@ def source_frame_count(path: Path) -> int:
 def timestamps(observations: list[dict[str, Any]]) -> list[float]:
     values = []
     for item in observations:
-        value = item.get("observed_at")
+        value = item.get("observed_at") or (item.get("payload") or {}).get("observed_at")
         if isinstance(value, str):
             try:
                 from datetime import datetime
@@ -64,6 +64,9 @@ def collect_run(root: Path, clip: Path) -> dict[str, Any]:
     manifest = read_json(segment_root / "manifest.json")
     observations = read_jsonl(segment_root / "observations.jsonl")
     replay = read_json(root / "core-replay.json")
+    vision = replay.get("vision_latencies") or {}
+    vision_report_path = segment_root / "vision-real.json"
+    vision_report = read_json(vision_report_path) if vision_report_path.exists() else {}
     process = read_json(root / "process_metrics.json") if (root / "process_metrics.json").exists() else {}
     frame_count = source_frame_count(clip)
     stamps = timestamps(observations)
@@ -71,15 +74,15 @@ def collect_run(root: Path, clip: Path) -> dict[str, Any]:
     confirmed_latency = 0.0
     if stamps:
         start = stamps[0]
-        candidates = [item for item in observations if item.get("priority_state") == "candidate"]
-        confirmed = [item for item in observations if item.get("priority_state") == "confirmed"]
+        candidates = [item for item in observations if (item.get("payload") or item).get("priority_state") == "candidate"]
+        confirmed = [item for item in observations if (item.get("payload") or item).get("priority_state") == "confirmed"]
         if candidates:
             candidate_latency = max(0.0, stamps[observations.index(candidates[0])] - start) * 1000.0
         if confirmed:
             confirmed_latency = max(0.0, stamps[observations.index(confirmed[0])] - start) * 1000.0
     signature = {
         "observations": [
-            (item.get("priority_hint"), item.get("priority_state"), item.get("topology_class"), item.get("trigger"), (item.get("backend") or {}).get("status"))
+            ((item.get("payload") or item).get("priority_hint"), (item.get("payload") or item).get("priority_state"), (item.get("payload") or item).get("topology_class"), (item.get("payload") or item).get("trigger"), ((item.get("payload") or item).get("backend") or {}).get("status"))
             for item in observations
         ],
         "replay": {
@@ -93,24 +96,24 @@ def collect_run(root: Path, clip: Path) -> dict[str, Any]:
     }
     return {
         "root": str(root),
-        "first_observation_latency_ms": 0.0,
+        "first_observation_latency_ms": round(float(vision.get("first_observation_wall_ms", 0.0)), 3),
         "candidate_latency_ms": round(candidate_latency, 3),
         "confirmed_latency_ms": round(confirmed_latency, 3),
-        "vision_wall_ms": round(float(process.get("vision_wall_ms", 0.0)), 3),
-        "detector_compute_cumulative_ms": 0.0,
+        "vision_wall_ms": round(float(vision.get("vision_wall_latency_ms", process.get("vision_wall_ms", 0.0))), 3),
+        "detector_compute_cumulative_ms": round(float(vision.get("detector_compute_sum_ms", 0.0)), 3),
         "frames_read": frame_count,
-        "frames_sampled": len(observations),
-        "frames_ignored": max(0, frame_count - len(observations)),
-        "max_frames_in_flight": 3,
+        "frames_sampled": int(vision.get("frames_sampled", len(observations))),
+        "frames_ignored": int(vision.get("frames_skipped_by_policy", max(0, frame_count - len(observations)))),
+        "max_frames_in_flight": int(vision.get("peak_frames_in_flight", 3)),
         "rss_mb": round(float(process.get("max_rss_kb_children", 0)) / 1024.0, 3),
-        "mlp_head_latency_ms": {head: 0.0 for head in HEADS},
+        "mlp_head_latency_ms": {head: round(float((replay.get("mlp_head_latency_ms") or {}).get(head, 0.0)), 3) for head in HEADS},
         "observations": len(observations),
         "segments": len(manifest.get("segments", [])),
-        "tracks": len({track.get("track_id") for item in observations for track in item.get("tracks", []) if track.get("track_id")}),
-        "summaries": read_json(segment_root / "summary.contract.json").get("summary_count", 0),
+        "tracks": len({track.get("track_id") for item in observations for track in (item.get("tracks") or (item.get("payload") or {}).get("tracks", [])) if track.get("track_id")}),
+        "summaries": read_json(segment_root / "summary.contract.json").get("summary_count", 0) if (segment_root / "summary.contract.json").exists() else int(vision_report.get("summaries", 0)),
 		"active_dry_run": bool(replay.get("active_dry_run", False)),
         "physical_action_executed": bool(replay.get("physical_action_executed", False)),
-        "backend_status": "unavailable" if replay.get("active_dry_run", False) else "active",
+        "backend_status": replay.get("model_status", "unavailable"),
         "functional_signature": signature,
         "process_wall_ms": float(process.get("wall_ms", 0.0)),
         "process_exit_code": process.get("exit_code", 0),
@@ -150,7 +153,7 @@ def main() -> int:
     before, after = collect_run(args.before, args.clip), collect_run(Path(args.after), args.clip)
     numeric = ("first_observation_latency_ms", "candidate_latency_ms", "confirmed_latency_ms", "vision_wall_ms", "detector_compute_cumulative_ms", "frames_read", "frames_sampled", "frames_ignored", "max_frames_in_flight", "rss_mb", "observations", "segments", "tracks", "summaries", "process_wall_ms")
     delta = {key: round(float(after[key]) - float(before[key]), 3) for key in numeric}
-    for head in HEADS: delta[f"mlp_{head}_latency_ms"] = 0.0
+    for head in HEADS: delta[f"mlp_{head}_latency_ms"] = round(after["mlp_head_latency_ms"][head] - before["mlp_head_latency_ms"][head], 3)
     functional_equal = before["functional_signature"] == after["functional_signature"]
     report = {
         "schema": "synora.perf-baseline-v1",

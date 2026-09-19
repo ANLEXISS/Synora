@@ -47,6 +47,9 @@ type replayReport struct {
 	DecisionStatuses       map[string]int     `json:"decision_statuses"`
 	Actions                map[string]int     `json:"actions"`
 	MLPHeadLatencyMS       map[string]float64 `json:"mlp_head_latency_ms"`
+	StorePersistent        bool               `json:"store_persistent"`
+	StoreRestarted         bool               `json:"store_restarted"`
+	StoreReplayIdentical   bool               `json:"store_replay_identical"`
 }
 
 type visionReport struct {
@@ -65,6 +68,7 @@ func main() {
 	outPath := flag.String("out", "", "replay report JSON")
 	visionReportPath := flag.String("vision-report", "", "real Vision report JSON")
 	bundlePath := flag.String("bundle", os.Getenv("SYNORA_COGNITIVE_BUNDLE"), "V1 MLP bundle directory")
+	storePath := flag.String("store-dir", os.Getenv("SYNORA_STORE_DIR"), "durable Store directory")
 	flag.Parse()
 	if strings.TrimSpace(*observationsPath) == "" || strings.TrimSpace(*outPath) == "" {
 		fatal("--observations and --out are required")
@@ -74,9 +78,17 @@ func main() {
 		fatal(err.Error())
 	}
 	defer file.Close()
-	store := cognitivecore.NewUniversalStore()
+	var store *cognitivecore.UniversalStore
+	if strings.TrimSpace(*storePath) != "" {
+		store, err = cognitivecore.OpenUniversalStore(*storePath)
+	} else {
+		store = cognitivecore.NewUniversalStore()
+	}
 	var mlp cognitivecore.MLPBackend = cognitivecore.UnavailableMLP{Reason: "no promoted full-snapshot V1 bundle"}
-	report := replayReport{SchemaVersion: "synora.v1-replay/v1", Source: *observationsPath, ActiveDryRun: true, PhysicalActionExecuted: false, Observations: []string{}, VisionLatencies: map[string]any{}, ModelStatus: "unavailable", DecisionStatuses: map[string]int{}, Actions: map[string]int{}, MLPHeadLatencyMS: map[string]float64{}}
+	report := replayReport{SchemaVersion: "synora.v1-replay/v1", Source: *observationsPath, ActiveDryRun: true, PhysicalActionExecuted: false, Observations: []string{}, VisionLatencies: map[string]any{}, ModelStatus: "unavailable", DecisionStatuses: map[string]int{}, Actions: map[string]int{}, MLPHeadLatencyMS: map[string]float64{}, StorePersistent: strings.TrimSpace(*storePath) != ""}
+	if err != nil {
+		fatal(fmt.Sprintf("open durable Store: %v", err))
+	}
 	if strings.TrimSpace(*bundlePath) != "" {
 		loaded, loadErr := cognitivecore.LoadCPUBundle(*bundlePath)
 		report.ModelBundle = *bundlePath
@@ -91,6 +103,7 @@ func main() {
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	sequence := 0
+	processedEvents := make([]contract.Event, 0)
 	for scanner.Scan() {
 		var observation replayObservation
 		if err := json.Unmarshal(scanner.Bytes(), &observation); err != nil {
@@ -114,6 +127,7 @@ func main() {
 		for head, latency := range result.Commit.Decision.HeadLatencyMS {
 			report.MLPHeadLatencyMS[head] += latency
 		}
+		processedEvents = append(processedEvents, event)
 		report.Events++
 		report.Frames++
 		if result.Result.Duplicate {
@@ -125,6 +139,23 @@ func main() {
 	}
 	if err := scanner.Err(); err != nil {
 		fatal(err.Error())
+	}
+	if report.StorePersistent {
+		restarted, restartErr := cognitivecore.OpenUniversalStore(*storePath)
+		if restartErr != nil {
+			fatal(fmt.Sprintf("restart durable Store: %v", restartErr))
+		}
+		report.StoreRestarted = true
+		replayCore := &cognitivecore.Core{Store: restarted, MLP: mlp, Gate: cognitivecore.SafetyGate{DryRun: true}, Now: func() time.Time { return time.Now().UTC() }}
+		replayIdentical := restarted.Revision() == store.Revision() && len(restarted.Journal()) == report.Commits
+		for _, event := range processedEvents {
+			result, replayErr := replayCore.Process(context.Background(), event)
+			if replayErr != nil || !result.Result.Duplicate {
+				replayIdentical = false
+				break
+			}
+		}
+		report.StoreReplayIdentical = replayIdentical
 	}
 	report.StoreRevision = store.Revision()
 	if *visionReportPath != "" {

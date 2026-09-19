@@ -121,7 +121,8 @@ def main() -> int:
             "segments": len(segments),
             "tracks": len({track.get("track_id") for event in observations for track in event.get("payload", {}).get("tracks", [])}),
             "observations": len(observations),
-            "summaries": len(summaries),
+            "summaries": 1 if summaries else 0,
+            "track_summaries": len(summaries),
             "backend": diagnostic,
             "latencies": metrics,
             "wall_ms": round((time.perf_counter() - started) * 1000.0, 3),
@@ -131,6 +132,7 @@ def main() -> int:
         replay = subprocess.run([
             go, "run", "./cmd/synora-v1-replay", "--observations", str(output / "observations.jsonl"),
             "--out", str(output / "core-replay.json"), "--vision-report", str(output / "vision-real.json"),
+            "--store-dir", str(output / "store"),
         ], cwd=Path(__file__).resolve().parents[2], check=False)
         if replay.returncode != 0:
             return replay.returncode

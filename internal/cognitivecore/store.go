@@ -18,6 +18,7 @@ const (
 	MaxJournalEntries  = 512
 	MaxDecisionEntries = 512
 	MaxActionOutbox    = 128
+	MaxProcessedIDs    = 1024
 )
 
 type TrainingTrace struct {
@@ -80,16 +81,17 @@ type PersistenceHooks struct {
 }
 
 type UniversalStore struct {
-	mu           sync.RWMutex
-	revision     uint64
-	journal      []Commit
-	decisions    []Decision
-	actionOutbox []ActionRequest
-	processed    map[string]struct{}
-	snapshot     CognitiveSnapshot
-	claimed      map[string]struct{}
-	dir          string
-	hooks        PersistenceHooks
+	mu             sync.RWMutex
+	revision       uint64
+	journal        []Commit
+	decisions      []Decision
+	actionOutbox   []ActionRequest
+	processed      map[string]struct{}
+	processedOrder []string
+	snapshot       CognitiveSnapshot
+	claimed        map[string]struct{}
+	dir            string
+	hooks          PersistenceHooks
 }
 
 func NewUniversalStore() *UniversalStore {
@@ -124,6 +126,7 @@ func OpenUniversalStore(dir string) (*UniversalStore, error) {
 		s.revision, s.snapshot, s.journal, s.decisions, s.actionOutbox = disk.Revision, disk.Snapshot.Normalized(), disk.Journal, disk.Decisions, disk.ActionOutbox
 		for _, id := range disk.Processed {
 			s.processed[id] = struct{}{}
+			s.processedOrder = append(s.processedOrder, id)
 		}
 		for _, id := range disk.Claimed {
 			s.claimed[id] = struct{}{}
@@ -212,6 +215,12 @@ func (s *UniversalStore) Commit(value Commit) (CommitResult, error) {
 
 func (s *UniversalStore) applyCommitLocked(value Commit) {
 	s.processed[value.Event.ID] = struct{}{}
+	s.processedOrder = append(s.processedOrder, value.Event.ID)
+	if len(s.processedOrder) > MaxProcessedIDs {
+		oldest := s.processedOrder[0]
+		s.processedOrder = s.processedOrder[1:]
+		delete(s.processed, oldest)
+	}
 	s.journal = appendBounded(s.journal, value, MaxJournalEntries)
 	s.decisions = appendBounded(s.decisions, value.Decision, MaxDecisionEntries)
 	if value.Action != nil {
@@ -277,9 +286,11 @@ func (s *UniversalStore) persistStateLocked() error {
 }
 
 func (s *UniversalStore) diskStateLocked() storeDiskState {
-	processed := make([]string, 0, len(s.processed))
-	for id := range s.processed {
-		processed = append(processed, id)
+	processed := append([]string(nil), s.processedOrder...)
+	if len(processed) == 0 {
+		for id := range s.processed {
+			processed = append(processed, id)
+		}
 	}
 	claimed := make([]string, 0, len(s.claimed))
 	for id := range s.claimed {
@@ -453,7 +464,7 @@ func (s *UniversalStore) ValidateBounds() error {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if len(s.journal) > MaxJournalEntries || len(s.decisions) > MaxDecisionEntries || len(s.actionOutbox) > MaxActionOutbox {
+	if len(s.journal) > MaxJournalEntries || len(s.decisions) > MaxDecisionEntries || len(s.actionOutbox) > MaxActionOutbox || len(s.processedOrder) > MaxProcessedIDs {
 		return fmt.Errorf("universal store bound exceeded")
 	}
 	return nil

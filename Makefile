@@ -228,8 +228,8 @@ e2e-vision-mlp-v1: check-go package-model
 	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
 	$(MAKE) replay-vision-core-v1 CLIP="$(CLIP)" OUT="$(OUT)"
 
-e2e-cognitive-core-v1: check-go
-	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$|^TestV1DiscoveryCoreStoreDiscoveryActionResultLoop$$|^TestV1ArchitectureHasNoLegacyDecisionImports$$' -count=1 -v
+e2e-cognitive-core-v1: check-go package-model
+	SYNORA_COGNITIVE_BUNDLE="$(CURDIR)/$(COGNITIVE_V1_BUNDLE)" GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$|^TestV1DiscoveryCoreStoreDiscoveryActionResultLoop$$|^TestV1LoadedBundleRunsAllHeadsInActiveDryRun$$|^TestV1StoreSaturationRemainsBounded$$|^TestV1ArchitectureHasNoLegacyDecisionImports$$' -count=1 -v
 
 perf-baseline-v1: check-go
 	@test -f "$(PERF_CLIP)" || { echo "FAIL: PERF_CLIP is not a regular file: $(PERF_CLIP)" >&2; exit 2; }
@@ -260,7 +260,8 @@ replay-vision-core-v1: check-go
 	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
 	@mkdir -p "$(OUT)/segments"
 	SYNORA_REAL_VISION=1 SYNORA_COGNITIVE_BUNDLE="$(COGNITIVE_V1_BUNDLE)" PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segments"
-	SYNORA_COGNITIVE_BUNDLE="$(COGNITIVE_V1_BUNDLE)" GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-v1-replay --observations "$(OUT)/segments/observations.jsonl" --vision-report "$(OUT)/segments/vision-real.json" --bundle "$(COGNITIVE_V1_BUNDLE)" --out "$(OUT)/core-replay.json"
+	@test -f "$(OUT)/segments/core-replay.json" || { echo "FAIL: Core replay report missing" >&2; exit 2; }
+	cp "$(OUT)/segments/core-replay.json" "$(OUT)/core-replay.json"
 
 benchmark-vision-inference: check-go
 	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/tools/vision_inference_benchmark.py $(if $(CLIP),--clip "$(CLIP)",) $(if $(OUT),--out "$(OUT)",) $(if $(SKIP_ONNX),--skip-onnx,)
