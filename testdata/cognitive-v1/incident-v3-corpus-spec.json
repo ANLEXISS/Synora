@@ -1,0 +1,40 @@
+{
+  "schema_version": "synora.cognitive-incident-v3-corpus-spec/v1",
+  "head": "incident",
+  "labels": [
+    "none",
+    "routine_presence",
+    "perimeter_presence",
+    "threshold_presence",
+    "interior_intrusion",
+    "anomaly",
+    "action_failure",
+    "technical",
+    "resolved"
+  ],
+  "families": {
+    "none": "no-human low-evidence initial/public states",
+    "routine_presence": "public presence with replay/real and confirmed-track variation, including recognized non-intrusive presence",
+    "perimeter_presence": "private perimeter crossings with access, alarm, gap and capability variation",
+    "threshold_presence": "restricted threshold candidate/confirmed sequences with armed/triggered sensor contradiction",
+    "interior_intrusion": "protected interior forced-access confirmed tracks",
+    "anomaly": "human-absent sensor/movement/alarm contradictions across all topologies",
+    "action_failure": "human-present states with simulated failure, unavailable and capability-unavailable outcomes",
+    "technical": "detector/peripheral unavailable states without human evidence",
+    "resolved": "final calm states with replay/real and residual sensor variation"
+  },
+  "counts": {
+    "train_per_class": 4000,
+    "validation_per_class": 1000,
+    "independent_test_per_class": 1000,
+    "hidden_redteam_v2_per_class": 400
+  },
+  "split_policy": "family, template, seed, topology and sequence namespaces are disjoint; redteam-v1 and redteam-v2 are never training inputs",
+  "seed": 20264619,
+  "features": "existing cognitive-encoder/v1, 86 dimensions",
+  "training_scope": "incident head only",
+  "forbidden_inputs": [
+    "testdata/cognitive-v1/incident-redteam-v1.jsonl",
+    "incident-redteam-v2"
+  ]
+}
