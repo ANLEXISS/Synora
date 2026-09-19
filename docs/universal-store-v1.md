@@ -24,3 +24,18 @@ L’implémentation V1 fournit le contrat atomique et le replay hermétique. La
 persistance fichier est append-only et doit être placée sous le répertoire de
 données configuré avant déploiement. Un rollback Git ne réécrit jamais le
 journal existant ; une reprise se fait par replay du dernier format compatible.
+
+## Compaction et rétention
+
+Le journal actif est compactable par `UniversalStore.Compact`. Avant rotation,
+le snapshot matérialisé est écrit durablement ; le journal est ensuite déplacé
+vers un segment JSONL immuable sous `segments/`, puis un journal actif vide est
+recréé. `History` relit les segments et le journal actif dans l'ordre des
+révisions, tandis que `Journal` reste la vue mémoire bornée du hot path.
+
+La rétention est opt-in (`CompactionOptions`). Une option nulle conserve tous
+les segments et toutes les captures utiles. `DiskReport` mesure la taille du
+journal actif, la taille cumulée des segments, leur nombre et l'âge du plus
+ancien. Toute archive corrompue fait échouer l'ouverture du Store ; un replay
+après compaction doit produire le même snapshot, la même révision et le même
+historique.

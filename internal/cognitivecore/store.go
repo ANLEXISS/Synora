@@ -2,12 +2,14 @@ package cognitivecore
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,6 +70,21 @@ type storeJournalRecord struct {
 	SchemaVersion string `json:"schema_version"`
 	Revision      uint64 `json:"revision"`
 	Commit        Commit `json:"commit"`
+}
+
+// CompactionOptions controls archived-segment retention. A zero value keeps
+// every immutable audit segment and never drops useful captures.
+type CompactionOptions struct {
+	RetainSegments int
+	MaxSegmentAge  time.Duration
+}
+
+type StoreDiskReport struct {
+	Revision           uint64        `json:"revision"`
+	ActiveJournalBytes int64         `json:"active_journal_bytes"`
+	ArchivedBytes      int64         `json:"archived_bytes"`
+	SegmentCount       int           `json:"segment_count"`
+	OldestSegmentAge   time.Duration `json:"oldest_segment_age"`
 }
 
 // PersistenceHooks are test-only fault injection points. A production Store
@@ -135,6 +152,9 @@ func OpenUniversalStore(dir string) (*UniversalStore, error) {
 		return nil, fmt.Errorf("read universal store state: %w", err)
 	}
 	if err := s.replayJournal(); err != nil {
+		return nil, err
+	}
+	if err := s.validateArchivedSegments(); err != nil {
 		return nil, err
 	}
 	if err := s.ValidateBounds(); err != nil {
@@ -249,6 +269,264 @@ func (s *UniversalStore) appendWAL(record storeJournalRecord) error {
 		return fmt.Errorf("close universal store journal: %w", closeErr)
 	}
 	return nil
+}
+
+// Compact rotates the active WAL into an immutable audit segment after the
+// materialized state has been durably written. Reopening after the rotation
+// therefore has exactly the same state while History still sees every commit.
+func (s *UniversalStore) Compact(options CompactionOptions) error {
+	if s == nil {
+		return errors.New("universal store is nil")
+	}
+	if s.dir == "" {
+		return errors.New("universal store is not durable")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.persistStateLocked(); err != nil {
+		return err
+	}
+	journalPath := filepath.Join(s.dir, "journal.jsonl")
+	body, err := os.ReadFile(journalPath)
+	if errors.Is(err, os.ErrNotExist) {
+		body = nil
+	} else if err != nil {
+		return fmt.Errorf("read universal store journal for compaction: %w", err)
+	}
+	if len(body) > 0 {
+		scanner := bufio.NewScanner(bytes.NewReader(body))
+		scanner.Buffer(make([]byte, 64*1024), 8<<20)
+		var first, last uint64
+		for scanner.Scan() {
+			var record storeJournalRecord
+			if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
+				return fmt.Errorf("universal store journal is corrupt: %w", err)
+			}
+			if first == 0 {
+				first = record.Revision
+			}
+			last = record.Revision
+		}
+		if err := scanner.Err(); err != nil {
+			return err
+		}
+		if first != 0 {
+			if err := os.MkdirAll(filepath.Join(s.dir, "segments"), 0o750); err != nil {
+				return err
+			}
+			name := fmt.Sprintf("journal-%020d-%020d-%d.jsonl", first, last, time.Now().UnixNano())
+			segmentPath := filepath.Join(s.dir, "segments", name)
+			if err := os.WriteFile(segmentPath, body, 0o640); err != nil {
+				return fmt.Errorf("write universal store audit segment: %w", err)
+			}
+			if err := syncFile(segmentPath); err != nil {
+				return err
+			}
+			if err := os.Remove(journalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("rotate universal store journal: %w", err)
+			}
+		}
+	}
+	file, err := os.OpenFile(journalPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	if err != nil {
+		return fmt.Errorf("create compacted universal store journal: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := s.applyRetentionLocked(options); err != nil {
+		return err
+	}
+	return syncDir(s.dir)
+}
+
+// History reads immutable audit segments plus the active journal in revision
+// order. Journal() remains the bounded hot in-memory view.
+func (s *UniversalStore) History() ([]Commit, error) {
+	if s == nil {
+		return nil, errors.New("universal store is nil")
+	}
+	if s.dir == "" {
+		return s.Journal(), nil
+	}
+	records, err := s.readAllJournalRecords()
+	if err != nil {
+		return nil, err
+	}
+	commits := make([]Commit, 0, len(records))
+	seen := make(map[uint64]struct{}, len(records))
+	for _, record := range records {
+		if _, ok := seen[record.Revision]; ok {
+			continue
+		}
+		seen[record.Revision] = struct{}{}
+		record.Commit.Snapshot.Revision = record.Revision
+		commits = append(commits, record.Commit)
+	}
+	sort.Slice(commits, func(i, j int) bool { return commits[i].Snapshot.Revision < commits[j].Snapshot.Revision })
+	return commits, nil
+}
+
+func (s *UniversalStore) DiskReport() (StoreDiskReport, error) {
+	if s == nil || s.dir == "" {
+		return StoreDiskReport{}, errors.New("universal store is not durable")
+	}
+	report := StoreDiskReport{Revision: s.Revision()}
+	active, err := os.Stat(filepath.Join(s.dir, "journal.jsonl"))
+	if err == nil {
+		report.ActiveJournalBytes = active.Size()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return report, err
+	}
+	entries, err := os.ReadDir(filepath.Join(s.dir, "segments"))
+	if errors.Is(err, os.ErrNotExist) {
+		return report, nil
+	}
+	if err != nil {
+		return report, err
+	}
+	now := time.Now()
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+		info, statErr := entry.Info()
+		if statErr != nil {
+			return report, statErr
+		}
+		report.SegmentCount++
+		report.ArchivedBytes += info.Size()
+		if age := now.Sub(info.ModTime()); age > report.OldestSegmentAge {
+			report.OldestSegmentAge = age
+		}
+	}
+	return report, nil
+}
+
+func (s *UniversalStore) readAllJournalRecords() ([]storeJournalRecord, error) {
+	paths := []string{}
+	entries, err := os.ReadDir(filepath.Join(s.dir, "segments"))
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jsonl") {
+				paths = append(paths, filepath.Join(s.dir, "segments", entry.Name()))
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	paths = append(paths, filepath.Join(s.dir, "journal.jsonl"))
+	sort.Strings(paths)
+	var records []storeJournalRecord
+	for _, path := range paths {
+		body, readErr := os.ReadFile(path)
+		if errors.Is(readErr, os.ErrNotExist) {
+			continue
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+		scanner := bufio.NewScanner(bytes.NewReader(body))
+		scanner.Buffer(make([]byte, 64*1024), 8<<20)
+		for scanner.Scan() {
+			var record storeJournalRecord
+			if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
+				return nil, fmt.Errorf("universal store audit segment %s is corrupt: %w", path, err)
+			}
+			if record.SchemaVersion != "universal-store/v1" || record.Revision == 0 {
+				return nil, fmt.Errorf("universal store audit segment %s has invalid record", path)
+			}
+			records = append(records, record)
+		}
+		if err := scanner.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return records, nil
+}
+
+func (s *UniversalStore) validateArchivedSegments() error {
+	if s == nil || s.dir == "" {
+		return nil
+	}
+	_, err := s.readAllJournalRecords()
+	return err
+}
+
+func (s *UniversalStore) applyRetentionLocked(options CompactionOptions) error {
+	entries, err := os.ReadDir(filepath.Join(s.dir, "segments"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	type segment struct {
+		path string
+		mod  time.Time
+	}
+	segments := make([]segment, 0)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		segments = append(segments, segment{filepath.Join(s.dir, "segments", entry.Name()), info.ModTime()})
+	}
+	sort.Slice(segments, func(i, j int) bool { return segments[i].mod.Before(segments[j].mod) })
+	remove := map[string]bool{}
+	if options.RetainSegments > 0 && len(segments) > options.RetainSegments {
+		for _, item := range segments[:len(segments)-options.RetainSegments] {
+			remove[item.path] = true
+		}
+	}
+	if options.MaxSegmentAge > 0 {
+		cutoff := time.Now().Add(-options.MaxSegmentAge)
+		for _, item := range segments {
+			if item.mod.Before(cutoff) {
+				remove[item.path] = true
+			}
+		}
+	}
+	for path := range remove {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func syncFile(path string) error {
+	file, err := os.OpenFile(path, os.O_RDONLY, 0)
+	if err != nil {
+		return err
+	}
+	err = file.Sync()
+	closeErr := file.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
+}
+
+func syncDir(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	err = dir.Sync()
+	closeErr := dir.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
 }
 
 func (s *UniversalStore) persistStateLocked() error {
@@ -392,6 +670,19 @@ func (s *UniversalStore) SnapshotJSON() ([]byte, error) {
 		return nil, errors.New("universal store is nil")
 	}
 	return s.Snapshot().CanonicalJSON()
+}
+
+// HistoryJSON is the read-only Discovery view of the append-only audit. The
+// Store remains the writer; callers receive a serialized copy only.
+func (s *UniversalStore) HistoryJSON() ([]byte, error) {
+	if s == nil {
+		return nil, errors.New("universal store is nil")
+	}
+	history, err := s.History()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(history)
 }
 func (s *UniversalStore) Revision() uint64 {
 	if s == nil {
