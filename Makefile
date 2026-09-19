@@ -6,15 +6,13 @@ SHELL := /usr/bin/env bash
 	build-web install-web restart-web web-status rotate-api-token generate-local-cert generate-discovery-cert install-mediamtx install-vision-worker install-face-data install-diagnostics install-systemd enable-services install-plan \
 	build-bootstrap-config install-bootstrap-config generate-version install-version install-model-manifest build-boot-healthcheck install-boot-healthcheck \
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
-	dev-tools diagnostics install-dev-tools
+	diagnostics
 
-.PHONY: cognitive-export cognitive-parity cognitive-demo build-dataset train validate test export parity package-model independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
+.PHONY: build-dataset train validate test export parity package-model independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
 
-COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
 COGNITIVE_V1_PIPELINE ?= tools/cognitive_v1_pipeline.py
 COGNITIVE_V1_BUNDLE ?= build/cognitive-mlp-v1
-COGNITIVE_MODEL_DIR ?= build/cognitive-mlp-v1
-COGNITIVE_FIXTURES ?= testdata/cognitive/mlp_parity_100.jsonl
+COGNITIVE_BUNDLE ?= $(COGNITIVE_V1_BUNDLE)
 PERF_CLIP ?= /home/rock/test3.mp4
 PERF_BEFORE ?= /tmp/synora-perf-v1-before
 PERF_AFTER ?= /tmp/synora-perf-v1-after
@@ -72,13 +70,8 @@ GO_BINS := \
 	synora-discovery:./cmd/synora-discovery \
 	synora-network-config:./cmd/synora-network-config \
 	synora-runtime-manager:./cmd/synora-runtime-manager \
-	synora-cognitive-demo:./cmd/synora-cognitive-demo \
 	synora-connect:./cmd/synora-connect \
 	synora-ota:./cmd/synora-ota
-
-DEV_TOOL_BINS := \
-	synora-scenario-sim:./tools/dev/legacy-simulators/scenario-sim \
-	synora-sim:./tools/dev/legacy-simulators/synora-sim
 
 ADMIN_TOOL_BINS := \
 	synora-bootstrap-config:./cmd/synora-bootstrap-config
@@ -122,23 +115,9 @@ help:
 		'  make doctor                Check local runtime health without modifying state' \
 		'  make delete CONFIRM=YES    Destructive removal from the proto machine' \
 		'  make clean                 Remove local repo build artifacts' \
-		'  make dev-tools             Build developer tools and legacy simulators locally' \
 		'  make diagnostics           Syntax-check operator diagnostic scripts' \
-		'  make install-dev-tools     Explicitly install developer tools (never part of make install)' \
 		'  make install-bootstrap-config  Install the local production config bootstrap tool' \
 		'  make install-plan          Show the standard runtime installation footprint without changing the system'
-
-cognitive-export:
-	@mkdir -p $(COGNITIVE_MODEL_DIR)
-	$(COGNITIVE_PYTHON) tools/cognitive/export_models.py --bundle $(COGNITIVE_BUNDLE) --output $(COGNITIVE_MODEL_DIR)
-
-cognitive-parity: cognitive-export
-	@mkdir -p $$(dirname $(COGNITIVE_FIXTURES))
-	$(COGNITIVE_PYTHON) tools/cognitive/parity.py --bundle $(COGNITIVE_BUNDLE) --export $(COGNITIVE_MODEL_DIR) --fixtures $(COGNITIVE_FIXTURES) --report $(COGNITIVE_MODEL_DIR)/parity.json
-
-cognitive-demo:
-	@test "$(SYNORA_COGNITIVE_DRY_RUN)" = "1" || (echo 'SYNORA_COGNITIVE_DRY_RUN=1 is required' >&2; exit 1)
-	SYNORA_COGNITIVE_DRY_RUN=1 SYNORA_COGNITIVE_MODEL_DIR=$(COGNITIVE_MODEL_DIR) $(GO) run ./cmd/synora-cognitive-demo --models $(COGNITIVE_MODEL_DIR) --trace build/cognitive-dry-run.jsonl
 
 build-dataset:
 	$(PYTHON) $(COGNITIVE_V1_PIPELINE) build-dataset
@@ -185,14 +164,6 @@ generate-version: check-go
 	@mkdir -p build
 	@GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-version -output build/version.json
 
-dev-tools: check-go
-	@mkdir -p bin
-	@for item in $(DEV_TOOL_BINS); do \
-		name="$${item%%:*}"; pkg="$${item#*:}"; \
-		echo "Building $$name from $$pkg"; \
-		GOCACHE=$(GOCACHE) "$(GO)" build $(GO_BUILD_FLAGS) -o "bin/$$name" "$$pkg"; \
-	done
-
 build-bootstrap-config: check-go
 	@mkdir -p bin
 	@for item in $(ADMIN_TOOL_BINS); do \
@@ -203,14 +174,6 @@ build-bootstrap-config: check-go
 
 diagnostics:
 	bash -n tools/synora_system_test.sh tools/synora_check.sh tools/diagnostics/vision/send_clip.sh
-
-install-dev-tools: dev-tools
-	$(SUDO) install -d -m 0755 $(BINDIR)
-	@for item in $(DEV_TOOL_BINS); do \
-		name="$${item%%:*}"; \
-		echo "Installing developer tool $$name"; \
-		$(SUDO) install -m 0755 "bin/$$name" "$(BINDIR)/$$name"; \
-	done
 
 hash-password: check-go
 	@if [ -z "$(PASSWORD)" ]; then echo "FAIL: PASSWORD is required" >&2; exit 1; fi

@@ -96,3 +96,27 @@ Le nettoyage est isolé dans le commit `refactor: remove dead paths and reduce V
 - Plaque/OCR et objets sensibles restent indisponibles par conception V1.
 - La RSS est la valeur maximale des processus enfants et le temps mur inclut l'export/compilation de l'E2E ; ces chiffres ne sont pas une mesure caméra continue.
 - Le backend RKNN Vision reste dépendant de la disponibilité matérielle des trois cœurs ; le MLP demeure CPU-only et advisory.
+
+## Audit Cognitive Core V1 et purge conditionnelle — 2026-09-19
+
+La qualification `make qualify-cognitive-v1` est passée avec zéro fuite de
+split, bundle CPU chargé, replay Vision réel, Store persistent/restarted/replay
+identique, compaction et surface Web Discovery valides. Le corpus indépendant
+mesure environ 95,7 % / 85,4 % / 95,3 % / 93,7 % sur danger / incident / task /
+action ; l'incident reste le head le moins robuste et `light`/`siren` sont
+absents des templates actuels, ce qui reste visible dans l'imbalance report.
+
+La purge limitée à des chemins prouvés morts a retiré le démonstrateur MLP V4
+non référencé, les deux scripts d'export/parité V4 non référencés, le reporter
+CGE shadow autonome non référencé et les simulateurs développeur du répertoire
+`legacy-simulators`. Aucun de ces chemins n'est dans le runtime V1 actif. Le
+Store durable, les contrats, le State Encoder V4 utilisé comme compatibilité
+interne, les modèles `.pt`, les fixtures utiles et les actions physiques sont
+conservés.
+
+Les paquets CGE encore importés par l'ancienne API générale et les routes
+compatibilité réseau n'ont pas été supprimés : leur suppression exigerait une
+migration complète de cette API hors du périmètre V1 et serait contraire à la
+preuve d'absence de référence. Ils restent un risque de surface résiduelle,
+mais ne sont pas importés par `cmd/synora-core`, `internal/cognitivecore` ou le
+replay V1.
