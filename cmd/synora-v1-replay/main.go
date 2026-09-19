@@ -23,24 +23,30 @@ type replayObservation struct {
 }
 
 type replayReport struct {
-	SchemaVersion          string         `json:"schema_version"`
-	Source                 string         `json:"source"`
-	Frames                 int            `json:"frames"`
-	Events                 int            `json:"events"`
-	Commits                int            `json:"commits"`
-	Duplicates             int            `json:"duplicates"`
-	ActiveDryRun           bool           `json:"active_dry_run"`
-	PhysicalActionExecuted bool           `json:"physical_action_executed"`
-	StoreRevision          uint64         `json:"store_revision"`
-	Observations           []string       `json:"observations"`
-	VisionModelReal        bool           `json:"vision_model_real"`
-	ModelLoaded            bool           `json:"model_loaded"`
-	ModelPath              string         `json:"model_path,omitempty"`
-	Detections             int            `json:"detections"`
-	Segments               int            `json:"segments"`
-	Tracks                 int            `json:"tracks"`
-	VisionObservations     int            `json:"vision_observations"`
-	VisionLatencies        map[string]any `json:"vision_latencies,omitempty"`
+	SchemaVersion          string             `json:"schema_version"`
+	Source                 string             `json:"source"`
+	Frames                 int                `json:"frames"`
+	Events                 int                `json:"events"`
+	Commits                int                `json:"commits"`
+	Duplicates             int                `json:"duplicates"`
+	ActiveDryRun           bool               `json:"active_dry_run"`
+	PhysicalActionExecuted bool               `json:"physical_action_executed"`
+	StoreRevision          uint64             `json:"store_revision"`
+	Observations           []string           `json:"observations"`
+	VisionModelReal        bool               `json:"vision_model_real"`
+	ModelLoaded            bool               `json:"model_loaded"`
+	ModelPath              string             `json:"model_path,omitempty"`
+	Detections             int                `json:"detections"`
+	Segments               int                `json:"segments"`
+	Tracks                 int                `json:"tracks"`
+	VisionObservations     int                `json:"vision_observations"`
+	VisionLatencies        map[string]any     `json:"vision_latencies,omitempty"`
+	ModelStatus            string             `json:"model_status"`
+	ModelBundle            string             `json:"model_bundle,omitempty"`
+	ModelError             string             `json:"model_error,omitempty"`
+	DecisionStatuses       map[string]int     `json:"decision_statuses"`
+	Actions                map[string]int     `json:"actions"`
+	MLPHeadLatencyMS       map[string]float64 `json:"mlp_head_latency_ms"`
 }
 
 type visionReport struct {
@@ -58,6 +64,7 @@ func main() {
 	observationsPath := flag.String("observations", "", "Vision observation JSONL")
 	outPath := flag.String("out", "", "replay report JSON")
 	visionReportPath := flag.String("vision-report", "", "real Vision report JSON")
+	bundlePath := flag.String("bundle", os.Getenv("SYNORA_COGNITIVE_BUNDLE"), "V1 MLP bundle directory")
 	flag.Parse()
 	if strings.TrimSpace(*observationsPath) == "" || strings.TrimSpace(*outPath) == "" {
 		fatal("--observations and --out are required")
@@ -68,8 +75,18 @@ func main() {
 	}
 	defer file.Close()
 	store := cognitivecore.NewUniversalStore()
-	core := &cognitivecore.Core{Store: store, MLP: cognitivecore.UnavailableMLP{Reason: "no promoted full-snapshot V1 bundle"}, Gate: cognitivecore.SafetyGate{DryRun: true}, Now: func() time.Time { return time.Now().UTC() }}
-	report := replayReport{SchemaVersion: "synora.v1-replay/v1", Source: *observationsPath, ActiveDryRun: true, PhysicalActionExecuted: false, Observations: []string{}, VisionLatencies: map[string]any{}}
+	var mlp cognitivecore.MLPBackend = cognitivecore.UnavailableMLP{Reason: "no promoted full-snapshot V1 bundle"}
+	report := replayReport{SchemaVersion: "synora.v1-replay/v1", Source: *observationsPath, ActiveDryRun: true, PhysicalActionExecuted: false, Observations: []string{}, VisionLatencies: map[string]any{}, ModelStatus: "unavailable", DecisionStatuses: map[string]int{}, Actions: map[string]int{}, MLPHeadLatencyMS: map[string]float64{}}
+	if strings.TrimSpace(*bundlePath) != "" {
+		loaded, loadErr := cognitivecore.LoadCPUBundle(*bundlePath)
+		report.ModelBundle = *bundlePath
+		if loadErr != nil {
+			report.ModelStatus, report.ModelError = "incompatible", loadErr.Error()
+		} else {
+			mlp, report.ModelStatus = loaded, "loaded"
+		}
+	}
+	core := &cognitivecore.Core{Store: store, MLP: mlp, Gate: cognitivecore.SafetyGate{DryRun: true}, Now: func() time.Time { return time.Now().UTC() }}
 	boundary := &discovery.Boundary{DryRun: true}
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
@@ -91,6 +108,11 @@ func main() {
 		result, err := core.Process(context.Background(), event)
 		if err != nil {
 			fatal(err.Error())
+		}
+		report.DecisionStatuses[result.Commit.Decision.Status]++
+		report.Actions[result.Commit.Decision.Action.Proposed.Action]++
+		for head, latency := range result.Commit.Decision.HeadLatencyMS {
+			report.MLPHeadLatencyMS[head] += latency
 		}
 		report.Events++
 		report.Frames++

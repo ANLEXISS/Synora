@@ -12,6 +12,7 @@ SHELL := /usr/bin/env bash
 
 COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
 COGNITIVE_V1_PIPELINE ?= tools/cognitive_v1_pipeline.py
+COGNITIVE_V1_BUNDLE ?= build/cognitive-mlp-v1
 COGNITIVE_MODEL_DIR ?= build/cognitive-mlp-v1
 COGNITIVE_FIXTURES ?= testdata/cognitive/mlp_parity_100.jsonl
 PERF_CLIP ?= /home/rock/test3.mp4
@@ -221,7 +222,7 @@ e2e-v1: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$' -count=1 -v
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1ArchitectureHasNoLegacyDecisionImports$$' -count=1 -v
 
-e2e-vision-mlp-v1: check-go
+e2e-vision-mlp-v1: check-go package-model
 	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }
 	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
 	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
@@ -258,8 +259,8 @@ replay-vision-core-v1: check-go
 	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
 	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
 	@mkdir -p "$(OUT)/segments"
-	SYNORA_REAL_VISION=1 PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segments"
-	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-v1-replay --observations "$(OUT)/segments/observations.jsonl" --vision-report "$(OUT)/segments/vision-real.json" --out "$(OUT)/core-replay.json"
+	SYNORA_REAL_VISION=1 SYNORA_COGNITIVE_BUNDLE="$(COGNITIVE_V1_BUNDLE)" PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segments"
+	SYNORA_COGNITIVE_BUNDLE="$(COGNITIVE_V1_BUNDLE)" GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-v1-replay --observations "$(OUT)/segments/observations.jsonl" --vision-report "$(OUT)/segments/vision-real.json" --bundle "$(COGNITIVE_V1_BUNDLE)" --out "$(OUT)/core-replay.json"
 
 benchmark-vision-inference: check-go
 	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/tools/vision_inference_benchmark.py $(if $(CLIP),--clip "$(CLIP)",) $(if $(OUT),--out "$(OUT)",) $(if $(SKIP_ONNX),--skip-onnx,)

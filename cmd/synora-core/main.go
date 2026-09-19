@@ -40,7 +40,17 @@ func main() {
 	if err != nil {
 		log.Fatal("universal store unavailable; refusing to start Core: ", err)
 	}
-	core := &cognitivecore.Core{Store: store, MLP: cognitivecore.UnavailableMLP{Reason: "no promoted full-snapshot V1 bundle"}, Gate: cognitivecore.SafetyGate{DryRun: true}}
+	var mlp cognitivecore.MLPBackend = cognitivecore.UnavailableMLP{Reason: "no promoted full-snapshot V1 bundle"}
+	if bundleDir := os.Getenv("SYNORA_COGNITIVE_BUNDLE"); bundleDir != "" {
+		loaded, loadErr := cognitivecore.LoadCPUBundle(bundleDir)
+		if loadErr != nil {
+			log.Printf("V1 MLP bundle unavailable; continuing fail-closed: %v", loadErr)
+		} else {
+			mlp = loaded
+			log.Printf("V1 MLP bundle loaded path=%s dimension=%d heads=%v", bundleDir, cognitivecore.CognitiveVectorSize, cognitivecore.HeadOrder)
+		}
+	}
+	core := &cognitivecore.Core{Store: store, MLP: mlp, Gate: cognitivecore.SafetyGate{DryRun: true}}
 	service := &cognitivecore.Service{Bus: client, Core: core, Name: "core"}
 	log.Printf("synora core V1 ready mode=active_dry_run model=unavailable encoder_dimension=%d", cognitivecore.CognitiveVectorSize)
 	if err := service.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {

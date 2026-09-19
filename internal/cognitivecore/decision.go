@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -75,15 +77,35 @@ type Manifest struct {
 	SchemaVersion  string              `json:"schema_version"`
 	SnapshotSchema string              `json:"snapshot_schema"`
 	EncoderSchema  string              `json:"encoder_schema"`
+	EncoderVersion string              `json:"encoder_version"`
 	InputDimension int                 `json:"input_dimension"`
+	FeatureNames   []string            `json:"feature_names"`
 	Labels         map[string][]string `json:"labels"`
 	Heads          []string            `json:"heads"`
 	WeightsSHA256  string              `json:"weights_sha256"`
+	HeadVersions   map[string]string   `json:"head_versions"`
+	Artifacts      map[string]Artifact `json:"artifacts"`
+}
+
+type Artifact struct {
+	Version    string    `json:"version"`
+	Artifact   string    `json:"artifact"`
+	SHA256     string    `json:"sha256"`
+	Labels     []string  `json:"labels"`
+	Thresholds []float32 `json:"thresholds"`
 }
 
 func (m Manifest) Validate() error {
-	if m.SchemaVersion != BundleManifestSchema || m.SnapshotSchema != SnapshotSchemaVersion || m.EncoderSchema != EncoderSchemaVersion || m.InputDimension != CognitiveVectorSize {
+	if m.SchemaVersion != BundleManifestSchema || m.SnapshotSchema != SnapshotSchemaVersion || m.EncoderSchema != EncoderSchemaVersion || m.EncoderVersion != "1.0.0" || m.InputDimension != CognitiveVectorSize {
 		return fmt.Errorf("incompatible V1 MLP manifest")
+	}
+	if len(m.FeatureNames) != CognitiveVectorSize {
+		return fmt.Errorf("V1 MLP feature order is missing")
+	}
+	for i, name := range CognitiveFeatureNames {
+		if m.FeatureNames[i] != name {
+			return fmt.Errorf("V1 MLP feature order mismatch at %d", i)
+		}
 	}
 	if len(m.Heads) != len(HeadOrder) {
 		return fmt.Errorf("V1 MLP manifest head count mismatch")
@@ -94,6 +116,12 @@ func (m Manifest) Validate() error {
 		}
 		if len(m.Labels[head]) == 0 {
 			return fmt.Errorf("V1 MLP labels missing for %s", head)
+		}
+		if m.HeadVersions != nil && m.HeadVersions[head] != "1.0.0" {
+			return fmt.Errorf("V1 MLP head version mismatch for %s", head)
+		}
+		if m.Artifacts != nil && m.Artifacts[head].Artifact == "" {
+			return fmt.Errorf("V1 MLP artifact missing for %s", head)
 		}
 	}
 	return nil
@@ -112,6 +140,175 @@ func LoadManifest(path string) (Manifest, error) {
 		return Manifest{}, fmt.Errorf("%w: %v", ErrModelUnavailable, err)
 	}
 	return manifest, nil
+}
+
+type cpuLayer struct {
+	InputSize  int       `json:"input_size"`
+	OutputSize int       `json:"output_size"`
+	Activation string    `json:"activation"`
+	Weights    []float32 `json:"weights"`
+	Bias       []float32 `json:"bias"`
+}
+
+type cpuHead struct {
+	Schema       string     `json:"schema"`
+	Head         string     `json:"head"`
+	InputSize    int        `json:"input_size"`
+	OutputSize   int        `json:"output_size"`
+	Labels       []string   `json:"labels"`
+	VectorSchema string     `json:"vector_schema"`
+	Layers       []cpuLayer `json:"layers"`
+}
+
+// CPUBundleMLP is the small deterministic inference backend emitted by the
+// V1 Python pipeline. It has no dependency on PyTorch or V4 model formats.
+type CPUBundleMLP struct {
+	Manifest Manifest
+	Heads    map[string]cpuHead
+}
+
+func LoadCPUBundle(dir string) (*CPUBundleMLP, error) {
+	if dir == "" {
+		return nil, fmt.Errorf("%w: bundle directory is empty", ErrModelUnavailable)
+	}
+	manifest, err := LoadManifest(filepath.Join(dir, "MANIFEST.v1.json"))
+	if err != nil {
+		return nil, err
+	}
+	bundle := &CPUBundleMLP{Manifest: manifest, Heads: make(map[string]cpuHead, len(HeadOrder))}
+	for _, head := range HeadOrder {
+		artifact := manifest.Artifacts[head].Artifact
+		if artifact == "" {
+			artifact = head + ".cpu.json"
+		}
+		body, err := os.ReadFile(filepath.Join(dir, artifact))
+		if err != nil {
+			return nil, fmt.Errorf("%w: read %s: %v", ErrModelUnavailable, head, err)
+		}
+		var model cpuHead
+		if err := json.Unmarshal(body, &model); err != nil {
+			return nil, fmt.Errorf("%w: decode %s: %v", ErrModelUnavailable, head, err)
+		}
+		if err := validateCPUHead(model, head, manifest.Labels[head]); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrModelUnavailable, err)
+		}
+		bundle.Heads[head] = model
+	}
+	return bundle, nil
+}
+
+func validateCPUHead(model cpuHead, expectedHead string, labels []string) error {
+	if model.Schema != "synora.cognitive-cpu-mlp/v1" || model.Head != expectedHead || model.InputSize != CognitiveVectorSize || model.OutputSize != len(labels) || model.VectorSchema != EncoderSchemaVersion {
+		return fmt.Errorf("invalid CPU head contract for %s", expectedHead)
+	}
+	if len(model.Labels) != len(labels) {
+		return fmt.Errorf("CPU head labels mismatch for %s", expectedHead)
+	}
+	for i := range labels {
+		if model.Labels[i] != labels[i] {
+			return fmt.Errorf("CPU head label order mismatch for %s", expectedHead)
+		}
+	}
+	if len(model.Layers) == 0 {
+		return fmt.Errorf("CPU head has no layers: %s", expectedHead)
+	}
+	input := CognitiveVectorSize
+	for _, layer := range model.Layers {
+		if layer.InputSize != input || layer.OutputSize <= 0 || len(layer.Weights) != layer.InputSize*layer.OutputSize || len(layer.Bias) != layer.OutputSize || (layer.Activation != "relu" && layer.Activation != "identity") {
+			return fmt.Errorf("invalid CPU layer for %s", expectedHead)
+		}
+		input = layer.OutputSize
+	}
+	if input != model.OutputSize {
+		return fmt.Errorf("CPU head output mismatch for %s", expectedHead)
+	}
+	return nil
+}
+
+func (m *CPUBundleMLP) Run(ctx context.Context, encoded EncodedSnapshot, snapshot CognitiveSnapshot) (MLPOutput, map[string]float64, error) {
+	if m == nil {
+		return MLPOutput{}, nil, ErrModelUnavailable
+	}
+	if err := encoded.Validate(); err != nil {
+		return MLPOutput{}, nil, err
+	}
+	values := encoded.Values[:]
+	latencies := make(map[string]float64, len(HeadOrder))
+	outputs := make(map[string][]float32, len(HeadOrder))
+	for _, head := range HeadOrder {
+		if err := ctx.Err(); err != nil {
+			return MLPOutput{}, latencies, err
+		}
+		started := time.Now()
+		result, err := m.runHead(head, values)
+		latencies[head] = float64(time.Since(started).Microseconds()) / 1000.0
+		if err != nil {
+			return MLPOutput{}, latencies, err
+		}
+		outputs[head] = result
+	}
+	dangerProb := softmax(outputs["danger"])
+	dangerIndex := argmax(dangerProb)
+	incidentIndex := argmax(outputs["incident"])
+	taskIndex := argmax(outputs["task"])
+	actionIndex := argmax(outputs["action"])
+	return MLPOutput{DangerLabel: m.Manifest.Labels["danger"][dangerIndex], DangerScore: dangerProb[dangerIndex], Incidents: []string{m.Manifest.Labels["incident"][incidentIndex]}, Task: m.Manifest.Labels["task"][taskIndex], Action: ActionIntent{Action: m.Manifest.Labels["action"][actionIndex], Topology: snapshot.Topology, Capability: m.Manifest.Labels["action"][actionIndex]}}, latencies, nil
+}
+
+func (m *CPUBundleMLP) runHead(head string, input []float32) ([]float32, error) {
+	model, ok := m.Heads[head]
+	if !ok {
+		return nil, fmt.Errorf("head %s is unavailable", head)
+	}
+	current := append([]float32(nil), input...)
+	for _, layer := range model.Layers {
+		next := make([]float32, layer.OutputSize)
+		for output := range next {
+			sum := layer.Bias[output]
+			for index, value := range current {
+				sum += layer.Weights[output*layer.InputSize+index] * value
+			}
+			if layer.Activation == "relu" && sum < 0 {
+				sum = 0
+			}
+			next[output] = sum
+		}
+		current = next
+	}
+	return current, nil
+}
+
+func softmax(values []float32) []float32 {
+	result := make([]float32, len(values))
+	if len(values) == 0 {
+		return result
+	}
+	max := values[0]
+	for _, value := range values[1:] {
+		if value > max {
+			max = value
+		}
+	}
+	var total float32
+	for index, value := range values {
+		result[index] = float32(math.Exp(float64(value - max)))
+		total += result[index]
+	}
+	if total > 0 {
+		for index := range result {
+			result[index] /= total
+		}
+	}
+	return result
+}
+func argmax(values []float32) int {
+	index := 0
+	for i := 1; i < len(values); i++ {
+		if values[i] > values[index] {
+			index = i
+		}
+	}
+	return index
 }
 
 type SafetyGate struct {

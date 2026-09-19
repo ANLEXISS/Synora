@@ -61,7 +61,11 @@ func (c *Core) Process(ctx context.Context, event contract.Event) (ProcessResult
 		output, latencies, err = c.MLP.Run(ctx, encoded, snapshot)
 		decision.HeadLatencyMS = latencies
 		if err == nil {
-			decision.Status, decision.Mode, decision.DangerLabel, decision.DangerScore = "available", "active", output.DangerLabel, clamp01(output.DangerScore)
+			mode := "active"
+			if c.Gate.DryRun {
+				mode = "active_dry_run"
+			}
+			decision.Status, decision.Mode, decision.DangerLabel, decision.DangerScore = "available", mode, output.DangerLabel, clamp01(output.DangerScore)
 			decision.Incidents, decision.Task = append([]string(nil), output.Incidents...), output.Task
 			decision.Action = c.Gate.Apply(output, snapshot, c.now())
 		} else {
