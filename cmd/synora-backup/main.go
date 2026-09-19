@@ -106,8 +106,6 @@ func backupPaths(paths runtimeconfig.Paths) (map[string]string, map[string]strin
 		"config/devices.yaml":       paths.Devices,
 		"config/automations.yaml":   paths.Automations,
 		"config/action_policy.yaml": paths.ActionPolicy,
-		"config/cge_chains.yaml":    paths.CGEChains,
-		"config/cge_profile.yaml":   paths.CGEProfile,
 		"config/network.yaml":       paths.NetworkConfig,
 		"config/mediamtx.yml":       paths.MediaMTXConfig,
 		"security/identities.json":  paths.IdentityRegistry,

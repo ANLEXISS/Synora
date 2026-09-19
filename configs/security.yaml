@@ -19,6 +19,5 @@ vision:
 features:
   synora_lab_enabled: true
   diagnostics_enabled: true
-  cge_validation_enabled: true
   debug_endpoints_enabled: false
   dev_simulation_enabled: false

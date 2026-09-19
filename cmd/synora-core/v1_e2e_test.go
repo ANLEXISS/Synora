@@ -106,6 +106,33 @@ func TestV1ArchitectureHasNoLegacyDecisionImports(t *testing.T) {
 	}
 }
 
+func TestV1ActiveRuntimeHasNoLegacyDecisionRuntime(t *testing.T) {
+	for _, root := range []string{"../../internal/cognitivecore", "../../internal/discovery", "."} {
+		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			contents, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			text := string(contents)
+			for _, forbidden := range []string{"advisory_shadow", "state-encoder/v4", "V4StateEncoder", "EncoderV4", "teacher", "shadow_mode"} {
+				if strings.Contains(text, forbidden) {
+					t.Errorf("%s contains forbidden active-runtime marker %q", path, forbidden)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestV1DiscoveryCoreStoreDiscoveryActionResultLoop(t *testing.T) {
 	bus := &e2eBus{}
 	store := cognitivecore.NewUniversalStore()

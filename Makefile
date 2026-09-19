@@ -580,7 +580,6 @@ doctor: check-go
 	id -nG "$$(id -un)" | grep -qw "$(SERVICE_USER)" && ok "current user is in group $(SERVICE_USER)" || warnf "current user is not in group $(SERVICE_USER); run: sudo usermod -aG $(SERVICE_USER) $$(id -un)"; \
 	$(PYTHON) -c 'import importlib.util,sys; missing=[m for m in ("cv2","numpy","scipy") if importlib.util.find_spec(m) is None]; rk=importlib.util.find_spec("rknnlite"); print("missing="+",".join(missing)); print("rknnlite="+("present" if rk else "missing")); sys.exit(1 if missing else 0)' >/tmp/synora-python-deps.log 2>&1 && ok "vision Python deps import" || { warnf "vision Python deps missing"; cat /tmp/synora-python-deps.log; }; \
 	[ -d "$(CONFIG_DIR)" ] && ok "$(CONFIG_DIR) exists" || failf "$(CONFIG_DIR) missing"; \
-	[ -f "$(CONFIG_DIR)/cge_critical_chains.yaml" ] && ok "CGE critical chains config present" || failf "CGE critical chains config missing"; \
 	[ -d "$(DATA_DIR)" ] && ok "$(DATA_DIR) exists" || failf "$(DATA_DIR) missing"; \
 	[ -d "$(DATA_DIR)/state" ] && ok "$(DATA_DIR)/state exists" || failf "$(DATA_DIR)/state missing"; \
 	if [ -d "$(MODELS_DIR)" ]; then \

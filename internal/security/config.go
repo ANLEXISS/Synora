@@ -46,7 +46,6 @@ type Config struct {
 type FeatureFlags struct {
 	SynoraLabEnabled      *bool `yaml:"synora_lab_enabled,omitempty"`
 	DiagnosticsEnabled    *bool `yaml:"diagnostics_enabled,omitempty"`
-	CGEValidationEnabled  *bool `yaml:"cge_validation_enabled,omitempty"`
 	DebugEndpointsEnabled *bool `yaml:"debug_endpoints_enabled,omitempty"`
 	DevSimulationEnabled  *bool `yaml:"dev_simulation_enabled,omitempty"`
 }
@@ -54,7 +53,6 @@ type FeatureFlags struct {
 const (
 	FeatureSynoraLab     = "synora_lab_enabled"
 	FeatureDiagnostics   = "diagnostics_enabled"
-	FeatureCGEValidation = "cge_validation_enabled"
 	FeatureDebug         = "debug_endpoints_enabled"
 	FeatureDevSimulation = "dev_simulation_enabled"
 )
@@ -65,7 +63,6 @@ func DefaultFeatureFlags() FeatureFlags {
 	return FeatureFlags{
 		SynoraLabEnabled:      boolPointer(true),
 		DiagnosticsEnabled:    boolPointer(true),
-		CGEValidationEnabled:  boolPointer(true),
 		DebugEndpointsEnabled: boolPointer(false),
 		DevSimulationEnabled:  boolPointer(false),
 	}
@@ -82,9 +79,6 @@ func (f *FeatureFlags) Normalize() {
 	if f.DiagnosticsEnabled == nil {
 		f.DiagnosticsEnabled = defaults.DiagnosticsEnabled
 	}
-	if f.CGEValidationEnabled == nil {
-		f.CGEValidationEnabled = defaults.CGEValidationEnabled
-	}
 	if f.DebugEndpointsEnabled == nil {
 		f.DebugEndpointsEnabled = defaults.DebugEndpointsEnabled
 	}
@@ -100,8 +94,6 @@ func (f FeatureFlags) Enabled(feature string) bool {
 		value = f.SynoraLabEnabled
 	case FeatureDiagnostics:
 		value = f.DiagnosticsEnabled
-	case FeatureCGEValidation:
-		value = f.CGEValidationEnabled
 	case FeatureDebug:
 		value = f.DebugEndpointsEnabled
 	case FeatureDevSimulation:

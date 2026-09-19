@@ -13,7 +13,7 @@ const (
 	ModeRealActions = "real_actions"
 
 	GeneratedBySynoraLab        = "synora-lab"
-	GeneratedBySynoraAPI        = "synora-api"
+	GeneratedByDiscovery        = "discovery"
 	GeneratedBySimulationEngine = "simulation-engine"
 	GeneratedByFrontendTestMode = "frontend-test-mode"
 )

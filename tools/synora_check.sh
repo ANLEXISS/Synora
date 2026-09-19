@@ -23,7 +23,6 @@ echo "Checking systemd services..."
 check_service synora-bus
 check_service synora-core
 check_service synora-actions
-check_service synora-api
 check_service synora-discovery
 check_service mediamtx
 

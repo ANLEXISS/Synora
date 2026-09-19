@@ -77,7 +77,6 @@ while IFS=: read -r name _package; do
 done <<'RUNTIME_BINS'
 synora-bus:./cmd/synora-bus
 synora-core:./cmd/synora-core
-synora-api:./cmd/synora-api
 synora-discovery:./cmd/synora-discovery
 synora-actions:./cmd/synora-actions
 synora-runtime-manager:./cmd/synora-runtime-manager
@@ -157,7 +156,7 @@ for directory in core modules utils video; do
 	fi
 done
 
-for source in synora-bus.service synora-runtime-manager.service synora-core.service synora-actions.service synora-api.service synora-discovery.service synora-connect.service mediamtx.service; do
+for source in synora-bus.service synora-runtime-manager.service synora-core.service synora-actions.service synora-discovery.service synora-connect.service mediamtx.service; do
 	emit_file "deployments/systemd/$source" "$SYSTEMD_DIR/$source" 0644 root root 'systemd unit'
 done
 

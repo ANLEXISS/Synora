@@ -111,27 +111,27 @@ func TestBuildEventsForScenarioPropagatesRunAndScenario(t *testing.T) {
 }
 
 func TestBuildMessageCanOverrideEventInstanceID(t *testing.T) {
-	run := BuildRun("single", "unknown_at_entrance", ModeDryRun, GeneratedBySynoraAPI, nil)
+	run := BuildRun("single", "unknown_at_entrance", ModeDryRun, GeneratedByDiscovery, nil)
 	msg, err := BuildMessage(EventBuildOptions{
 		Type:            contract.EventVisionUnknown,
 		Run:             &run,
 		StepID:          "unknown_first",
 		EventInstanceID: "custom-instance",
-		GeneratedBy:     GeneratedBySynoraAPI,
+		GeneratedBy:     GeneratedByDiscovery,
 		DryRun:          true,
 	})
 	if err != nil {
 		t.Fatalf("build message: %v", err)
 	}
-	if msg.Source != "api" {
-		t.Fatalf("synora-api simulations should use api transport source: %#v", msg)
+	if msg.Source != "discovery" {
+		t.Fatalf("Discovery simulations should use Discovery transport source: %#v", msg)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
 	metadata := payload["metadata"].(map[string]any)
-	if metadata["scenario_step_id"] != "unknown_first" || metadata["event_instance_id"] != "custom-instance" || metadata["generated_by"] != GeneratedBySynoraAPI {
+	if metadata["scenario_step_id"] != "unknown_first" || metadata["event_instance_id"] != "custom-instance" || metadata["generated_by"] != GeneratedByDiscovery {
 		t.Fatalf("metadata override mismatch: %#v", metadata)
 	}
 }

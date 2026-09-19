@@ -6,7 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 CORE = ROOT / "cmd/synora-core/v1_hermetic_e2e_test.go"
-API = ROOT / "cmd/synora-api/v1_hermetic_e2e_test.go"
+API = ROOT / "internal/discovery/web_v1_test.go"
 
 
 class HermeticE2EQualificationTests(unittest.TestCase):
@@ -34,16 +34,16 @@ class HermeticE2EQualificationTests(unittest.TestCase):
         content = API.read_text(encoding="utf-8")
         for marker in (
             "httptest.NewServer",
-            "handleIncidentCollection",
-            "handleIncidentRoute",
-            "RecordIncident",
-            "LoadPersisted",
-            "IncidentStatusAcknowledged",
+			"/api/v1/state",
+			"/api/v1/history",
+			"/api/v1/commands",
+			"/api/v1/messages",
+			"TestDiscoveryWebSurfaceRejectsRawMessage",
         ):
             self.assertIn(marker, content)
 
     def test_scenarios_are_local_and_do_not_start_system_services(self) -> None:
-        for path in (CORE, API):
+		for path in (CORE, API):
             content = path.read_text(encoding="utf-8")
             for forbidden in ("exec.Command", "systemctl", "/etc/synora", "/var/lib/synora"):
                 self.assertNotIn(forbidden, content, f"{path}: {forbidden}")

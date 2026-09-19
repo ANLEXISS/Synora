@@ -41,9 +41,6 @@ type Paths struct {
 	Devices            string
 	Automations        string
 	ActionPolicy       string
-	CGEChains          string
-	CGEProfile         string
-	CGEFeedback        string
 	NetworkConfig      string
 	BusSocket          string
 	VisionWorkerSocket string
@@ -103,9 +100,6 @@ func Defaults() Config {
 			Devices:            filepath.Join(configDir, "devices.yaml"),
 			Automations:        filepath.Join(configDir, "automations.yaml"),
 			ActionPolicy:       filepath.Join(configDir, "action_policy.yaml"),
-			CGEChains:          filepath.Join(configDir, "cge_critical_chains.yaml"),
-			CGEProfile:         filepath.Join(configDir, "cge_profile.yaml"),
-			CGEFeedback:        filepath.Join("/var/lib/synora", "cge", "feedback.json"),
 			NetworkConfig:      filepath.Join(configDir, "network.yaml"),
 			BusSocket:          DefaultBusSocket,
 			VisionWorkerSocket: DefaultVisionWorkerSocket,
@@ -168,8 +162,6 @@ func Load(getenv func(string) string) (Config, error) {
 		cfg.Paths.Devices = filepath.Join(configDir, "devices.yaml")
 		cfg.Paths.Automations = filepath.Join(configDir, "automations.yaml")
 		cfg.Paths.ActionPolicy = filepath.Join(configDir, "action_policy.yaml")
-		cfg.Paths.CGEChains = filepath.Join(configDir, "cge_critical_chains.yaml")
-		cfg.Paths.CGEProfile = filepath.Join(configDir, "cge_profile.yaml")
 		cfg.Paths.NetworkConfig = filepath.Join(configDir, "network.yaml")
 		cfg.Paths.MediaMTXConfig = filepath.Join(configDir, "mediamtx.yml")
 		cfg.Paths.VersionFile = filepath.Join(configDir, "version.json")
@@ -183,9 +175,6 @@ func Load(getenv func(string) string) (Config, error) {
 	set("SYNORA_DEVICE", &cfg.Paths.Devices)
 	set("SYNORA_AUTOMATION", &cfg.Paths.Automations)
 	set("SYNORA_ACTION_POLICY", &cfg.Paths.ActionPolicy)
-	set("SYNORA_CGE_CRITICAL_CHAINS", &cfg.Paths.CGEChains)
-	set("SYNORA_CGE_PROFILE", &cfg.Paths.CGEProfile)
-	set("SYNORA_CGE_FEEDBACK", &cfg.Paths.CGEFeedback)
 	set("SYNORA_NETWORK_CONFIG", &cfg.Paths.NetworkConfig)
 	set("SYNORA_CONNECTIVITY_CONFIG", &cfg.Paths.NetworkConfig)
 	set("SYNORA_BUS", &cfg.Paths.BusSocket)
@@ -242,8 +231,7 @@ func (c Config) Validate() error {
 	paths := map[string]string{
 		"config_dir": c.Paths.ConfigDir, "security": c.Paths.Security, "auth": c.Paths.Auth,
 		"topology": c.Paths.Topology, "residents": c.Paths.Residents, "devices": c.Paths.Devices,
-		"automations": c.Paths.Automations, "action_policy": c.Paths.ActionPolicy, "cge_chains": c.Paths.CGEChains,
-		"cge_profile": c.Paths.CGEProfile, "cge_feedback": c.Paths.CGEFeedback,
+		"automations": c.Paths.Automations, "action_policy": c.Paths.ActionPolicy,
 		"network_config": c.Paths.NetworkConfig, "bus_socket": c.Paths.BusSocket, "vision_worker_socket": c.Paths.VisionWorkerSocket,
 		"state": c.Paths.State, "clip_root": c.Paths.ClipRoot, "face_data_root": c.Paths.FaceDataRoot,
 		"model_root": c.Paths.ModelRoot, "backup_root": c.Paths.BackupRoot, "action_results": c.Paths.ActionResults, "web_root": c.Paths.WebRoot,

@@ -10,7 +10,7 @@ import (
 func TestFeatureFlagsDefaultAndExplicitDisable(t *testing.T) {
 	flags := FeatureFlags{}
 	flags.Normalize()
-	if !flags.Enabled(FeatureSynoraLab) || !flags.Enabled(FeatureDiagnostics) || !flags.Enabled(FeatureCGEValidation) {
+	if !flags.Enabled(FeatureSynoraLab) || !flags.Enabled(FeatureDiagnostics) {
 		t.Fatalf("product features should default enabled: %#v", flags)
 	}
 	if flags.Enabled(FeatureDebug) || flags.Enabled(FeatureDevSimulation) {

@@ -391,10 +391,10 @@ check_services() {
   fi
 
   local service active substate restarts required
-  for service in synora-bus synora-core synora-actions synora-api synora-discovery synora-connect mediamtx; do
+  for service in synora-bus synora-core synora-actions synora-discovery synora-connect mediamtx; do
     if ! systemctl list-unit-files "${service}.service" >/dev/null 2>&1; then
       [[ "$service" == "mediamtx" ]] && continue
-    if [[ "$MODE" == boot-readonly || "$service" == synora-bus || "$service" == synora-core || "$service" == synora-api || "$STRICT_SERVICES" == 1 ]]; then
+    if [[ "$MODE" == boot-readonly || "$service" == synora-bus || "$service" == synora-core || "$service" == synora-discovery || "$STRICT_SERVICES" == 1 ]]; then
         record_check fail "service $service" '' '' "unit not installed" '{}' true
       else
         record_check warn "service $service" '' '' "unit not installed" '{}' false
@@ -405,7 +405,7 @@ check_services() {
     substate="$(systemctl show "$service.service" -p SubState --value 2>/dev/null || true)"
     restarts="$(systemctl show "$service.service" -p NRestarts --value 2>/dev/null || true)"
     required=false
-    if [[ "$service" == synora-bus || "$service" == synora-core || "$service" == synora-api ]]; then
+    if [[ "$service" == synora-bus || "$service" == synora-core || "$service" == synora-discovery ]]; then
       required=true
     elif ((STRICT_SERVICES)); then
       required=true
@@ -700,7 +700,7 @@ collect_logs() {
     return
   fi
   : > "$log_file"
-  for service in synora-core synora-api synora-bus synora-actions synora-discovery hostapd dnsmasq; do
+  for service in synora-core synora-bus synora-actions synora-discovery hostapd dnsmasq; do
     journalctl -u "$service.service" --since "$STARTED_AT" --no-pager 2>/dev/null >> "$log_file" || true
   done
   pattern='incoming channel full|panic|fatal|deadlock|concurrent map|runtime error|nil pointer|data race|internal server error|5\.00[0-9]*s|passphrase|sae_password|wpa_passphrase|api_token|bearer[[:space:]]+[A-Za-z0-9._-]{12,}'

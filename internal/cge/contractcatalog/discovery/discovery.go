@@ -54,7 +54,7 @@ type SemanticCandidate struct {
 
 func ScanTransports(root string) ([]Surface, error) {
 	var result []Surface
-	paths := []string{"cmd/synora-api", "internal/rpc", "cmd/synora-core", "internal/bus"}
+	paths := []string{"internal/discovery", "cmd/synora-core", "internal/bus"}
 	handlerMethods := map[string]string{}
 	if err := walkGo(root, paths, func(pkg string, file *ast.File) {
 		for _, declaration := range file.Decls {
@@ -357,7 +357,7 @@ func siteGuardBoundary(site WriteSite) token.Pos {
 func ScanOutputs(root string) ([]Surface, error) {
 	var result []Surface
 	interfaceMethods := map[string]bool{}
-	err := walkGo(root, []string{"internal/cge", "cmd/synora-core", "cmd/synora-api", "internal/rpc"}, func(pkg string, file *ast.File) {
+	err := walkGo(root, []string{"internal/cge", "cmd/synora-core", "internal/discovery"}, func(pkg string, file *ast.File) {
 		for _, declaration := range file.Decls {
 			gen, ok := declaration.(*ast.GenDecl)
 			if !ok || gen.Tok != token.TYPE {

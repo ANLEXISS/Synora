@@ -203,8 +203,8 @@ func transportSourceForGenerator(generatedBy string) string {
 	switch strings.TrimSpace(generatedBy) {
 	case GeneratedBySynoraLab:
 		return "lab"
-	case GeneratedBySynoraAPI:
-		return "api"
+	case GeneratedByDiscovery:
+		return "discovery"
 	case GeneratedByFrontendTestMode:
 		return "api"
 	case GeneratedBySimulationEngine:

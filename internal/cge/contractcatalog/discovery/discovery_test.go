@@ -21,7 +21,7 @@ func writeFixture(t *testing.T, root, relative, source string) {
 
 func TestTransportDiscoveryIsIndependentOfCatalog(t *testing.T) {
 	root := t.TempDir()
-	writeFixture(t, root, "cmd/synora-api/routes.go", `package api
+	writeFixture(t, root, "internal/discovery/routes.go", `package discovery
 import "net/http"
 func register(r *http.ServeMux) { r.HandleFunc("/api/cge/new-surface", nil) }
 `)
@@ -148,7 +148,7 @@ func (busFacade) Send(Message) {}
 type Message struct { Type string }
 func register() { rpc["fixture.rpc"] = nil; bus.SubscribeChannel("fixture.channel"); bus.Send("fixture.channel", Message{Type:"fixture.bus"}) }
 `)
-	writeFixture(t, root, "cmd/synora-api/socket.go", `package api
+	writeFixture(t, root, "internal/discovery/socket.go", `package discovery
 type socket struct{}
 func (socket) WriteJSON(value any) {}
 func emit(s socket, value any) { s.WriteJSON(value) }
@@ -172,7 +172,7 @@ func emit(s socket, value any) { s.WriteJSON(value) }
 
 func TestTransportOutputDiscoveryFindsNonEngineResponse(t *testing.T) {
 	root := t.TempDir()
-	writeFixture(t, root, "cmd/synora-api/response.go", `package api
+	writeFixture(t, root, "internal/discovery/response.go", `package discovery
 import "encoding/json"
 type TransportOnlyResponse struct { Value string `+"`json:\"value\"`"+` }
 func handler(w jsonEncoder) { response := TransportOnlyResponse{}; w.Encode(response) }

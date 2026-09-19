@@ -30,8 +30,7 @@ class ReproducibleDeployTests(unittest.TestCase):
             "synora-core.service",
             "synora-discovery.service",
             "synora-actions.service",
-            "synora-api.service",
-            "synora-connect.service",
+			"synora-connect.service",
             "mediamtx.service",
         )
         for name in names:
@@ -45,7 +44,7 @@ class ReproducibleDeployTests(unittest.TestCase):
     def test_start_order_is_explicit_and_migrations_are_contiguous(self):
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
         self.assertIn(
-            "START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-actions synora-api synora-connect mediamtx",
+			"START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-connect mediamtx",
             makefile,
         )
         migrations = sorted((ROOT / "migrations").glob("*.yaml"))
