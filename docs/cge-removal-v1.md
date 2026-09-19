@@ -1,18 +1,15 @@
-# Retrait de CGE du runtime V1
+# Retrait définitif des anciens chemins cognitifs
 
-Le nouveau Core V1 ne dépend d’aucun package CGE, Engine décisionnel,
-configuration teacher/shadow ou automation de danger. La suppression porte
-d’abord sur le point d’entrée runtime et ses tests de décision ; les packages
-CGE historiques non appelés par le runtime restent conservés dans cette étape
-tant qu’une recherche de références ne prouve pas qu’ils peuvent être retirés
-sans casser les outils de migration et les contrats historiques.
+Le Core V1 ne dépend d’aucun ancien package de décision, serveur séparé,
+client interne ou RPC historique. La purge finale a supprimé les packages,
+outils et fixtures qui les chargeaient. Cette note est conservée uniquement
+comme trace de migration.
 
 ## Critère d’architecture
 
 Le test d’architecture inspecte `cmd/synora-core` et
-`internal/cognitivecore`. Il échoue si ces chemins importent ou chargent CGE,
-`internal/engine`, teacher, shadow, `advisory_shadow`, ou une seconde source de
-danger/action.
+`internal/cognitivecore`. Il échoue si un ancien marqueur ou une seconde source
+de danger/action est réintroduit dans le runtime actif.
 
 ## Désactivation sûre
 

@@ -199,7 +199,7 @@ def main() -> int:
             "no_raw_vision_on_bus": before["functional_signature"]["raw_vision_absent"] and after["functional_signature"]["raw_vision_absent"],
             "no_physical_action": not before["physical_action_executed"] and not after["physical_action_executed"],
             "max_three_frames_in_flight": after["max_frames_in_flight"] <= 3,
-			"no_legacy_shadow_mode": before["backend_status"] != "shadow" and after["backend_status"] != "shadow",
+			"no_legacy_runtime_mode": before["backend_status"] != "legacy" and after["backend_status"] != "legacy",
         },
     }
     report_path = Path(args.after) / "perf-baseline.json"

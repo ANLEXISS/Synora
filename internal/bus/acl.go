@@ -121,7 +121,7 @@ func eventACLAllowed(service, eventType, target string) bool {
 			return targetOK("api")
 		}
 		return targetOK("", "api", "core", "core-2", "vision") && hasPrefix(
-			"system.", "security.", "manual.", "incident.", "engine.", "cge.",
+			"system.", "security.", "manual.", "incident.",
 			"chain.", "clip.", "runtime.", "device.", "devices.", "residents.",
 			"automations.", "topology.", "validation.", "action.")
 	}

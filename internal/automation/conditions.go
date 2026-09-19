@@ -100,7 +100,7 @@ func conditionValue(field string, event contract.Event, decision *contract.Decis
 		if decision != nil {
 			return decision.EffectiveScore, true
 		}
-	case "danger.level", "danger_level", "cge.danger_level":
+	case "danger.level", "danger_level":
 		if decision != nil && decision.DangerLevel != "" {
 			return decision.DangerLevel, true
 		}
@@ -154,7 +154,7 @@ func conditionValue(field string, event contract.Event, decision *contract.Decis
 
 func isDangerLevelField(field string) bool {
 	switch strings.ToLower(strings.TrimSpace(field)) {
-	case "danger.level", "danger_level", "cge.danger_level":
+	case "danger.level", "danger_level":
 		return true
 	default:
 		return false

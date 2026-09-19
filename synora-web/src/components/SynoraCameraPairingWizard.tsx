@@ -1,6 +1,6 @@
 import { ArrowLeft, CheckCircle2, ChevronRight, CircleHelp, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { confirmSynoraCameraPairing, startSynoraCameraPairing, type SynoraCameraQRPayload } from "../lib/synora-api";
+import { confirmSynoraCameraPairing, startSynoraCameraPairing, type SynoraCameraQRPayload } from "../lib/discovery-api";
 import { SynoraApiError } from "../lib/api";
 import type { ApiTopologyNode } from "../lib/synora-types";
 import { QRCodeScanner } from "./QRCodeScanner";

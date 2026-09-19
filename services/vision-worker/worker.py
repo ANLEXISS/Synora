@@ -383,9 +383,9 @@ class VisionWorker:
             })
 
         if req.get("pipeline") == "clip-v1":
-            if not self.dry_run and (not getattr(self, "clip_v1_enabled", False) or getattr(self, "detector_mode", "") != "real_shadow"):
+            if not self.dry_run and (not getattr(self, "clip_v1_enabled", False) or getattr(self, "detector_mode", "") != "real_replay"):
                 return self._with_request_id(request_id, {
-                    "error": "real shadow detector mode is not enabled",
+                    "error": "real replay detector mode is not enabled",
                     "failure_code": "vision_clip_v1_disabled",
                 })
             return self._with_request_id(request_id, self.process_clip_v1(req))

@@ -74,7 +74,7 @@ func (p Parser) Parse(msg contract.Message) (*contract.Event, error) {
 	parsed.ResidentID = strings.TrimSpace(resolveString(payload, "resident_id"))
 	parsed.Identity = strings.TrimSpace(resolveString(payload, "identity"))
 	if parsed.ResidentID != "" {
-		// Identity remains the compatibility field consumed by Engine/Core;
+		// Identity remains the normalized field consumed by Core;
 		// Vision's stable identifier is always resident_id, never display_name.
 		parsed.Identity = parsed.ResidentID
 	}

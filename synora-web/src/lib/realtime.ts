@@ -1,4 +1,4 @@
-import { acceptRealtimeMessage as acceptCore, extractSnapshot as extractCore } from "./realtime-core.mjs";
+import { acceptRealtimeMessage as acceptCore, extractSnapshot as extractCore } from "./realtime-core";
 import type { SynoraSnapshot, SynoraWsMessage } from "./synora-types";
 
 export type RealtimeCursor = {

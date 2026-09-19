@@ -44,7 +44,7 @@ import {
   replaceResidentBaseFace,
   updateResident,
   uploadResidentBaseFace,
-} from "../lib/synora-api";
+} from "../lib/discovery-api";
 import type { ApiTopologyNode, ResidentCreatePayload, ResidentMutationPayload, SynoraFaceProfile, SynoraResident } from "../lib/synora-types";
 import { useSynoraData } from "../hooks/useSynoraData";
 import { useAuth } from "../hooks/useAuth";
@@ -486,7 +486,7 @@ export function Residents() {
     if (!controller) return;
     setBusy(true);
     try {
-      let profile = await rebuildResidentFace(photoResident.id, controller.signal);
+		let profile: SynoraFaceProfile | null = await rebuildResidentFace(photoResident.id, controller.signal);
       for (let attempt = 0; attempt < 20 && profile?.dataset?.status === "building"; attempt += 1) {
         await waitForFaceRefresh(250, controller.signal);
         profile = await refreshFace(photoResident.id, controller.signal);

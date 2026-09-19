@@ -31,7 +31,6 @@ type Result struct {
 var registry = []Definition{
 	{ID: "0001_network_security", FromSchema: 0, ToSchema: 1, Description: "normalize network security defaults", Apply: noop},
 	{ID: "0002_features_flags", FromSchema: 1, ToSchema: 2, Description: "normalize feature flags", Apply: noop},
-	{ID: "0003_cge_decay", FromSchema: 2, ToSchema: 3, Description: "normalize CGE decay settings", Apply: noop},
 }
 
 func noop(*yaml.Node) error { return nil }

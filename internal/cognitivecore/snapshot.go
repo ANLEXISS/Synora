@@ -1,5 +1,4 @@
-// Package cognitivecore contains the only V1 decision runtime. It deliberately
-// has no dependency on the historical CGE or decision Engine packages.
+// Package cognitivecore contains the only V1 decision runtime.
 package cognitivecore
 
 import (

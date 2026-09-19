@@ -12,7 +12,7 @@ if [[ -z "$COMMIT_MSG" ]]; then
   echo "  $0 \"message de commit\""
   echo
   echo "Exemple:"
-  echo "  $0 \"Fix CGE validation sequence\""
+  echo "  $0 \"Describe the change\""
   exit 2
 fi
 

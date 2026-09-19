@@ -35,7 +35,6 @@ type Decision struct {
 	ValidationReason             string                 `json:"validation_reason,omitempty"`
 	ActionDecision               string                 `json:"action_decision,omitempty"`
 	BlockedActions               []string               `json:"blocked_actions,omitempty"`
-	RecommendedActionsFromCGE    []string               `json:"recommended_actions_from_cge,omitempty"`
 	RecommendedActionsFromPolicy []string               `json:"recommended_actions_from_policy,omitempty"`
 	PolicyActions                []PolicyActionDecision `json:"policy_actions,omitempty"`
 	FinalActionPlan              []ActionPlanItem       `json:"final_action_plan,omitempty"`
@@ -67,7 +66,6 @@ type decisionJSON struct {
 	ValidationReason             string                 `json:"validation_reason,omitempty"`
 	ActionDecision               string                 `json:"action_decision,omitempty"`
 	BlockedActions               []string               `json:"blocked_actions,omitempty"`
-	RecommendedActionsFromCGE    []string               `json:"recommended_actions_from_cge,omitempty"`
 	RecommendedActionsFromPolicy []string               `json:"recommended_actions_from_policy,omitempty"`
 	PolicyActions                []PolicyActionDecision `json:"policy_actions,omitempty"`
 	FinalActionPlan              []ActionPlanItem       `json:"final_action_plan,omitempty"`
@@ -106,7 +104,6 @@ func (d *Decision) UnmarshalJSON(data []byte) error {
 		ValidationReason:             decoded.ValidationReason,
 		ActionDecision:               decoded.ActionDecision,
 		BlockedActions:               decoded.BlockedActions,
-		RecommendedActionsFromCGE:    decoded.RecommendedActionsFromCGE,
 		RecommendedActionsFromPolicy: decoded.RecommendedActionsFromPolicy,
 		PolicyActions:                decoded.PolicyActions,
 		FinalActionPlan:              decoded.FinalActionPlan,

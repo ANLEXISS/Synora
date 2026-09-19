@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getAutomations, getDevices, getResidents, getRuntimeStatus, getSecurityMode, getTopology } from "./synora-api";
+import { getAutomations, getDevices, getResidents, getRuntimeStatus, getSecurityMode, getTopology } from "./discovery-api";
 import { normalizeSecurityMode, type SecurityModeState } from "./security-mode";
 import {
   isRecognizedTopologyResponse,
@@ -105,7 +105,7 @@ export function useSynoraData() {
     } catch (cause) {
       if (signal?.aborted) return;
       setRuntimeStatus(null);
-      setRuntimeError(cause instanceof Error ? cause.message : "Impossible de charger le statut runtime du CGE.");
+		setRuntimeError(cause instanceof Error ? cause.message : "Impossible de charger le statut runtime.");
     }
   }, []);
 
@@ -146,7 +146,7 @@ export function useSynoraData() {
       setRuntimeError(null);
     } else {
       setRuntimeStatus(null);
-      setRuntimeError(runtime.reason instanceof Error ? runtime.reason.message : "Impossible de charger le statut runtime du CGE.");
+		setRuntimeError(runtime.reason instanceof Error ? runtime.reason.message : "Impossible de charger le statut runtime.");
     }
     if (security.status === "fulfilled") setSecurityMode(security.value);
   }, []);

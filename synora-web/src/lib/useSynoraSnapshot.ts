@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { buildWsUrl } from "../lib/config";
 import { SynoraApiError } from "./api";
-import { getState } from "../lib/synora-api";
+import { getState } from "../lib/discovery-api";
 import { acceptRealtimeMessage, type RealtimeCursor } from "./realtime";
 import type { SynoraSnapshot, SynoraWsMessage } from "../lib/synora-types";
 

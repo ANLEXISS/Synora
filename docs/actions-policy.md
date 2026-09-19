@@ -1,6 +1,9 @@
 # Action Policy
 
-Synora sépare désormais quatre responsabilités : le CGE évalue la situation, l’Action Policy propose un socle de réactions par niveau, les Automations ajoutent le contexte utilisateur, puis `synora-actions` exécute les `ActionRequest`.
+Synora sépare désormais les faits canoniques du Core, la proposition du MLP,
+le filtrage déterministe du Safety Gate et l’écriture de l’Universal Store.
+Cette note décrit uniquement les contraintes de politique d’action ; elle ne
+constitue pas une seconde source de danger ou de décision.
 
 ## Niveaux
 
@@ -43,4 +46,7 @@ Les commandes reconnues sont `notify.whatsapp` et `notify_owner_whatsapp`. Les t
 
 ## Décision visible
 
-Les évaluations exposent `recommended_actions_from_cge`, `recommended_actions_from_policy`, `policy_actions`, `final_action_plan`, `blocked_actions` et `action_decision_reason`. Une action bloquée conserve son `blocked_reason` (`action_disabled`, `condition_not_met`, etc.). L’Action Policy n’exécute pas automatiquement les actions physiques dans cette passe ; les Automations continuent d’être le chemin d’exécution contextualisé.
+Les évaluations exposent la proposition MLP, le plan filtré, les actions
+bloquées et la raison du filtrage. Une action bloquée conserve son
+`blocked_reason` (`action_disabled`, `condition_not_met`, etc.). En V1,
+`active_dry_run` reste le défaut et aucune action physique n’est exécutée.

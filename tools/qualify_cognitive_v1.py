@@ -97,7 +97,7 @@ def main() -> int:
         "independent_metrics": independent.get("passed") is True,
         "incident_v2_retained": incident_v2.get("retained") is True,
         "real_vision": replay.get("vision_model_real") is True and replay.get("model_loaded") is True,
-        "advisory_dry_run": replay.get("active_dry_run") is True and replay.get("physical_action_executed") is False,
+        "dry_run_mode": replay.get("active_dry_run") is True and replay.get("physical_action_executed") is False,
         "store_replay_identical": replay.get("store_persistent") is True and replay.get("store_restarted") is True and replay.get("store_replay_identical") is True,
         "all_commands": all(item.get("passed") for item in results),
         "perf_functional_identical": perf.get("functional_output_identical") is True if perf else False,

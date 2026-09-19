@@ -1,4 +1,4 @@
-"""Explicit shadow adapter for the existing human detector.
+"""Explicit replay adapter for the existing human detector.
 
 The adapter is intentionally narrow: it exposes normalized human detections
 and a non-sensitive diagnostic. Frames, crops and model outputs never leave

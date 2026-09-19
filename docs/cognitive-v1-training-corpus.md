@@ -14,7 +14,7 @@ five keys before a bundle is used by the runtime.
 The reports include a confusion matrix, precision and recall per class,
 confidence/calibration gap, class imbalance counts, frequent errors and the
 independent holdout result. Labels are copied from declarative scenario
-templates; no teacher, MLP prediction or danger expectation is used to create
+templates; no model prediction or danger expectation is used to create
 a label.
 
 The generated JSONL and checkpoints remain build artifacts. The source

@@ -2,7 +2,7 @@ import { Plus, RefreshCw, RotateCcw, Send, ShieldAlert, Trash2, Wifi } from "luc
 import { useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { Panel } from "../components/Panel";
-import { getActionPolicy, getSystemHealth, getSystemVersion, resetActionPolicy, testAction, updateActionPolicy } from "../lib/synora-api";
+import { getActionPolicy, getSystemHealth, getSystemVersion, resetActionPolicy, testAction, updateActionPolicy } from "../lib/discovery-api";
 import type { ActionPolicy, ActionPolicyEntry, DangerLevel } from "../lib/synora-types";
 
 const levels: DangerLevel[] = ["low", "medium", "medium_high", "high", "critical"];
@@ -74,10 +74,10 @@ export function Settings() {
   const storage = (health?.storage ?? {}) as Record<string, any>;
   const versionLabel = String(version?.version ?? version?.image_version ?? version?.build ?? "indisponible");
   const activeBand = String(network.active_band ?? (synoranet.status === "disabled" ? "disabled" : "unknown"));
-  return <div className="cge-page">
-    <div className="cge-page-heading"><div className="cge-page-heading-icon"><ShieldAlert size={22} /></div><div><h2>Actions & notifications</h2><p>Les paliers rendent la réaction du moteur lisible ; les Automations restent prioritaires pour le contexte précis.</p></div></div>
+  return <div className="action-policy-page">
+    <div className="action-policy-heading"><div className="action-policy-heading-icon"><ShieldAlert size={22} /></div><div><h2>Actions & notifications</h2><p>Les paliers rendent les contraintes d’action lisibles ; les Automations restent prioritaires pour le contexte précis.</p></div></div>
     {!auth.isAdmin && <div className="readonly-label">Lecture seule — les réglages sont réservés aux administrateurs.</div>}
-    {error && <div className="auth-error" role="alert">{error}</div>}{message && <div className="cge-success" role="status">{message}</div>}
+    {error && <div className="auth-error" role="alert">{error}</div>}{message && <div className="action-policy-success" role="status">{message}</div>}
     <Panel title="SynoraNet"><div className="action-policy-whatsapp"><div><strong><Wifi size={15} /> {String((health?.network as any)?.gateway_ip ?? "10.77.0.1")}</strong><p>SSID : SynoraNet · Bande active : {activeBand === "2.4GHz" ? "2,4 GHz fallback" : activeBand}</p><small>DHCP 10.77.0.50–10.77.0.200 · HTTPS : {String((health?.components as any)?.https_api?.status ?? "unknown")} · RTSP : {String((health?.components as any)?.mediamtx_rtsp?.status ?? "unknown")}</small></div><div><span className={`badge ${activeBand === "2.4GHz" ? "warning" : activeBand === "disabled" ? "neutral" : "success"}`}>{synoranet.message ?? "État réseau indisponible"}</span></div></div></Panel>
     <Panel title="Santé système"><div className="action-policy-whatsapp"><div><strong>Version : {versionLabel}</strong><p>État API : {String(health?.status ?? "indisponible")}</p><small>Stockage : {storage.status ? String(storage.status) : storage.free_bytes ? `${String(storage.free_bytes)} octets libres` : "indisponible"}</small></div><span className="badge neutral">Lecture seule</span></div></Panel>
     <Panel title="Paliers d’action" action={<div><button className="secondary-button" type="button" onClick={() => void load()} disabled={busy}><RefreshCw size={14} /> Actualiser</button> <button className="secondary-button" type="button" onClick={() => void reset()} disabled={busy || !auth.isAdmin}><RotateCcw size={14} /> Defaults sûrs</button></div>}>

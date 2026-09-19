@@ -12,14 +12,13 @@ import (
 	"synora/pkg/contract"
 )
 
-// State-encoder/v5 is a shadow-only, model-independent projection. It is
-// deliberately separate from StateFrame and the frozen V4 encoder so that the
-// current MLP cannot consume it accidentally.
+// State-encoder/v5 is a model-independent projection of normalized evidence.
+// It is deliberately separate from the active MLP input contract.
 const (
 	StateEncoderV5SchemaVersion = "state-encoder/v5"
 	StateFrameV5CaptureSchema   = "synora.stateframe-v5-capture/v1"
 	EncoderV5ID                 = "synora-state-encoder"
-	EncoderV5Version            = "5.0.0-shadow"
+	EncoderV5Version            = "5.0.0"
 	EncoderV5Size               = 44
 )
 
@@ -53,7 +52,7 @@ const (
 )
 
 // StateFrameV5 contains only normalized, deterministic facts. It contains no
-// event, device, camera, track, identity, media, biometric, or teacher output.
+// event, device, camera, track, identity, media, or biometric data.
 type StateFrameV5 struct {
 	SchemaVersion  string                 `json:"schema_version"`
 	CapturedAt     time.Time              `json:"captured_at"`
@@ -203,7 +202,7 @@ func (V5StateEncoder) Version() string { return EncoderV5Version }
 
 // Encode computes only the fixed numeric vector. It does not serialize the
 // frame or allocate a variable-length Values slice. Fingerprint is separate so
-// normal shadow execution can avoid canonical JSON work.
+// normal execution can avoid canonical JSON work.
 func (e V5StateEncoder) Encode(ctx context.Context, frame StateFrameV5) (EncodedStateV5, error) {
 	if err := ctx.Err(); err != nil {
 		return EncodedStateV5{}, err

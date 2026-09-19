@@ -48,7 +48,7 @@ class ReproducibleDeployTests(unittest.TestCase):
             makefile,
         )
         migrations = sorted((ROOT / "migrations").glob("*.yaml"))
-        self.assertEqual([path.name[:4] for path in migrations], ["0001", "0002", "0003"])
+        self.assertEqual([path.name[:4] for path in migrations], ["0001", "0002"])
 
 
 if __name__ == "__main__":

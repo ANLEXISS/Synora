@@ -44,9 +44,9 @@ export function dashboardEventsFixtureTest() {
   }
 }
 
-export function dashboardCgeRiskFixtureTest() {
+export function dashboardRiskFixtureTest() {
   const danger = normalizeDashboardDanger({ danger_level: "high", danger_score: 0.75 }, {});
   if (danger.level === "none" || danger.score !== 0.75) {
-    throw new Error("CGE risk should remain active when runtime danger is high");
+    throw new Error("risk should remain active when runtime danger is high");
   }
 }

@@ -9,11 +9,10 @@ import (
 	"testing"
 )
 
-func TestStatePersistenceDoesNotImportCGEOrRuntimeServices(t *testing.T) {
+func TestStatePersistenceDoesNotImportRuntimeServices(t *testing.T) {
 	forbiddenImports := []string{
 		"synora/internal/actions",
 		"synora/internal/bus",
-		"synora/internal/engine",
 	}
 	assertNoForbiddenImports(t, ".", forbiddenImports)
 }

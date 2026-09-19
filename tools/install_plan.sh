@@ -52,7 +52,7 @@ emit_dir "$MEDIAMTX_DIR" 0755 "$SERVICE_USER" "$SERVICE_USER" 'required media se
 emit_dir "$CONFIG_DIR" 0755 root synora 'runtime configs; existing files are preserved'
 emit_dir "$CONFIG_DIR/secrets" 0750 root synora 'generated locally; never copied from Git'
 emit_file '' "$CONFIG_DIR/secrets/api_token" 0600 root synora 'generated locally; never copied from Git'
-emit_file '' "$CONFIG_DIR/secrets/session_secret" 0640 root synora 'generated locally; readable by synora-api'
+emit_file '' "$CONFIG_DIR/secrets/session_secret" 0640 root synora 'generated locally; readable by Discovery'
 emit_file '' "$CONFIG_DIR/secrets/synoranet_psk" 0600 root synora 'generated locally; never copied from Git'
 emit_file '' "$CONFIG_DIR/secrets/admin_initial_password" 0600 root synora 'generated locally; never copied from Git'
 emit_dir "$TEMPLATE_DIR" 0755 root root 'safe versioned templates'

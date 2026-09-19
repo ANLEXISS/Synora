@@ -70,15 +70,15 @@ type Clip struct {
 	FailureCode   string     `json:"failure_code,omitempty"`
 	Revision      uint64     `json:"revision"`
 
-	// Legacy/internal fields retained for compatibility with existing engine
-	// adapters and persisted state. They are not exposed as an absolute path.
+	// Internal fields retained for persisted event compatibility. They are not
+	// exposed as an absolute path.
 	EventID string    `json:"event_id,omitempty"`
 	Path    string    `json:"path,omitempty"`
 	Start   time.Time `json:"start,omitempty"`
 	End     time.Time `json:"end,omitempty"`
 }
 
-// MarshalJSON keeps the legacy clip wire shape stable while allowing V1
+// MarshalJSON keeps the persisted clip wire shape stable while allowing V1
 // episode windows to be present when they are actually known. time.Time does
 // not honor omitempty for zero values, so the new fields need an explicit wire
 // projection.

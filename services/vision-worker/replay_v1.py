@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Maintained real-clip replay entrypoint for Vision Clip V1 shadow mode."""
+"""Maintained real-clip replay entrypoint for Vision Clip V1 dry-run mode."""
 
 from __future__ import annotations
 

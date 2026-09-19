@@ -145,7 +145,7 @@ class WorkerRuntimeTests(unittest.TestCase):
         self.assertNotIn("frame", backend)
         self.assertNotIn("embedding", response["events"][-1]["payload"])
 
-    def test_real_clip_v1_requires_explicit_shadow_mode(self):
+    def test_real_clip_v1_requires_explicit_replay_mode(self):
         worker = VisionWorker.__new__(VisionWorker)
         worker.dry_run = False
         worker.clip_v1_enabled = False

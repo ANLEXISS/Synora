@@ -38,4 +38,3 @@ func TestVisionSegmentReadyV1IsDeterministicAndStrict(t *testing.T) {
 		t.Fatal("content hash change accepted without deterministic id change")
 	}
 }
-

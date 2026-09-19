@@ -7,7 +7,7 @@
     {
       "id": "central.target_board",
       "value": "rock-5-itx",
-      "source": "cmd/synora-api/main_test.go"
+      "source": "cmd/synora-discovery/main_test.go"
     },
     {
       "id": "camera.family",

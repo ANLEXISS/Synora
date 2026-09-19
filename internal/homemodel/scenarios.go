@@ -10,7 +10,7 @@ import (
 )
 
 // Scenario is a material-free deterministic acceptance input. ExpectedTypes
-// are advisory assertions used by the scenario runner and can be extended
+// are deterministic assertions used by the scenario runner and can be extended
 // without changing the Home Model contract.
 type Scenario struct {
 	ID            string

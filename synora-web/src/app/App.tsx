@@ -2,12 +2,10 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Sidebar } from "../components/Sidebar";
 import { Topbar } from "../components/Topbar";
 import { Dashboard } from "../pages/Dashboard";
-import { Cge } from "../pages/Cge";
 import { HomeMap } from "../pages/HomeMap";
 import { Devices } from "../pages/Devices";
 import { Residents } from "../pages/Residents";
 import { Automations } from "../pages/Automations";
-import { SynoraLab } from "../pages/SynoraLab";
 import { Settings } from "../pages/Settings";
 import { useAuth } from "../hooks/useAuth";
 import { Shield } from "lucide-react";
@@ -16,23 +14,16 @@ import { V1Onboarding } from "../components/V1Onboarding";
 
 export type PageId =
   | "dashboard"
-  | "live"
   | "home"
   | "devices"
   | "residents"
   | "automations"
-  | "cge"
-  | "lab"
   | "settings";
 
 const pageMeta: Record<PageId, { title: string; subtitle: string }> = {
   dashboard: {
     title: "Dashboard",
     subtitle: "Vue globale de la maison et du moteur Synora.",
-  },
-  live: {
-    title: "CGE — Cognitive Guard Engine",
-    subtitle: "Chaînes d’événements, raisonnement moteur et réglages de sécurité.",
   },
   home: {
     title: "Maison",
@@ -50,14 +41,6 @@ const pageMeta: Record<PageId, { title: string; subtitle: string }> = {
     title: "Automations",
     subtitle: "Règles locales, réactions et scénarios conditionnels.",
   },
-  cge: {
-    title: "CGE — Cognitive Guard Engine",
-    subtitle: "Chaînes d’événements, raisonnement moteur et réglages de sécurité.",
-  },
-  lab: {
-    title: "Synora Lab",
-    subtitle: "Simulation contrôlée des scénarios de sécurité.",
-  },
   settings: {
     title: "Settings",
     subtitle: "Configuration locale, sécurité et maintenance.",
@@ -66,13 +49,10 @@ const pageMeta: Record<PageId, { title: string; subtitle: string }> = {
 
 const pagePermissions: Record<PageId, string> = {
   dashboard: "state:read",
-  live: "cge:read",
   home: "topology:read",
   devices: "devices:read",
   residents: "residents:read",
   automations: "automations:read",
-  cge: "cge:read",
-  lab: "lab:use",
   settings: "settings:read",
 };
 
@@ -85,7 +65,7 @@ export default function App() {
 	function navigateTo(nextPage: PageId) {
 		setPage(nextPage);
 		setMobileSidebarOpen(false);
-		const path = nextPage === "live" ? "/cge" : `/${nextPage}`;
+		const path = `/${nextPage}`;
 		if (window.location.pathname !== path) window.history.pushState({}, "", path);
 	}
 
@@ -144,13 +124,10 @@ export default function App() {
         ) : (
           <ErrorBoundary key={page} name={page}>
             {page === "dashboard" && <Dashboard />}
-            {page === "live" && <Cge />}
             {page === "home" && <HomeMap />}
             {page === "devices" && <Devices />}
             {page === "residents" && <Residents />}
             {page === "automations" && <Automations />}
-            {page === "cge" && <Cge />}
-            {page === "lab" && <SynoraLab />}
             {page === "settings" && <Settings />}
           </ErrorBoundary>
         )}
@@ -249,13 +226,10 @@ function pageFromPath(): PageId | "not-found" {
 	const routes: Record<string, PageId> = {
 		"/": "dashboard",
 		"/dashboard": "dashboard",
-		"/live-events": "live",
-		"/cge": "live",
 		"/home": "home",
 		"/devices": "devices",
 		"/residents": "residents",
 		"/automations": "automations",
-		"/lab": "lab",
 		"/settings": "settings",
 	};
 	return routes[path] ?? "not-found";

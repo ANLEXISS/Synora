@@ -2,7 +2,7 @@ import { Check, CircleAlert, Eye, Film, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Panel } from "./Panel";
 import { useAuth } from "../hooks/useAuth";
-import { getClipMediaUrl, getClips, getIncidents, updateIncidentStatus } from "../lib/synora-api";
+import { getClipMediaUrl, getClips, getIncidents, updateIncidentStatus } from "../lib/discovery-api";
 import { formatDateTime } from "../lib/format";
 import type { SynoraClip, SynoraIncident } from "../lib/synora-types";
 

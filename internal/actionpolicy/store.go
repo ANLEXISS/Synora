@@ -395,7 +395,7 @@ func conditionValue(field string, event *contract.Event, decision *contract.Deci
 		return security.Armed, true
 	case "security.mode", "security_mode", "mode":
 		return string(security.Mode), true
-	case "danger.level", "danger_level", "cge.danger_level":
+	case "danger.level", "danger_level":
 		if decision != nil {
 			return decision.DangerLevel, decision.DangerLevel != ""
 		}

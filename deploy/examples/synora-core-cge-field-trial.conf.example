@@ -1,2 +1,0 @@
-[Service]
-EnvironmentFile=/etc/synora/cge-field-trial.env

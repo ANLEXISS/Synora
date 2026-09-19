@@ -51,7 +51,7 @@ prend effet sans rebuild frontend.
 Le backend applique les permissions avant les handlers. Le frontend masque les
 actions interdites uniquement pour l'ergonomie.
 
-- `admin` : accès complet, simulation, CGE, settings et sécurité.
+- `admin` : accès complet aux réglages et à la sécurité.
 - `resident` : lecture state, devices, residents sans champs sensibles,
   topology, automations et vidéo autorisée.
 - `guest` : lecture minimale state/topology pour cette passe.

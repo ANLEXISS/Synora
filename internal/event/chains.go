@@ -44,38 +44,38 @@ func DefaultChainConfig() ChainConfig {
 	}
 }
 
-// ChainConfigFromEnvironment provides an operational override for the
-// cge.event_chains defaults without introducing a second Discovery config.
+// ChainConfigFromEnvironment provides operational overrides without
+// introducing a second Discovery config.
 // Duration values use Go syntax, for example "30s" or "5s".
 func ChainConfigFromEnvironment(getenv func(string) string) ChainConfig {
 	config := DefaultChainConfig()
 	if getenv == nil {
 		return config
 	}
-	if value := strings.TrimSpace(getenv("SYNORA_CGE_SIGNIFICANT_INACTIVITY_TIMEOUT")); value != "" {
+	if value := strings.TrimSpace(getenv("SYNORA_CHAIN_SIGNIFICANT_INACTIVITY_TIMEOUT")); value != "" {
 		if parsed, err := time.ParseDuration(value); err == nil {
 			config.SignificantInactivityTimeout = parsed
 		}
 	}
-	if value := strings.TrimSpace(getenv("SYNORA_CGE_CONTEXTUAL_COALESCE_WINDOW")); value != "" {
+	if value := strings.TrimSpace(getenv("SYNORA_CHAIN_CONTEXTUAL_COALESCE_WINDOW")); value != "" {
 		if parsed, err := time.ParseDuration(value); err == nil {
 			config.ContextualCoalesceWindow = parsed
 		}
 	}
-	if value := strings.TrimSpace(getenv("SYNORA_CGE_RECENT_EVENTS_LIMIT")); value != "" {
+	if value := strings.TrimSpace(getenv("SYNORA_CHAIN_RECENT_EVENTS_LIMIT")); value != "" {
 		if parsed, err := strconv.Atoi(value); err == nil {
 			config.RecentEventsLimitPerChain = parsed
 		}
 	}
-	if value := strings.TrimSpace(getenv("SYNORA_CGE_EVALUATIONS_LIMIT")); value != "" {
+	if value := strings.TrimSpace(getenv("SYNORA_CHAIN_EVALUATIONS_LIMIT")); value != "" {
 		if parsed, err := strconv.Atoi(value); err == nil {
 			config.EvaluationsLimitPerChain = parsed
 		}
 	}
-	if value := strings.TrimSpace(getenv("SYNORA_CGE_MOTION_EXTENDS_CHAIN")); value != "" {
+	if value := strings.TrimSpace(getenv("SYNORA_CHAIN_MOTION_EXTENDS_CHAIN")); value != "" {
 		config.MotionExtendsChain = value == "1" || strings.EqualFold(value, "true")
 	}
-	if value := strings.TrimSpace(getenv("SYNORA_CGE_MOTION_CREATES_CHAIN")); value != "" {
+	if value := strings.TrimSpace(getenv("SYNORA_CHAIN_MOTION_CREATES_CHAIN")); value != "" {
 		config.MotionCreatesChain = value == "1" || strings.EqualFold(value, "true")
 	}
 	return config.normalize()
@@ -232,95 +232,6 @@ func (m *ChainManager) SetSignificantInactivityTimeout(timeout time.Duration) {
 	m.mu.Lock()
 	m.config.SignificantInactivityTimeout = timeout
 	m.mu.Unlock()
-}
-
-func (m *ChainManager) ApplyChainFeedback(chainID string, feedback contract.CgeChainFeedback) (*contract.CriticalChainMemory, error) {
-	if m == nil {
-		return nil, fmt.Errorf("event chain manager unavailable")
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	chain, ok := m.chains[strings.TrimSpace(chainID)]
-	if !ok || chain == nil {
-		return nil, fmt.Errorf("event chain %q not found", chainID)
-	}
-	var memory *contract.CriticalChainMemory
-	for _, candidate := range m.memories {
-		if candidate == nil {
-			continue
-		}
-		if candidate.RepresentativeChainID == chain.ID {
-			memory = candidate
-			break
-		}
-		for _, id := range candidate.RecentChainIDs {
-			if id == chain.ID {
-				memory = candidate
-				break
-			}
-		}
-		if memory != nil {
-			break
-		}
-	}
-	if memory == nil {
-		return nil, nil
-	}
-	memory.FeedbackCount++
-	memory.LastFeedbackAt = time.Now().UTC()
-	scope := feedback.Scope
-	if scope == "" {
-		scope = contract.CgeFeedbackApplyToSimilar
-	}
-	outcome := feedback.FinalOutcome
-	if outcome == "" {
-		switch feedback.CorrectionType {
-		case contract.CgeCorrectionFalsePositive, contract.CgeCorrectionReactionTooStrong:
-			outcome = contract.CgeOutcomeFalsePositive
-		case contract.CgeCorrectionFalseNegative, contract.CgeCorrectionReactionTooWeak:
-			outcome = contract.CgeOutcomeRealIncident
-		default:
-			outcome = contract.CgeOutcomeNormal
-		}
-	}
-	memory.Outcomes = appendUniqueString(memory.Outcomes, string(outcome))
-	if scope == contract.CgeFeedbackCaseOnly {
-		m.syncMemoryLocked(memory)
-		return cloneMemory(memory), nil
-	}
-	for _, action := range feedback.PreferredActions {
-		memory.RecommendedActions = appendUniqueString(memory.RecommendedActions, action)
-	}
-	for _, action := range feedback.PreferredActionDetails {
-		memory.RecommendedActions = appendUniqueString(memory.RecommendedActions, action.Command)
-	}
-	for _, action := range feedback.BlockedActions {
-		memory.BlockedActions = appendUniqueString(memory.BlockedActions, action.Command+":"+action.Reason)
-	}
-	switch outcome {
-	case contract.CgeOutcomeFalsePositive, contract.CgeOutcomeNormal:
-		memory.Confidence = maxFloat(0, memory.Confidence*0.8)
-	case contract.CgeOutcomeRealIncident:
-		memory.Confidence = minFloat(1, memory.Confidence+(1-memory.Confidence)*0.2)
-	}
-	m.syncMemoryLocked(memory)
-	return cloneMemory(memory), nil
-}
-
-func appendUniqueString(values []string, value string) []string {
-	for _, current := range values {
-		if current == value {
-			return values
-		}
-	}
-	return append(values, value)
-}
-
-func maxFloat(a, b float64) float64 {
-	if b > a {
-		return b
-	}
-	return a
 }
 
 func (m *ChainManager) Process(event *contract.Event, evaluation *contract.ChainEvaluation) []ChainUpdate {
@@ -826,7 +737,7 @@ func summaryFromEvaluation(chain *contract.EventChain, evaluation *contract.Chai
 	if chain.Title != "" {
 		return chain.Title
 	}
-	return "Évaluation CGE mise à jour"
+	return "Évaluation cognitive mise à jour"
 }
 
 func severity(priority int) string {
@@ -991,7 +902,6 @@ func cloneChain(value *contract.EventChain) *contract.EventChain {
 		cloned.Evaluations[i].Reasons = append([]string(nil), value.Evaluations[i].Reasons...)
 		cloned.Evaluations[i].Hypotheses = append([]string(nil), value.Evaluations[i].Hypotheses...)
 		cloned.Evaluations[i].RecommendedActions = append([]string(nil), value.Evaluations[i].RecommendedActions...)
-		cloned.Evaluations[i].RecommendedActionsFromCGE = append([]string(nil), value.Evaluations[i].RecommendedActionsFromCGE...)
 		cloned.Evaluations[i].RecommendedActionsFromPolicy = append([]string(nil), value.Evaluations[i].RecommendedActionsFromPolicy...)
 		cloned.Evaluations[i].PolicyActions = append([]contract.PolicyActionDecision(nil), value.Evaluations[i].PolicyActions...)
 		cloned.Evaluations[i].FinalActionPlan = append([]contract.ActionPlanItem(nil), value.Evaluations[i].FinalActionPlan...)

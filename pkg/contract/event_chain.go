@@ -53,14 +53,12 @@ type ChainEvaluation struct {
 	Reasons                      []string               `json:"reasons,omitempty"`
 	Hypotheses                   []string               `json:"hypotheses,omitempty"`
 	RecommendedActions           []string               `json:"recommended_actions,omitempty"`
-	RecommendedActionsFromCGE    []string               `json:"recommended_actions_from_cge,omitempty"`
 	RecommendedActionsFromPolicy []string               `json:"recommended_actions_from_policy,omitempty"`
 	PolicyActions                []PolicyActionDecision `json:"policy_actions,omitempty"`
 	FinalActionPlan              []ActionPlanItem       `json:"final_action_plan,omitempty"`
 	ActionDecisionReason         string                 `json:"action_decision_reason,omitempty"`
 	ActionDecision               string                 `json:"action_decision,omitempty"`
 	BlockedActions               []string               `json:"blocked_actions,omitempty"`
-	EngineVersion                string                 `json:"engine_version,omitempty"`
 }
 
 type ChainCompaction struct {

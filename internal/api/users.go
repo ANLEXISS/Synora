@@ -41,8 +41,6 @@ const (
 	PermissionTopologyWrite    = "topology:write"
 	PermissionAutomationsRead  = "automations:read"
 	PermissionAutomationsWrite = "automations:write"
-	PermissionCGERead          = "cge:read"
-	PermissionCGEWrite         = "cge:write"
 	PermissionSimulationRun    = "simulation:run"
 	PermissionLabUse           = "lab:use"
 	PermissionVideoRead        = "video:read"
@@ -94,7 +92,6 @@ func PermissionsForRole(role string) []string {
 			PermissionResidentsRead, PermissionResidentsWrite,
 			PermissionTopologyRead, PermissionTopologyWrite,
 			PermissionAutomationsRead, PermissionAutomationsWrite,
-			PermissionCGERead, PermissionCGEWrite,
 			PermissionSimulationRun, PermissionLabUse,
 			PermissionVideoRead,
 			PermissionSettingsRead, PermissionSettingsWrite,
@@ -103,7 +100,6 @@ func PermissionsForRole(role string) []string {
 	case RoleResident:
 		permissions = []string{
 			PermissionStateRead,
-			PermissionCGERead,
 			PermissionDevicesRead,
 			PermissionResidentsRead,
 			PermissionTopologyRead,
@@ -113,7 +109,6 @@ func PermissionsForRole(role string) []string {
 	case RoleGuest:
 		permissions = []string{
 			PermissionStateRead,
-			PermissionCGERead,
 			PermissionDevicesRead,
 			PermissionTopologyRead,
 		}

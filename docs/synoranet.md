@@ -8,7 +8,7 @@ La PSK est lue depuis `ap.passphrase_file`. Si le fichier manque, Discovery gén
 
 Le modèle de sécurité est `security.mode: wpa3`, avec SAE uniquement, PMF obligatoire et isolation client. `wpa2-wpa3-transition` doit être configuré explicitement et est dégradé ; `wpa2` reste réservé au legacy/dev. L'ancien `ap.wpa` est accepté et mappé lors du chargement.
 
-Le gestionnaire tente le canal 36 en 5 GHz (`hw_mode=a`, largeur 20 MHz). En cas d'échec hostapd, il active le canal 6 en 2,4 GHz avec le message `5 GHz failed, running 2.4 GHz fallback`. Si les deux profils échouent, le réseau est `unavailable` mais Discovery ne redémarre pas en boucle et ne publie pas d'événement de sécurité CGE.
+Le gestionnaire tente le canal 36 en 5 GHz (`hw_mode=a`, largeur 20 MHz). En cas d'échec hostapd, il active le canal 6 en 2,4 GHz avec le message `5 GHz failed, running 2.4 GHz fallback`. Si les deux profils échouent, le réseau est `unavailable` mais Discovery ne redémarre pas en boucle et ne publie pas d'événement de sécurité.
 
 L'état est écrit dans `/run/synora/network-status.json` et exposé dans les rapports runtime (`synoranet`, `ap_5ghz`, `ap_2ghz`, `dhcp`, `dns`, `wifi_security`, `network_isolation`, `firewall`). Le firewall utilise une table/chaînes dédiées, autorise seulement les ports configurés vers la centrale et bloque le forwarding de `synorabr0` vers le LAN, Tailscale, Internet et les autres interfaces. SynoraNet n'impose pas de NAT Internet et ne remplace pas les règles globales non-Synora.
 

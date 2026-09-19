@@ -1,5 +1,5 @@
 import type { SynoraDevice } from "./synora-types";
-import type { DeviceMutationPayload } from "./synora-api";
+import type { DeviceMutationPayload } from "./discovery-api";
 
 export type DeviceEditForm = {
   name: string;

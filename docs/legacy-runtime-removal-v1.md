@@ -9,8 +9,11 @@ Supprimés de ce lot :
 - les chemins de configuration runtime CGE et le feature flag de validation CGE ;
 - les anciens fixtures de catalogue qui ciblaient `cmd/synora-api` et `internal/rpc`.
 
-Conservés volontairement hors runtime : `internal/cge`, `internal/engine` et `internal/eval` sont encore compilés par des outils de catalogue, de qualification ou de migration. Aucun import actif du Core, de Discovery ou du replay V1 ne les charge ; le test d’architecture échoue si un import ou un marqueur de mode legacy réapparaît dans ces racines runtime.
+La purge finale a supprimé les anciens packages, outils de catalogue et
+fixtures qui les chargeaient. Cette note est conservée comme historique de
+migration ; aucun import actif du Core, de Discovery ou du replay V1 ne les
+charge.
 
-V4 reste présent comme contrat historique byte-compatible et comme couverture de tests/parité. Il n’est pas le vecteur du MLP V1 actif, qui utilise le snapshot encoder V1 à 86 dimensions. Les poids `.pt`, les manifests et l’ordre de features ne sont pas modifiés.
+Les contrats V1 et les poids `.pt` restent inchangés par cette migration.
 
 Rollback : revert du commit `refactor: remove remaining legacy runtime paths`, puis reconstruction/test des outils historiques concernés. Aucun fichier stable hors ce worktree n’est requis.

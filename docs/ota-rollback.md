@@ -45,7 +45,7 @@ runtime intacts.
 | Échec écriture du slot inactif | fatal | Rester sur le slot actif |
 | Boot du nouveau slot impossible | fatal | Bootloader vers slot précédent |
 | `synora-bus` ou `synora-core` KO | fatal | Rollback |
-| `synora-api` KO ou health API inaccessible | fatal | Rollback |
+| Discovery KO ou health API inaccessible | fatal | Rollback |
 | `/etc/synora` illisible | fatal | Rollback |
 | `/var/lib/synora` ou `/models` illisible | fatal | Rollback |
 | Driver Wi-Fi principal absent avec SynoraNet enabled | fatal | Rollback |
@@ -101,7 +101,6 @@ Les migrations sont versionnées et idempotentes, par exemple :
 migrations/
   0001_network_security.yaml
   0002_features_flags.yaml
-  0003_cge_decay.yaml
 ```
 
 Chaque migration doit :

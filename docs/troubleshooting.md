@@ -33,7 +33,7 @@ préparation de la machine cible.
 Les événements `discovery.worker.started/crashed` sont des diagnostics. Ils ne
 créent pas d'intrusion. Un redémarrage répété est coalescé en
 `runtime.component.flapping`; consulter le statut runtime et les logs du
-worker plutôt que le CGE.
+worker plutôt que les décisions métier.
 
 ## Aucune action
 
@@ -45,16 +45,6 @@ pour les tests et ne doit jamais déclencher une action réelle.
 
 ## Tester sans polluer le réel
 
-Utiliser `POST /api/cge/manual-risk` avec `test:true`, une raison explicite et
-une durée courte. Le signal est visible dans le CGE mais reste simulé/dry-run.
-Les événements bruts et les historiques ne sont jamais supprimés par un reset
-d'état.
-
-Le retour contient un `event_id`. Après le délai demandé, le risque manuel
-repasse à `idle/none` et sa chaîne est fermée avec la raison
-`manual_risk_expired`.
-
-Avec `test:true`, le danger réel reste inchangé ; le diagnostic expose
-`manual_risk_test=true`, `test_danger_level`, `manual_risk_expires_at` et le
-compteur de chaînes simulées. Avec `test:false`, le niveau manuel devient le
-danger courant pendant la durée demandée.
+Utiliser les fixtures et les replays V1 en `active_dry_run`. Les événements et
+les historiques ne sont jamais supprimés par un reset d'état, et aucune
+commande physique n'est émise pendant une qualification.

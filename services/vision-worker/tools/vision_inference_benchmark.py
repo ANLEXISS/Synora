@@ -342,7 +342,7 @@ def main(argv=None):
         "strategies": results,
         "selected_strategy": chosen,
         "fixture": fixture_status,
-        "shadow_boundary": {"cognitive_mode": "advisory_shadow", "physical_action_executed": False},
+		"runtime_boundary": {"cognitive_mode": "active_dry_run", "physical_action_executed": False},
     }
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "benchmark.json").write_text(json.dumps(report, indent=2, default=str) + "\n", encoding="utf-8")
@@ -351,7 +351,7 @@ def main(argv=None):
         f"- selected strategy: `{chosen}`\n"
         f"- frames: `{len(samples)}`\n"
         f"- fixture: `{fixture_status['status']}`\n"
-        "- cognitive mode: `advisory_shadow`\n"
+		"- cognitive mode: `active_dry_run`\n"
         "- physical action executed: `false`\n",
         encoding="utf-8",
     )

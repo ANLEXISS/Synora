@@ -21,7 +21,7 @@ func testChainEvent(eventType, activation string, at time.Time) *contract.Event 
 func testEvaluation(eventID, state, level string, score float64) *contract.ChainEvaluation {
 	return &contract.ChainEvaluation{
 		EventID: eventID, State: state, DangerLevel: level, DangerScore: score,
-		Reasons: []string{"test evaluation"}, EngineVersion: "test",
+		Reasons: []string{"test evaluation"},
 	}
 }
 
@@ -159,7 +159,7 @@ func TestChainClosesAfter30sWithoutSignificantEvent(t *testing.T) {
 	}
 }
 
-func TestEngineEvaluationProducedAtEachSignificantLink(t *testing.T) {
+func TestCognitiveEvaluationProducedAtEachSignificantLink(t *testing.T) {
 	manager := NewChainManager(DefaultChainConfig())
 	manager.Process(testChainEvent(contract.EventVisionUnknown, "activation-1", chainTestStart), testEvaluation("one", "suspicious", "medium", 0.7))
 	manager.Process(testChainEvent(contract.EventVisionWeapon, "activation-1", chainTestStart.Add(time.Second)), testEvaluation("two", "break-in", "critical", 0.98))
@@ -189,28 +189,5 @@ func TestCriticalChainMemoryMarksSimulationSource(t *testing.T) {
 	memories := manager.CriticalMemories(10)
 	if len(memories) != 1 || memories[0].Source != "simulation" || !memories[0].Simulated || memories[0].SimulatedOccurrences != 1 || memories[0].RealOccurrences != 0 {
 		t.Fatalf("simulation memory metadata=%#v", memories)
-	}
-}
-
-func TestChainFeedbackChangesCriticalMemoryWithoutChangingChain(t *testing.T) {
-	manager := NewChainManager(DefaultChainConfig())
-	event := testChainEvent(contract.EventVisionWeapon, "feedback-chain", chainTestStart)
-	manager.Process(event, testEvaluation(event.ID, "break-in", "critical", 0.98))
-	original := manager.List(ChainFilter{Status: "all"})[0]
-	before := original.MaxDangerScore
-	memories := manager.CriticalMemories(10)
-	if len(memories) != 1 {
-		t.Fatalf("memories=%#v", memories)
-	}
-	beforeConfidence := memories[0].Confidence
-	if _, err := manager.ApplyChainFeedback(original.ID, contract.CgeChainFeedback{ChainID: original.ID, FinalOutcome: contract.CgeOutcomeFalsePositive}); err != nil {
-		t.Fatalf("apply feedback: %v", err)
-	}
-	after := manager.List(ChainFilter{Status: "all"})[0]
-	if after.MaxDangerScore != before || after.DangerLevel != original.DangerLevel || after.Summary != original.Summary {
-		t.Fatalf("chain changed after feedback: before=%#v after=%#v", original, after)
-	}
-	if memory := manager.CriticalMemories(10)[0]; memory.Confidence >= beforeConfidence {
-		t.Fatalf("confidence did not decrease: before=%v after=%v", beforeConfidence, memory.Confidence)
 	}
 }

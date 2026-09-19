@@ -161,7 +161,7 @@ type cpuHead struct {
 }
 
 // CPUBundleMLP is the small deterministic inference backend emitted by the
-// V1 Python pipeline. It has no dependency on PyTorch or V4 model formats.
+// V1 Python pipeline. It has no dependency on PyTorch model formats.
 type CPUBundleMLP struct {
 	Manifest Manifest
 	Heads    map[string]cpuHead

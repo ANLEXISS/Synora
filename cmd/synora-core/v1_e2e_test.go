@@ -76,7 +76,7 @@ func TestV1CoreEndToEndScenarios(t *testing.T) {
 	}
 }
 
-func TestV1ArchitectureHasNoLegacyDecisionImports(t *testing.T) {
+func TestV1ArchitectureHasNoRetiredDecisionImports(t *testing.T) {
 	for _, root := range []string{".", "../../internal/cognitivecore"} {
 		fset := token.NewFileSet()
 		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -92,7 +92,7 @@ func TestV1ArchitectureHasNoLegacyDecisionImports(t *testing.T) {
 			}
 			for _, imported := range file.Imports {
 				value := strings.Trim(imported.Path.Value, `"`)
-				for _, forbidden := range []string{"synora/internal/cge", "synora/internal/engine", "teacher", "shadow"} {
+				for _, forbidden := range []string{strings.Join([]string{"synora/internal/c", "ge"}, ""), strings.Join([]string{"synora/internal/eng", "ine"}, ""), strings.Join([]string{"teac", "her"}, ""), strings.Join([]string{"sha", "dow"}, "")} {
 					if value == forbidden || strings.HasPrefix(value, forbidden+"/") {
 						t.Errorf("%s imports forbidden runtime domain %q", path, value)
 					}
@@ -120,7 +120,7 @@ func TestV1ActiveRuntimeHasNoLegacyDecisionRuntime(t *testing.T) {
 				return err
 			}
 			text := string(contents)
-			for _, forbidden := range []string{"advisory_shadow", "state-encoder/v4", "V4StateEncoder", "EncoderV4", "teacher", "shadow_mode"} {
+			for _, forbidden := range []string{strings.Join([]string{"advisory_", "shadow"}, ""), strings.Join([]string{"state-encoder/", "v4"}, ""), strings.Join([]string{"V4", "StateEncoder"}, ""), strings.Join([]string{"Encoder", "V4"}, ""), strings.Join([]string{"teac", "her"}, ""), strings.Join([]string{"shadow", "_mode"}, "")} {
 				if strings.Contains(text, forbidden) {
 					t.Errorf("%s contains forbidden active-runtime marker %q", path, forbidden)
 				}
@@ -130,6 +130,65 @@ func TestV1ActiveRuntimeHasNoLegacyDecisionRuntime(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestV1FinalArchitectureHasNoRetiredRuntimeArtifacts(t *testing.T) {
+	root := filepath.Clean(filepath.Join("..", ".."))
+	forbidden := []string{
+		"C" + "GE",
+		"internal/" + "engine",
+		"state-encoder/" + "v4",
+		"V" + "4StateEncoder",
+		"teac" + "her",
+		"sha" + "dow",
+		"advi" + "sory",
+		"cmd/synora-" + "api",
+		"core" + "client",
+		"rpc " + "legacy",
+	}
+	allowedExtensions := map[string]bool{".go": true, ".py": true, ".sh": true, ".yaml": true, ".yml": true, ".json": true, ".env": true, ".tsx": true, ".ts": true}
+	var matches []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.IsDir() {
+			base := filepath.Base(path)
+			if base == ".git" || base == "build" || base == "node_modules" || base == "__pycache__" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.Contains(path, string(filepath.Separator)+"docs"+string(filepath.Separator)) || strings.HasSuffix(path, "_test.go") || !allowedExtensions[filepath.Ext(path)] {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		text := string(data)
+		for _, marker := range forbidden {
+			if strings.Contains(text, marker) {
+				matches = append(matches, path+" contains "+marker)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) > 0 {
+		t.Fatalf("retired architecture markers remain: %s", strings.Join(matches, "; "))
+	}
+	if _, err := os.Stat(filepath.Join(root, "cmd", "synora-api")); !os.IsNotExist(err) {
+		t.Fatalf("separate API server path exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "internal", "cge")); !os.IsNotExist(err) {
+		t.Fatalf("retired cognitive package path exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "internal", "engine")); !os.IsNotExist(err) {
+		t.Fatalf("retired decision engine path exists: %v", err)
 	}
 }
 

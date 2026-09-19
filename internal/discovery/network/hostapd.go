@@ -108,7 +108,7 @@ func supports5GHz(iface string) bool {
 	output, err := exec.Command("iw", "list").Output()
 	if err != nil {
 		return true
-	} // Detection is advisory; hostapd remains authoritative.
+	} // Detection is observational; hostapd remains authoritative.
 	text := string(output)
 	return strings.Contains(text, "Band 2:") || strings.Contains(text, "5180 MHz") || strings.Contains(text, "5 GHz")
 }

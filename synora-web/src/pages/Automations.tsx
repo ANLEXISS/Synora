@@ -29,7 +29,7 @@ import {
   deleteAutomation,
   getAutomations,
   updateAutomation,
-} from "../lib/synora-api";
+} from "../lib/discovery-api";
 import {
   automationPayloadMatches,
   automationToFormState,

@@ -5,10 +5,9 @@ SHELL := /usr/bin/env bash
 	check-go install-deps install-dirs install-bins install-config install-models \
 	build-web install-web restart-web web-status rotate-api-token generate-local-cert generate-discovery-cert install-mediamtx install-vision-worker install-face-data install-diagnostics install-systemd enable-services install-plan \
 	build-bootstrap-config install-bootstrap-config generate-version install-version install-model-manifest build-boot-healthcheck install-boot-healthcheck \
-	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	diagnostics
 
-.PHONY: build-dataset train validate test export parity package-model incident-v2 independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 cognitive-runtime-benchmark-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
+.PHONY: build-dataset train validate test export parity package-model incident-v2 incident-redteam-v1 independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 cognitive-runtime-benchmark-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
 
 COGNITIVE_V1_PIPELINE ?= tools/cognitive_v1_pipeline.py
 COGNITIVE_V1_BUNDLE ?= build/cognitive-mlp-v1
@@ -101,6 +100,7 @@ help:
 		'  make perf-baseline-v1     Run and compare the reproducible Vision/MLP before-after benchmark' \
 		'  make cognitive-runtime-benchmark-v1  Measure cold and steady cognitive runtime only' \
 		'  make incident-v2            Retrain and qualify only the incident head' \
+		'  make incident-redteam-v1    Evaluate incident-v2 on the sealed adversarial set' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
 		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
 		'  persistent face data     Keep resident face files in $(FACE_DATA_DIR)' \
@@ -141,6 +141,9 @@ package-model: parity
 incident-v2: check-go package-model
 	$(PYTHON) tools/incident_v2_pipeline.py --promote
 
+incident-redteam-v1: check-go incident-v2
+	$(PYTHON) tools/incident_redteam_v1.py --repo "$(CURDIR)"
+
 independent-test: package-model
 	$(PYTHON) $(COGNITIVE_V1_PIPELINE) independent-test
 
@@ -177,7 +180,7 @@ build-bootstrap-config: check-go
 	done
 
 diagnostics:
-	bash -n tools/synora_system_test.sh tools/synora_check.sh tools/diagnostics/vision/send_clip.sh
+	bash -n tools/synora_check.sh tools/diagnostics/vision/send_clip.sh
 
 hash-password: check-go
 	@if [ -z "$(PASSWORD)" ]; then echo "FAIL: PASSWORD is required" >&2; exit 1; fi
@@ -190,7 +193,7 @@ test: check-go validate export
 
 e2e-v1: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$' -count=1 -v
-	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1ArchitectureHasNoLegacyDecisionImports$$' -count=1 -v
+	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1ArchitectureHasNoRetiredDecisionImports$$|^TestV1FinalArchitectureHasNoRetiredRuntimeArtifacts$$' -count=1 -v
 
 e2e-vision-mlp-v1: check-go incident-v2
 	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }
@@ -199,7 +202,7 @@ e2e-vision-mlp-v1: check-go incident-v2
 	$(MAKE) replay-vision-core-v1 CLIP="$(CLIP)" OUT="$(OUT)"
 
 e2e-cognitive-core-v1: check-go incident-v2
-	SYNORA_COGNITIVE_BUNDLE="$(CURDIR)/$(COGNITIVE_V1_BUNDLE)" GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$|^TestV1DiscoveryCoreStoreDiscoveryActionResultLoop$$|^TestV1LoadedBundleRunsAllHeadsInActiveDryRun$$|^TestV1StoreSaturationRemainsBounded$$|^TestV1ArchitectureHasNoLegacyDecisionImports$$' -count=1 -v
+	SYNORA_COGNITIVE_BUNDLE="$(CURDIR)/$(COGNITIVE_V1_BUNDLE)" GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$|^TestV1DiscoveryCoreStoreDiscoveryActionResultLoop$$|^TestV1LoadedBundleRunsAllHeadsInActiveDryRun$$|^TestV1StoreSaturationRemainsBounded$$|^TestV1ArchitectureHasNoRetiredDecisionImports$$|^TestV1FinalArchitectureHasNoRetiredRuntimeArtifacts$$' -count=1 -v
 
 e2e-store-compaction-v1: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./internal/cognitivecore -run '^TestUniversalStoreCompaction' -count=1 -v
@@ -403,18 +406,6 @@ build-web:
 	else \
 		echo "WARN: $(WEBAPP_DIR)/package.json not found; skipping webapp build."; \
 	fi
-
-system-test-smoke:
-	@./tools/synora_system_test.sh --target local --base-url "$${BASE_URL:-http://127.0.0.1:8080}" --mode smoke $${SYNORA_SYSTEM_TEST_EXTRA_ARGS:-}
-
-system-test-full:
-	@./tools/synora_system_test.sh --target local --base-url "$${BASE_URL:-http://127.0.0.1:8080}" --mode full $${SYNORA_SYSTEM_TEST_EXTRA_ARGS:-}
-
-system-test-readonly:
-	@./tools/synora_system_test.sh --target local --base-url "$${BASE_URL:-http://127.0.0.1:8080}" --mode readonly $${SYNORA_SYSTEM_TEST_EXTRA_ARGS:-}
-
-system-test-stress-lite:
-	@./tools/synora_system_test.sh --target local --base-url "$${BASE_URL:-http://127.0.0.1:8080}" --mode stress-lite $${SYNORA_SYSTEM_TEST_EXTRA_ARGS:-}
 
 install-web: build-web
 	@if [ ! -d "$(WEBAPP_DIR)" ]; then \

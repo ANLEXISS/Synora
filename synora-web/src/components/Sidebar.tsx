@@ -1,7 +1,5 @@
 import type { ComponentType } from "react";
 import {
-  Bot,
-  Brain,
   Cpu,
   Home,
   LayoutDashboard,
@@ -27,12 +25,10 @@ const items: {
   icon: ComponentType<{ size?: number }>;
 }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "live", label: "CGE", icon: Brain },
   { id: "home", label: "Maison", icon: Home },
   { id: "devices", label: "Périphériques", icon: Cpu },
   { id: "residents", label: "Résidents", icon: Users },
   { id: "automations", label: "Automations", icon: Workflow },
-  { id: "lab", label: "Synora Lab", icon: Bot },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -95,7 +91,6 @@ export function Sidebar({
 function permissionForPage(page: PageId) {
   switch (page) {
     case "dashboard": return "state:read";
-    case "live": return "cge:read";
     case "home":
       return "topology:read";
     case "devices":
@@ -104,10 +99,6 @@ function permissionForPage(page: PageId) {
       return "residents:read";
     case "automations":
       return "automations:read";
-    case "cge":
-      return "cge:read";
-    case "lab":
-      return "lab:use";
     case "settings":
       return "settings:read";
   }

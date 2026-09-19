@@ -21,7 +21,7 @@ lui seul le MLP.
 
 Le vecteur possède une dimension fixe et un ordre publié par le code et les
 tests golden. Un champ absent reçoit une valeur neutre documentée ; une valeur
-non finie ou hors plage est clampée. Les sorties teacher, le danger attendu et
+non finie ou hors plage est clampée. Les sorties de supervision, le danger attendu et
 les décisions antérieures non persistées n’entrent jamais dans l’encodage.
 
 ## Heads
@@ -33,7 +33,6 @@ sorties précédentes du même cycle. Les actions sont abstraites : `no_action`,
 
 ## Compatibilité
 
-V4 reste un contrat séparé et n’est pas modifié. Un manifest V4 ne peut pas
-être chargé comme bundle V1 : la version, la dimension et les labels doivent
-correspondre exactement. En l’absence de bundle V1 compatible, le Core persiste
-les faits en `active_dry_run` fail-closed et n’envoie aucune action.
+Le contrat V1 est versionné, dimensionné et validé par son manifest. En
+l’absence de bundle compatible, le Core persiste les faits en
+`active_dry_run` fail-closed et n’envoie aucune action.

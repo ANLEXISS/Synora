@@ -25,7 +25,7 @@ import { useSynoraData } from "../hooks/useSynoraData";
 import { useAuth } from "../hooks/useAuth";
 import { SynoraApiError } from "../lib/api";
 import { buildDeviceMutationPayload, deviceToEditForm, type DeviceEditForm } from "../lib/device-form";
-import { deleteDevice, getDevices, getStreams, revokeSynoraCamera, startSynoraPairingWindow, stopSynoraPairingWindow, updateDevice } from "../lib/synora-api";
+import { deleteDevice, getDevices, getStreams, revokeSynoraCamera, startSynoraPairingWindow, stopSynoraPairingWindow, updateDevice } from "../lib/discovery-api";
 import { normalizeTopologyDevices } from "../lib/topology";
 import { getRoomLabel, getTopologyRooms } from "../lib/topology";
 import type { SynoraDevice, SynoraStreamDescriptor } from "../lib/synora-types";

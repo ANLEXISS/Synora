@@ -38,7 +38,7 @@ traité.
 Discovery réessaie la connexion au socket avec un nombre limité de tentatives,
 marque la capability indisponible et continue son serveur d'ingress. Les
 événements de worker sont limités dans le temps ; plusieurs crashes donnent un
-événement `runtime.component.flapping` au lieu de polluer le CGE.
+événement `runtime.component.flapping` au lieu de polluer le flux d’observations.
 
 `make doctor` et `make install-models` indiquent explicitement les fichiers
 RKNN manquants. Ils ne rendent pas le runtime fatal lorsque les modèles ne sont

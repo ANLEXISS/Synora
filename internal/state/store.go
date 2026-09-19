@@ -927,7 +927,7 @@ func (s *Store) RecentEventsList() []*contract.Event {
 }
 
 // HomeModelRaw returns the persisted Home World Model working state. It is a
-// raw boundary on purpose: the state package does not depend on CGE model
+// raw boundary on purpose: the state package does not depend on cognitive model
 // implementation details and older state files remain valid.
 func (s *Store) HomeModelRaw() json.RawMessage {
 	if s == nil {

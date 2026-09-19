@@ -89,12 +89,6 @@ func TestStateFrameV5RejectsVisionP0(t *testing.T) {
 	}
 }
 
-func TestStateFrameV5DoesNotChangeV4Contract(t *testing.T) {
-	if StateEncoderSchemaVersion != "state-encoder/v4" || EncoderV4Size != 477 || EncoderV4Version != "4.0.0" {
-		t.Fatalf("V4 contract changed: schema=%s size=%d version=%s", StateEncoderSchemaVersion, EncoderV4Size, EncoderV4Version)
-	}
-}
-
 func TestStateFrameV5EncodeDoesNotAllocateVariableVector(t *testing.T) {
 	frame := StateFrameV5{CapturedAt: time.Unix(1, 0).UTC(), TopologyClass: contract.VisionTopologyUnknown, Priority: contract.VisionPriorityP4, PriorityOrigin: V5PriorityOriginVision}
 	encoder := V5StateEncoder{}

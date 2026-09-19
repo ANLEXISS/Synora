@@ -11,10 +11,10 @@ from typing import Any
 
 def audit(root: Path) -> dict[str, Any]:
     required = [
-        "docs/v1/V1_EXECUTION_STATUS.md",
+        "docs/v1/V1_RC_EVIDENCE.md",
         "docs/v1/V1_HARDWARE_QUALIFICATION_PROTOCOL.md",
         "docs/v1/V1_CAMERA_NETWORK_QUALIFICATION.md",
-        "docs/v1/V1_USER_FLOW_QUALIFICATION.md",
+        "docs/v1/V1_USER_FLOW_QUALIFICATION.json",
         "docs/v1/V1_RELEASE_ENGINEERING.md",
         "docs/v1/V1_REGULATORY_EVIDENCE_MATRIX.json",
         "docs/v1/V1_BACKUP_POLICY.md",
@@ -23,7 +23,7 @@ def audit(root: Path) -> dict[str, Any]:
         "docs/ota-rollback.md",
     ]
     missing = [path for path in required if not (root / path).is_file()]
-    status_text = (root / "docs/v1/V1_EXECUTION_STATUS.md").read_text(encoding="utf-8") if not missing else ""
+    status_text = (root / "docs/v1/V1_RC_EVIDENCE.md").read_text(encoding="utf-8") if not missing else ""
     regulatory = json.loads((root / "docs/v1/V1_REGULATORY_EVIDENCE_MATRIX.json").read_text(encoding="utf-8")) if not missing else {}
     p1 = [
         {"id": "hardware_target", "status": "blocked_external", "detail": "BOM complète, unité cible et mesures physiques non disponibles."},

@@ -49,7 +49,7 @@ La version est exposée par `GET /api/system/version`. Le slot est
 - secrets lisibles par les seuls services autorisés, sans les inclure dans le
   rapport ;
 - `/var/lib/synora` lisible et writable par `synora` ;
-- `/var/lib/synora/state`, `logs`, `auth`, `vision/face`, `cge` accessibles ;
+- `/var/lib/synora/state`, `logs`, `auth` et les répertoires Vision autorisés accessibles ;
 - `/var/lib/synora/models` présent si la policy modèle l’exige ;
 - espace libre suffisant pour les écritures atomiques et backups.
 
@@ -63,7 +63,7 @@ Vérifier que ces unités sont actives et stables pendant une fenêtre bornée :
 
 - `synora-bus`
 - `synora-core`
-- `synora-api`
+- `synora-discovery`
 - `synora-discovery`
 - `synora-actions`
 
