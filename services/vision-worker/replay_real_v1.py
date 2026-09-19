@@ -55,8 +55,9 @@ def main() -> int:
     sys.path.insert(0, str(worker_root))
     try:
         from modules.detect.person_detector import PersonDetector
-        from core.clip_pipeline_v1 import ClipMetadata, Topology, TopologyClass, VisionClipPipelineV1
+        from core.clip_pipeline_v1 import ClipMetadata, Topology, TopologyClass
         from core.detector_backend import ExistingDetectorBackend
+        from edge.worker import EdgeVisionWorkerV1
     except Exception as exc:
         return fail(output, f"Vision runtime import failed: {exc}", model_path=str(model))
 
@@ -87,15 +88,10 @@ def main() -> int:
             ends_at=end_at,
             clip_ref=None,
         )
-        pipeline = VisionClipPipelineV1({
-            "sampling_initial_fps": 5.0,
-            "sampling_active_fps": 5.0,
-            "sampling_stable_fps": 2.0,
-            "sampling_quiet_fps": 2.0,
-            "sampling_minimum_detection_fps": 1.0,
-            "max_crops_per_track": 0,
-        })
-        events = pipeline.process_video(clip_meta, str(clip), backend, sample_period_seconds=0.2)
+        edge = EdgeVisionWorkerV1()
+        result = edge.process_video(clip_meta, str(clip), backend,
+                                    segment_count=len(segments), edge_emulated=True)
+        events = list(result.events)
         observations = [event for event in events if event.get("type") == "synora.vision.clip-observation/v1"]
         summaries = [event for event in events if event.get("type") == "synora.vision.clip-summary/v1"]
         with (output / "observations.jsonl").open("w", encoding="utf-8") as stream:
@@ -108,6 +104,9 @@ def main() -> int:
                 payload.pop("plate", None)
                 payload.pop("sensitive_objects", None)
                 stream.write(json.dumps({"type": event["type"], "payload": payload}, sort_keys=True) + "\n")
+        (output / "edge-track-manifest.json").write_text(
+            json.dumps(result.manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         diagnostic = backend.diagnostic()
         metrics = {}
         for event in summaries:
@@ -127,6 +126,15 @@ def main() -> int:
             "track_summaries": len(summaries),
             "backend": diagnostic,
             "latencies": metrics,
+            "edge_emulated": True,
+            "edge_tracking_status": result.manifest["tracking_status"],
+            "edge_metrics": result.metrics,
+            "central_visual_tracking_invocations": 0,
+            "central_enrichment": {
+                "face": "not_requested", "plate": "not_requested", "sensitive_objects": "not_requested",
+            },
+            "manifest_bytes": len(json.dumps(result.manifest, sort_keys=True, separators=(",", ":")).encode()),
+            "media_transferred_bytes": 0,
             "wall_ms": round((time.perf_counter() - started) * 1000.0, 3),
             "detector_init_wall_ms": round(detector_init_wall_ms, 3),
         }
