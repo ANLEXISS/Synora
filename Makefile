@@ -7,7 +7,7 @@ SHELL := /usr/bin/env bash
 	build-bootstrap-config install-bootstrap-config generate-version install-version install-model-manifest build-boot-healthcheck install-boot-healthcheck \
 	diagnostics
 
-.PHONY: build-dataset train validate test export parity package-model incident-v2 incident-redteam-v1 incident-v3-corpus incident-v3-evaluate incident-v3-gate independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 cognitive-runtime-benchmark-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
+.PHONY: build-dataset train validate test export parity package-model incident-v2 incident-redteam-v1 incident-v3-corpus incident-v3-evaluate incident-v3-gate independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 cognitive-runtime-benchmark-v1 replay-vision-v1 replay-vision-segments-v1 replay-edge-vision-v1 replay-vision-core-v1 benchmark-vision-inference
 
 COGNITIVE_V1_PIPELINE ?= tools/cognitive_v1_pipeline.py
 COGNITIVE_V1_BUNDLE ?= build/cognitive-mlp-v1
@@ -96,6 +96,7 @@ help:
 		'  make test                  Run Go tests and Python compileall' \
 		'  make e2e-v1                Run the hermetic and real-worker V1 trace harnesses' \
 		'  make e2e-vision-mlp-v1    Run the segmented Vision -> Core V1 dry-run replay' \
+		'  make replay-edge-vision-v1 Run the Edge -> Discovery -> Core semantic replay' \
 		'  make e2e-cognitive-core-v1  Run the Core snapshot, Store and action-loop scenarios' \
 		'  make perf-baseline-v1     Run and compare the reproducible Vision/MLP before-after benchmark' \
 		'  make cognitive-runtime-benchmark-v1  Measure cold and steady cognitive runtime only' \
@@ -249,13 +250,15 @@ replay-vision-segments-v1: check-go
 	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
 	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds "$(SEGMENT_SECONDS)" --camera-id "$(CAMERA_ID)" --node-id "$(NODE_ID)" --zone "$(ZONE)" --trigger "$(TRIGGER)" --out "$(OUT)"
 
-replay-vision-core-v1: check-go
+replay-edge-vision-v1: check-go
 	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
 	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
 	@mkdir -p "$(OUT)/segments"
-	SYNORA_REAL_VISION=1 SYNORA_COGNITIVE_BUNDLE="$(COGNITIVE_V1_BUNDLE)" PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segments"
+	SYNORA_REAL_VISION=1 SYNORA_EDGE_VISION=1 SYNORA_COGNITIVE_BUNDLE="$(COGNITIVE_V1_BUNDLE)" PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segments"
 	@test -f "$(OUT)/segments/core-replay.json" || { echo "FAIL: Core replay report missing" >&2; exit 2; }
 	cp "$(OUT)/segments/core-replay.json" "$(OUT)/core-replay.json"
+
+replay-vision-core-v1: replay-edge-vision-v1
 
 benchmark-vision-inference: check-go
 	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/tools/vision_inference_benchmark.py $(if $(CLIP),--clip "$(CLIP)",) $(if $(OUT),--out "$(OUT)",) $(if $(SKIP_ONNX),--skip-onnx,)

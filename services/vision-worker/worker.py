@@ -35,6 +35,7 @@ from core.clip_pipeline_v1 import (
 )
 from core.detector_backend import ExistingDetectorBackend, ThreePinnedDetectorBackend
 from core.model_runner import model_status
+from edge.worker import EdgeVisionWorkerV1
 from face_dataset import FaceDatasetError, FaceDatasetManager, safe_component, _regular_file
 
 
@@ -43,6 +44,7 @@ PROTOCOL_VERSION = "synora.vision.v1"
 PROTOCOL_HELLO = "protocol.hello"
 CLIP_PROCESS = "clip.process"
 SEGMENT_PROCESS = "segment.process"
+EDGE_PIPELINE = "edge-v1"
 EPISODE_RELEASE = "episode.release"
 ARCFACE_EMBEDDING_DIMENSION = 512
 FACE_DATA_ROOT = os.path.abspath(os.path.realpath(os.getenv("SYNORA_FACE_DATA_ROOT", "/var/lib/synora/vision/face")))
@@ -367,7 +369,7 @@ class VisionWorker:
         if operation == "face_dataset.reload":
             return self._with_request_id(request_id, self.process_face_reload(req))
         if operation == SEGMENT_PROCESS:
-            if req.get("pipeline") != "clip-v1":
+            if req.get("pipeline") not in {"clip-v1", EDGE_PIPELINE}:
                 return self._with_request_id(request_id, {
                     "error": "segment processing requires clip-v1",
                     "failure_code": "invalid_request",
@@ -382,7 +384,7 @@ class VisionWorker:
                 "failure_code": "unsupported_operation",
             })
 
-        if req.get("pipeline") == "clip-v1":
+        if req.get("pipeline") in {"clip-v1", EDGE_PIPELINE}:
             if not self.dry_run and (not getattr(self, "clip_v1_enabled", False) or getattr(self, "detector_mode", "") != "real_replay"):
                 return self._with_request_id(request_id, {
                     "error": "real replay detector mode is not enabled",
@@ -578,6 +580,17 @@ class VisionWorker:
                 "latency_ms": 0.0, "non_human_ignored": 0, "error_code": "dry_run",
             })
         else:
+            if req.get("pipeline") == EDGE_PIPELINE:
+                try:
+                    result = EdgeVisionWorkerV1(self._clip_v1_config()).process_video(
+                        clip, req["clip_path"], self.detector_backend,
+                        segment_count=1, edge_emulated=False,
+                    )
+                    events = list(result.events)
+                except Exception as exc:
+                    return {"error": str(exc), "failure_code": "edge_clip_processing_failed"}
+                return {"events": [{"type": event["type"], "track_id": event.get("track_id"), "payload": event["payload"]}
+                                   for event in events]}
             face = ConfiguredFaceEnricher(self.pipeline,
                                           min_crops=int(os.getenv("SYNORA_VISION_V1_MIN_FACE_CROPS", "2")),
                                           stability_threshold=_worker_float("SYNORA_VISION_V1_IDENTITY_STABILITY", .67))

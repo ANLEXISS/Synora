@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -460,12 +461,16 @@ func (v *Runtime) processSegment(ctx context.Context, segment contract.VisionSeg
 		return nil, err
 	}
 	defer func() { _ = v.conn.SetDeadline(time.Time{}) }()
+	pipeline := "clip-v1"
+	if os.Getenv("SYNORA_EDGE_VISION") == "1" {
+		pipeline = "edge-v1"
+	}
 	req := Request{
 		RequestID: segment.SegmentID, Operation: VisionSegmentProcess, ID: segment.SegmentID,
 		SegmentID: segment.SegmentID, SegmentIndex: segment.SegmentIndex, IsFinal: segment.IsFinal,
 		NodeID: segment.NodeID, EpisodeID: segment.EpisodeID, Zone: segment.TopologyClass,
 		TopologyClass: segment.TopologyClass, TriggerReason: segment.Trigger,
-		StartedAt: segment.StartedAt, EndsAt: segment.EndedAt, Pipeline: "clip-v1",
+		StartedAt: segment.StartedAt, EndsAt: segment.EndedAt, Pipeline: pipeline,
 		ContinuityReset: continuityReset || segmentContinuityReset(ctx),
 		ClipPath:        mediaPath, CameraID: segment.CameraID,
 	}
