@@ -7,7 +7,7 @@ SHELL := /usr/bin/env bash
 	build-bootstrap-config install-bootstrap-config generate-version install-version install-model-manifest build-boot-healthcheck install-boot-healthcheck \
 	diagnostics
 
-.PHONY: build-dataset train validate test export parity package-model incident-v2 incident-redteam-v1 incident-v3-corpus incident-v3-evaluate independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 cognitive-runtime-benchmark-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
+.PHONY: build-dataset train validate test export parity package-model incident-v2 incident-redteam-v1 incident-v3-corpus incident-v3-evaluate incident-v3-gate independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 cognitive-runtime-benchmark-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
 
 COGNITIVE_V1_PIPELINE ?= tools/cognitive_v1_pipeline.py
 COGNITIVE_V1_BUNDLE ?= build/cognitive-mlp-v1
@@ -103,6 +103,7 @@ help:
 		'  make incident-redteam-v1    Evaluate incident-v2 on the sealed adversarial set' \
 		'  make incident-v3-corpus     Build the independent incident-v3 corpus and hidden red-team V2' \
 		'  make incident-v3-evaluate   Train incident-v3 and report all independent/red-team gates' \
+		'  make incident-v3-gate       Apply strict promotion gates; retain incident-v2 on failure' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
 		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
 		'  persistent face data     Keep resident face files in $(FACE_DATA_DIR)' \
@@ -151,6 +152,9 @@ incident-v3-corpus:
 
 incident-v3-evaluate: incident-v3-corpus
 	$(PYTHON) tools/incident_v3_pipeline.py train-evaluate --dataset build/cognitive-incident-v3-dataset --base-bundle build/cognitive-mlp-v1-incident-v2 --output-bundle build/cognitive-mlp-v1-incident-v3
+
+incident-v3-gate: incident-v3-evaluate
+	$(PYTHON) tools/promote_incident_v3.py
 
 independent-test: package-model
 	$(PYTHON) $(COGNITIVE_V1_PIPELINE) independent-test
