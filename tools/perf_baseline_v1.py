@@ -10,6 +10,7 @@ from pathlib import Path
 import resource
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Any
 
@@ -68,6 +69,7 @@ def collect_run(root: Path, clip: Path) -> dict[str, Any]:
     vision_report_path = segment_root / "vision-real.json"
     vision_report = read_json(vision_report_path) if vision_report_path.exists() else {}
     process = read_json(root / "process_metrics.json") if (root / "process_metrics.json").exists() else {}
+    runtime_report = read_json(root / "runtime-benchmark.json") if (root / "runtime-benchmark.json").exists() else None
     frame_count = source_frame_count(clip)
     stamps = timestamps(observations)
     candidate_latency = 0.0
@@ -114,10 +116,31 @@ def collect_run(root: Path, clip: Path) -> dict[str, Any]:
 		"active_dry_run": bool(replay.get("active_dry_run", False)),
         "physical_action_executed": bool(replay.get("physical_action_executed", False)),
         "backend_status": replay.get("model_status", "unavailable"),
+        "vision_rknn": {
+            "backend": vision_report.get("model_backend", "unavailable"),
+            "model_loaded": bool(vision_report.get("model_loaded", False)),
+            "real_model": bool(vision_report.get("vision_model_real", False)),
+            "wall_ms": round(float(vision_report.get("wall_ms", 0.0)), 3),
+            "detector_compute_ms": round(float((vision_report.get("latencies") or {}).get("detector_compute_sum_ms", 0.0)), 3),
+        },
         "functional_signature": signature,
         "process_wall_ms": float(process.get("wall_ms", 0.0)),
         "process_exit_code": process.get("exit_code", 0),
+        "runtime_benchmark": runtime_report,
     }
+
+
+def run_runtime_benchmark(args: argparse.Namespace, target: Path) -> None:
+    bundle = args.cognitive_bundle or str(args.repo / "build/cognitive-mlp-v1")
+    binary = Path(tempfile.gettempdir()) / f"synora-cognitive-runtime-bench-{os.getpid()}"
+    build = subprocess.run(["go", "build", "-buildvcs=false", "-o", str(binary), "./cmd/synora-cognitive-runtime-bench"], cwd=args.repo, text=True, capture_output=True)
+    if build.returncode != 0:
+        sys.stderr.write(build.stdout[-4000:]); sys.stderr.write(build.stderr[-4000:]); raise SystemExit(build.returncode)
+    result = subprocess.run([str(binary), "--bundle", bundle, "--iterations", "128", "--out", str(target / "runtime-benchmark.json")], cwd=args.repo, text=True, capture_output=True)
+    (target / "runtime-benchmark.stdout.log").write_text(result.stdout, encoding="utf-8")
+    (target / "runtime-benchmark.stderr.log").write_text(result.stderr, encoding="utf-8")
+    if result.returncode != 0:
+        sys.stderr.write(result.stdout[-4000:]); sys.stderr.write(result.stderr[-4000:]); raise SystemExit(result.returncode)
 
 
 def run_after(args: argparse.Namespace) -> None:
@@ -126,15 +149,18 @@ def run_after(args: argparse.Namespace) -> None:
         raise SystemExit(f"after output already exists: {after}")
     after.mkdir(parents=True)
     env = os.environ.copy()
-    env.update({"CLIP": str(Path(args.clip).resolve()), "OUT": str(after.resolve())})
+    env.update({"CLIP": str(Path(args.clip).resolve()), "OUT": str(after.resolve()), "PYTHON": args.vision_python})
+    if args.cognitive_bundle:
+        env["COGNITIVE_V1_BUNDLE"] = str(Path(args.cognitive_bundle).resolve())
     started = time.perf_counter()
-    result = subprocess.run(["make", "e2e-vision-mlp-v1"], cwd=args.repo, env=env, text=True, capture_output=True)
+    result = subprocess.run(["make", "replay-vision-core-v1"], cwd=args.repo, env=env, text=True, capture_output=True)
     process = {"exit_code": result.returncode, "wall_ms": round((time.perf_counter() - started) * 1000.0, 3), "max_rss_kb_children": resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss}
     (after / "make.stdout.log").write_text(result.stdout, encoding="utf-8")
     (after / "make.stderr.log").write_text(result.stderr, encoding="utf-8")
     (after / "process_metrics.json").write_text(json.dumps(process, indent=2) + "\n", encoding="utf-8")
     if result.returncode != 0:
         sys.stderr.write(result.stdout[-4000:]); sys.stderr.write(result.stderr[-4000:]); raise SystemExit(result.returncode)
+    run_runtime_benchmark(args, after)
 
 
 def main() -> int:
@@ -149,9 +175,11 @@ def main() -> int:
     args = parser.parse_args()
     if not args.clip.is_file(): raise SystemExit(f"clip is not a regular file: {args.clip}")
     if not args.before.is_dir(): raise SystemExit(f"before output is missing: {args.before}")
+    if not (args.before / "runtime-benchmark.json").exists():
+        run_runtime_benchmark(args, args.before)
     run_after(args)
     before, after = collect_run(args.before, args.clip), collect_run(Path(args.after), args.clip)
-    numeric = ("first_observation_latency_ms", "candidate_latency_ms", "confirmed_latency_ms", "vision_wall_ms", "detector_compute_cumulative_ms", "frames_read", "frames_sampled", "frames_ignored", "max_frames_in_flight", "rss_mb", "observations", "segments", "tracks", "summaries", "process_wall_ms")
+    numeric = ("first_observation_latency_ms", "candidate_latency_ms", "confirmed_latency_ms", "vision_wall_ms", "detector_compute_cumulative_ms", "frames_read", "frames_sampled", "frames_ignored", "max_frames_in_flight", "rss_mb", "observations", "segments", "tracks", "summaries")
     delta = {key: round(float(after[key]) - float(before[key]), 3) for key in numeric}
     for head in HEADS: delta[f"mlp_{head}_latency_ms"] = round(after["mlp_head_latency_ms"][head] - before["mlp_head_latency_ms"][head], 3)
     functional_equal = before["functional_signature"] == after["functional_signature"]
@@ -160,6 +188,8 @@ def main() -> int:
         "clip": str(args.clip.resolve()),
         "before": before,
         "after": after,
+        "runtime_before": before["runtime_benchmark"],
+        "runtime_after": after["runtime_benchmark"],
         "delta_after_minus_before": delta,
         "functional_output_identical": functional_equal,
         "criteria": {

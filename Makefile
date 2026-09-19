@@ -8,7 +8,7 @@ SHELL := /usr/bin/env bash
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	diagnostics
 
-.PHONY: build-dataset train validate test export parity package-model independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
+.PHONY: build-dataset train validate test export parity package-model independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 cognitive-runtime-benchmark-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
 
 COGNITIVE_V1_PIPELINE ?= tools/cognitive_v1_pipeline.py
 COGNITIVE_V1_BUNDLE ?= build/cognitive-mlp-v1
@@ -18,6 +18,7 @@ PERF_BEFORE ?= /tmp/synora-perf-v1-before
 PERF_AFTER ?= /tmp/synora-perf-v1-after
 PERF_COGNITIVE_PYTHON ?= $(COGNITIVE_PYTHON)
 PERF_VISION_PYTHON ?= $(VISION_PYTHON)
+COGNITIVE_RUNTIME_BENCHMARK_OUT ?= /tmp/synora-cognitive-runtime-benchmark.json
 
 PREFIX ?= /opt/synora
 BINDIR ?= $(PREFIX)/bin
@@ -98,6 +99,7 @@ help:
 		'  make e2e-vision-mlp-v1    Run the segmented Vision -> Core V1 dry-run replay' \
 		'  make e2e-cognitive-core-v1  Run the Core snapshot, Store and action-loop scenarios' \
 		'  make perf-baseline-v1     Run and compare the reproducible Vision/MLP before-after benchmark' \
+		'  make cognitive-runtime-benchmark-v1  Measure cold and steady cognitive runtime only' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
 		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
 		'  persistent face data     Keep resident face files in $(FACE_DATA_DIR)' \
@@ -206,6 +208,9 @@ perf-baseline-v1: check-go
 	@test -d "$(PERF_BEFORE)" || { echo "FAIL: PERF_BEFORE is missing: $(PERF_BEFORE)" >&2; exit 2; }
 	@test ! -e "$(PERF_AFTER)" || { echo "FAIL: PERF_AFTER already exists: $(PERF_AFTER)" >&2; exit 2; }
 	"$(PYTHON)" tools/perf_baseline_v1.py --repo "$(CURDIR)" --clip "$(PERF_CLIP)" --before "$(PERF_BEFORE)" --after "$(PERF_AFTER)" --cognitive-python "$(PERF_COGNITIVE_PYTHON)" --vision-python "$(PERF_VISION_PYTHON)" --cognitive-bundle "$(COGNITIVE_BUNDLE)"
+
+cognitive-runtime-benchmark-v1: check-go package-model
+	"$(GO)" run ./cmd/synora-cognitive-runtime-bench --bundle "$(COGNITIVE_BUNDLE)" --iterations "$${COGNITIVE_RUNTIME_BENCHMARK_ITERATIONS:-128}" --out "$(COGNITIVE_RUNTIME_BENCHMARK_OUT)"
 
 replay-vision-v1: check-go
 	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }
