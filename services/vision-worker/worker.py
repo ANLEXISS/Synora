@@ -616,6 +616,10 @@ class VisionWorker:
         segment_req["zone"] = req.get("zone") or req.get("topology_class") or "unknown"
         segment_req["trigger_reason"] = req.get("trigger_reason") or req.get("trigger") or "unknown"
         episode_id = segment_req["episode_id"]
+        if req.get("pipeline") == EDGE_PIPELINE:
+            # Edge owns pixel tracking for this path.  Do not allocate the
+            # central EpisodeVisionContext or retain central track state.
+            return self.process_clip_v1(segment_req, episode_context=None)
         context = self._episode_context(
             episode_id, req.get("segment_index", 0),
             continuity_reset=bool(req.get("continuity_reset", False)),

@@ -92,6 +92,8 @@ class EdgeVisionWorkerV1:
             "edge_frames_ignored": int(metric_values.get("frames_skipped_by_policy", 0)),
             "edge_peak_frames_in_flight": int(metric_values.get("peak_frames_in_flight", 0)),
             "central_visual_tracking_invocations": 0,
+            "central_retrack_fallback_enabled": bool(False),
+            "central_retrack_fallback_used": 0,
             "edge_emulated": bool(edge_emulated),
             "edge_wall_ms": round((time.perf_counter() - started) * 1000.0, 3),
         })
