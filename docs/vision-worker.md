@@ -1,24 +1,38 @@
-# Vision Worker
+# Vision Worker V1
 
-Le pipeline opt-in Vision Clip V1 est décrit dans
-`services/vision-worker/docs/clip_pipeline_v1.md`. Il publie une observation
-finale par track sous `synora.vision.clip-summary/v1` et ne déclenche aucune
-action physique.
+Le Vision Worker est une capacité optionnelle de Discovery. Le pipeline actif
+est `clip-v1`, sélectionné explicitement par la requête ou le job ; la
+configuration globale reste désactivée par défaut.
 
-Le pipeline opt-in Vision Clip V1 est décrit dans
-`services/vision-worker/docs/clip_pipeline_v1.md`. Il publie une observation
-finale par track sous `synora.vision.clip-summary/v1` et ne déclenche aucune
-action physique.
+Le pipeline traite un clip ou un segment fermé, échantillonne les frames,
+applique le détecteur configuré, conserve les pistes dans l’ordre temporel et
+publie des observations normalisées. Le runtime centralisé des segments est
+également opt-in et utilise une fenêtre de réordonnancement bornée.
 
-Le pipeline opt-in Vision Clip V1 est décrit dans
-`services/vision-worker/docs/clip_pipeline_v1.md`. Il publie une observation
-finale par track sous `synora.vision.clip-summary/v1` et ne déclenche aucune
-action physique.
+Pour un track, le pipeline produit au plus un résumé final sous
+`synora.vision.clip-summary/v1`. Le résumé contient l’épisode, la topologie,
+la piste, la confiance agrégée, l’état des enrichissements, les métriques
+backend et les indications de priorité. Une alerte préliminaire peut être
+émise uniquement pour une évidence d’objet sensible configurée ; elle ne
+constitue pas une commande.
 
-Le pipeline opt-in Vision Clip V1 est décrit dans
-`services/vision-worker/docs/clip_pipeline_v1.md`. Il publie une observation
-finale par track sous `synora.vision.clip-summary/v1` et ne déclenche aucune
-action physique.
+Les valeurs par défaut sont conservatrices : durée maximale de clip de 10 s,
+fenêtre de continuité d’épisode de 5 s, cinq références ROI maximum par track,
+seuil d’alerte sensible de 0,90 et trois éléments au maximum en vol dans le
+parcours de priorité. Le runtime segmenté utilise des segments d’une seconde,
+une fenêtre de réordonnancement de quatre segments, un TTL d’épisode de 45 s
+et au plus 32 épisodes actifs.
+
+Le détecteur réel est limité au replay contrôlé lorsque le mode
+`real_replay` est explicitement demandé. Sans backend disponible, le worker
+retourne un statut d’indisponibilité typé et poursuit proprement le cycle sans
+fabriquer d’observation.
+
+Les payloads bus sont des résumés validés. Les images, embeddings, plaques et
+autres médias ne sont jamais sérialisés comme données brutes : seuls des
+références locales opaques et des champs normalisés autorisés par le contrat
+peuvent apparaître. Le worker ne déclenche aucune action physique et ne
+contourne ni Core ni le Safety Gate.
 
 Le Vision Worker est une capacité optionnelle de Discovery. Son socket est
 `/run/synora/vision-worker.sock`; les unités systemd créent auparavant le
