@@ -238,8 +238,8 @@ replay-vision-core-v1: check-go
 	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
 	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
 	@mkdir -p "$(OUT)/segments"
-	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segments"
-	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-v1-replay --observations "$(OUT)/segments/observations.jsonl" --out "$(OUT)/core-replay.json"
+	SYNORA_REAL_VISION=1 PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segments"
+	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-v1-replay --observations "$(OUT)/segments/observations.jsonl" --vision-report "$(OUT)/segments/vision-real.json" --out "$(OUT)/core-replay.json"
 
 benchmark-vision-inference: check-go
 	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/tools/vision_inference_benchmark.py $(if $(CLIP),--clip "$(CLIP)",) $(if $(OUT),--out "$(OUT)",) $(if $(SKIP_ONNX),--skip-onnx,)

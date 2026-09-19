@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"synora/internal/cognitivecore"
+	"synora/internal/discovery"
 	"synora/pkg/contract"
 )
 
@@ -22,21 +23,41 @@ type replayObservation struct {
 }
 
 type replayReport struct {
-	SchemaVersion          string   `json:"schema_version"`
-	Source                 string   `json:"source"`
-	Frames                 int      `json:"frames"`
-	Events                 int      `json:"events"`
-	Commits                int      `json:"commits"`
-	Duplicates             int      `json:"duplicates"`
-	ActiveDryRun           bool     `json:"active_dry_run"`
-	PhysicalActionExecuted bool     `json:"physical_action_executed"`
-	StoreRevision          uint64   `json:"store_revision"`
-	Observations           []string `json:"observations"`
+	SchemaVersion          string         `json:"schema_version"`
+	Source                 string         `json:"source"`
+	Frames                 int            `json:"frames"`
+	Events                 int            `json:"events"`
+	Commits                int            `json:"commits"`
+	Duplicates             int            `json:"duplicates"`
+	ActiveDryRun           bool           `json:"active_dry_run"`
+	PhysicalActionExecuted bool           `json:"physical_action_executed"`
+	StoreRevision          uint64         `json:"store_revision"`
+	Observations           []string       `json:"observations"`
+	VisionModelReal        bool           `json:"vision_model_real"`
+	ModelLoaded            bool           `json:"model_loaded"`
+	ModelPath              string         `json:"model_path,omitempty"`
+	Detections             int            `json:"detections"`
+	Segments               int            `json:"segments"`
+	Tracks                 int            `json:"tracks"`
+	VisionObservations     int            `json:"vision_observations"`
+	VisionLatencies        map[string]any `json:"vision_latencies,omitempty"`
+}
+
+type visionReport struct {
+	VisionModelReal bool           `json:"vision_model_real"`
+	ModelLoaded     bool           `json:"model_loaded"`
+	ModelPath       string         `json:"model_path"`
+	Detections      int            `json:"detections"`
+	Segments        int            `json:"segments"`
+	Tracks          int            `json:"tracks"`
+	Observations    int            `json:"observations"`
+	Latencies       map[string]any `json:"latencies"`
 }
 
 func main() {
 	observationsPath := flag.String("observations", "", "Vision observation JSONL")
 	outPath := flag.String("out", "", "replay report JSON")
+	visionReportPath := flag.String("vision-report", "", "real Vision report JSON")
 	flag.Parse()
 	if strings.TrimSpace(*observationsPath) == "" || strings.TrimSpace(*outPath) == "" {
 		fatal("--observations and --out are required")
@@ -48,7 +69,8 @@ func main() {
 	defer file.Close()
 	store := cognitivecore.NewUniversalStore()
 	core := &cognitivecore.Core{Store: store, MLP: cognitivecore.UnavailableMLP{Reason: "no promoted full-snapshot V1 bundle"}, Gate: cognitivecore.SafetyGate{DryRun: true}, Now: func() time.Time { return time.Now().UTC() }}
-	report := replayReport{SchemaVersion: "synora.v1-replay/v1", Source: *observationsPath, ActiveDryRun: true, PhysicalActionExecuted: false, Observations: []string{}}
+	report := replayReport{SchemaVersion: "synora.v1-replay/v1", Source: *observationsPath, ActiveDryRun: true, PhysicalActionExecuted: false, Observations: []string{}, VisionLatencies: map[string]any{}}
+	boundary := &discovery.Boundary{DryRun: true}
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	sequence := 0
@@ -62,7 +84,11 @@ func main() {
 		}
 		sequence++
 		eventID := fmt.Sprintf("replay-%06d", sequence)
-		result, err := core.Process(context.Background(), contract.Event{ID: eventID, Type: observation.Type, Source: "discovery", Timestamp: time.Now().UTC(), Payload: observation.Payload})
+		event, err := boundary.NormalizeEvent(contract.Event{ID: eventID, Type: observation.Type, Source: "vision-worker", Timestamp: time.Now().UTC(), Payload: observation.Payload})
+		if err != nil {
+			fatal(fmt.Sprintf("Discovery rejected Vision observation: %v", err))
+		}
+		result, err := core.Process(context.Background(), event)
 		if err != nil {
 			fatal(err.Error())
 		}
@@ -79,6 +105,19 @@ func main() {
 		fatal(err.Error())
 	}
 	report.StoreRevision = store.Revision()
+	if *visionReportPath != "" {
+		body, err := os.ReadFile(*visionReportPath)
+		if err != nil {
+			fatal(fmt.Sprintf("read Vision report: %v", err))
+		}
+		var vision visionReport
+		if err := json.Unmarshal(body, &vision); err != nil {
+			fatal(fmt.Sprintf("decode Vision report: %v", err))
+		}
+		report.VisionModelReal, report.ModelLoaded, report.ModelPath = vision.VisionModelReal, vision.ModelLoaded, vision.ModelPath
+		report.Detections, report.Segments, report.Tracks, report.VisionObservations = vision.Detections, vision.Segments, vision.Tracks, vision.Observations
+		report.VisionLatencies = vision.Latencies
+	}
 	body, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		fatal(err.Error())

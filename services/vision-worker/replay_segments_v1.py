@@ -136,10 +136,23 @@ def main() -> int:
     manifest_path = output / "manifest.json"
     manifest_path.write_text(json.dumps({"source": str(source), "fps": fps, "segments": manifest}, indent=2) + "\n", encoding="utf-8")
 
-    # The video is real and is segmented with OpenCV, but this replay does not
-    # invent detector output. It emits only the normalized aggregate contract
-    # consumed by the V1 Core replay; no segment path, frame, bbox or media
-    # bytes cross that boundary.
+    if os.getenv("SYNORA_REAL_VISION", "0") == "1":
+        real_command = [
+            sys.executable,
+            str(Path(__file__).with_name("replay_real_v1.py")),
+            "--clip", str(source),
+            "--manifest", str(manifest_path),
+            "--out", str(output),
+            "--camera-id", args.camera_id,
+            "--node-id", args.node_id,
+            "--zone", args.zone,
+            "--trigger", args.trigger,
+        ]
+        result = subprocess.run(real_command, cwd=Path(__file__).resolve().parents[2], check=False)
+        return result.returncode
+
+    # Compatibility path for contract-only fixtures. Production E2E sets
+    # SYNORA_REAL_VISION=1 and refuses this simulated observation path.
     observations_path = output / "observations.jsonl"
     with observations_path.open("w", encoding="utf-8") as stream:
         for index, item in enumerate(manifest):
