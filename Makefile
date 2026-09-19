@@ -8,7 +8,7 @@ SHELL := /usr/bin/env bash
 	system-test-smoke system-test-full system-test-readonly system-test-stress-lite \
 	dev-tools diagnostics install-dev-tools
 
-.PHONY: cognitive-export cognitive-parity cognitive-demo build-dataset train validate test export parity package-model e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 perf-baseline-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
+.PHONY: cognitive-export cognitive-parity cognitive-demo build-dataset train validate test export parity package-model independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 replay-vision-v1 replay-vision-segments-v1 replay-vision-core-v1 benchmark-vision-inference
 
 COGNITIVE_BUNDLE ?= /home/rock/synora-cognitive-mlp-v1
 COGNITIVE_V1_PIPELINE ?= tools/cognitive_v1_pipeline.py
@@ -158,6 +158,9 @@ parity: test
 package-model: parity
 	$(PYTHON) $(COGNITIVE_V1_PIPELINE) package-model
 
+independent-test: package-model
+	$(PYTHON) $(COGNITIVE_V1_PIPELINE) independent-test
+
 check-go:
 	@if ! command -v "$(GO)" >/dev/null 2>&1 && [ ! -x "$(GO)" ]; then \
 		echo "FAIL: Go not found. Install Go or run make GO=/path/to/go <target>."; \
@@ -230,6 +233,12 @@ e2e-vision-mlp-v1: check-go package-model
 
 e2e-cognitive-core-v1: check-go package-model
 	SYNORA_COGNITIVE_BUNDLE="$(CURDIR)/$(COGNITIVE_V1_BUNDLE)" GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$|^TestV1DiscoveryCoreStoreDiscoveryActionResultLoop$$|^TestV1LoadedBundleRunsAllHeadsInActiveDryRun$$|^TestV1StoreSaturationRemainsBounded$$|^TestV1ArchitectureHasNoLegacyDecisionImports$$' -count=1 -v
+
+e2e-store-compaction-v1: check-go
+	GOCACHE=$(GOCACHE) "$(GO)" test ./internal/cognitivecore -run '^TestUniversalStoreCompaction' -count=1 -v
+
+qualify-cognitive-v1: check-go
+	$(PYTHON) tools/qualify_cognitive_v1.py --repo "$(CURDIR)" --clip "$(PERF_CLIP)" --before "$(PERF_BEFORE)" --vision-python "$(PERF_VISION_PYTHON)" --cognitive-python "$(PERF_COGNITIVE_PYTHON)"
 
 perf-baseline-v1: check-go
 	@test -f "$(PERF_CLIP)" || { echo "FAIL: PERF_CLIP is not a regular file: $(PERF_CLIP)" >&2; exit 2; }
