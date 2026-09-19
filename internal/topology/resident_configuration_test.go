@@ -54,7 +54,7 @@ func TestResidentCRUDDefaultsAndExplicitIdentityPatch(t *testing.T) {
 	}
 }
 
-func TestResidentLegacyYAMLPreservesUnknownFieldsAndPublicViewIsCompact(t *testing.T) {
+func TestResidentYAMLPreservesUnknownFieldsAndPublicViewIsCompact(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "residents.yaml")
 	initial := `residents:
   - id: alexis
@@ -73,7 +73,7 @@ func TestResidentLegacyYAMLPreservesUnknownFieldsAndPublicViewIsCompact(t *testi
 	}
 	resident := residents["alexis"]
 	if resident == nil || !resident.Enabled || !resident.Trusted {
-		t.Fatalf("legacy defaults=%#v", resident)
+		t.Fatalf("resident defaults=%#v", resident)
 	}
 	public := resident.PublicView()
 	if public.ID != "alexis" {

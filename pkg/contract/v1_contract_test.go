@@ -164,32 +164,3 @@ func TestV1CurrentFixturesRoundTrip(t *testing.T) {
 	}
 	assertCanonicalJSON(t, "face-dataset-version", dataset)
 }
-
-func TestV1LegacyFixturesRemainReadableAndUnknownFieldsAreIgnored(t *testing.T) {
-	var message Message
-	if err := json.Unmarshal(readV1Fixture(t, "message-legacy.json"), &message); err != nil {
-		t.Fatal(err)
-	}
-	if message.ID != "legacy-message" || !message.Timestamp.Equal(time.Date(2026, 7, 4, 10, 11, 12, 0, time.UTC)) {
-		t.Fatalf("legacy message was not adapted: %#v", message)
-	}
-
-	var event Event
-	if err := json.Unmarshal(readV1Fixture(t, "event-legacy.json"), &event); err != nil {
-		t.Fatal(err)
-	}
-	if event.ID != "legacy-event" || event.DeviceID != "camera-1" || event.Type != EventVisionMotion {
-		t.Fatalf("legacy event was not adapted: %#v", event)
-	}
-
-	var dataset FaceDatasetVersion
-	if err := json.Unmarshal(readV1Fixture(t, "face-dataset-version-legacy.json"), &dataset); err != nil {
-		t.Fatal(err)
-	}
-	if dataset.Version != "dataset-legacy" || dataset.SchemaVersion != V1SchemaVersion {
-		t.Fatalf("legacy dataset was not read: %#v", dataset)
-	}
-	if err := dataset.Validate(); err != nil {
-		t.Fatal(err)
-	}
-}

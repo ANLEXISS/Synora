@@ -246,7 +246,7 @@ func (c *Client) Request(
 }
 
 // RequestWithTimeout is used by health and diagnostics probes so an unhealthy
-// component cannot hold an HTTP request for the legacy five-second RPC limit.
+// component cannot hold an HTTP request for the bounded RPC limit.
 func (c *Client) RequestWithTimeout(
 	msgType string,
 	source string,
@@ -514,10 +514,8 @@ func (c *Client) removePending(id string) {
 
 func inferSourceType(source string) string {
 	switch source {
-	case "api", "actions", "bus", "core", "discovery", "runtime", "vision":
+	case "actions", "bus", "connectivity", "core", "discovery", "runtime", "vision":
 		return contract.SourceSystem
-	case "lab", "synora-lab", "simulation":
-		return contract.SourceSimulator
 	default:
 		return contract.SourceDevice
 	}

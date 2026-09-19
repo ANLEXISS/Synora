@@ -44,7 +44,7 @@ type TopologyLink struct {
 }
 
 // TopologyConfig is the canonical complete-replacement representation persisted
-// by Core. The legacy zones/floors/rooms YAML is accepted only when loading.
+// by Core and loaded from the V1 topology configuration.
 type TopologyConfig struct {
 	Version int            `json:"version,omitempty" yaml:"version,omitempty"`
 	Locked  bool           `json:"locked" yaml:"locked"`

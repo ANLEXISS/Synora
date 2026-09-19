@@ -303,9 +303,9 @@ func stableCameraEventID(eventType, deviceID string, now time.Time) string {
 	return strings.Join([]string{"camera", eventType, deviceID, now.UTC().Format(time.RFC3339Nano)}, ":")
 }
 
-// MarkCameraOffline changes the local health projection and emits one legacy
-// offline event per online-to-offline transition. Unknown cameras still emit
-// an event for compatibility with the previous runtime API.
+// MarkCameraOffline changes the local health projection and emits one offline
+// event per online-to-offline transition. Unknown cameras still emit an event
+// so the health projection remains complete.
 func (r *Registry) MarkCameraOffline(deviceID string, now time.Time) bool {
 	r.mu.Lock()
 	device, exists := r.devices[deviceID]

@@ -30,7 +30,7 @@ func TestDeviceConfigurationPreservesPrivateAndUnknownYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(items) != 1 || !items[0].Enabled || !items[0].Trusted || items[0].NodeID != "house.entry" {
-		t.Fatalf("legacy defaults were not applied: %#v", items)
+		t.Fatalf("configuration defaults were not applied: %#v", items)
 	}
 	registry := NewRegistry(path)
 	registry.Register(items)

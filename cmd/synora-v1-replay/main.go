@@ -99,7 +99,7 @@ func main() {
 		loaded, loadErr := cognitivecore.LoadCPUBundle(*bundlePath)
 		report.ModelBundle = *bundlePath
 		if loadErr != nil {
-			report.ModelStatus, report.ModelError = "incompatible", loadErr.Error()
+			report.ModelStatus, report.ModelError = "unavailable", loadErr.Error()
 		} else {
 			mlp, report.ModelStatus = loaded, "loaded"
 		}

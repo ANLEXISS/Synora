@@ -33,7 +33,6 @@ const (
 var RuntimeServices = []string{
 	"synora-bus",
 	"synora-core",
-	"synora-actions",
 	"synora-discovery",
 	"mediamtx",
 }
@@ -55,10 +54,8 @@ func (OSExecutor) Run(
 type Config struct {
 	Executor Executor
 
-	// ProbeActions and ProbeMediaMTX are optional transport-level probes. They
-	// are deliberately injectable so health tests do not depend on local
-	// services being installed.
-	ProbeActions  func(context.Context) error
+	// ProbeMediaMTX is an optional transport-level probe. It is deliberately
+	// injectable so health tests do not depend on the local service.
 	ProbeMediaMTX func(context.Context) error
 
 	ConfigDir         string
@@ -98,7 +95,6 @@ func (deps healthDependencies) validate() {
 type Manager struct {
 	executor Executor
 
-	probeActions  func(context.Context) error
 	probeMediaMTX func(context.Context) error
 
 	loadNetworkStatus func() (network.Status, error)
@@ -169,7 +165,6 @@ func newWithHealthDependencies(
 	return &Manager{
 		executor: cfg.Executor,
 
-		probeActions:  cfg.ProbeActions,
 		probeMediaMTX: cfg.ProbeMediaMTX,
 
 		loadNetworkStatus: deps.loadNetworkStatus,
@@ -225,8 +220,6 @@ func (m *Manager) Health(
 	}
 
 	mediaMTX := services["mediamtx"]
-	services["synora-actions"] = m.actionServiceHealth(ctx, services["synora-actions"], now)
-	components["synora-actions"] = services["synora-actions"]
 	mediaMTX = m.mediaMTXServiceHealth(ctx, mediaMTX, now)
 	services["mediamtx"] = mediaMTX
 	components["mediamtx"] = mediaMTX
@@ -604,39 +597,6 @@ func (m *Manager) serviceHealth(
 		health.Message = err.Error()
 	}
 
-	return health
-}
-
-func (m *Manager) actionServiceHealth(
-	ctx context.Context,
-	health contract.RuntimeServiceHealth,
-	now time.Time,
-) contract.RuntimeServiceHealth {
-	health.Name = "synora-actions"
-	if !health.Active {
-		health.Status = "unavailable"
-		health.Message = "service inactive"
-		return health
-	}
-	if m.probeActions == nil {
-		health.Status = "degraded"
-		health.Message = "service active, no health probe"
-		health.Error = ""
-		health.Checked = now
-		return health
-	}
-	probeCtx, cancel := context.WithTimeout(ctx, 350*time.Millisecond)
-	defer cancel()
-	if err := m.probeActions(probeCtx); err != nil {
-		health.Status = "degraded"
-		health.Message = "service active, health probe failed"
-		health.Error = err.Error()
-	} else {
-		health.Status = "ok"
-		health.Message = "action service reachable"
-		health.Error = ""
-	}
-	health.Checked = now
 	return health
 }
 

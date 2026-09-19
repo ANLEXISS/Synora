@@ -88,11 +88,9 @@ const (
 	// EventActionResult reports the outcome of an action request.
 	EventActionResult         = "action.result"
 	EventActionServiceStarted = "action.service.started"
-	// EventAutomationAction is the temporary legacy action command emitted by older automations.
-	EventAutomationAction    = "automation.action"
-	EventManualRisk          = "manual.risk"
-	EventSystemStateReset    = "system.state.reset"
-	EventSecurityModeChanged = "security.mode.changed"
+	EventManualRisk           = "manual.risk"
+	EventSystemStateReset     = "system.state.reset"
+	EventSecurityModeChanged  = "security.mode.changed"
 )
 
 /*
@@ -162,7 +160,6 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
-	applyLegacyEventFields(data, &decoded)
 
 	*e = Event{
 		ID:                 decoded.ID,
@@ -189,42 +186,6 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 		ValidationReason:   decoded.ValidationReason,
 	}
 	return nil
-}
-
-func applyLegacyEventFields(data []byte, decoded *eventJSON) {
-	legacy := struct {
-		DeviceID           string `json:"DeviceID,omitempty"`
-		NodeID             string `json:"NodeID,omitempty"`
-		GroupKey           string `json:"GroupKey,omitempty"`
-		TrackID            string `json:"TrackID,omitempty"`
-		ClipID             string `json:"ClipID,omitempty"`
-		ValidationRequired bool   `json:"ValidationRequired,omitempty"`
-		ValidationReason   string `json:"ValidationReason,omitempty"`
-	}{}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return
-	}
-	if decoded.DeviceID == "" {
-		decoded.DeviceID = legacy.DeviceID
-	}
-	if decoded.NodeID == "" {
-		decoded.NodeID = legacy.NodeID
-	}
-	if decoded.GroupKey == "" {
-		decoded.GroupKey = legacy.GroupKey
-	}
-	if decoded.TrackID == "" {
-		decoded.TrackID = legacy.TrackID
-	}
-	if decoded.ClipID == "" {
-		decoded.ClipID = legacy.ClipID
-	}
-	if !decoded.ValidationRequired {
-		decoded.ValidationRequired = legacy.ValidationRequired
-	}
-	if decoded.ValidationReason == "" {
-		decoded.ValidationReason = legacy.ValidationReason
-	}
 }
 
 /*
@@ -304,7 +265,6 @@ func EventCategory(eventType string) string {
 		return EventCategoryVision
 	case EventActionRequest,
 		EventActionResult,
-		EventAutomationAction,
 		EventActionServiceStarted:
 		return EventCategoryAction
 	default:
@@ -383,7 +343,6 @@ func NormalizeEventType(raw string) string {
 		EventSystemStateChanged,
 		EventSystemPresence,
 		EventSystemStateReset,
-		EventAutomationAction,
 		EventActionRequest,
 		EventActionServiceStarted,
 		EventManualRisk,
@@ -451,7 +410,6 @@ func EventPriority(eventType string) int {
 		EventDiscoveryCameraOnline,
 		EventDiscoveryWorkerStarted,
 		EventDiscoveryWorkerStopped,
-		EventAutomationAction,
 		EventActionRequest,
 		EventActionResult:
 		return PriorityNormal

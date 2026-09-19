@@ -47,10 +47,8 @@ func renderHostapdConfigState(cfg SynoraNetConfig, band string, passphrase strin
 	switch cfg.Security.Mode {
 	case "wpa3":
 		lines = append(lines, "wpa_key_mgmt=SAE", "ieee80211w=2", "sae_password="+passphrase, "sae_pwe=2")
-	case "wpa2-wpa3-transition":
-		lines = append(lines, "wpa_key_mgmt=WPA-PSK SAE", "wpa_passphrase="+passphrase, "sae_password="+passphrase, "ieee80211w="+pmfValue(cfg.Security.PMF, "1"), "sae_pwe=2")
 	default:
-		lines = append(lines, "wpa_key_mgmt=WPA-PSK", "wpa_passphrase="+passphrase, "ieee80211w="+pmfValue(cfg.Security.PMF, "0"))
+		return ""
 	}
 	if cfg.Security.APIsolate {
 		lines = append(lines, "ap_isolate=1")
@@ -79,19 +77,6 @@ func renderHostapdConfigState(cfg SynoraNetConfig, band string, passphrase strin
 		lines = append(lines, "macaddr_acl=0")
 	}
 	return strings.Join(lines, "\n") + "\n"
-}
-
-func pmfValue(value, fallback string) string {
-	switch value {
-	case "required":
-		return "2"
-	case "optional":
-		return "1"
-	case "disabled":
-		return "0"
-	default:
-		return fallback
-	}
 }
 
 func writeHostapdConfig(path string, content string) error {
@@ -169,8 +154,8 @@ func startAPWithState(cfg SynoraNetConfig, passphrase string, pairing bool, supp
 	return result, nil
 }
 
-// Kept for compatibility with callers outside the manager. It uses the safe
-// file config and the same 5 GHz -> 2.4 GHz policy as Manager.Start.
+// Starts hostapd from the file configuration using the same 5 GHz -> 2.4 GHz
+// policy as Manager.Start.
 func EnsureHostapd() error {
 	cfg, err := LoadConfig(os.Getenv("SYNORA_NETWORK_CONFIG"))
 	if err != nil {

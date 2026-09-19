@@ -17,7 +17,6 @@ vision:
   face_data_root: "/var/lib/synora/vision/face"
 
 features:
-  synora_lab_enabled: true
   diagnostics_enabled: true
   debug_endpoints_enabled: false
   dev_simulation_enabled: false

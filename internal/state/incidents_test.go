@@ -208,7 +208,7 @@ func TestIncidentResolutionIsDistinctFromAcknowledgement(t *testing.T) {
 	}
 }
 
-func TestIncidentPersistenceLegacyCompatibilityAndDefensiveCopies(t *testing.T) {
+func TestIncidentPersistenceDefaultsAndDefensiveCopies(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")
 	base := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
@@ -232,15 +232,15 @@ func TestIncidentPersistenceLegacyCompatibilityAndDefensiveCopies(t *testing.T) 
 		t.Fatal("incident reads must be defensive copies")
 	}
 
-	legacyPath := filepath.Join(dir, "legacy.json")
-	legacy := map[string]any{"version": PersistedStateVersion, "saved_at": base}
-	data, _ := json.Marshal(legacy)
-	if err := os.WriteFile(legacyPath, data, 0o640); err != nil {
+	emptyPath := filepath.Join(dir, "empty-state.json")
+	emptyState := map[string]any{"version": PersistedStateVersion, "saved_at": base}
+	data, _ := json.Marshal(emptyState)
+	if err := os.WriteFile(emptyPath, data, 0o640); err != nil {
 		t.Fatal(err)
 	}
-	legacyStore := NewStore(WithPersistencePath(legacyPath))
-	if summary, err := legacyStore.LoadPersisted(); err != nil || summary.Incidents != 0 {
-		t.Fatalf("legacy state without incidents should load summary=%#v err=%v", summary, err)
+	emptyStore := NewStore(WithPersistencePath(emptyPath))
+	if summary, err := emptyStore.LoadPersisted(); err != nil || summary.Incidents != 0 {
+		t.Fatalf("state without incidents should load summary=%#v err=%v", summary, err)
 	}
 }
 

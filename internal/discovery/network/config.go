@@ -62,8 +62,6 @@ type SecurityConfig struct {
 	PMF                 string `yaml:"pmf"`
 	APIsolate           bool   `yaml:"ap_isolate"`
 	MinPassphraseLength int    `yaml:"min_passphrase_length"`
-	AllowLegacyWPA2     bool   `yaml:"allow_legacy_wpa2"`
-	AllowTransitionMode bool   `yaml:"allow_transition_mode"`
 }
 
 type VisibilityConfig struct {
@@ -117,14 +115,6 @@ type FirewallConfig struct {
 	AllowMediaHLSFromClients      bool   `yaml:"allow_media_hls_from_clients"`
 	PairingAllowedPorts           []int  `yaml:"pairing_allowed_ports"`
 	CentralToCameraAllowedPorts   []int  `yaml:"central_to_camera_allowed_ports"`
-	// Deprecated aliases retained for old configurations.
-	AllowAPIHTTP       bool `yaml:"allow_api_http"`
-	AllowAPIHTTPS      bool `yaml:"allow_api_https"`
-	AllowVisionIngress bool `yaml:"allow_vision_ingress"`
-	AllowMediaRTSP     bool `yaml:"allow_media_rtsp"`
-	AllowMediaWebRTC   bool `yaml:"allow_media_webrtc"`
-	AllowMediaHLS      bool `yaml:"allow_media_hls"`
-	AllowMediaMTXAPI   bool `yaml:"allow_mediamtx_api"`
 }
 
 type DNSConfig struct {
@@ -235,12 +225,6 @@ func LoadConfig(path string) (NetworkConfig, error) {
 		}
 		if raw.SynoraNet.ConnectionPolicy == nil {
 			cfg.SynoraNet.ConnectionPolicy = defaults.ConnectionPolicy
-			// Old configs explicitly allowed camera push through the legacy
-			// firewall fields. Keep them working, but surface degraded health.
-			if cfg.SynoraNet.Firewall.AllowVisionIngress || cfg.SynoraNet.Firewall.AllowAPIHTTP || cfg.SynoraNet.Firewall.AllowAPIHTTPS {
-				cfg.SynoraNet.ConnectionPolicy.Mode = "camera_push_legacy"
-				cfg.SynoraNet.ConnectionPolicy.AllowCameraPushRuntime = true
-			}
 		} else {
 			setConnectionPolicyDefaults(&cfg.SynoraNet.ConnectionPolicy, defaults.ConnectionPolicy, raw.SynoraNet.ConnectionPolicy)
 		}
@@ -319,52 +303,11 @@ func setFirewallDefaults(cfg *FirewallConfig, defaults FirewallConfig, node *yam
 	if !yamlNodeHasKey(node, "allow_media_hls_from_clients") {
 		cfg.AllowMediaHLSFromClients = defaults.AllowMediaHLSFromClients
 	}
-	if !yamlNodeHasKey(node, "allow_api_http") {
-		cfg.AllowAPIHTTP = defaults.AllowAPIHTTP
-	}
-	if !yamlNodeHasKey(node, "allow_api_https") {
-		cfg.AllowAPIHTTPS = defaults.AllowAPIHTTPS
-	}
-	if !yamlNodeHasKey(node, "allow_vision_ingress") {
-		cfg.AllowVisionIngress = defaults.AllowVisionIngress
-	}
-	if !yamlNodeHasKey(node, "allow_media_rtsp") {
-		cfg.AllowMediaRTSP = defaults.AllowMediaRTSP
-	}
-	if !yamlNodeHasKey(node, "allow_media_webrtc") {
-		cfg.AllowMediaWebRTC = defaults.AllowMediaWebRTC
-	}
-	if !yamlNodeHasKey(node, "allow_media_hls") {
-		cfg.AllowMediaHLS = defaults.AllowMediaHLS
-	}
-	if !yamlNodeHasKey(node, "allow_mediamtx_api") {
-		cfg.AllowMediaMTXAPI = defaults.AllowMediaMTXAPI
-	}
-	// Preserve explicit legacy client-push permissions while the connection
-	// policy reports the configuration as camera_push_legacy/degraded.
-	if cfg.AllowAPIHTTP {
-		cfg.AllowAPIHTTPFromClients = true
-	}
-	if cfg.AllowAPIHTTPS {
-		cfg.AllowAPIHTTPSFromClients = true
-	}
-	if cfg.AllowVisionIngress {
-		cfg.AllowVisionIngressFromClients = true
-	}
-	if cfg.AllowMediaRTSP {
-		cfg.AllowMediaRTSPFromClients = true
-	}
-	if cfg.AllowMediaWebRTC {
-		cfg.AllowMediaWebRTCFromClients = true
-	}
-	if cfg.AllowMediaHLS {
-		cfg.AllowMediaHLSFromClients = true
-	}
 }
 
-func setVisibilityDefaults(cfg *VisibilityConfig, defaults VisibilityConfig, node *yaml.Node, legacyHidden bool) {
+func setVisibilityDefaults(cfg *VisibilityConfig, defaults VisibilityConfig, node *yaml.Node, hiddenDefault bool) {
 	if !yamlNodeHasKey(node, "hidden_by_default") {
-		cfg.HiddenByDefault = legacyHidden
+		cfg.HiddenByDefault = hiddenDefault
 	}
 	if !yamlNodeHasKey(node, "visible_during_pairing") {
 		cfg.VisibleDuringPairing = defaults.VisibleDuringPairing
@@ -464,22 +407,10 @@ func normalizeConfig(cfg SynoraNetConfig) SynoraNetConfig {
 		cfg.DNS.Names = defaultDNSNames()
 	}
 	if strings.TrimSpace(cfg.Security.Mode) == "" {
-		switch strings.TrimSpace(strings.ToLower(cfg.AP.WPA)) {
-		case "wpa2":
-			cfg.Security.Mode = "wpa2"
-		case "wpa3":
-			cfg.Security.Mode = "wpa3"
-		case "wpa2-wpa3-transition", "transition":
-			cfg.Security.Mode = "wpa2-wpa3-transition"
-		default:
-			cfg.Security.Mode = d.Security.Mode
-		}
+		cfg.Security.Mode = d.Security.Mode
 	}
 	if strings.TrimSpace(cfg.Security.PMF) == "" {
-		cfg.Security.PMF = map[string]string{"wpa3": "required", "wpa2-wpa3-transition": "optional", "wpa2": "disabled"}[cfg.Security.Mode]
-		if cfg.Security.PMF == "" {
-			cfg.Security.PMF = d.Security.PMF
-		}
+		cfg.Security.PMF = d.Security.PMF
 	}
 	if cfg.Security.MinPassphraseLength == 0 {
 		cfg.Security.MinPassphraseLength = d.Security.MinPassphraseLength
@@ -563,9 +494,6 @@ func ValidateConfig(cfg SynoraNetConfig) error {
 	if cfg.Security.Mode == "wpa3" && cfg.Security.PMF != "required" {
 		return errors.New("wpa3 requires security.pmf=required")
 	}
-	if cfg.Security.Mode == "wpa2-wpa3-transition" && cfg.Security.PMF == "disabled" {
-		return errors.New("transition mode requires security.pmf=optional or required")
-	}
 	if cfg.Security.MinPassphraseLength < 16 {
 		return errors.New("security.min_passphrase_length must be at least 16")
 	}
@@ -575,7 +503,7 @@ func ValidateConfig(cfg SynoraNetConfig) error {
 	if cfg.AccessControl.UnknownStationPolicy != "reject" && cfg.AccessControl.UnknownStationPolicy != "allow_pairing" {
 		return fmt.Errorf("unsupported access_control.unknown_station_policy %q", cfg.AccessControl.UnknownStationPolicy)
 	}
-	if cfg.ConnectionPolicy.Mode != "central_initiated" && cfg.ConnectionPolicy.Mode != "camera_push_legacy" {
+	if cfg.ConnectionPolicy.Mode != "central_initiated" {
 		return fmt.Errorf("unsupported connection_policy.mode %q", cfg.ConnectionPolicy.Mode)
 	}
 	if cfg.Pairing.WindowSeconds < 60 || cfg.Pairing.WindowSeconds > 3600 || cfg.Pairing.MaxPendingDevices < 1 {
@@ -605,8 +533,8 @@ func ValidateConfig(cfg SynoraNetConfig) error {
 	return nil
 }
 
-var validSecurityModes = map[string]bool{"wpa3": true, "wpa2-wpa3-transition": true, "wpa2": true}
-var validPMF = map[string]bool{"required": true, "optional": true, "disabled": true}
+var validSecurityModes = map[string]bool{"wpa3": true}
+var validPMF = map[string]bool{"required": true}
 
 func ValidatePassphrase(value string, minimum int) error {
 	// 16 is the hard WPA2/SAE floor. security.min_passphrase_length is the
@@ -623,28 +551,6 @@ func PassphraseNeedsWarning(value string, recommended int) bool {
 		recommended = 24
 	}
 	return len([]byte(strings.TrimSpace(value))) < recommended
-}
-
-// MigrateConfig adds the explicit security/firewall model to an installed
-// config. It backs up the exact original first and only writes config data;
-// the passphrase file is neither read nor regenerated.
-func MigrateConfig(path string, now time.Time) (string, error) {
-	if strings.TrimSpace(path) == "" {
-		path = DefaultConfigPath
-	}
-	original, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	cfg, err := LoadConfig(path)
-	if err != nil {
-		return "", err
-	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
-	cfg.SynoraNet.AP.WPA = ""
-	return writeConfigWithBackup(path, cfg, original, now)
 }
 
 // WriteConfigWithBackup persists a validated configuration after making a

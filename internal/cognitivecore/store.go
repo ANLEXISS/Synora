@@ -23,15 +23,6 @@ const (
 	MaxProcessedIDs    = 1024
 )
 
-type TrainingTrace struct {
-	SchemaVersion string            `json:"schema_version"`
-	Snapshot      CognitiveSnapshot `json:"snapshot"`
-	Encoded       EncodedSnapshot   `json:"encoded"`
-	Decision      Decision          `json:"decision"`
-	Label         string            `json:"label,omitempty"`
-	Provenance    string            `json:"provenance,omitempty"`
-}
-
 type ActionRequest struct {
 	SchemaVersion string       `json:"schema_version"`
 	RequestID     string       `json:"request_id"`
@@ -44,7 +35,6 @@ type Commit struct {
 	Event       contract.Event    `json:"event"`
 	Snapshot    CognitiveSnapshot `json:"snapshot"`
 	Decision    Decision          `json:"decision"`
-	Training    TrainingTrace     `json:"training"`
 	Action      *ActionRequest    `json:"action,omitempty"`
 	CommittedAt time.Time         `json:"committed_at"`
 }
@@ -192,7 +182,6 @@ func (s *UniversalStore) Commit(value Commit) (CommitResult, error) {
 	value.Snapshot.Revision = nextRevision
 	value.Snapshot = value.Snapshot.Normalized()
 	value.Snapshot.Revision = nextRevision
-	value.Training.Snapshot = value.Snapshot
 	if value.Action != nil {
 		value.Action.DryRun = true
 	}

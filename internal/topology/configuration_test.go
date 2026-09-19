@@ -9,28 +9,38 @@ import (
 	"synora/pkg/contract"
 )
 
-func TestLegacyTopologyLoadsAndSavesCanonicalFlatFormat(t *testing.T) {
+func TestFlatTopologyLoadsAndSavesCanonicalFormat(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "topology.yaml")
-	legacy := `locked: true
-zones:
-  house:
-    floors:
-      ground:
-        rooms:
-          entry: {connect: [house.ground.hall]}
-          hall: {connect: []}
+	flat := `version: 1
+locked: true
+root_id: house
+nodes:
+  - id: house
+    name: House
+    type: house
+  - id: entry
+    name: Entry
+    type: room
+    parent: house
+  - id: hall
+    name: Hall
+    type: room
+    parent: house
+links:
+  - from: entry
+    to: hall
 `
-	if err := os.WriteFile(path, []byte(legacy), 0o640); err != nil {
+	if err := os.WriteFile(path, []byte(flat), 0o640); err != nil {
 		t.Fatal(err)
 	}
 	topo := &Topology{}
 	if err := Load(path, topo); err != nil {
 		t.Fatal(err)
 	}
-	entry := topo.Nodes["house.ground.entry"]
-	hall := topo.Nodes["house.ground.hall"]
+	entry := topo.Nodes["entry"]
+	hall := topo.Nodes["hall"]
 	if entry == nil || hall == nil || !hasNeighbor(entry, hall) || !hasNeighbor(hall, entry) {
-		t.Fatalf("legacy link was not canonicalized: entry=%#v hall=%#v", entry, hall)
+		t.Fatalf("link was not canonicalized: entry=%#v hall=%#v", entry, hall)
 	}
 	if err := Save(path, topo); err != nil {
 		t.Fatal(err)

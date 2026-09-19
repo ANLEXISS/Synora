@@ -23,7 +23,7 @@ de journal et d’outbox empêchent une croissance non bornée.
 L’implémentation V1 fournit le contrat atomique et le replay hermétique. La
 persistance fichier est append-only et doit être placée sous le répertoire de
 données configuré avant déploiement. Un rollback Git ne réécrit jamais le
-journal existant ; une reprise se fait par replay du dernier format compatible.
+journal existant ; une reprise se fait par replay du format V1 enregistré.
 
 ## Compaction et rétention
 

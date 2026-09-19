@@ -17,7 +17,6 @@ type Action struct {
 type ActionRequest struct {
 	ID            string         `json:"id,omitempty"`
 	CommandID     string         `json:"command_id,omitempty"`
-	AutomationID  string         `json:"automation_id,omitempty"`
 	ActionID      string         `json:"action_id,omitempty"`
 	Type          string         `json:"type,omitempty"`
 	Target        string         `json:"target,omitempty"`
@@ -34,7 +33,7 @@ type ActionRequest struct {
 	CooldownKey   string         `json:"cooldown_key,omitempty"`
 	Metadata      map[string]any `json:"metadata,omitempty"`
 
-	// Legacy transport/action fields kept while older callers and adapters are migrated.
+	// Transport fields retained in the V1 action wire shape.
 	Version        string    `json:"version,omitempty"`
 	RequestID      string    `json:"request_id,omitempty"`
 	CorrelationID  string    `json:"correlation_id,omitempty"`
@@ -50,7 +49,6 @@ type ActionResult struct {
 	RequestID      string         `json:"request_id,omitempty"`
 	CommandID      string         `json:"command_id,omitempty"`
 	IdempotencyKey string         `json:"idempotency_key,omitempty"`
-	AutomationID   string         `json:"automation_id,omitempty"`
 	ActionID       string         `json:"action_id,omitempty"`
 	Type           string         `json:"type,omitempty"`
 	Target         string         `json:"target,omitempty"`
@@ -71,7 +69,7 @@ type ActionResult struct {
 	NodeID         string         `json:"node_id,omitempty"`
 	DeviceID       string         `json:"device_id,omitempty"`
 
-	// Legacy metadata fields retained for older snapshot/API consumers.
+	// Metadata fields retained in the V1 action-result wire shape.
 	Version       string         `json:"version,omitempty"`
 	CorrelationID string         `json:"correlation_id,omitempty"`
 	Source        string         `json:"source,omitempty"`

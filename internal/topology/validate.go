@@ -113,9 +113,7 @@ func containsString(list []string, id string) bool {
 	return false
 }
 
-// BuildGraph canonicalizes links as undirected edges. Legacy topology files
-// historically treated room connections as undirected even when only one side
-// declared the link.
+// BuildGraph canonicalizes topology links as undirected edges.
 func (t *Topology) BuildGraph() {
 	if t == nil {
 		return

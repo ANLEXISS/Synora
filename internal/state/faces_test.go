@@ -40,7 +40,7 @@ func TestFacePhotoRegistrationIsIdempotentAndCopies(t *testing.T) {
 	}
 }
 
-func TestFacePhotoTransitionsAndLegacyRestore(t *testing.T) {
+func TestFacePhotoTransitionsAndEmptyRestore(t *testing.T) {
 	store := NewStore()
 	photo := testFacePhoto("photo-1", "sha-1")
 	if _, _, err := store.RegisterFacePhoto(&photo); err != nil {
@@ -58,7 +58,7 @@ func TestFacePhotoTransitionsAndLegacyRestore(t *testing.T) {
 	loaded := NewStore()
 	loaded.applyPersistedState(&PersistedState{Version: PersistedStateVersion, FacePhotos: nil, FaceDataset: nil})
 	if list := loaded.FacePhotosList("", 10); len(list) != 0 {
-		t.Fatalf("legacy state produced photos: %#v", list)
+		t.Fatalf("empty state produced photos: %#v", list)
 	}
 }
 

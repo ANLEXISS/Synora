@@ -12,13 +12,13 @@ func TestNormalizeRuntimeHealthFillsUnavailableComponents(t *testing.T) {
 	if health.Disk.Path == "" || health.Network.HostAPD.Name == "" || health.Network.DNSMasq.Name == "" {
 		t.Fatalf("health=%#v", health)
 	}
-	for _, name := range []string{"synora-core", "synora-actions", "synora-discovery", "mediamtx"} {
+	for _, name := range []string{"synora-core", "synora-discovery", "mediamtx"} {
 		item := health.Services[name]
 		if item.Name == "" || item.Checked.IsZero() || item.Status == "" {
 			t.Fatalf("service %s=%#v", name, item)
 		}
 	}
-	if health.Components["actions"].Status == "" || health.Components["vision_worker"].Status == "" {
+	if health.Components["vision_worker"].Status == "" {
 		t.Fatalf("components=%#v", health.Components)
 	}
 }
@@ -124,19 +124,5 @@ func TestMergeRuntimeComponentStatusDetailedUsesShortDegradedError(t *testing.T)
 	item := health.Services["synora-discovery"]
 	if item.Status != "degraded" || item.Error != "hostapd_failed" || strings.Contains(item.Error, "status unavailable") {
 		t.Fatalf("discovery health=%#v", item)
-	}
-}
-
-func TestMergeRuntimeComponentStatusDetailedClearsActionProbeFallback(t *testing.T) {
-	health := MergeRuntimeComponentStatusDetailed(
-		RuntimeHealth{},
-		map[string]string{"actions": "ok"},
-		map[string]string{"actions": "bus client registered"},
-		nil,
-		time.Now().UTC(),
-	)
-	item := health.Services["synora-actions"]
-	if item.Status != "ok" || !item.Active || item.Message != "bus client registered" || item.Error != "" {
-		t.Fatalf("actions health=%#v", item)
 	}
 }

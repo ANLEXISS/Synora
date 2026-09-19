@@ -1,4 +1,4 @@
-# Non-secret model compatibility manifest. Model files are provisioned outside Git.
+# Non-secret model manifest. Model files are provisioned outside Git.
 schema_version: 1
 models:
   arcface_w600k_r50.rknn:
@@ -10,9 +10,5 @@ models:
   yolov8.rknn:
     required: true
     component: person_detection
-  weapon.rknn:
-    required: false
-    component: weapon_detection
-    missing_status: degraded
 policy:
   missing_required: fatal

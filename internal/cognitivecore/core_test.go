@@ -1,10 +1,7 @@
 package cognitivecore
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"os"
 	"testing"
 	"time"
 
@@ -85,43 +82,4 @@ func TestVisionCannotCreateP0(t *testing.T) {
 	if got := store.Snapshot().VisionEvidence[11]; got != 0 || store.Snapshot().VisionEvidence[15] != 1 {
 		t.Fatalf("Vision P0 was not demoted to P4: %#v", store.Snapshot().VisionEvidence)
 	}
-}
-
-func TestCaptureIsVersionedAndContainsOnlyCanonicalFacts(t *testing.T) {
-	path := t.TempDir() + "/capture.jsonl"
-	capture, err := NewCaptureWriter(path, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := NewUniversalStore()
-	core := &Core{Store: store, MLP: UnavailableMLP{}, Gate: SafetyGate{DryRun: true}, Capture: capture, Now: func() time.Time { return time.Unix(40, 0).UTC() }}
-	if _, err := core.Process(context.Background(), contract.Event{ID: "capture-1", Type: "sensor.normal", Source: "discovery", Timestamp: time.Unix(40, 0).UTC(), Payload: map[string]any{"scenario_label": "ordinary_sensor"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := capture.Close(); err != nil {
-		t.Fatal(err)
-	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var record CaptureRecord
-	if err := json.Unmarshal(body, &record); err != nil {
-		t.Fatal(err)
-	}
-	if err := ValidateCaptureRecord(record); err != nil {
-		t.Fatal(err)
-	}
-	if string(body) == "" || containsForbiddenCapture(body) {
-		t.Fatalf("capture contains forbidden data: %s", body)
-	}
-}
-
-func containsForbiddenCapture(body []byte) bool {
-	for _, token := range []string{"bbox", "crop", "embedding", "hardware_id", "identity", "media", "frame"} {
-		if bytes.Contains(bytes.ToLower(body), []byte(token)) {
-			return true
-		}
-	}
-	return false
 }

@@ -10,24 +10,24 @@ import (
 	"synora/pkg/contract"
 )
 
-func TestServerRoutesLabEventToCore(t *testing.T) {
+func TestServerRoutesVisionEventToCore(t *testing.T) {
 	server := NewServer("net-pipe-test")
 	server.debug = true
 
 	coreConn, coreDecoder := registeredPipe(t, server, "core")
 	defer coreConn.Close()
-	labConn, _ := registeredPipe(t, server, "lab")
+	labConn, _ := registeredPipe(t, server, "vision")
 	defer labConn.Close()
 
 	msg := contract.Message{
 		Type:       contract.EventVisionUnknown,
 		Kind:       contract.KindEvent,
-		Source:     "lab",
-		SourceType: contract.SourceSimulator,
+		Source:     "vision",
+		SourceType: contract.SourceSystem,
 		Target:     "core",
 	}
 	if err := json.NewEncoder(labConn).Encode(msg); err != nil {
-		t.Fatalf("send lab event: %v", err)
+		t.Fatalf("send vision event: %v", err)
 	}
 
 	gotCh := make(chan contract.Message, 1)
@@ -39,11 +39,11 @@ func TestServerRoutesLabEventToCore(t *testing.T) {
 	}()
 	select {
 	case got := <-gotCh:
-		if got.Type != contract.EventVisionUnknown || got.Source != "lab" || got.Target != "core" {
+		if got.Type != contract.EventVisionUnknown || got.Source != "vision" || got.Target != "core" {
 			t.Fatalf("unexpected routed message: %#v", got)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("core did not receive lab event")
+		t.Fatal("core did not receive vision event")
 	}
 }
 
@@ -53,7 +53,7 @@ func TestValidateMessageRejectsSourceMismatch(t *testing.T) {
 		Kind:   contract.KindEvent,
 		Source: "cam_01",
 		Target: "core",
-	}, "lab")
+	}, "vision")
 	if err == nil || !strings.Contains(err.Error(), "source mismatch") {
 		t.Fatalf("expected source mismatch, got %v", err)
 	}

@@ -15,7 +15,6 @@ type PublicSnapshot struct {
 	Residents     []map[string]any `json:"residents"`
 	Nodes         []map[string]any `json:"nodes"`
 	Events        []map[string]any `json:"events"`
-	Automations   []map[string]any `json:"automations"`
 	Cameras       []map[string]any `json:"cameras"`
 	Tracks        []map[string]any `json:"tracks"`
 	Clusters      []map[string]any `json:"clusters"`
@@ -41,7 +40,6 @@ func PublicSnapshotFromCoreState(state map[string]any) PublicSnapshot {
 		Residents:     collectionFrom(state, store, "residents"),
 		Nodes:         collectionFrom(state, store, "nodes"),
 		Events:        collectionFrom(state, store, "events"),
-		Automations:   automationCollection(state["automations"]),
 		Cameras:       collectionFrom(state, store, "cameras"),
 		Tracks:        collectionFrom(state, store, "tracks"),
 		Clusters:      collectionFrom(state, store, "clusters"),
@@ -152,35 +150,6 @@ func publicCollection(value any, key string) []map[string]any {
 		delete(item, "Path")
 	}
 	return items
-}
-
-func automationCollection(value any) []map[string]any {
-	items := collection(value)
-	for _, item := range items {
-		if eventType, ok := item["event"]; ok {
-			item["event_type"] = eventType
-			delete(item, "event")
-		}
-		normalizeAutomationActions(item)
-	}
-	return items
-}
-
-func normalizeAutomationActions(item map[string]any) {
-	actions, ok := item["actions"].([]any)
-	if !ok {
-		return
-	}
-	for _, action := range actions {
-		mapped, ok := action.(map[string]any)
-		if !ok {
-			continue
-		}
-		if deviceID, ok := mapped["device"]; ok {
-			mapped["device_id"] = deviceID
-			delete(mapped, "device")
-		}
-	}
 }
 
 func collection(value any) []map[string]any {

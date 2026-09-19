@@ -153,7 +153,7 @@ func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
 	if health.Services == nil {
 		health.Services = map[string]RuntimeServiceHealth{}
 	}
-	for _, name := range []string{"synora-bus", "synora-core", "synora-actions", "synora-discovery", "mediamtx"} {
+	for _, name := range []string{"synora-bus", "synora-core", "synora-discovery", "mediamtx"} {
 		if _, ok := health.Services[name]; !ok {
 			health.Services[name] = unavailableRuntimeService(name, now, missingServiceMessage(name))
 		}
@@ -178,7 +178,7 @@ func NormalizeRuntimeHealth(health RuntimeHealth, now time.Time) RuntimeHealth {
 	}
 	for _, mapping := range []struct{ alias, service string }{
 		{alias: "api", service: "synora-discovery"}, {alias: "bus", service: "synora-bus"},
-		{alias: "core", service: "synora-core"}, {alias: "actions", service: "synora-actions"},
+		{alias: "core", service: "synora-core"},
 		{alias: "discovery", service: "synora-discovery"},
 	} {
 		if _, ok := health.Components[mapping.alias]; !ok {
@@ -381,15 +381,6 @@ func MergeRuntimeComponentStatusDetailed(
 			service.Message = item.Message
 			service.Error = item.Error
 			health.Services["synora-discovery"] = service
-		case "actions":
-			service := health.Services["synora-actions"]
-			service.Name = "synora-actions"
-			service.Status = status
-			service.Active = item.Active
-			service.Checked = item.Checked
-			service.Message = item.Message
-			service.Error = item.Error
-			health.Services["synora-actions"] = service
 		}
 	}
 	if health.Network.Status == "ok" && health.Components["discovery"].Status == "degraded" {
@@ -565,8 +556,6 @@ func missingServiceMessage(name string) string {
 	switch name {
 	case "mediamtx":
 		return "optional component not running"
-	case "synora-actions":
-		return "action service status unavailable"
 	case "synora-discovery":
 		return "discovery status unavailable"
 	case "synora-bus":

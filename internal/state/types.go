@@ -149,8 +149,8 @@ type SystemState struct {
 	DangerScore        float64   `json:"danger_score"`
 	DangerKnown        bool      `json:"danger_known"`
 	DangerSource       string    `json:"danger_source"`
-	// DangerScoreCurrent is the decayed, runtime score. DangerScore remains
-	// the historical/current compatibility field used by older clients.
+	// DangerScoreCurrent is the decayed runtime score. DangerScore is the
+	// persisted event score retained in the V1 wire shape.
 	DangerDecayEnabled         bool                       `json:"danger_decay_enabled"`
 	DangerDecay                map[string]any             `json:"danger_decay,omitempty"`
 	DangerDecayLastTick        time.Time                  `json:"danger_decay_last_tick,omitempty"`

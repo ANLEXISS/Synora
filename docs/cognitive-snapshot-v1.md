@@ -3,8 +3,8 @@
 `CognitiveSnapshot` est l’entrée canonique du State Encoder V1. Le vecteur V1
 possède 86 dimensions fixes. Le bloc
 `VisionEvidence[44]` réutilise les faits normalisés du contrat
-`state-encoder/v5`, mais il n’est pas un snapshot complet et n’alimente pas à
-lui seul le MLP.
+`vision-evidence/v1`, mais il n’est pas un snapshot complet et n’alimente pas
+à lui seul le MLP.
 
 ## Groupes
 
@@ -31,8 +31,8 @@ Chaque head voit le snapshot ; les heads suivants peuvent voir uniquement les
 sorties précédentes du même cycle. Les actions sont abstraites : `no_action`,
 `notify`, `record`, `light`, `lock`, `siren`, `request_review`.
 
-## Compatibilité
+## Versionnement
 
 Le contrat V1 est versionné, dimensionné et validé par son manifest. En
-l’absence de bundle compatible, le Core persiste les faits en
+l’absence de bundle conforme, le Core persiste les faits en
 `active_dry_run` fail-closed et n’envoie aucune action.

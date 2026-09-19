@@ -43,13 +43,8 @@ les dépassements de budget et toute requête qui ne respecte pas le mode
 `active_dry_run`. Il ne remplace pas la proposition du MLP par une décision
 indépendante.
 
-## Éléments hors V1
+## Périmètre V1
 
-Les anciens packages de catalogue ou d’interprétation, les anciens contrats
-de compatibilité, les anciens serveurs API et les démonstrations supprimées ne
-font plus partie du dépôt actif. Leur historique est conservé uniquement par
-Git et par les documents de migration nécessaires au suivi du retrait.
-
-Sont également hors périmètre : SFace RKNN, OCR/plaque, objets sensibles,
-code caméra réel, modification sémantique ou réentraînement des têtes MLP,
-et exécution accélérée du MLP sur NPU.
+Le dépôt contient uniquement les services, contrats et validations nécessaires
+au flux nominal décrit ci-dessus. Toute extension s’ajoute par un contrat
+versionné et une décision d’architecture dédiée.

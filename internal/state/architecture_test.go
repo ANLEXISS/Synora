@@ -10,10 +10,7 @@ import (
 )
 
 func TestStatePersistenceDoesNotImportRuntimeServices(t *testing.T) {
-	forbiddenImports := []string{
-		"synora/internal/actions",
-		"synora/internal/bus",
-	}
+	forbiddenImports := []string{"synora/internal/bus"}
 	assertNoForbiddenImports(t, ".", forbiddenImports)
 }
 

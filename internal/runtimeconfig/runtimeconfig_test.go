@@ -27,7 +27,6 @@ func TestLoadAcceptsInjectedHermeticPathsAndEphemeralPorts(t *testing.T) {
 		"SYNORA_FACE_DATA_ROOT":     filepath.Join(root, "faces"),
 		"SYNORA_MODEL_ROOT":         filepath.Join(root, "models"),
 		"SYNORA_BACKUP_ROOT":        filepath.Join(root, "backups"),
-		"SYNORA_WEB_ROOT":           filepath.Join(root, "web"),
 		"SYNORA_HTTP_ADDR":          "127.0.0.1:0",
 		"SYNORA_HTTPS_ADDR":         "127.0.0.1:0",
 		"SYNORA_VISION_HEALTH_ADDR": "127.0.0.1:0",

@@ -14,8 +14,6 @@ vision_clip_v1:
   min_face_crops: 2
   identity_stability_threshold: 0.67
   face_backend: arcface_existing_only
-  plate_backend: unavailable_until_configured
-  sensitive_objects_backend: unavailable_until_configured
   publish_preliminary_alerts: true
 
 # Central finalized-segment assembly is opt-in and camera-independent.

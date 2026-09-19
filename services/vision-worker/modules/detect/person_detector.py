@@ -22,9 +22,7 @@ class PersonDetector:
     """
 
     MAX_PERSONS = 10
-    DEBUG_DIR = "/var/lib/synora/debug/yolo"
-
-    def __init__(self, core_mask=None, debug_enabled=None, debug_max_frames=None):
+    def __init__(self, core_mask=None):
         log.info("PERSON DETECTOR INIT")
         cv2.setNumThreads(1)
         model_path = os.getenv("SYNORA_YOLO_MODEL_PATH", "/var/lib/synora/models/yolov8.rknn")
@@ -34,17 +32,6 @@ class PersonDetector:
         self.capability_status = model_status(model_path)
         self.runner = None
         self.core_mask = core_mask
-        self.debug_enabled = (
-            os.getenv("SYNORA_VISION_DETECTOR_DEBUG", "0") == "1"
-            if debug_enabled is None else bool(debug_enabled)
-        )
-        self.debug_max_frames = max(
-            0,
-            int(os.getenv("SYNORA_VISION_DETECTOR_DEBUG_MAX_FRAMES", "3"))
-            if debug_max_frames is None else int(debug_max_frames),
-        )
-        self.debug_frames = 0
-        self.debug_counter = 0
         try:
             self.runner = create_model_runner(model_path, core_mask=core_mask, input_data_format="nhwc")
             self.available = True
@@ -79,9 +66,6 @@ class PersonDetector:
             status["error"] = self.error
         return status
 
-    def begin_clip(self):
-        self.debug_frames = 0
-
     def preprocess(self, frame):
         h, w = frame.shape[:2]
         scale = min(self.input_size / w, self.input_size / h)
@@ -100,34 +84,6 @@ class PersonDetector:
         }
         return np.ascontiguousarray(image[None, ...]), meta
 
-    def _debug_active(self):
-        return bool(
-            getattr(self, "debug_enabled", False)
-            and getattr(self, "debug_frames", 0) < getattr(self, "debug_max_frames", 0)
-        )
-
-    def save_detection_frame(self, frame, boxes):
-        if not self._debug_active():
-            return
-        debug = frame.copy()
-        for x1, y1, x2, y2 in boxes:
-            cv2.rectangle(debug, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        self._write_debug_image(debug, f"detection_{int(time.time() * 1000)}_{self.debug_counter}.jpg")
-
-    def save_person_roi(self, roi):
-        if not self._debug_active() or roi is None or roi.size == 0:
-            return
-        self._write_debug_image(roi, f"person_roi_{int(time.time() * 1000)}_{self.debug_counter}.jpg")
-
-    def _write_debug_image(self, image, filename):
-        try:
-            os.makedirs(self.DEBUG_DIR, exist_ok=True)
-            cv2.imwrite(os.path.join(self.DEBUG_DIR, filename), image)
-            self.debug_counter = getattr(self, "debug_counter", 0) + 1
-        except Exception:
-            # Debug output must never make an inference fail.
-            log.debug("detector debug image write failed", exc_info=True)
-
     def detect(self, frame):
         return self.detect_timed(frame)[0]
 
@@ -139,7 +95,6 @@ class PersonDetector:
             "rknn_inference_ms": 0.0,
             "postprocess_ms": 0.0,
             "nms_ms": 0.0,
-            "debug_io_ms": 0.0,
             "total_ms": 0.0,
         }
         if (
@@ -162,7 +117,6 @@ class PersonDetector:
             return [], timings
         timings["rknn_inference_ms"] = (time.perf_counter() - stage) * 1000.0
 
-        debug_this_frame = self._debug_active()
         stage = time.perf_counter()
         try:
             rows = self._normalize_outputs(outputs)
@@ -173,13 +127,7 @@ class PersonDetector:
             timings["total_ms"] = (time.perf_counter() - started) * 1000.0
             return [], timings
         timings["postprocess_ms"] = (time.perf_counter() - stage) * 1000.0
-        if debug_this_frame:
-            stage = time.perf_counter()
-            self._write_debug_output(outputs, rows, decoded)
-            timings["debug_io_ms"] = (time.perf_counter() - stage) * 1000.0
         if not decoded:
-            if debug_this_frame:
-                self.debug_frames += 1
             timings["total_ms"] = (time.perf_counter() - started) * 1000.0
             return [], timings
         stage = time.perf_counter()
@@ -191,8 +139,6 @@ class PersonDetector:
             timings["total_ms"] = (time.perf_counter() - started) * 1000.0
             return [], timings
         timings["nms_ms"] = (time.perf_counter() - stage) * 1000.0
-        if debug_this_frame:
-            self.debug_frames += 1
         timings["total_ms"] = (time.perf_counter() - started) * 1000.0
         return results, timings
 
@@ -208,11 +154,8 @@ class PersonDetector:
         for index in indices:
             index = int(index)
             x1, y1, x2, y2 = boxes[index]
-            self.save_person_roi(frame[y1:y2, x1:x2])
             results.append({"bbox": (x1, y1, x2, y2), "score": float(scores[index])})
         results.sort(key=lambda item: (-item["score"], item["bbox"]))
-        if results:
-            self.save_detection_frame(frame, [item["bbox"] for item in results])
         return results[: self.MAX_PERSONS]
 
     def _decode_candidates(self, rows, meta):
@@ -262,19 +205,6 @@ class PersonDetector:
             {"bbox": tuple(int(value) for value in box), "score": float(score)}
             for box, score in zip(translated[keep], confidence[keep])
         ]
-
-    def _write_debug_output(self, raw_outputs, rows, decoded):
-        try:
-            os.makedirs(self.DEBUG_DIR, exist_ok=True)
-            outputs = raw_outputs if isinstance(raw_outputs, (list, tuple)) else [raw_outputs]
-            with open(os.getenv("SYNORA_VISION_DETECTOR_DEBUG_LOG", "/tmp/yolo_debug.txt"), "a", encoding="utf-8") as stream:
-                stream.write(json.dumps({
-                    "raw_shapes": [list(np.asarray(output).shape) for output in outputs],
-                    "normalized_shape": list(rows.shape) if rows is not None else None,
-                    "decoded": decoded,
-                }, default=str) + "\n")
-        except Exception:
-            log.debug("detector debug output write failed", exc_info=True)
 
     @staticmethod
     def _normalize_outputs(outputs):

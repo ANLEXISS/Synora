@@ -26,7 +26,7 @@ func NewServer(address string) *Server {
 
 func NewServerWithConfig(address string, cfg ServerConfig) *Server {
 	allowed := make(map[string]struct{})
-	for _, service := range []string{"actions", "api", "connectivity", "core", "core-2", "discovery", "lab", "runtime-manager", "vision"} {
+	for _, service := range []string{"actions", "connectivity", "core", "core-2", "discovery", "runtime-manager", "vision"} {
 		allowed[service] = struct{}{}
 	}
 	if cfg.ReplayWindow <= 0 {
@@ -278,8 +278,6 @@ func processIdentityAllowed(peer peerCredential, service string) bool {
 
 func expectedExecutables(service string) []string {
 	switch service {
-	case "actions":
-		return []string{"synora-actions"}
 	case "connectivity":
 		return []string{"synora-connect"}
 	case "core", "core-2":
@@ -290,8 +288,6 @@ func expectedExecutables(service string) []string {
 		return []string{"synora-runtime-manager"}
 	case "vision":
 		return []string{"synora-vision", "synora-discovery"}
-	case "lab":
-		return []string{"synora-lab"}
 	default:
 		return nil
 	}

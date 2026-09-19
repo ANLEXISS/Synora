@@ -35,20 +35,12 @@ class WorkerRuntimeTests(unittest.TestCase):
         self.assertIsNone(worker.pipeline)
         self.assertEqual(worker.face_error, "disabled_by_configuration")
 
-    def test_init_continues_when_flask_is_missing(self):
-        real_import = __import__
+    def test_worker_has_no_http_debug_server(self):
+        worker = VisionWorker(dry_run=True)
+        self.assertFalse(hasattr(worker, "debug_app"))
+        self.assertFalse(hasattr(worker, "debug_thread"))
 
-        def import_without_flask(name, *args, **kwargs):
-            if name == "flask":
-                raise ImportError("flask unavailable")
-            return real_import(name, *args, **kwargs)
-
-        with mock.patch("builtins.__import__", side_effect=import_without_flask):
-            worker = VisionWorker(dry_run=True)
-            self.assertIsNone(worker.debug_app)
-            self.assertEqual(worker.debug_http_error, "flask_not_installed")
-
-    def test_protocol_hello_is_compatible_and_reports_capabilities(self):
+    def test_protocol_hello_reports_capabilities(self):
         worker = VisionWorker(dry_run=True)
         response = worker.process_request({
             "request_id": "hello-1",
@@ -73,7 +65,7 @@ class WorkerRuntimeTests(unittest.TestCase):
         response = worker.process_request({
             "request_id": "hello-2",
             "operation": "protocol.hello",
-            "protocol_version": "legacy",
+            "protocol_version": "retired-v0",
         })
         self.assertEqual(response["failure_code"], "protocol_version_unsupported")
         self.assertEqual(response["status"], "degraded")

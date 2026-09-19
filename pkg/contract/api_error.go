@@ -17,7 +17,6 @@ const (
 	ErrorValidationFailed = "validation_failed"
 	ErrorForbiddenAction  = "forbidden_action"
 	ErrorTopologyRequired = "topology_required"
-	ErrorUnsafeAutomation = "unsafe_automation"
 	ErrorInternal         = "internal_error"
 )
 

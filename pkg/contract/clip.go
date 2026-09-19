@@ -70,8 +70,8 @@ type Clip struct {
 	FailureCode   string     `json:"failure_code,omitempty"`
 	Revision      uint64     `json:"revision"`
 
-	// Internal fields retained for persisted event compatibility. They are not
-	// exposed as an absolute path.
+	// Internal fields retained for persisted event reconstruction. The path is
+	// never exposed as an absolute path.
 	EventID string    `json:"event_id,omitempty"`
 	Path    string    `json:"path,omitempty"`
 	Start   time.Time `json:"start,omitempty"`

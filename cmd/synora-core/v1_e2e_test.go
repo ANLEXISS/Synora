@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -189,6 +190,70 @@ func TestV1FinalArchitectureHasNoRetiredRuntimeArtifacts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "internal", "engine")); !os.IsNotExist(err) {
 		t.Fatalf("retired decision engine path exists: %v", err)
+	}
+}
+
+func TestV1ActiveSurfaceContainsOnlyCanonicalRuntime(t *testing.T) {
+	root := filepath.Clean(filepath.Join("..", ".."))
+	markers := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)\bcge\b`),
+		regexp.MustCompile(`(?i)\bengine\b`),
+		regexp.MustCompile(`(?i)\bv4\b`),
+		regexp.MustCompile(`(?i)\bteacher\b`),
+		regexp.MustCompile(`(?i)\bshadow\b`),
+		regexp.MustCompile(`(?i)\badvisory\b`),
+		regexp.MustCompile(`(?i)synora-api`),
+		regexp.MustCompile(`(?i)\bwebapp\b`),
+		regexp.MustCompile(`(?i)\binspector\b`),
+		regexp.MustCompile(`(?i)\blab\b`),
+		regexp.MustCompile(`(?i)\bsimulator\b`),
+		regexp.MustCompile(`(?i)\blegacy\b`),
+		regexp.MustCompile(`(?i)\bcompat`),
+	}
+	roots := []string{"cmd", "internal", "pkg", "services", "configs", "deployments"}
+	var matches []string
+	for _, relative := range roots {
+		path := filepath.Join(root, relative)
+		err := filepath.Walk(path, func(filePath string, info os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if info.IsDir() {
+				if info.Name() == "__pycache__" || info.Name() == "node_modules" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			base := filepath.Base(filePath)
+			if strings.HasSuffix(base, "_test.go") || strings.HasPrefix(base, "test_") || strings.Contains(filePath, string(filepath.Separator)+"tests"+string(filepath.Separator)) {
+				return nil
+			}
+			data, err := os.ReadFile(filePath)
+			if err != nil {
+				return err
+			}
+			for _, marker := range markers {
+				if marker.Match(data) {
+					matches = append(matches, filePath+" contains "+marker.String())
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	makefile, err := os.ReadFile(filepath.Join(root, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range markers {
+		if marker.Match(makefile) {
+			matches = append(matches, "Makefile contains "+marker.String())
+		}
+	}
+	if len(matches) > 0 {
+		t.Fatalf("forbidden active runtime surface: %s", strings.Join(matches, "; "))
 	}
 }
 

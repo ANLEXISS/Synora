@@ -13,7 +13,7 @@ import (
 
 const DefaultPath = "/opt/synora/version.json"
 
-// Manifest is intentionally limited to build and compatibility metadata.
+// Manifest is intentionally limited to build and deployment metadata.
 // Never add credentials, device identifiers, tokens, or private key material.
 type Manifest struct {
 	ImageVersion        string `json:"image_version"`

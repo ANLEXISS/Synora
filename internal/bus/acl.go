@@ -57,12 +57,8 @@ func authorizeACL(msg contract.Message, service string, allowed map[string]struc
 		}
 	case contract.KindRPC:
 		switch service {
-		case "api":
-			if msg.Target == "core" || (msg.Type == "connectivity.status" && msg.Target == "connectivity") {
-				return nil
-			}
 		case "discovery":
-			if msg.Target == "core" && (strings.HasPrefix(msg.Type, "face_dataset.") || strings.HasPrefix(msg.Type, "residents.photos.") || msg.Type == "clips.list") {
+			if msg.Target == "core" && (strings.HasPrefix(msg.Type, "face_dataset.") || strings.HasPrefix(msg.Type, "residents.photos.") || msg.Type == "clips.list" || msg.Type == "health.check") {
 				return nil
 			}
 		case "core":
@@ -70,7 +66,7 @@ func authorizeACL(msg contract.Message, service string, allowed map[string]struc
 				return nil
 			}
 		case "runtime-manager", "connectivity":
-			if msg.Target == "api" || msg.Target == "core" {
+			if msg.Target == "core" {
 				return nil
 			}
 		}
@@ -107,20 +103,16 @@ func eventACLAllowed(service, eventType, target string) bool {
 	switch service {
 	case "actions":
 		return (eventType == contract.EventActionResult || eventType == contract.EventActionServiceStarted) && targetOK("", "core")
-	case "api":
-		return (hasPrefix("network.") || hasPrefix("vision.") || hasPrefix("discovery.")) && targetOK("", "core")
 	case "discovery":
 		return (hasPrefix("discovery.") || hasPrefix("clip.") || hasPrefix("residents.") || eventType == contract.EventDeviceOffline ||
 			eventType == contract.EventVisionClipSummaryV1 || eventType == contract.EventVisionPreliminaryAlertV1 || eventType == contract.EventVisionClipObservationV1 || eventType == contract.EventVisionSegmentReadyV1 || eventType == contract.EventVisionSegmentGapV1 || eventType == contract.EventVisionContinuityResetV1 || eventType == contract.EventVisionEnd) && targetOK("", "core")
 	case "vision":
 		return (hasPrefix("vision.") || eventType == "delivery.ack") && target == "core"
-	case "lab":
-		return hasPrefix("vision.") && target == "core"
 	case "core", "core-2":
 		if eventType == "state.snapshot" {
-			return targetOK("api")
+			return targetOK("discovery")
 		}
-		return targetOK("", "api", "core", "core-2", "vision") && hasPrefix(
+		return targetOK("", "core", "core-2", "vision", "discovery") && hasPrefix(
 			"system.", "security.", "manual.", "incident.",
 			"chain.", "clip.", "runtime.", "device.", "devices.", "residents.",
 			"automations.", "topology.", "validation.", "action.")
@@ -137,8 +129,7 @@ func isPrivilegedMessage(msg contract.Message) bool {
 	}
 	typeName := strings.ToLower(strings.TrimSpace(msg.Type))
 	return strings.HasPrefix(typeName, "action.") || strings.HasPrefix(typeName, "security.") ||
-		typeName == contract.EventManualRisk || typeName == contract.EventSystemStateReset ||
-		typeName == contract.EventAutomationAction
+		typeName == contract.EventManualRisk || typeName == contract.EventSystemStateReset
 }
 
 func (s *Server) rememberNonce(msg contract.Message, now time.Time) error {

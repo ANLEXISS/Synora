@@ -12,13 +12,11 @@ import (
 const V1SchemaVersion = 1
 
 // TimestampFormatV1 documents the wire representation used by the V1
-// contracts. time.Time's standard JSON encoding is RFC3339Nano, and remains
-// the canonical representation for compatibility with existing consumers.
+// contracts. time.Time's standard JSON encoding is RFC3339Nano.
 const TimestampFormatV1 = "RFC3339"
 
-// ValidateSchemaVersion accepts an omitted version for legacy records and the
-// current V1 version for new records. Future versions fail closed at the
-// boundary instead of being silently interpreted as V1.
+// ValidateSchemaVersion accepts an omitted version as the V1 default. Future
+// versions fail closed at the boundary instead of being silently interpreted.
 func ValidateSchemaVersion(version int) error {
 	if version == 0 {
 		return nil

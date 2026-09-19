@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"synora/internal/cognitive"
 	"synora/pkg/contract"
 )
 
@@ -23,7 +22,6 @@ type Core struct {
 	MLP     MLPBackend
 	Gate    SafetyGate
 	Now     func() time.Time
-	Capture *CaptureWriter
 }
 
 func (c *Core) now() time.Time {
@@ -77,16 +75,12 @@ func (c *Core) Process(ctx context.Context, event contract.Event) (ProcessResult
 		action = &ActionRequest{SchemaVersion: "action-request/v1", RequestID: event.ID, EpisodeID: episodeID(event), Action: decision.Action.Proposed, DryRun: true}
 	}
 	snapshot.Revision = c.Store.Revision() + 1
-	training := TrainingTrace{SchemaVersion: "training-capture/v1", Snapshot: snapshot, Encoded: encoded, Decision: decision, Label: payloadString(event.Payload, "scenario_label"), Provenance: provenance(event)}
-	commit := Commit{Event: event, Snapshot: snapshot, Decision: decision, Training: training, Action: action, CommittedAt: c.now()}
+	commit := Commit{Event: event, Snapshot: snapshot, Decision: decision, Action: action, CommittedAt: c.now()}
 	result, err := c.Store.Commit(commit)
 	if err != nil {
 		return ProcessResult{}, err
 	}
 	commit.Snapshot.Revision = result.Revision
-	if c.Capture != nil && !result.Duplicate {
-		c.Capture.Enqueue(commit, result)
-	}
 	return ProcessResult{Commit: commit, Result: result, Encoded: encoded}, nil
 }
 
@@ -149,7 +143,7 @@ func (c *Core) composeSnapshot(previous CognitiveSnapshot, event contract.Event)
 	return snapshot.Normalized(), nil
 }
 
-func frameFromVisionEvent(previous CognitiveSnapshot, event contract.Event) (cognitive.StateFrameV5, error) {
+func frameFromVisionEvent(previous CognitiveSnapshot, event contract.Event) (VisionEvidenceFrame, error) {
 	p := event.Payload
 	priority := payloadString(p, "priority")
 	if priority == "" {
@@ -164,14 +158,14 @@ func frameFromVisionEvent(previous CognitiveSnapshot, event contract.Event) (cog
 	phase := payloadString(p, "episode_phase")
 	if phase == "" {
 		if payloadBoolDefault(p, "is_final", false) {
-			phase = cognitive.V5PhaseFinal
+			phase = VisionPhaseFinal
 		} else if previous.Presence.HumanPresent {
-			phase = cognitive.V5PhaseConfirmed
+			phase = VisionPhaseConfirmed
 		} else {
-			phase = cognitive.V5PhaseCandidate
+			phase = VisionPhaseCandidate
 		}
 	}
-	frame := cognitive.StateFrameV5{SchemaVersion: cognitive.StateEncoderV5SchemaVersion, CapturedAt: event.Timestamp.UTC(), Security: cognitive.StateFrameV5Security{Armed: previous.Security.Armed, Degraded: previous.Security.Degraded, Known: previous.Security.Known}, Presence: cognitive.StateFrameV5Presence{HumanPresent: payloadBoolDefault(p, "human_present", previous.Presence.HumanPresent), TrackCount: payloadIntDefault(p, "track_count", previous.Presence.TrackCount), TrackConfirmed: payloadBoolDefault(p, "track_confirmed", previous.Presence.TrackConfirmed)}, TopologyClass: payloadStringDefault(p, "topology", previous.Topology), Priority: priority, PriorityOrigin: cognitive.V5PriorityOriginVision, EpisodePhase: phase, Enrichment: payloadStringDefault(p, "enrichment_status", cognitive.V5EnrichmentUnavailable), Continuity: cognitive.StateFrameV5Continuity{SecondsSinceFirstObservation: payloadFloatDefault(p, "seconds_since_first", previous.Episode.SecondsSinceFirst), SecondsSinceLastObservation: payloadFloatDefault(p, "seconds_since_last", previous.Episode.SecondsSinceLast), SegmentCount: payloadIntDefault(p, "segment_count", previous.Episode.SegmentCount+1), GapCount: payloadIntDefault(p, "gap_count", previous.Episode.GapCount), CalmSeconds: payloadFloatDefault(p, "calm_seconds", 0)}, Quality: cognitive.StateFrameV5Quality{RealDetection: payloadBoolDefault(p, "real_detection", true), ReplaySimulation: payloadBoolDefault(p, "replay_simulation", false), ObservationCount: payloadIntDefault(p, "observation_count", previous.Sensors.ObservationCount+1), AggregateConfidence: payloadFloatDefault(p, "confidence", previous.Sensors.Confidence)}, CoEvidence: cognitive.StateFrameV5CoEvidence{AccessState: payloadStringDefault(p, "access_state", previous.Sensors.AccessState), Movement: payloadBoolDefault(p, "movement", previous.Sensors.Movement), SensorEvidence: payloadBoolDefault(p, "sensor_evidence", true), AlarmState: payloadStringDefault(p, "alarm_state", previous.Sensors.AlarmState)}}
+	frame := VisionEvidenceFrame{SchemaVersion: VisionEvidenceSchemaVersion, CapturedAt: event.Timestamp.UTC(), Security: VisionEvidenceFrameSecurity{Armed: previous.Security.Armed, Degraded: previous.Security.Degraded, Known: previous.Security.Known}, Presence: VisionEvidenceFramePresence{HumanPresent: payloadBoolDefault(p, "human_present", previous.Presence.HumanPresent), TrackCount: payloadIntDefault(p, "track_count", previous.Presence.TrackCount), TrackConfirmed: payloadBoolDefault(p, "track_confirmed", previous.Presence.TrackConfirmed)}, TopologyClass: payloadStringDefault(p, "topology", previous.Topology), Priority: priority, PriorityOrigin: VisionPriorityOriginVision, EpisodePhase: phase, Enrichment: payloadStringDefault(p, "enrichment_status", VisionEnrichmentUnavailable), Continuity: VisionEvidenceFrameContinuity{SecondsSinceFirstObservation: payloadFloatDefault(p, "seconds_since_first", previous.Episode.SecondsSinceFirst), SecondsSinceLastObservation: payloadFloatDefault(p, "seconds_since_last", previous.Episode.SecondsSinceLast), SegmentCount: payloadIntDefault(p, "segment_count", previous.Episode.SegmentCount+1), GapCount: payloadIntDefault(p, "gap_count", previous.Episode.GapCount), CalmSeconds: payloadFloatDefault(p, "calm_seconds", 0)}, Quality: VisionEvidenceFrameQuality{RealDetection: payloadBoolDefault(p, "real_detection", true), ReplaySimulation: payloadBoolDefault(p, "replay_simulation", false), ObservationCount: payloadIntDefault(p, "observation_count", previous.Sensors.ObservationCount+1), AggregateConfidence: payloadFloatDefault(p, "confidence", previous.Sensors.Confidence)}, CoEvidence: VisionEvidenceFrameCoEvidence{AccessState: payloadStringDefault(p, "access_state", previous.Sensors.AccessState), Movement: payloadBoolDefault(p, "movement", previous.Sensors.Movement), SensorEvidence: payloadBoolDefault(p, "sensor_evidence", true), AlarmState: payloadStringDefault(p, "alarm_state", previous.Sensors.AlarmState)}}
 	return frame, frame.Validate()
 }
 
@@ -198,12 +192,6 @@ func episodeID(event contract.Event) string {
 		return event.GroupKey
 	}
 	return event.ID
-}
-func provenance(event contract.Event) string {
-	if payloadBoolDefault(event.Payload, "replay_simulation", false) {
-		return "replay"
-	}
-	return "live"
 }
 func payloadString(payload map[string]any, key string) string {
 	if payload == nil {

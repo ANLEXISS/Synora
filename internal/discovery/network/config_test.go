@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func testConfig(t *testing.T) SynoraNetConfig {
@@ -66,22 +65,6 @@ func TestHostapdConfigsPrefer5GHzAndProvide24GHzFallback(t *testing.T) {
 	}
 }
 
-func TestHostapdWPA2LegacyAndTransitionModes(t *testing.T) {
-	cfg := testConfig(t)
-	cfg.Security = SecurityConfig{Mode: "wpa2", PMF: "disabled", APIsolate: true, MinPassphraseLength: 24}
-	wpa2 := renderHostapdConfig(cfg, "5GHz", "test-passphrase")
-	if !strings.Contains(wpa2, "wpa_key_mgmt=WPA-PSK") || !strings.Contains(wpa2, "wpa_passphrase=test-passphrase") || strings.Contains(wpa2, "sae_password=") {
-		t.Fatalf("unexpected WPA2 config: %s", wpa2)
-	}
-	cfg.Security = SecurityConfig{Mode: "wpa2-wpa3-transition", PMF: "optional", APIsolate: true, MinPassphraseLength: 24}
-	transition := renderHostapdConfig(cfg, "5GHz", "test-passphrase")
-	for _, want := range []string{"wpa_key_mgmt=WPA-PSK SAE", "wpa_passphrase=test-passphrase", "sae_password=test-passphrase", "ieee80211w=1"} {
-		if !strings.Contains(transition, want) {
-			t.Fatalf("transition config missing %q: %s", want, transition)
-		}
-	}
-}
-
 func TestHostapdHiddenNormalAndVisiblePairingModes(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Visibility.HiddenByDefault = true
@@ -118,54 +101,6 @@ func TestSecurityValidationAndLegacyMapping(t *testing.T) {
 	}
 	if err := ValidatePassphrase("short", 24); err == nil {
 		t.Fatal("short passphrase should be rejected")
-	}
-	path := filepath.Join(t.TempDir(), "network.yaml")
-	content := "synoranet:\n  enabled: true\n  interface: wlan-test\n  ap:\n    wpa: wpa2\n"
-	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := LoadConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loaded.SynoraNet.Security.Mode != "wpa2" || loaded.SynoraNet.Security.PMF != "disabled" {
-		t.Fatalf("legacy mapping=%#v", loaded.SynoraNet.Security)
-	}
-	if loaded.SynoraNet.Visibility.HiddenByDefault != true || loaded.SynoraNet.AccessControl.StationAllowlist != true || loaded.SynoraNet.ConnectionPolicy.Mode != "central_initiated" {
-		t.Fatalf("secure defaults were not applied to partial legacy config: %#v", loaded.SynoraNet)
-	}
-}
-
-func TestMigrateConfigBacksUpAndAddsSecurityWithoutTouchingPSK(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "network.yaml")
-	original := []byte("synoranet:\n  enabled: true\n  interface: wlP2p33s0\n  ap:\n    wpa: wpa2\n    passphrase_file: /tmp/psk-not-read\n")
-	if err := os.WriteFile(path, original, 0600); err != nil {
-		t.Fatal(err)
-	}
-	backup, err := MigrateConfig(path, time.Date(2026, 7, 15, 12, 30, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(backup); err != nil {
-		t.Fatalf("backup missing: %v", err)
-	}
-	migrated, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(migrated)
-	for _, want := range []string{"mode: wpa2", "enabled: true", "interface: wlP2p33s0", "passphrase_file: /tmp/psk-not-read"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("migrated config missing %q: %s", want, text)
-		}
-	}
-	if strings.Contains(text, "wpa: wpa2") {
-		t.Fatalf("legacy field should be removed after migration: %s", text)
-	}
-	backupData, err := os.ReadFile(backup)
-	if err != nil || string(backupData) != string(original) {
-		t.Fatalf("backup changed: err=%v data=%q", err, backupData)
 	}
 }
 

@@ -67,12 +67,7 @@ func (m *Manager) StartContext(ctx context.Context) error {
 		accessMessage = "locked: no authorized stations"
 	}
 	status.AccessControl = AccessControlStatus{RuntimePart: RuntimePart{Status: accessStatus, Active: stationErr == nil, Message: accessMessage}, Enabled: cfg.SynoraNet.AccessControl.Enabled, StationAllowlist: cfg.SynoraNet.AccessControl.StationAllowlist, KnownDevices: len(stations), PendingDevices: pairingState.PendingDevices, UnknownPolicy: cfg.SynoraNet.AccessControl.UnknownStationPolicy}
-	policyStatus := "ok"
-	policyMessage := "central-initiated camera connections"
-	if cfg.SynoraNet.ConnectionPolicy.Mode == "camera_push_legacy" {
-		policyStatus, policyMessage = "degraded", "legacy camera push enabled"
-	}
-	status.ConnectionPolicy = ConnectionPolicyStatus{RuntimePart: RuntimePart{Status: policyStatus, Active: true, Message: policyMessage}, Mode: cfg.SynoraNet.ConnectionPolicy.Mode, PairingWindowActive: pairingState.Active, CameraPushRuntimeAllowed: cfg.SynoraNet.ConnectionPolicy.AllowCameraPushRuntime}
+	status.ConnectionPolicy = ConnectionPolicyStatus{RuntimePart: RuntimePart{Status: "ok", Active: true, Message: "central-initiated camera connections"}, Mode: cfg.SynoraNet.ConnectionPolicy.Mode, PairingWindowActive: pairingState.Active, CameraPushRuntimeAllowed: false}
 	status.PairingSecurity = PairingSecurityStatus{RuntimePart: RuntimePart{Status: "ok", Active: pairingState.Active, Message: map[bool]string{true: "pairing window active", false: "pairing window closed"}[pairingState.Active]}, Active: pairingState.Active, ExpiresAt: pairingState.ExpiresAt, ClaimEndpointActive: pairingState.Active && cfg.SynoraNet.Pairing.ClaimEndpointEnabledOnlyDuringWindow, MaxPendingDevices: cfg.SynoraNet.Pairing.MaxPendingDevices}
 	if err := ensureBridge(cfg.SynoraNet); err != nil {
 		failures = append(failures, fmt.Errorf("bridge init failed: %w", err))

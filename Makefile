@@ -3,13 +3,11 @@ SHELL := /usr/bin/env bash
 
 .PHONY: build test install update start stop restart doctor delete clean help \
 	check-go install-deps install-dirs install-bins install-config install-models \
-	build-web install-web restart-web web-status rotate-api-token generate-local-cert generate-discovery-cert install-mediamtx install-vision-worker install-face-data install-diagnostics install-systemd enable-services install-plan \
-	build-bootstrap-config install-bootstrap-config generate-version install-version install-model-manifest build-boot-healthcheck install-boot-healthcheck \
-	diagnostics
+	rotate-api-token generate-local-cert generate-discovery-cert install-mediamtx install-vision-worker install-systemd enable-services \
+	build-bootstrap-config install-bootstrap-config generate-version install-version install-model-manifest build-boot-healthcheck install-boot-healthcheck
 
-.PHONY: build-dataset train validate test export parity package-model incident-v2 incident-redteam-v1 incident-v3-corpus incident-v3-evaluate incident-v3-gate independent-test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 cognitive-runtime-benchmark-v1 replay-vision-v1 replay-vision-segments-v1 replay-edge-vision-v1 replay-vision-core-v1 benchmark-vision-inference
+.PHONY: test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 cognitive-runtime-benchmark-v1 replay-edge-vision-v1 replay-vision-core-v1
 
-COGNITIVE_V1_PIPELINE ?= tools/cognitive_v1_pipeline.py
 COGNITIVE_V1_BUNDLE ?= build/cognitive-mlp-v1
 COGNITIVE_BUNDLE ?= $(COGNITIVE_V1_BUNDLE)
 PERF_CLIP ?= /home/rock/test3.mp4
@@ -28,9 +26,6 @@ MODELS_DIR ?= $(DATA_DIR)/models
 CONFIG_DIR ?= /etc/synora
 TEMPLATE_DIR ?= $(PREFIX)/config-templates
 DATA_DIR ?= /var/lib/synora
-FACE_DATA_DIR ?= $(DATA_DIR)/vision/face
-WEBAPP_DIR ?= synora-web
-WEB_DIR ?= $(PREFIX)/web
 CONNECTIVITY_DATA_DIR ?= $(DATA_DIR)/connectivity
 TLS_DIR ?= /etc/synora/tls
 DISCOVERY_CERT_DIR ?= /etc/synora/certs
@@ -55,7 +50,6 @@ endif
 GOCACHE ?= /tmp/synora-gocache
 
 EXPECTED_RKNN_MODELS := arcface_w600k_r50.rknn det_10g.rknn yolov8.rknn
-OPTIONAL_RKNN_MODELS := weapon.rknn
 
 ifeq ($(shell id -u),0)
 SUDO :=
@@ -69,8 +63,7 @@ GO_BINS := \
 	synora-discovery:./cmd/synora-discovery \
 	synora-network-config:./cmd/synora-network-config \
 	synora-runtime-manager:./cmd/synora-runtime-manager \
-	synora-connect:./cmd/synora-connect \
-	synora-ota:./cmd/synora-ota
+	synora-connect:./cmd/synora-connect
 
 ADMIN_TOOL_BINS := \
 	synora-bootstrap-config:./cmd/synora-bootstrap-config
@@ -84,15 +77,12 @@ RUNTIME_SERVICES := \
 
 START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-connect mediamtx
 STOP_ORDER := mediamtx synora-connect synora-discovery synora-core synora-runtime-manager synora-bus
-OTA_UNITS := synora-ota-mark-good
-START_ORDER += $(OTA_UNITS)
-SYSTEMD_UNITS := $(addsuffix .service,$(RUNTIME_SERVICES) $(OTA_UNITS)) mediamtx.service
+SYSTEMD_UNITS := $(addsuffix .service,$(RUNTIME_SERVICES)) mediamtx.service
 
 help:
 	@printf '%s\n' \
 		'Targets:' \
 		'  make build                 Build Go runtime binaries into ./bin' \
-		'  make build-web             Build the React/Vite webapp statically' \
 		'  make test                  Run Go tests and Python compileall' \
 		'  make e2e-v1                Run the hermetic and real-worker V1 trace harnesses' \
 		'  make e2e-vision-mlp-v1    Run the segmented Vision -> Core V1 dry-run replay' \
@@ -100,19 +90,10 @@ help:
 		'  make e2e-cognitive-core-v1  Run the Core snapshot, Store and action-loop scenarios' \
 		'  make perf-baseline-v1     Run and compare the reproducible Vision/MLP before-after benchmark' \
 		'  make cognitive-runtime-benchmark-v1  Measure cold and steady cognitive runtime only' \
-		'  make incident-v2            Retrain and qualify only the incident head' \
-		'  make incident-redteam-v1    Evaluate incident-v2 on the sealed adversarial set' \
-		'  make incident-v3-corpus     Build the independent incident-v3 corpus and hidden red-team V2' \
-		'  make incident-v3-evaluate   Train incident-v3 and report all independent/red-team gates' \
-		'  make incident-v3-gate       Apply strict promotion gates; retain incident-v2 on failure' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
-		'  make install-web           Copy the static webapp to $(WEB_DIR)' \
-		'  persistent face data     Keep resident face files in $(FACE_DATA_DIR)' \
-		'  make web-status            Show static webapp files and API reachability' \
 		'  make rotate-api-token      Rotate security.yaml token and restart synora-discovery' \
 		'  make generate-local-cert  Generate a local self-signed TLS certificate' \
 		'  make generate-discovery-cert  Generate the Discovery vision ingress certificate' \
-		'  make hash-password PASSWORD=... Generate a bcrypt hash for auth.yaml' \
 		'  make update                Rebuild and update deployed runtime without dependency install' \
 		'  make start                 Start runtime services' \
 		'  make stop                  Stop runtime services and remove bus socket' \
@@ -120,45 +101,7 @@ help:
 		'  make doctor                Check local runtime health without modifying state' \
 		'  make delete CONFIRM=YES    Destructive removal from the proto machine' \
 		'  make clean                 Remove local repo build artifacts' \
-		'  make diagnostics           Syntax-check operator diagnostic scripts' \
-		'  make install-bootstrap-config  Install the local production config bootstrap tool' \
-		'  make install-plan          Show the standard runtime installation footprint without changing the system'
-
-build-dataset:
-	$(PYTHON) $(COGNITIVE_V1_PIPELINE) build-dataset
-
-train: build-dataset
-	$(PYTHON) $(COGNITIVE_V1_PIPELINE) train
-
-validate: build-dataset
-	$(PYTHON) $(COGNITIVE_V1_PIPELINE) validate
-
-export: train
-	$(PYTHON) $(COGNITIVE_V1_PIPELINE) export
-
-parity: test
-	$(PYTHON) $(COGNITIVE_V1_PIPELINE) parity
-
-package-model: parity
-	$(PYTHON) $(COGNITIVE_V1_PIPELINE) package-model
-
-incident-v2: check-go package-model
-	$(PYTHON) tools/incident_v2_pipeline.py --promote
-
-incident-redteam-v1: check-go incident-v2
-	$(PYTHON) tools/incident_redteam_v1.py --repo "$(CURDIR)"
-
-incident-v3-corpus:
-	$(PYTHON) tools/incident_v3_pipeline.py build --output build/cognitive-incident-v3-dataset
-
-incident-v3-evaluate: incident-v3-corpus
-	$(PYTHON) tools/incident_v3_pipeline.py train-evaluate --dataset build/cognitive-incident-v3-dataset --base-bundle build/cognitive-mlp-v1-incident-v2 --output-bundle build/cognitive-mlp-v1-incident-v3
-
-incident-v3-gate: incident-v3-evaluate
-	$(PYTHON) tools/promote_incident_v3.py
-
-independent-test: package-model
-	$(PYTHON) $(COGNITIVE_V1_PIPELINE) independent-test
+		'  make install-bootstrap-config  Install the local production config bootstrap tool'
 
 check-go:
 	@if ! command -v "$(GO)" >/dev/null 2>&1 && [ ! -x "$(GO)" ]; then \
@@ -192,36 +135,30 @@ build-bootstrap-config: check-go
 		GOCACHE=$(GOCACHE) "$(GO)" build -o "bin/$$name" "$$pkg"; \
 	done
 
-diagnostics:
-	bash -n tools/synora_check.sh tools/diagnostics/vision/send_clip.sh
-
-hash-password: check-go
-	@if [ -z "$(PASSWORD)" ]; then echo "FAIL: PASSWORD is required" >&2; exit 1; fi
-	@GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-auth-tool hash-password "$(PASSWORD)"
-
-test: check-go validate export
+test: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./...
 	$(PYTHON) -m compileall -q services/vision-worker
-	$(PYTHON) $(COGNITIVE_V1_PIPELINE) test
+	$(PYTHON) -m unittest discover -s services/vision-worker/tests -p 'test_*.py'
 
 e2e-v1: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$' -count=1 -v
 	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1ArchitectureHasNoRetiredDecisionImports$$|^TestV1FinalArchitectureHasNoRetiredRuntimeArtifacts$$' -count=1 -v
 
-e2e-vision-mlp-v1: check-go incident-v2
+e2e-vision-mlp-v1: check-go
 	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }
 	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
 	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
 	$(MAKE) replay-vision-core-v1 CLIP="$(CLIP)" OUT="$(OUT)"
 
-e2e-cognitive-core-v1: check-go incident-v2
+e2e-cognitive-core-v1: check-go
 	SYNORA_COGNITIVE_BUNDLE="$(CURDIR)/$(COGNITIVE_V1_BUNDLE)" GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$|^TestV1DiscoveryCoreStoreDiscoveryActionResultLoop$$|^TestV1LoadedBundleRunsAllHeadsInActiveDryRun$$|^TestV1StoreSaturationRemainsBounded$$|^TestV1ArchitectureHasNoRetiredDecisionImports$$|^TestV1FinalArchitectureHasNoRetiredRuntimeArtifacts$$' -count=1 -v
 
 e2e-store-compaction-v1: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./internal/cognitivecore -run '^TestUniversalStoreCompaction' -count=1 -v
 
 qualify-cognitive-v1: check-go
-	$(PYTHON) tools/qualify_cognitive_v1.py --repo "$(CURDIR)" --clip "$(PERF_CLIP)" --before "$(PERF_BEFORE)" --vision-python "$(PERF_VISION_PYTHON)" --cognitive-python "$(PERF_COGNITIVE_PYTHON)"
+	@test -x /home/rock/Synora-learning/qualify_cognitive_v1.py || { echo "FAIL: external learning project is missing" >&2; exit 2; }
+	$(PYTHON) /home/rock/Synora-learning/qualify_cognitive_v1.py --repo "$(CURDIR)" --clip "$(PERF_CLIP)" --before "$(PERF_BEFORE)" --vision-python "$(PERF_VISION_PYTHON)" --cognitive-python "$(PERF_COGNITIVE_PYTHON)"
 
 perf-baseline-v1: check-go
 	@test -f "$(PERF_CLIP)" || { echo "FAIL: PERF_CLIP is not a regular file: $(PERF_CLIP)" >&2; exit 2; }
@@ -229,26 +166,8 @@ perf-baseline-v1: check-go
 	@test ! -e "$(PERF_AFTER)" || { echo "FAIL: PERF_AFTER already exists: $(PERF_AFTER)" >&2; exit 2; }
 	"$(PYTHON)" tools/perf_baseline_v1.py --repo "$(CURDIR)" --clip "$(PERF_CLIP)" --before "$(PERF_BEFORE)" --after "$(PERF_AFTER)" --cognitive-python "$(PERF_COGNITIVE_PYTHON)" --vision-python "$(PERF_VISION_PYTHON)" --cognitive-bundle "$(COGNITIVE_BUNDLE)"
 
-cognitive-runtime-benchmark-v1: check-go package-model
+cognitive-runtime-benchmark-v1: check-go
 	"$(GO)" run ./cmd/synora-cognitive-runtime-bench --bundle "$(COGNITIVE_BUNDLE)" --iterations "$${COGNITIVE_RUNTIME_BENCHMARK_ITERATIONS:-128}" --out "$(COGNITIVE_RUNTIME_BENCHMARK_OUT)"
-
-replay-vision-v1: check-go
-	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }
-	@test -n "$(CAMERA_ID)" || { echo "FAIL: CAMERA_ID is required" >&2; exit 2; }
-	@test -n "$(NODE_ID)" || { echo "FAIL: NODE_ID is required" >&2; exit 2; }
-	@test -n "$(ZONE)" || { echo "FAIL: ZONE is required" >&2; exit 2; }
-	@test -n "$(TRIGGER)" || { echo "FAIL: TRIGGER is required" >&2; exit 2; }
-	GO="$(GO)" $(PYTHON) services/vision-worker/replay_v1.py --clip "$(CLIP)" --camera-id "$(CAMERA_ID)" --node-id "$(NODE_ID)" --zone "$(ZONE)" --trigger "$(TRIGGER)" $(if $(EXPECT),--expect "$(EXPECT)",) $(if $(OUT),--out "$(OUT)",)
-
-replay-vision-segments-v1: check-go
-	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }
-	@test -n "$(SEGMENT_SECONDS)" || { echo "FAIL: SEGMENT_SECONDS is required" >&2; exit 2; }
-	@test -n "$(CAMERA_ID)" || { echo "FAIL: CAMERA_ID is required" >&2; exit 2; }
-	@test -n "$(NODE_ID)" || { echo "FAIL: NODE_ID is required" >&2; exit 2; }
-	@test -n "$(ZONE)" || { echo "FAIL: ZONE is required" >&2; exit 2; }
-	@test -n "$(TRIGGER)" || { echo "FAIL: TRIGGER is required" >&2; exit 2; }
-	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
-	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds "$(SEGMENT_SECONDS)" --camera-id "$(CAMERA_ID)" --node-id "$(NODE_ID)" --zone "$(ZONE)" --trigger "$(TRIGGER)" --out "$(OUT)"
 
 replay-edge-vision-v1: check-go
 	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
@@ -260,10 +179,7 @@ replay-edge-vision-v1: check-go
 
 replay-vision-core-v1: replay-edge-vision-v1
 
-benchmark-vision-inference: check-go
-	PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/tools/vision_inference_benchmark.py $(if $(CLIP),--clip "$(CLIP)",) $(if $(OUT),--out "$(OUT)",) $(if $(SKIP_ONNX),--skip-onnx,)
-
-install: install-deps build build-bootstrap-config install-dirs install-bins install-bootstrap-config install-boot-healthcheck install-version install-model-manifest install-config install-models install-web install-mediamtx install-vision-worker install-face-data install-diagnostics install-systemd enable-services
+install: install-deps build build-bootstrap-config install-dirs install-bins install-bootstrap-config install-boot-healthcheck install-version install-model-manifest install-config install-models install-mediamtx install-vision-worker install-systemd enable-services
 	@echo "Synora runtime installation complete."
 	@echo "Run 'make start' to start services or 'make doctor' to inspect the install."
 
@@ -295,9 +211,9 @@ install-dirs:
 	@$(SUDO) id -u $(SERVICE_USER) >/dev/null 2>&1 || \
 		$(SUDO) useradd --system --gid $(SERVICE_USER) --home $(DATA_DIR) --shell /usr/sbin/nologin $(SERVICE_USER)
 	$(SUDO) install -d -m 0755 $(PREFIX) $(BINDIR) $(SERVICES_DIR) $(VISION_WORKER_DIR) $(MEDIAMTX_DIR) $(MODELS_DIR)
-	$(SUDO) install -d -m 0755 $(CONFIG_DIR) $(DATA_DIR) $(DATA_DIR)/state $(DATA_DIR)/clips $(DATA_DIR)/debug $(DATA_DIR)/logs
+	$(SUDO) install -d -m 0755 $(CONFIG_DIR) $(DATA_DIR) $(DATA_DIR)/state $(DATA_DIR)/clips $(DATA_DIR)/logs
 	$(SUDO) install -d -m 0750 -o $(SERVICE_USER) -g $(SERVICE_USER) $(CONNECTIVITY_DATA_DIR)
-	$(SUDO) install -d -m 0750 -o $(SERVICE_USER) -g $(SERVICE_USER) $(DATA_DIR)/vision $(FACE_DATA_DIR)
+	$(SUDO) install -d -m 0750 -o $(SERVICE_USER) -g $(SERVICE_USER) $(DATA_DIR)/vision
 	$(SUDO) install -d -m 0700 -o $(SERVICE_USER) -g $(SERVICE_USER) $(DATA_DIR)/auth
 	$(SUDO) install -d -m 0770 -o $(SERVICE_USER) -g $(SERVICE_USER) $(RUN_DIR)
 	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(PREFIX) $(DATA_DIR) $(RUN_DIR)
@@ -341,7 +257,6 @@ install-models: install-dirs
 			--include='arcface_w600k_r50.rknn' \
 			--include='det_10g.rknn' \
 			--include='yolov8.rknn' \
-			--include='weapon.rknn' \
 			--exclude='*' \
 			models/ $(MODELS_DIR)/; \
 		$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(MODELS_DIR); \
@@ -352,10 +267,6 @@ install-models: install-dirs
 	@for model in $(EXPECTED_RKNN_MODELS); do \
 		if [ -f "$(MODELS_DIR)/$$model" ]; then echo "Model present: $(MODELS_DIR)/$$model"; \
 		else echo "WARN: expected RKNN model missing: $(MODELS_DIR)/$$model"; fi; \
-	done
-	@for model in $(OPTIONAL_RKNN_MODELS); do \
-		if [ -f "$(MODELS_DIR)/$$model" ]; then echo "Optional model present: $(MODELS_DIR)/$$model"; \
-		else echo "WARN: optional RKNN model missing: $(MODELS_DIR)/$$model (weapon detection degraded)"; fi; \
 	done
 
 install-vision-worker: install-dirs
@@ -370,23 +281,10 @@ install-vision-worker: install-dirs
 		--include='core/***' \
 		--include='modules/' \
 		--include='modules/***' \
-		--include='utils/' \
-		--include='utils/***' \
-		--include='video/' \
-		--include='video/***' \
 		--exclude='*' \
 		services/vision-worker/ $(VISION_WORKER_DIR)/
 	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(VISION_WORKER_DIR)
 	@if [ -f "$(VISION_WORKER_DIR)/worker.py" ]; then $(SUDO) chmod 0755 "$(VISION_WORKER_DIR)/worker.py"; fi
-
-install-face-data: install-dirs
-	@echo "Keeping persistent face data in $(FACE_DATA_DIR)"
-	$(SUDO) install -d -m 0750 -o $(SERVICE_USER) -g $(SERVICE_USER) $(FACE_DATA_DIR)
-	$(SUDO) chmod 0750 $(FACE_DATA_DIR)
-	$(SUDO) chown $(SERVICE_USER):$(SERVICE_USER) $(FACE_DATA_DIR)
-
-install-diagnostics: install-dirs
-	$(SUDO) install -m 0755 -o root -g root tools/synora_check.sh "$(BINDIR)/synora-check"
 
 install-bootstrap-config: build-bootstrap-config install-dirs
 	$(SUDO) install -m 0755 -o root -g root bin/synora-bootstrap-config "$(BINDIR)/synora-bootstrap-config"
@@ -399,67 +297,6 @@ install-version: generate-version install-dirs
 
 install-model-manifest: install-dirs
 	$(SUDO) install -m 0644 -o root -g root configs/models.yaml "$(PREFIX)/models-manifest.yaml"
-
-install-plan:
-	@PREFIX="$(PREFIX)" BINDIR="$(BINDIR)" TEMPLATE_DIR="$(TEMPLATE_DIR)" SERVICES_DIR="$(SERVICES_DIR)" VISION_WORKER_DIR="$(VISION_WORKER_DIR)" MEDIAMTX_DIR="$(MEDIAMTX_DIR)" MODELS_DIR="$(MODELS_DIR)" CONFIG_DIR="$(CONFIG_DIR)" DATA_DIR="$(DATA_DIR)" WEB_DIR="$(WEB_DIR)" SYSTEMD_DIR="$(SYSTEMD_DIR)" SERVICE_USER="$(SERVICE_USER)" ./tools/install_plan.sh
-
-build-web:
-	@if [ -f "$(WEBAPP_DIR)/package.json" ]; then \
-		if ! command -v npm >/dev/null 2>&1; then \
-			echo "FAIL: npm is required to build $(WEBAPP_DIR)."; \
-			exit 1; \
-		fi; \
-		echo "Building webapp in $(WEBAPP_DIR)"; \
-		if [ ! -f "$(WEBAPP_DIR)/package-lock.json" ]; then \
-			echo "FAIL: $(WEBAPP_DIR)/package-lock.json is required for a reproducible build." >&2; \
-			exit 1; \
-		fi; \
-		echo "Installing webapp dependencies with npm ci"; \
-		( cd "$(WEBAPP_DIR)" && npm ci ); \
-		echo "Building static webapp"; \
-		( cd "$(WEBAPP_DIR)" && npm run build ); \
-	else \
-		echo "WARN: $(WEBAPP_DIR)/package.json not found; skipping webapp build."; \
-	fi
-
-install-web: build-web
-	@if [ ! -d "$(WEBAPP_DIR)" ]; then \
-		echo "WARN: $(WEBAPP_DIR) directory not found; skipping webapp install."; \
-		exit 0; \
-	fi
-	@if [ ! -f "$(WEBAPP_DIR)/dist/index.html" ]; then \
-		echo "FAIL: $(WEBAPP_DIR)/dist/index.html is missing; cannot install webapp."; \
-		exit 1; \
-	fi
-	@echo "Copying static webapp to $(WEB_DIR)"
-	$(SUDO) install -d -m 0755 -o root -g root $(WEB_DIR)
-	$(SUDO) rsync -a --delete $(WEBAPP_DIR)/dist/ $(WEB_DIR)/
-	$(SUDO) chown -R root:root $(WEB_DIR)
-	@echo "Static webapp copied to $(WEB_DIR)"
-
-restart-web:
-	$(MAKE) install-web
-	$(SUDO) systemctl restart synora-discovery
-
-web-status:
-	@echo "WEBAPP_DIR=$(WEBAPP_DIR)"
-	@echo "WEB_DIR=$(WEB_DIR)"
-	@if [ -f "$(WEB_DIR)/index.html" ]; then \
-		echo "index.html: present ($(WEB_DIR)/index.html)"; \
-	else \
-		echo "index.html: missing ($(WEB_DIR)/index.html)"; \
-	fi
-	@echo "Assets:"
-	@if [ -d "$(WEB_DIR)/assets" ]; then \
-		find "$(WEB_DIR)/assets" -maxdepth 1 -type f -printf '  %p\n' | sort | head -20; \
-	else \
-		echo "  assets directory missing"; \
-	fi
-	@if systemctl is-active --quiet synora-discovery 2>/dev/null; then \
-		curl -I http://127.0.0.1:8080/; \
-	else \
-		 echo "synora-discovery is not active; skipping HTTP check"; \
-	fi
 
 rotate-api-token: check-go
 	@if [ ! -f "$(SYNORA_SECURITY)" ]; then \
@@ -602,20 +439,16 @@ doctor: check-go
 		for model in $(EXPECTED_RKNN_MODELS); do \
 			[ -f "$(MODELS_DIR)/$$model" ] && ok "model $$model present" || warnf "model $$model missing; capability will be degraded"; \
 		done; \
-		find "$(MODELS_DIR)" -type f \( -name '*.onnx' -o -name '*.pt' -o -name '*.torchscript' -o -name '*.engine' \) | grep -q . && failf "forbidden model files installed" || ok "no forbidden model files"; \
+		find "$(MODELS_DIR)" -type f \( -name '*.onnx' -o -name '*.pt' -o -name '*.torchscript' \) | grep -q . && failf "forbidden model files installed" || ok "no forbidden model files"; \
 	else \
 		warnf "$(MODELS_DIR) missing"; \
 	fi; \
 	[ -f "$(DISCOVERY_CERT_FILE)" ] && [ -f "$(DISCOVERY_KEY_FILE)" ] && ok "vision ingress TLS certificates present" || warnf "vision ingress TLS cert missing: $(DISCOVERY_CERT_FILE)"; \
-	code="$$(curl -s -o /tmp/synora-health.json -w '%{http_code}' http://127.0.0.1:8080/api/system/health || true)"; \
+	code="$$(curl -s -o /tmp/synora-health.json -w '%{http_code}' http://127.0.0.1:8080/api/v1/health || true)"; \
 	if [ "$$code" = "200" ]; then ok "API health 200"; elif [ "$$code" = "401" ]; then warnf "API protected, provide token"; else warnf "API health unavailable ($$code)"; fi; \
-	vision_code="$$(curl -s -o /tmp/synora-vision-capabilities.json -w '%{http_code}' http://127.0.0.1:8094/capabilities || true)"; \
-	[ "$$vision_code" = "200" ] && ok "vision capabilities 200" || warnf "vision capabilities unavailable ($$vision_code)"; \
 	if [ -n "$${SYNORA_API_TOKEN:-}" ]; then \
-		code="$$(curl -s -o /tmp/synora-state.json -w '%{http_code}' -H "Authorization: Bearer $$SYNORA_API_TOKEN" http://127.0.0.1:8080/api/state || true)"; \
-		[ "$$code" = "200" ] && ok "API state 200" || warnf "API state returned $$code"; \
-		code="$$(curl -s -o /tmp/synora-runtime-diagnostics.json -w '%{http_code}' -H "Authorization: Bearer $$SYNORA_API_TOKEN" http://127.0.0.1:8080/api/runtime/diagnostics || true)"; \
-		[ "$$code" = "200" ] && ok "runtime diagnostics 200" || warnf "runtime diagnostics returned $$code"; \
+		code="$$(curl -s -o /tmp/synora-state.json -w '%{http_code}' -H "Authorization: Bearer $$SYNORA_API_TOKEN" http://127.0.0.1:8080/api/v1/state || true)"; \
+		[ "$$code" = "200" ] && ok "Discovery state 200" || warnf "Discovery state returned $$code"; \
 	fi; \
 	find . -name '*_test.go' | grep -q . && ok "Go tests present" || failf "no Go tests found"; \
 		go_test_log="$$(mktemp /tmp/synora-go-test.XXXXXX.log)"; \
@@ -648,7 +481,6 @@ delete:
 		$(SYSTEMD_DIR)/synora-discovery.service \
 		$(SYSTEMD_DIR)/synora-runtime-manager.service \
 		$(SYSTEMD_DIR)/mediamtx.service \
-		$(SYSTEMD_DIR)/synora-{web,vision,action}.service \
 		$(SYSTEMD_DIR)/mqtt"_bridge".service
 	$(SUDO) rm -f /etc/tmpfiles.d/synora.conf
 	$(SUDO) systemctl daemon-reload

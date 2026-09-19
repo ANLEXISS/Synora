@@ -136,88 +136,22 @@ def main() -> int:
     manifest_path = output / "manifest.json"
     manifest_path.write_text(json.dumps({"source": str(source), "fps": fps, "segments": manifest}, indent=2) + "\n", encoding="utf-8")
 
-    if os.getenv("SYNORA_REAL_VISION", "0") == "1":
-        real_command = [
-            sys.executable,
-            str(Path(__file__).with_name("replay_real_v1.py")),
-            "--clip", str(source),
-            "--manifest", str(manifest_path),
-            "--out", str(output),
-            "--camera-id", args.camera_id,
-            "--node-id", args.node_id,
-            "--zone", args.zone,
-            "--trigger", args.trigger,
-        ]
-        result = subprocess.run(real_command, cwd=Path(__file__).resolve().parents[2], check=False)
+    real_command = [
+        sys.executable,
+        str(Path(__file__).with_name("replay_real_v1.py")),
+        "--clip", str(source),
+        "--manifest", str(manifest_path),
+        "--out", str(output),
+        "--camera-id", args.camera_id,
+        "--node-id", args.node_id,
+        "--zone", args.zone,
+        "--trigger", args.trigger,
+    ]
+    result = subprocess.run(real_command, cwd=Path(__file__).resolve().parents[2], check=False)
+    if result.returncode != 0:
         return result.returncode
-
-    # Compatibility path for contract-only fixtures. Production E2E sets
-    # SYNORA_REAL_VISION=1 and refuses this simulated observation path.
-    observations_path = output / "observations.jsonl"
-    with observations_path.open("w", encoding="utf-8") as stream:
-        for index, item in enumerate(manifest):
-            segment = item["segment"]
-            priority = "P1_urgent_presence" if args.zone in {"restricted_threshold", "protected_interior"} else "P2_contextual_enrichment"
-            state = "candidate" if index == 0 else "confirmed"
-            payload = {
-                "schema_version": "synora.vision.observation-replay/v1",
-                "episode_id": segment["episode_id"],
-                "topology": segment["topology_class"],
-                "priority": priority,
-                "episode_phase": "final" if segment["is_final"] else state,
-                "human_present": True,
-                "track_count": 1,
-                "track_confirmed": index > 0,
-                "segment_count": index + 1,
-                "observation_count": index + 1,
-                "confidence": 0.5,
-                "real_detection": False,
-                "replay_simulation": True,
-                "movement": True,
-                "sensor_evidence": True,
-            }
-            stream.write(json.dumps({
-                "type": "synora.vision.clip-observation/v1",
-                "episode_id": segment["episode_id"],
-                "topology_class": segment["topology_class"],
-                "trigger": args.trigger,
-                "observed_at": segment["ended_at"],
-                "sequence": index + 1,
-                "priority_hint": priority,
-                "priority_state": state,
-                "reason_codes": ["segment_replay", "human_presence_aggregate"],
-                "tracks": [{"track_id": "aggregate-track", "subject_type": "human", "confidence": 0.5, "state": state, "detection_count": 1}],
-                "backend": {"status": "replay", "real_model": False},
-                "payload": payload,
-            }, sort_keys=True) + "\n")
-    (output / "summary.contract.json").write_text(json.dumps({
-        "schema_version": "synora.vision.summary-replay/v1",
-        "episode_id": manifest[0]["segment"]["episode_id"],
-        "observed_at": manifest[-1]["segment"]["ended_at"],
-        "summary_count": 1,
-        "physical_action_executed": False,
-    }, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"segment_simulation": True, "source": str(source), "segments": len(manifest), "manifest": str(manifest_path)}, sort_keys=True))
-    project_root = Path(__file__).resolve().parents[2]
-    go_binary = os.environ.get("GO") or os.environ.get("SYNORA_GO") or shutil_which("go")
-    if not go_binary:
-        return fail("Go compiler not found")
-    env = os.environ.copy()
-    env["SYNORA_SEGMENT_MANIFEST"] = str(manifest_path)
-    env["SYNORA_REPLAY_OUT"] = str(output)
-    command = [go_binary, "run", "./cmd/synora-v1-replay", "--observations", str(observations_path), "--out", str(output / "core-replay.json")]
-    result = subprocess.run(command, cwd=project_root, env=env, check=False)
-    if result.returncode == 0:
-        print(f"SEGMENT_REPLAY_OUTPUT_DIR {output}")
-    return result.returncode
-
-
-def shutil_which(command: str) -> str | None:
-    for directory in os.environ.get("PATH", "").split(os.pathsep):
-        candidate = Path(directory) / command
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return str(candidate)
-    return None
+    print(json.dumps({"real_replay": True, "source": str(source), "segments": len(manifest), "manifest": str(manifest_path)}, sort_keys=True))
+    return 0
 
 
 if __name__ == "__main__":

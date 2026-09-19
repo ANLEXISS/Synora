@@ -24,8 +24,7 @@ var (
 		contract.DeviceTypeSensor: {}, contract.DeviceTypeSiren: {},
 		contract.DeviceTypeSpeaker: {}, contract.DeviceTypeLock: {},
 		contract.DeviceTypeBridge: {}, contract.DeviceTypeUnknown: {},
-		// Kept for the installed legacy configuration. New clients should use
-		// speaker with an explicit role.
+		// Keep the installed voice relay device type for deployed configurations.
 		"voice_relay": {},
 	}
 )
@@ -42,7 +41,7 @@ type Device struct {
 	PairingMethod string         `json:"pairing_method,omitempty" yaml:"pairing_method,omitempty"`
 	Status        string         `json:"status,omitempty" yaml:"status,omitempty"`
 	Role          string         `json:"role,omitempty" yaml:"role,omitempty"`
-	Room          string         `json:"room,omitempty" yaml:"room,omitempty"` // legacy node id
+	Room          string         `json:"room,omitempty" yaml:"room,omitempty"` // historical room identifier
 	NodeID        string         `json:"node_id,omitempty" yaml:"node_id,omitempty"`
 	ZoneRole      string         `json:"zone_role,omitempty" yaml:"zone_role,omitempty"`
 	RoomName      string         `json:"room_name,omitempty" yaml:"room_name,omitempty"`

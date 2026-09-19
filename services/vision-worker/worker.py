@@ -52,8 +52,6 @@ MODEL_ROOT = os.getenv("SYNORA_MODEL_ROOT", "/var/lib/synora/models")
 ARCFACE_MODEL = os.getenv("SYNORA_ARCFACE_MODEL", os.path.join(MODEL_ROOT, "arcface_w600k_r50.rknn"))
 MAX_REQUEST_BYTES = 1 << 20
 COMMAND_TIMEOUT_SECONDS = float(os.getenv("SYNORA_VISION_COMMAND_TIMEOUT", "30"))
-DEBUG_HTTP_ENABLED = os.getenv("SYNORA_VISION_DEBUG", "1") == "1"
-DEBUG_HTTP_PORT = int(os.getenv("SYNORA_VISION_DEBUG_PORT", "8094"))
 
 
 logging.basicConfig(
@@ -103,7 +101,6 @@ class VisionWorker:
         self.pipeline_error = None
         self.detector_error = None
         self.face_error = None
-        self.debug_http_error = None
         self.face_dataset = None
         self.face_dataset_startup_error = None
         self.face_enabled = _worker_enabled("SYNORA_VISION_FACE_ENABLED")
@@ -183,65 +180,6 @@ class VisionWorker:
             if self.detector_backend is None:
                 self.detector_backend = ExistingDetectorBackend(self.person_detector, detector_timeout)
 
-        self.debug_app = self.create_debug_app() if DEBUG_HTTP_ENABLED else None
-        if not DEBUG_HTTP_ENABLED:
-            self.debug_http_error = "disabled_by_configuration"
-        self.debug_thread = None
-        if self.debug_app is not None:
-            self.debug_thread = threading.Thread(
-                target=self.debug_app.run,
-                kwargs={
-                    "host": "127.0.0.1",
-                    "port": DEBUG_HTTP_PORT,
-                    "threaded": True,
-                    "use_reloader": False,
-                },
-                daemon=True,
-            )
-            self.debug_thread.start()
-        else:
-            log.warning("vision debug API disabled: %s", self.debug_http_error or "unavailable")
-
-    # ------------------------------------------------
-
-    def create_debug_app(self):
-        try:
-            from flask import Flask, jsonify
-        except ImportError as exc:
-            self.debug_http_error = "flask_not_installed"
-            log.warning("debug API disabled: flask not installed (%s)", exc)
-            return None
-
-        app = Flask(__name__)
-
-        @app.get("/healthz")
-        def healthz():
-            capabilities = self.capabilities()
-            available = capabilities.get("status") == "normal"
-            return jsonify({
-                "service": "vision-worker",
-                "status": "ok" if available else "degraded",
-                "mode": "dry_run" if self.dry_run else "normal",
-                "capabilities": capabilities,
-            })
-
-        @app.get("/capabilities")
-        def capabilities():
-            return jsonify(self.capabilities())
-
-        @app.get("/debug/pipeline")
-        def pipeline_debug():
-            if self.pipeline is None:
-                return jsonify({
-                    "dry_run": True,
-                })
-
-            return jsonify(
-                self.pipeline.dashboard()
-            )
-
-        return app
-
     def capabilities(self):
         if self.dry_run:
             available = {"status": "available", "mode": "dry_run"}
@@ -301,10 +239,6 @@ class VisionWorker:
             "status": runtime_status,
             "backend": backend,
             "embedding_dimension": getattr(self.face_recognizer, "embedding_dim", ARCFACE_EMBEDDING_DIMENSION),
-            "debug_http": {
-                "status": "unavailable" if self.debug_http_error else "ok",
-                "reason": self.debug_http_error,
-            },
             "capabilities": {
                 "face_detection": face_detection,
                 "face_recognition": face_capability,

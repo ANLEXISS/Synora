@@ -113,7 +113,7 @@ def collect_run(root: Path, clip: Path) -> dict[str, Any]:
         "segments": len(manifest.get("segments", [])),
         "tracks": len({track.get("track_id") for item in observations for track in (item.get("tracks") or (item.get("payload") or {}).get("tracks", [])) if track.get("track_id")}),
         "summaries": read_json(segment_root / "summary.contract.json").get("summary_count", 0) if (segment_root / "summary.contract.json").exists() else int(vision_report.get("summaries", 0)),
-		"active_dry_run": bool(replay.get("active_dry_run", False)),
+        "active_dry_run": bool(replay.get("active_dry_run", False)),
         "physical_action_executed": bool(replay.get("physical_action_executed", False)),
         "backend_status": replay.get("model_status", "unavailable"),
         "vision_rknn": {

@@ -98,7 +98,7 @@ func runChecks(ctx context.Context, opts options) []boothealth.Check {
 	add := func(name, status, message string, fatal bool) {
 		checks = append(checks, boothealth.Check{Name: name, Status: status, Message: message, Fatal: fatal})
 	}
-	for _, service := range []string{"synora-bus", "synora-core", "synora-discovery", "synora-actions", "synora-connect"} {
+	for _, service := range []string{"synora-bus", "synora-core", "synora-discovery", "synora-connect"} {
 		if err := command(ctx, "systemctl", "is-active", "--quiet", service+".service"); err != nil {
 			add("service."+service, "fatal", "service is not active", true)
 		} else {
@@ -201,7 +201,7 @@ func getEndpoint(ctx context.Context, baseURL, endpoint string) (string, string)
 }
 
 func getNetworkHealth(ctx context.Context, baseURL string) (string, string) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/api/system/health", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/api/v1/health", nil)
 	if err != nil {
 		return "fatal", "invalid API URL"
 	}
@@ -257,7 +257,7 @@ func hasRecentFatalLogs(ctx context.Context) bool {
 	if _, err := exec.LookPath("journalctl"); err != nil {
 		return false
 	}
-	args := []string{"--since", "-10 minutes", "-u", "synora-bus.service", "-u", "synora-core.service", "-u", "synora-discovery.service", "-u", "synora-actions.service", "--no-pager", "--output", "cat"}
+	args := []string{"--since", "-10 minutes", "-u", "synora-bus.service", "-u", "synora-core.service", "-u", "synora-discovery.service", "--no-pager", "--output", "cat"}
 	output, err := exec.CommandContext(ctx, "journalctl", args...).Output()
 	if err != nil {
 		return false

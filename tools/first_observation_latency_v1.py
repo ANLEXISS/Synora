@@ -45,7 +45,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, default=Path("."))
     parser.add_argument("--clip", type=Path, default=Path("/home/rock/test3.mp4"))
-    parser.add_argument("--bundle", type=Path, default=Path("build/cognitive-mlp-v1-incident-v2"))
+    parser.add_argument("--bundle", type=Path, default=Path("build/cognitive-mlp-v1"))
     parser.add_argument("--python", default="python3")
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--out", type=Path, default=Path("build/first-observation-latency-v1.json"))

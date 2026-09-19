@@ -53,8 +53,7 @@ type FacePhoto struct {
 	ID         string `json:"id" yaml:"id"`
 	ResidentID string `json:"resident_id,omitempty" yaml:"resident_id,omitempty"`
 	Filename   string `json:"filename,omitempty" yaml:"filename,omitempty"`
-	// Path and StorageKey are internal reconciliation fields. Path is retained
-	// for source compatibility with the legacy face endpoints but is never
+	// Path and StorageKey are internal reconciliation fields and are never
 	// serialized into a public contract.
 	Path           string     `json:"-" yaml:"-"`
 	StorageKey     string     `json:"-" yaml:"-"`
@@ -176,7 +175,7 @@ type FaceProfile struct {
 	BasePhotos  []FacePhoto `json:"base_photos,omitempty" yaml:"base_photos,omitempty"`
 	AutoCount   int         `json:"auto_count" yaml:"auto_count"`
 	ReviewCount int         `json:"review_count" yaml:"review_count"`
-	// PendingCount is retained for compatibility with older residents.yaml files.
+	// PendingCount is persisted for face-dataset reconciliation.
 	PendingCount int `json:"pending_count,omitempty" yaml:"pending_count,omitempty"`
 }
 

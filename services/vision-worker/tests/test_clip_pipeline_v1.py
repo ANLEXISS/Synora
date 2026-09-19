@@ -3,9 +3,6 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import json
-import socket
-import tempfile
-import threading
 import types
 from unittest.mock import patch
 
@@ -40,7 +37,6 @@ from core.clip_pipeline_v1 import (  # noqa: E402
     VisionClipPipelineV1,
     _p1_confirmed,
 )
-from core.unix_bus import UnixBusPublisher
 
 
 class ClipPipelineV1Tests(unittest.TestCase):
@@ -404,30 +400,6 @@ class ClipPipelineV1Tests(unittest.TestCase):
         self.assertEqual(seen, [])
         self.assertEqual(events[-1]["payload"]["sensitive_objects"]["status"], "not_available")
         self.assertEqual(events[-1]["payload"]["identity"]["status"], "uncertain")
-
-    def test_unix_bus_publisher_uses_register_then_targeted_event(self):
-        with tempfile.TemporaryDirectory() as root:
-            path = str(Path(root) / "bus.sock")
-            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            server.bind(path)
-            server.listen(1)
-            received = []
-            def read_bus():
-                conn, _ = server.accept()
-                with conn, conn.makefile("r") as reader:
-                    received.append(json.loads(reader.readline()))
-                    received.append(json.loads(reader.readline()))
-            thread = threading.Thread(target=read_bus)
-            thread.start()
-            publisher = UnixBusPublisher(path)
-            publisher.publish("synora.vision.preliminary-alert/v1", {"schema": "synora.vision.preliminary-alert/v1"})
-            publisher.close()
-            thread.join(timeout=2)
-            server.close()
-        self.assertEqual(received[0]["type"], "bus.register")
-        self.assertEqual(received[1]["type"], "synora.vision.preliminary-alert/v1")
-        self.assertEqual(received[1]["target"], "core")
-
 
 if __name__ == "__main__":
     unittest.main()

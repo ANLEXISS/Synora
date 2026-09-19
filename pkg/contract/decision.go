@@ -77,7 +77,6 @@ func (d *Decision) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
-	applyLegacyDecisionFields(data, &decoded)
 
 	*d = Decision{
 		ID:                           decoded.ID,
@@ -110,52 +109,4 @@ func (d *Decision) UnmarshalJSON(data []byte) error {
 		ActionDecisionReason:         decoded.ActionDecisionReason,
 	}
 	return nil
-}
-
-func applyLegacyDecisionFields(data []byte, decoded *decisionJSON) {
-	legacy := struct {
-		EventID            string  `json:"EventID,omitempty"`
-		EffectiveScore     float64 `json:"EffectiveScore,omitempty"`
-		NodeID             string  `json:"NodeID,omitempty"`
-		ClipID             string  `json:"ClipID,omitempty"`
-		TrackID            string  `json:"TrackID,omitempty"`
-		GroupKey           string  `json:"GroupKey,omitempty"`
-		SequenceKey        string  `json:"SequenceKey,omitempty"`
-		GraphUsed          bool    `json:"GraphUsed,omitempty"`
-		ValidationRequired bool    `json:"ValidationRequired,omitempty"`
-		ValidationReason   string  `json:"ValidationReason,omitempty"`
-	}{}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return
-	}
-	if decoded.EventID == "" {
-		decoded.EventID = legacy.EventID
-	}
-	if decoded.EffectiveScore == 0 {
-		decoded.EffectiveScore = legacy.EffectiveScore
-	}
-	if decoded.NodeID == "" {
-		decoded.NodeID = legacy.NodeID
-	}
-	if decoded.ClipID == "" {
-		decoded.ClipID = legacy.ClipID
-	}
-	if decoded.TrackID == "" {
-		decoded.TrackID = legacy.TrackID
-	}
-	if decoded.GroupKey == "" {
-		decoded.GroupKey = legacy.GroupKey
-	}
-	if decoded.SequenceKey == "" {
-		decoded.SequenceKey = legacy.SequenceKey
-	}
-	if !decoded.GraphUsed {
-		decoded.GraphUsed = legacy.GraphUsed
-	}
-	if !decoded.ValidationRequired {
-		decoded.ValidationRequired = legacy.ValidationRequired
-	}
-	if decoded.ValidationReason == "" {
-		decoded.ValidationReason = legacy.ValidationReason
-	}
 }

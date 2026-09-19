@@ -45,7 +45,7 @@ func TestMessageJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEventJSONRoundTripAndLegacyInput(t *testing.T) {
+func TestEventJSONRoundTrip(t *testing.T) {
 	now := time.Date(2026, 7, 4, 10, 12, 0, 0, time.UTC)
 	event := Event{
 		ID:         "evt-1",
@@ -85,16 +85,9 @@ func TestEventJSONRoundTripAndLegacyInput(t *testing.T) {
 		t.Fatalf("decoded event mismatch: %#v", decoded)
 	}
 
-	legacy := []byte(`{"ID":"evt-2","Type":"vision.motion","Source":"camera-2","DeviceID":"device-2","NodeID":"hall","GroupKey":"legacy","ClipID":"legacy-clip","ValidationRequired":true}`)
-	if err := json.Unmarshal(legacy, &decoded); err != nil {
-		t.Fatalf("unmarshal legacy event: %v", err)
-	}
-	if decoded.ID != "evt-2" || decoded.DeviceID != "device-2" || decoded.NodeID != "hall" || decoded.GroupKey != "legacy" || decoded.ClipID != "legacy-clip" || !decoded.ValidationRequired {
-		t.Fatalf("legacy event mismatch: %#v", decoded)
-	}
 }
 
-func TestDecisionJSONRoundTripAndLegacyInput(t *testing.T) {
+func TestDecisionJSONRoundTrip(t *testing.T) {
 	decision := Decision{
 		ID:             "dec-1",
 		Type:           "intrusion.suspicious",
@@ -137,13 +130,6 @@ func TestDecisionJSONRoundTripAndLegacyInput(t *testing.T) {
 		t.Fatalf("decoded decision mismatch: %#v", decoded)
 	}
 
-	legacy := []byte(`{"ID":"dec-2","Type":"intrusion","EventID":"evt-2","EffectiveScore":0.42,"NodeID":"kitchen","ClipID":"legacy-clip","GraphUsed":true,"ValidationRequired":true}`)
-	if err := json.Unmarshal(legacy, &decoded); err != nil {
-		t.Fatalf("unmarshal legacy decision: %v", err)
-	}
-	if decoded.ID != "dec-2" || decoded.EventID != "evt-2" || decoded.EffectiveScore != 0.42 || decoded.NodeID != "kitchen" || decoded.ClipID != "legacy-clip" || !decoded.GraphUsed || !decoded.ValidationRequired {
-		t.Fatalf("legacy decision mismatch: %#v", decoded)
-	}
 }
 
 func TestValidationRequestJSONRoundTrip(t *testing.T) {
@@ -327,7 +313,6 @@ func TestActionRequestJSONRoundTrip(t *testing.T) {
 	now := time.Date(2026, 7, 4, 10, 15, 0, 0, time.UTC)
 	request := ActionRequest{
 		ID:             "act-1",
-		AutomationID:   "auto-1",
 		ActionID:       "action-1",
 		Type:           "device.command",
 		Version:        "v1",
@@ -360,7 +345,6 @@ func TestActionRequestJSONRoundTrip(t *testing.T) {
 		t.Fatalf("marshal action request: %v", err)
 	}
 	assertJSONField(t, data, "idempotency_key")
-	assertJSONField(t, data, "automation_id")
 	assertJSONField(t, data, "action_id")
 	assertJSONField(t, data, "source_event_id")
 	assertJSONField(t, data, "decision_id")
@@ -371,7 +355,7 @@ func TestActionRequestJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal action request: %v", err)
 	}
-	if decoded.ID != request.ID || decoded.AutomationID != "auto-1" || decoded.ActionID != "action-1" || decoded.Action.Device != "light-1" || !decoded.Timestamp.Equal(now) || decoded.TimeoutMs != 1000 || decoded.RetryCount != 2 || decoded.ClipID != "clip-1" {
+	if decoded.ID != request.ID || decoded.ActionID != "action-1" || decoded.Action.Device != "light-1" || !decoded.Timestamp.Equal(now) || decoded.TimeoutMs != 1000 || decoded.RetryCount != 2 || decoded.ClipID != "clip-1" {
 		t.Fatalf("decoded action request mismatch: %#v", decoded)
 	}
 }
@@ -380,25 +364,24 @@ func TestActionResultJSONRoundTrip(t *testing.T) {
 	startedAt := time.Date(2026, 7, 4, 10, 15, 1, 0, time.UTC)
 	finishedAt := startedAt.Add(125 * time.Millisecond)
 	result := ActionResult{
-		ID:           "ares-1",
-		RequestID:    "areq-1",
-		AutomationID: "auto-1",
-		ActionID:     "action-1",
-		Type:         "device.command",
-		Target:       "light-1",
-		Status:       ActionStatusSuccess,
-		StartedAt:    startedAt,
-		FinishedAt:   finishedAt,
-		DurationMs:   125,
-		Attempts:     2,
-		Data:         map[string]any{"adapter": "fake"},
+		ID:         "ares-1",
+		RequestID:  "areq-1",
+		ActionID:   "action-1",
+		Type:       "device.command",
+		Target:     "light-1",
+		Status:     ActionStatusSuccess,
+		StartedAt:  startedAt,
+		FinishedAt: finishedAt,
+		DurationMs: 125,
+		Attempts:   2,
+		Data:       map[string]any{"adapter": "fake"},
 	}
 
 	data, err := json.Marshal(result)
 	if err != nil {
 		t.Fatalf("marshal action result: %v", err)
 	}
-	for _, field := range []string{"request_id", "automation_id", "action_id", "duration_ms", "attempts", "data"} {
+	for _, field := range []string{"request_id", "action_id", "duration_ms", "attempts", "data"} {
 		assertJSONField(t, data, field)
 	}
 
@@ -406,45 +389,8 @@ func TestActionResultJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal action result: %v", err)
 	}
-	if decoded.RequestID != "areq-1" || decoded.AutomationID != "auto-1" || decoded.Attempts != 2 || decoded.DurationMs != 125 || decoded.Data["adapter"] != "fake" {
+	if decoded.RequestID != "areq-1" || decoded.Attempts != 2 || decoded.DurationMs != 125 || decoded.Data["adapter"] != "fake" {
 		t.Fatalf("decoded action result mismatch: %#v", decoded)
-	}
-}
-
-func TestAutomationJSONRoundTripMultipleConditionsAndActions(t *testing.T) {
-	rule := Automation{
-		ID:             "auto-1",
-		Name:           "Entry activity",
-		Enabled:        true,
-		Description:    "Turn on entry lights for high confidence motion.",
-		Priority:       10,
-		Trigger:        AutomationTrigger{EventType: EventVisionMotion, State: "active"},
-		ConditionLogic: "all",
-		Conditions: []Condition{
-			{ID: "c1", Field: "node", Op: "==", Value: "entry"},
-			{ID: "c2", Field: "score", Op: ">=", Value: 0.8, ValueType: "number"},
-		},
-		Actions: []AutomationAction{
-			{ID: "a1", Type: "device.command", Target: "light-1", Data: map[string]any{"command": "on"}, TimeoutMs: 250, RetryCount: 1, Enabled: true, Order: 1},
-			{ID: "a2", Type: "mqtt.publish", Target: "synora/events", Data: map[string]any{"payload": "motion"}, Enabled: true, Order: 2},
-		},
-		CooldownMs: 5000,
-	}
-
-	data, err := json.Marshal(rule)
-	if err != nil {
-		t.Fatalf("marshal automation: %v", err)
-	}
-	for _, field := range []string{"condition_logic", "conditions", "actions", "cooldown_ms"} {
-		assertJSONField(t, data, field)
-	}
-
-	var decoded Automation
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("unmarshal automation: %v", err)
-	}
-	if decoded.ID != "auto-1" || !decoded.Enabled || len(decoded.Conditions) != 2 || len(decoded.Actions) != 2 || decoded.Actions[0].RetryCount != 1 {
-		t.Fatalf("decoded automation mismatch: %#v", decoded)
 	}
 }
 
@@ -514,34 +460,7 @@ func TestRPCContractsJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestStateSnapshotJSONRoundTrip(t *testing.T) {
-	snapshot := StateSnapshot{
-		Version:   "v1",
-		System:    map[string]any{"state": "normal"},
-		Metrics:   map[string]any{"events": float64(2)},
-		Devices:   map[string]any{"camera-1": map[string]any{"online": true}},
-		Topology:  []map[string]any{{"id": "home"}},
-		Residents: []map[string]any{{"id": "alexis"}},
-	}
-
-	data, err := json.Marshal(snapshot)
-	if err != nil {
-		t.Fatalf("marshal state snapshot: %v", err)
-	}
-	assertJSONField(t, data, "system")
-	assertJSONField(t, data, "devices")
-	assertJSONField(t, data, "topology")
-
-	var decoded StateSnapshot
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("unmarshal state snapshot: %v", err)
-	}
-	if decoded.System["state"] != "normal" || decoded.Devices["camera-1"] == nil {
-		t.Fatalf("decoded state snapshot mismatch: %#v", decoded)
-	}
-}
-
-func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
+func TestPublicSnapshotFromCoreStateHidesInternalKeys(t *testing.T) {
 	coreState := map[string]any{
 		"system": map[string]any{
 			"LastState":       "idle",
@@ -558,23 +477,13 @@ func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
 			},
 		},
 		"device": []any{
-			map[string]any{"ID": "legacy-camera"},
+			map[string]any{"ID": "old-camera-shape"},
 		},
 		"events": []any{
 			map[string]any{"id": "evt-1", "timestamp": "0001-01-01T00:00:00Z"},
 		},
 		"event": []any{
-			map[string]any{"id": "legacy-event"},
-		},
-		"automations": []any{
-			map[string]any{
-				"id":      "auto-1",
-				"event":   "vision.motion",
-				"actions": []any{map[string]any{"device": "light-1", "command": "on"}},
-			},
-		},
-		"automation": []any{
-			map[string]any{"id": "legacy-automation"},
+			map[string]any{"id": "old-event-shape"},
 		},
 		"state_store": map[string]any{
 			"clips": map[string]any{
@@ -633,12 +542,12 @@ func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
 	if err := json.Unmarshal(data, &object); err != nil {
 		t.Fatalf("unmarshal public snapshot: %v", err)
 	}
-	for _, key := range []string{"state_store", "device", "event", "automation"} {
+	for _, key := range []string{"state_store", "device", "event"} {
 		if _, ok := object[key]; ok {
-			t.Fatalf("public snapshot exposes legacy/internal key %q in %s", key, string(data))
+			t.Fatalf("public snapshot exposes internal key %q in %s", key, string(data))
 		}
 	}
-	for _, key := range []string{"devices", "events", "automations", "clips", "presence", "identities", "validations", "action_results"} {
+	for _, key := range []string{"devices", "events", "clips", "presence", "identities", "validations", "action_results"} {
 		if _, ok := object[key]; !ok {
 			t.Fatalf("public snapshot missing key %q in %s", key, string(data))
 		}
@@ -664,20 +573,6 @@ func TestPublicSnapshotFromCoreStateHidesInternalAndLegacyKeys(t *testing.T) {
 	if snapshot.ActionResults[0]["request_id"] != "act-1" || snapshot.ActionResults[0]["status"] != "success" {
 		t.Fatalf("action result should be exposed cleanly: %#v", snapshot.ActionResults[0])
 	}
-	if _, ok := snapshot.Automations[0]["event"]; ok {
-		t.Fatalf("automation event key should be normalized: %#v", snapshot.Automations[0])
-	}
-	if snapshot.Automations[0]["event_type"] != "vision.motion" {
-		t.Fatalf("automation event_type mismatch: %#v", snapshot.Automations[0])
-	}
-	actions := snapshot.Automations[0]["actions"].([]any)
-	action := actions[0].(map[string]any)
-	if _, ok := action["device"]; ok {
-		t.Fatalf("automation action device key should be normalized: %#v", action)
-	}
-	if action["device_id"] != "light-1" {
-		t.Fatalf("automation action device_id mismatch: %#v", action)
-	}
 	if _, ok := snapshot.Metrics["state_store_size"]; ok {
 		t.Fatalf("metric state_store_size should be normalized: %#v", snapshot.Metrics)
 	}
@@ -693,7 +588,6 @@ func TestPublicSnapshotJSONRoundTrip(t *testing.T) {
 		Residents:     []map[string]any{{"id": "alexis", "state": "present"}},
 		Nodes:         []map[string]any{{"id": "entry"}},
 		Events:        []map[string]any{{"id": "evt-1", "type": EventVisionIdentity}},
-		Automations:   []map[string]any{{"id": "auto-1", "event_type": EventVisionIdentity}},
 		Cameras:       []map[string]any{},
 		Tracks:        []map[string]any{},
 		Clusters:      []map[string]any{},
@@ -709,7 +603,7 @@ func TestPublicSnapshotJSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal public snapshot: %v", err)
 	}
-	for _, field := range []string{"devices", "events", "automations", "validations", "action_results", "metrics"} {
+	for _, field := range []string{"devices", "events", "validations", "action_results", "metrics"} {
 		assertJSONField(t, data, field)
 	}
 

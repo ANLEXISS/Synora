@@ -70,14 +70,9 @@ class VisionPipeline:
 
         cv2.ocl.setUseOpenCL(False)
 
-        os.makedirs(
-            self.DEBUG_DIR,
-            exist_ok=True,
-        )
-
         self.debug_store = DebugStore(
             self.DEBUG_DIR,
-            enabled=True,
+            enabled=False,
         )
 
         self.metrics = PipelineMetrics()
@@ -140,6 +135,7 @@ class VisionPipeline:
         frame,
         track_id,
     ):
+        return None
 
         path = os.path.join(
             self.DEBUG_DIR,
@@ -166,6 +162,7 @@ class VisionPipeline:
         track_id,
         index,
     ):
+        return None
 
         path = os.path.join(
             self.DEBUG_DIR,
@@ -192,6 +189,7 @@ class VisionPipeline:
         track_id,
         index,
     ):
+        return None
 
         path = os.path.join(
             self.DEBUG_DIR,
@@ -219,6 +217,7 @@ class VisionPipeline:
         identity,
         score,
     ):
+        return None
 
         path = os.path.join(
             self.DEBUG_DIR,

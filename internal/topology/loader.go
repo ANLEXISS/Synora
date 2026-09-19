@@ -12,23 +12,6 @@ import (
 
 const TopologyConfigVersion = 1
 
-type yamlTopology struct {
-	Locked bool                `yaml:"locked"`
-	Zones  map[string]yamlZone `yaml:"zones"`
-}
-
-type yamlZone struct {
-	Floors map[string]yamlFloor `yaml:"floors"`
-}
-
-type yamlFloor struct {
-	Rooms map[string]yamlRoom `yaml:"rooms"`
-}
-
-type yamlRoom struct {
-	Connect []string `yaml:"connect"`
-}
-
 func Load(path string, system *Topology) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -63,14 +46,7 @@ func LoadBytes(data []byte) (*Topology, error) {
 		}
 		return FromConfig(config)
 	}
-	var legacy yamlTopology
-	if err := root.Decode(&legacy); err != nil {
-		return nil, contract.NewAPIError(contract.ErrorValidationFailed, "invalid legacy topology: %v", err)
-	}
-	if !yamlMappingHasKey(root, "zones") {
-		return nil, contract.NewAPIError(contract.ErrorValidationFailed, "topology nodes or zones are required")
-	}
-	return fromLegacy(legacy)
+	return nil, contract.NewAPIError(contract.ErrorValidationFailed, "topology nodes are required")
 }
 
 func FromConfig(config contract.TopologyConfig) (*Topology, error) {
@@ -133,38 +109,6 @@ func FromConfig(config contract.TopologyConfig) (*Topology, error) {
 		seenLinks[key] = struct{}{}
 		from.Connect = append(from.Connect, to.ID)
 		to.Connect = append(to.Connect, from.ID)
-	}
-	topo.BuildGraph()
-	if err := topo.Validate(); err != nil {
-		return nil, err
-	}
-	return topo, nil
-}
-
-func fromLegacy(config yamlTopology) (*Topology, error) {
-	topo := &Topology{Nodes: map[string]*Node{}, Locked: config.Locked}
-	zoneIDs := sortedMapKeys(config.Zones)
-	for _, zoneID := range zoneIDs {
-		zone := config.Zones[zoneID]
-		zoneNode := &Node{ID: zoneID, Name: zoneID, Type: NodeZone}
-		topo.Nodes[zoneID] = zoneNode
-		for _, floorID := range sortedMapKeys(zone.Floors) {
-			floor := zone.Floors[floorID]
-			fullFloorID := zoneID + "." + floorID
-			floorNode := &Node{ID: fullFloorID, Name: floorID, Type: NodeFloor, Parent: zoneNode}
-			topo.Nodes[fullFloorID] = floorNode
-			zoneNode.Children = append(zoneNode.Children, floorNode)
-			for _, roomID := range sortedMapKeys(floor.Rooms) {
-				room := floor.Rooms[roomID]
-				fullRoomID := fullFloorID + "." + roomID
-				roomNode := &Node{
-					ID: fullRoomID, Name: roomID, Type: NodeRoom, Parent: floorNode,
-					Connect: normalizeIDs(room.Connect),
-				}
-				topo.Nodes[fullRoomID] = roomNode
-				floorNode.Children = append(floorNode.Children, roomNode)
-			}
-		}
 	}
 	topo.BuildGraph()
 	if err := topo.Validate(); err != nil {
@@ -287,31 +231,4 @@ func orderedPair(a, b string) (string, string) {
 		return a, b
 	}
 	return b, a
-}
-
-func normalizeIDs(values []string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, exists := seen[value]; exists {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedMapKeys[T any](values map[string]T) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }

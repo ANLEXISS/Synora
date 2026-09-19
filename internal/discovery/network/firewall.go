@@ -70,28 +70,6 @@ func inputPorts(cfg SynoraNetConfig, pairing bool) []string {
 				add("tcp", port)
 			}
 		}
-	} else if cfg.ConnectionPolicy.Mode == "camera_push_legacy" && cfg.ConnectionPolicy.AllowCameraPushRuntime {
-		if cfg.Firewall.AllowAPIHTTPFromClients || cfg.Firewall.AllowAPIHTTP {
-			add("tcp", 8080)
-		}
-		if cfg.Firewall.AllowAPIHTTPSFromClients || cfg.Firewall.AllowAPIHTTPS {
-			add("tcp", 8443)
-		}
-		if cfg.Firewall.AllowVisionIngressFromClients || cfg.Firewall.AllowVisionIngress {
-			add("tcp", 7070)
-		}
-		if cfg.Firewall.AllowMediaRTSPFromClients || cfg.Firewall.AllowMediaRTSP {
-			add("tcp", 8554)
-		}
-		if cfg.Firewall.AllowMediaWebRTCFromClients || cfg.Firewall.AllowMediaWebRTC {
-			add("tcp", 8889)
-		}
-		if cfg.Firewall.AllowMediaHLSFromClients || cfg.Firewall.AllowMediaHLS {
-			add("tcp", 8888)
-		}
-		if cfg.Firewall.AllowMediaMTXAPI {
-			add("tcp", 9997)
-		}
 	}
 	return ports
 }

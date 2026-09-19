@@ -1,5 +1,5 @@
 [Unit]
-Description=Synora Core Engine
+Description=Synora Core Service
 After=network.target synora-bus.service
 Requires=synora-bus.service
 

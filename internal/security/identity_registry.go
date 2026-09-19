@@ -343,8 +343,8 @@ func (r *IdentityRegistry) Verify(deviceID string, message, signature []byte) er
 
 // VerifyAtGeneration authenticates only the active public key and, when a
 // generation is supplied, requires the caller's expected key generation.
-// Generation zero means "current active generation" for compatibility with
-// callers that do not carry the registry revision yet.
+// Generation zero means "current active generation" when no registry
+// revision is supplied.
 func (r *IdentityRegistry) VerifyAtGeneration(deviceID string, generation uint64, message, signature []byte) error {
 	record, ok := r.Lookup(deviceID)
 	if !ok {

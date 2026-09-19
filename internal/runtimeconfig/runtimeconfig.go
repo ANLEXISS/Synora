@@ -21,9 +21,6 @@ const (
 	DefaultClipRoot           = "/var/lib/synora/clips"
 	DefaultFaceDataRoot       = "/var/lib/synora/vision/face"
 	DefaultModelRoot          = "/var/lib/synora/models"
-	DefaultBackupRoot         = "/var/lib/synora/backups"
-	DefaultActionResultsPath  = "/var/lib/synora/actions/results.json"
-	DefaultWebRoot            = "/var/lib/synora/web"
 	DefaultMediaMTXRTSPURL    = "rtsp://10.77.0.1:8554"
 	DefaultHTTPAddr           = ":8080"
 	DefaultHTTPSAddr          = ":8443"
@@ -39,8 +36,6 @@ type Paths struct {
 	Topology           string
 	Residents          string
 	Devices            string
-	Automations        string
-	ActionPolicy       string
 	NetworkConfig      string
 	BusSocket          string
 	VisionWorkerSocket string
@@ -48,14 +43,8 @@ type Paths struct {
 	ClipRoot           string
 	FaceDataRoot       string
 	ModelRoot          string
-	BackupRoot         string
-	ActionResults      string
-	WebRoot            string
 	MediaMTXConfig     string
-	OTAJournal         string
-	CameraOTARoot      string
 	ConnectivityRoot   string
-	SessionStore       string
 	IdentityRegistry   string
 	VersionFile        string
 	TLSCert            string
@@ -98,8 +87,6 @@ func Defaults() Config {
 			Topology:           filepath.Join(configDir, "topology.yaml"),
 			Residents:          filepath.Join(configDir, "residents.yaml"),
 			Devices:            filepath.Join(configDir, "devices.yaml"),
-			Automations:        filepath.Join(configDir, "automations.yaml"),
-			ActionPolicy:       filepath.Join(configDir, "action_policy.yaml"),
 			NetworkConfig:      filepath.Join(configDir, "network.yaml"),
 			BusSocket:          DefaultBusSocket,
 			VisionWorkerSocket: DefaultVisionWorkerSocket,
@@ -107,14 +94,8 @@ func Defaults() Config {
 			ClipRoot:           DefaultClipRoot,
 			FaceDataRoot:       DefaultFaceDataRoot,
 			ModelRoot:          DefaultModelRoot,
-			BackupRoot:         DefaultBackupRoot,
-			ActionResults:      DefaultActionResultsPath,
-			WebRoot:            DefaultWebRoot,
 			MediaMTXConfig:     filepath.Join(configDir, "mediamtx.yml"),
-			OTAJournal:         filepath.Join("/var/lib/synora", "ota", "update.json"),
-			CameraOTARoot:      filepath.Join("/var/lib/synora", "camera-ota"),
 			ConnectivityRoot:   filepath.Join("/var/lib/synora", "connectivity"),
-			SessionStore:       filepath.Join("/var/lib/synora", "auth", "sessions.json"),
 			IdentityRegistry:   filepath.Join("/var/lib/synora", "security", "identities.json"),
 			VersionFile:        filepath.Join(configDir, "version.json"),
 			TLSCert:            filepath.Join(configDir, "tls", "synora.crt"),
@@ -160,8 +141,6 @@ func Load(getenv func(string) string) (Config, error) {
 		cfg.Paths.Topology = filepath.Join(configDir, "topology.yaml")
 		cfg.Paths.Residents = filepath.Join(configDir, "residents.yaml")
 		cfg.Paths.Devices = filepath.Join(configDir, "devices.yaml")
-		cfg.Paths.Automations = filepath.Join(configDir, "automations.yaml")
-		cfg.Paths.ActionPolicy = filepath.Join(configDir, "action_policy.yaml")
 		cfg.Paths.NetworkConfig = filepath.Join(configDir, "network.yaml")
 		cfg.Paths.MediaMTXConfig = filepath.Join(configDir, "mediamtx.yml")
 		cfg.Paths.VersionFile = filepath.Join(configDir, "version.json")
@@ -173,8 +152,6 @@ func Load(getenv func(string) string) (Config, error) {
 	set("SYNORA_TOPOLOGY", &cfg.Paths.Topology)
 	set("SYNORA_RESIDENTS", &cfg.Paths.Residents)
 	set("SYNORA_DEVICE", &cfg.Paths.Devices)
-	set("SYNORA_AUTOMATION", &cfg.Paths.Automations)
-	set("SYNORA_ACTION_POLICY", &cfg.Paths.ActionPolicy)
 	set("SYNORA_NETWORK_CONFIG", &cfg.Paths.NetworkConfig)
 	set("SYNORA_CONNECTIVITY_CONFIG", &cfg.Paths.NetworkConfig)
 	set("SYNORA_BUS", &cfg.Paths.BusSocket)
@@ -184,14 +161,8 @@ func Load(getenv func(string) string) (Config, error) {
 	set("SYNORA_CLIP_DIR", &cfg.Paths.ClipRoot)
 	set("SYNORA_FACE_DATA_ROOT", &cfg.Paths.FaceDataRoot)
 	set("SYNORA_MODEL_ROOT", &cfg.Paths.ModelRoot)
-	set("SYNORA_BACKUP_ROOT", &cfg.Paths.BackupRoot)
-	set("SYNORA_ACTION_RESULTS", &cfg.Paths.ActionResults)
-	set("SYNORA_WEB_ROOT", &cfg.Paths.WebRoot)
 	set("SYNORA_MEDIAMTX_CONFIG", &cfg.Paths.MediaMTXConfig)
-	set("SYNORA_OTA_JOURNAL", &cfg.Paths.OTAJournal)
-	set("SYNORA_CAMERA_OTA_ROOT", &cfg.Paths.CameraOTARoot)
 	set("SYNORA_CONNECTIVITY_DIR", &cfg.Paths.ConnectivityRoot)
-	set("SYNORA_SESSION_STORE", &cfg.Paths.SessionStore)
 	set("SYNORA_IDENTITY_REGISTRY", &cfg.Paths.IdentityRegistry)
 	set("SYNORA_VERSION_FILE", &cfg.Paths.VersionFile)
 	set("SYNORA_TLS_CERT_FILE", &cfg.Paths.TLSCert)
@@ -231,12 +202,11 @@ func (c Config) Validate() error {
 	paths := map[string]string{
 		"config_dir": c.Paths.ConfigDir, "security": c.Paths.Security, "auth": c.Paths.Auth,
 		"topology": c.Paths.Topology, "residents": c.Paths.Residents, "devices": c.Paths.Devices,
-		"automations": c.Paths.Automations, "action_policy": c.Paths.ActionPolicy,
 		"network_config": c.Paths.NetworkConfig, "bus_socket": c.Paths.BusSocket, "vision_worker_socket": c.Paths.VisionWorkerSocket,
 		"state": c.Paths.State, "clip_root": c.Paths.ClipRoot, "face_data_root": c.Paths.FaceDataRoot,
-		"model_root": c.Paths.ModelRoot, "backup_root": c.Paths.BackupRoot, "action_results": c.Paths.ActionResults, "web_root": c.Paths.WebRoot,
-		"mediamtx_config": c.Paths.MediaMTXConfig, "ota_journal": c.Paths.OTAJournal,
-		"camera_ota_root": c.Paths.CameraOTARoot, "connectivity_root": c.Paths.ConnectivityRoot, "session_store": c.Paths.SessionStore, "identity_registry": c.Paths.IdentityRegistry, "version_file": c.Paths.VersionFile, "tls_cert": c.Paths.TLSCert, "tls_key": c.Paths.TLSKey,
+		"model_root":        c.Paths.ModelRoot,
+		"mediamtx_config":   c.Paths.MediaMTXConfig,
+		"connectivity_root": c.Paths.ConnectivityRoot, "identity_registry": c.Paths.IdentityRegistry, "version_file": c.Paths.VersionFile, "tls_cert": c.Paths.TLSCert, "tls_key": c.Paths.TLSKey,
 	}
 	for name, path := range paths {
 		if strings.TrimSpace(path) == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {

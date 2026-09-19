@@ -16,8 +16,6 @@ func main() {
 		usage()
 	}
 	switch os.Args[1] {
-	case "migrate":
-		migrate(os.Args[2:])
 	case "status":
 		status(os.Args[2:])
 	case "validate":
@@ -32,21 +30,8 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: synora-network-config {status|validate|migrate|set-hidden|set-policy} [flags]")
+	fmt.Fprintln(os.Stderr, "usage: synora-network-config {status|validate|set-hidden|set-policy} [flags]")
 	os.Exit(2)
-}
-
-func migrate(args []string) {
-	flags := flag.NewFlagSet("migrate", flag.ExitOnError)
-	path := flags.String("path", network.DefaultConfigPath, "installed SynoraNet config path")
-	_ = flags.Parse(args)
-	backup, err := network.MigrateConfig(*path, time.Now().UTC())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "network config migration failed: %v\n", err)
-		os.Exit(1)
-	}
-	// The output contains only paths and never the passphrase value.
-	fmt.Printf("migrated %s; backup=%s\n", *path, backup)
 }
 
 func status(args []string) {
@@ -106,9 +91,9 @@ func setHidden(args []string) {
 func setPolicy(args []string) {
 	flags := flag.NewFlagSet("set-policy", flag.ExitOnError)
 	path := flags.String("path", network.DefaultConfigPath, "SynoraNet config path")
-	value := flags.String("value", "central_initiated", "central_initiated or camera_push_legacy")
+	value := flags.String("value", "central_initiated", "central_initiated")
 	_ = flags.Parse(args)
-	if strings.TrimSpace(*value) != "central_initiated" && strings.TrimSpace(*value) != "camera_push_legacy" {
+	if strings.TrimSpace(*value) != "central_initiated" {
 		fail(fmt.Errorf("unsupported connection policy %q", *value))
 	}
 	cfg, err := network.LoadConfig(*path)

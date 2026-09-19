@@ -18,14 +18,14 @@ func TestServerAcceptsFragmentedAndConcatenatedFrames(t *testing.T) {
 	server := NewServer("net-pipe-framing")
 	coreConn, coreDecoder := registeredPipe(t, server, "core")
 	defer coreConn.Close()
-	labConn, _ := registeredPipe(t, server, "lab")
+	labConn, _ := registeredPipe(t, server, "vision")
 	defer labConn.Close()
 
-	first, err := json.Marshal(contract.Message{ID: "event-1", Type: contract.EventVisionMotion, Kind: contract.KindEvent, Source: "lab", Target: "core"})
+	first, err := json.Marshal(contract.Message{ID: "event-1", Type: contract.EventVisionMotion, Kind: contract.KindEvent, Source: "vision", Target: "core"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := json.Marshal(contract.Message{ID: "event-2", Type: contract.EventVisionUnknown, Kind: contract.KindEvent, Source: "lab", Target: "core"})
+	second, err := json.Marshal(contract.Message{ID: "event-2", Type: contract.EventVisionUnknown, Kind: contract.KindEvent, Source: "vision", Target: "core"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,27 +53,27 @@ func TestServerClosesOversizedFrame(t *testing.T) {
 	serverConn, clientConn := net.Pipe()
 	defer clientConn.Close()
 	go server.handle(serverConn)
-	registration := contract.Message{Type: "bus.register", Kind: contract.KindCommand, Source: "lab"}
+	registration := contract.Message{Type: "bus.register", Kind: contract.KindCommand, Source: "vision"}
 	if err := json.NewEncoder(clientConn).Encode(registration); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if _, ok := server.getClient("lab"); ok {
+		if _, ok := server.getClient("vision"); ok {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if _, ok := server.getClient("lab"); !ok {
+	if _, ok := server.getClient("vision"); !ok {
 		t.Fatal("service was not registered")
 	}
-	frame := []byte(`{"id":"large","type":"vision.motion","kind":"event","source":"lab","target":"core","payload":"` + strings.Repeat("x", maxFrameSize) + `"}` + "\n")
+	frame := []byte(`{"id":"large","type":"vision.motion","kind":"event","source":"vision","target":"core","payload":"` + strings.Repeat("x", maxFrameSize) + `"}` + "\n")
 	_ = clientConn.SetWriteDeadline(time.Now().Add(time.Second))
 	_, _ = clientConn.Write(frame)
 	_ = clientConn.SetWriteDeadline(time.Time{})
 	deadline = time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if _, ok := server.getClient("lab"); !ok {
+		if _, ok := server.getClient("vision"); !ok {
 			return
 		}
 		time.Sleep(time.Millisecond)
@@ -85,13 +85,13 @@ func TestClientSerializesConcurrentWrites(t *testing.T) {
 	server, path := startUnixServer(t)
 	coreConn, coreDecoder := registeredPipe(t, server, "core")
 	defer coreConn.Close()
-	client, err := NewClient(path, "lab")
+	client, err := NewClient(path, "vision")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close()
 	waitFor(t, time.Second, func() bool {
-		_, ok := server.getClient("lab")
+		_, ok := server.getClient("vision")
 		return ok
 	})
 
@@ -131,19 +131,19 @@ func TestClientSerializesConcurrentWrites(t *testing.T) {
 
 func TestClientFailsPendingRPCWhenDisconnected(t *testing.T) {
 	server, path := startUnixServer(t)
-	client, err := NewClient(path, "api")
+	client, err := NewClient(path, "discovery")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close()
 	waitFor(t, time.Second, func() bool {
-		_, ok := server.getClient("api")
+		_, ok := server.getClient("discovery")
 		return ok
 	})
 
 	result := make(chan error, 1)
 	go func() {
-		_, requestErr := client.RequestWithTimeout("health.check", "api", nil, "core", 5*time.Second)
+		_, requestErr := client.RequestWithTimeout("health.check", "discovery", nil, "core", 5*time.Second)
 		result <- requestErr
 	}()
 	waitFor(t, time.Second, func() bool {
@@ -166,13 +166,13 @@ func TestClientFailsPendingRPCWhenDisconnected(t *testing.T) {
 
 func TestClientReconnectsAfterServerRestart(t *testing.T) {
 	server, path := startUnixServer(t)
-	client, err := NewClient(path, "api")
+	client, err := NewClient(path, "discovery")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close()
 	waitFor(t, time.Second, func() bool {
-		_, ok := server.getClient("api")
+		_, ok := server.getClient("discovery")
 		return ok
 	})
 	if err := server.Close(); err != nil {
@@ -181,7 +181,7 @@ func TestClientReconnectsAfterServerRestart(t *testing.T) {
 	server, _ = startUnixServerAt(t, path)
 	defer server.Close()
 	waitFor(t, 6*time.Second, func() bool {
-		_, ok := server.getClient("api")
+		_, ok := server.getClient("discovery")
 		return ok
 	})
 }

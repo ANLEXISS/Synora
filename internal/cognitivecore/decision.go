@@ -97,7 +97,7 @@ type Artifact struct {
 
 func (m Manifest) Validate() error {
 	if m.SchemaVersion != BundleManifestSchema || m.SnapshotSchema != SnapshotSchemaVersion || m.EncoderSchema != EncoderSchemaVersion || m.EncoderVersion != "1.0.0" || m.InputDimension != CognitiveVectorSize {
-		return fmt.Errorf("incompatible V1 MLP manifest")
+		return fmt.Errorf("V1 MLP manifest does not match the contract")
 	}
 	if len(m.FeatureNames) != CognitiveVectorSize {
 		return fmt.Errorf("V1 MLP feature order is missing")

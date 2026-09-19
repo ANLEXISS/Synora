@@ -22,7 +22,7 @@ class FaceRecognizer:
         faces_dir="/opt/synora/services/vision-worker/data/faces",
         match_threshold=0.58,
         uncertain_threshold=0.45,
-        debug_dir="/var/lib/synora/debug/arcface_runtime"
+        debug_dir=""
     ):
 
         log.info(
@@ -45,11 +45,6 @@ class FaceRecognizer:
         self.available = False
         self.error = None
         self.capability_status = model_status(model_path)
-
-        os.makedirs(
-            self.debug_dir,
-            exist_ok=True,
-        )
 
         self.runner = None
         try:
@@ -93,12 +88,12 @@ class FaceRecognizer:
         # The worker installs a manifest-built snapshot at startup/reload.
         self.resident_embeddings = {}
 
-        self.debug_runtime_saves = True
+        self.debug_runtime_saves = False
 
         self.runtime_save_counter = 0
 
-        # Legacy filesystem discovery is intentionally disabled.  Dataset
-        # activation is owned by worker.py and always comes from datasets/current.
+        # Unscoped filesystem discovery is intentionally disabled.  Dataset
+        # Activation is owned by the worker and always comes from datasets/current.
 
     def capability(self):
         status = dict(self.capability_status or {})

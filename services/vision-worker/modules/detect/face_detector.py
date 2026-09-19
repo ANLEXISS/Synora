@@ -22,10 +22,6 @@ class SCRFDFaceRunner:
         "/var/lib/synora/models/det_10g.rknn"
     )
 
-    DEBUG_DIR = (
-        "/var/lib/synora/debug/scrfd"
-    )
-
     def __init__(
         self,
         model_path=MODEL_PATH,
@@ -62,13 +58,6 @@ class SCRFDFaceRunner:
         self.nms_thresh = 0.4
 
         self.strides = [8, 16, 32]
-
-        os.makedirs(
-            self.DEBUG_DIR,
-            exist_ok=True,
-        )
-
-        self.debug_counter = 0
 
         if self.available:
             log.info(
@@ -247,59 +236,6 @@ class SCRFDFaceRunner:
             ]
 
         return keep
-
-    # ------------------------------------------------
-    # DEBUG SAVE
-    # ------------------------------------------------
-
-    def save_debug(
-        self,
-        frame,
-        detections,
-    ):
-
-        if len(detections) == 0:
-            return
-
-        dbg = frame.copy()
-
-        for det in detections:
-
-            x1, y1, x2, y2, score = det
-
-            cv2.rectangle(
-                dbg,
-                (int(x1), int(y1)),
-                (int(x2), int(y2)),
-                (0, 255, 0),
-                2,
-            )
-
-            cv2.putText(
-                dbg,
-                f"{score:.2f}",
-                (int(x1), int(y1) - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 255, 0),
-                1,
-            )
-
-        ts = int(
-            time.time() * 1000
-        )
-
-        path = os.path.join(
-            self.DEBUG_DIR,
-            f"scrfd_{ts}_{self.debug_counter}.jpg"
-        )
-
-        self.debug_counter += 1
-
-        cv2.imwrite(
-            path,
-            dbg,
-        )
 
     # ------------------------------------------------
     # DETECTION
@@ -622,11 +558,6 @@ class SCRFDFaceRunner:
 
         if len(det) > 0:
 
-            self.save_debug(
-                frame,
-                det,
-            )
-
             log.info(
                 "SCRFD faces=%d best=%.3f",
                 len(det),
@@ -762,10 +693,6 @@ class FaceDetector:
                 x1:x2,
             ]
 
-            self.save_face_roi(
-                roi
-            )
-
             results.append({
                 "bbox": (
                     x1,
@@ -800,31 +727,3 @@ class FaceDetector:
         return results[
             :self.MAX_FACES
         ]
-    
-
-    def save_face_roi(
-        self,
-        roi,
-    ):
-
-        if roi is None:
-            return
-
-        if roi.size == 0:
-            return
-
-        ts = int(
-            time.time() * 1000
-        )
-
-        path = os.path.join(
-            self.detector.DEBUG_DIR,
-            f"face_roi_{ts}_{self.detector.debug_counter}.jpg",
-        )
-
-        self.detector.debug_counter += 1
-
-        cv2.imwrite(
-            path,
-            roi,
-        )

@@ -189,9 +189,6 @@ func TestHealthUsesRuntimeServiceNames(t *testing.T) {
 		Config{
 			Executor: executor,
 			DiskPath: "test-disk",
-			ProbeActions: func(context.Context) error {
-				return nil
-			},
 			ProbeMediaMTX: func(context.Context) error {
 				return nil
 			},
@@ -211,7 +208,7 @@ func TestHealthUsesRuntimeServiceNames(t *testing.T) {
 		}
 
 		wantStatus := "active"
-		if service == "synora-actions" || service == "mediamtx" {
+		if service == "mediamtx" {
 			wantStatus = "ok"
 		}
 		if !current.Active || current.Status != wantStatus {
@@ -229,7 +226,7 @@ func TestHealthUsesRuntimeServiceNames(t *testing.T) {
 	deps.assertCalls(t, 1, 0, 2, 1)
 }
 
-func TestHealthKeepsActiveActionsAndMediaMTXDegradedWithUsefulMessages(t *testing.T) {
+func TestHealthKeepsActiveMediaMTXDegradedWithUsefulMessages(t *testing.T) {
 	executor := &fakeExecutor{outputs: map[string][]byte{}, errors: map[string]error{}, strict: true}
 	for _, service := range append(RuntimeServices, "hostapd", "dnsmasq") {
 		executor.outputs[commandKey("systemctl", "is-active", service)] = []byte("active\n")
@@ -246,10 +243,6 @@ func TestHealthKeepsActiveActionsAndMediaMTXDegradedWithUsefulMessages(t *testin
 		Now: fixedNow,
 	}, deps)
 	health := manager.Health(context.Background())
-	actions := health.Services["synora-actions"]
-	if actions.Status != "degraded" || !actions.Active || actions.Message != "service active, no health probe" {
-		t.Fatalf("actions=%#v", actions)
-	}
 	media := health.Services["mediamtx"]
 	if media.Status != "degraded" || !media.Active || media.Message != "service active, api probe unavailable" {
 		t.Fatalf("mediamtx=%#v", media)
@@ -269,17 +262,13 @@ func TestHealthMarksInactiveOptionalServicesUnavailable(t *testing.T) {
 	for _, service := range append(RuntimeServices, "hostapd", "dnsmasq") {
 		executor.outputs[commandKey("systemctl", "is-active", service)] = []byte("active\n")
 	}
-	executor.outputs[commandKey("systemctl", "is-active", "synora-actions")] = []byte("inactive\n")
 	executor.outputs[commandKey("systemctl", "is-active", "mediamtx")] = []byte("inactive\n")
 	deps := &healthDependencyFake{t: t, networkStatus: activeNetworkStatus()}
 	manager := newHealthTestManager(t, Config{Executor: executor, DiskPath: "test-disk", Now: fixedNow}, deps)
 	health := manager.Health(context.Background())
-	for _, name := range []string{"synora-actions", "mediamtx"} {
+	for _, name := range []string{"mediamtx"} {
 		item := health.Services[name]
-		wantMessage := "service inactive"
-		if name == "mediamtx" {
-			wantMessage = "optional component inactive"
-		}
+		wantMessage := "optional component inactive"
 		if item.Status != "unavailable" || item.Active || item.Message != wantMessage {
 			t.Fatalf("%s=%#v", name, item)
 		}
@@ -303,9 +292,6 @@ func TestHealthMarksMissingHostapdDegradedWithDetails(t *testing.T) {
 	manager := newHealthTestManager(t, Config{
 		Executor: executor,
 		DiskPath: "test-disk",
-		ProbeActions: func(context.Context) error {
-			return nil
-		},
 		ProbeMediaMTX: func(context.Context) error {
 			return nil
 		},
@@ -341,9 +327,6 @@ func TestHealthMarksConfiguredSynoraNetDisabledWithoutDegradingRuntime(t *testin
 		Executor:          executor,
 		DiskPath:          "test-disk",
 		NetworkConfigPath: configPath,
-		ProbeActions: func(context.Context) error {
-			return nil
-		},
 		ProbeMediaMTX: func(context.Context) error {
 			return nil
 		},
@@ -368,9 +351,6 @@ func TestHealthReports24GHzFallbackAsUsableDegraded(t *testing.T) {
 	manager := newHealthTestManager(t, Config{
 		Executor: executor,
 		DiskPath: "test-disk",
-		ProbeActions: func(context.Context) error {
-			return nil
-		},
 		ProbeMediaMTX: func(context.Context) error {
 			return nil
 		},
@@ -417,15 +397,10 @@ func TestMediaMTXProbeRequiresSuccessfulHTTPStatus(t *testing.T) {
 func TestHealthUsesOnlyProvidedDependencies(t *testing.T) {
 	executor := activeRuntimeExecutor()
 	deps := &healthDependencyFake{t: t, networkStatus: activeNetworkStatus()}
-	actionProbeCalls := 0
 	mediaProbeCalls := 0
 	manager := newHealthTestManager(t, Config{
 		Executor: executor,
 		DiskPath: "test-disk",
-		ProbeActions: func(context.Context) error {
-			actionProbeCalls++
-			return nil
-		},
 		ProbeMediaMTX: func(context.Context) error {
 			mediaProbeCalls++
 			return nil
@@ -434,11 +409,11 @@ func TestHealthUsesOnlyProvidedDependencies(t *testing.T) {
 	}, deps)
 
 	health := manager.Health(context.Background())
-	if health.Services["synora-actions"].Status != "ok" || health.Services["mediamtx"].Status != "ok" || health.Network.SynoraNet.Message != "test 5 GHz AP active" {
+	if health.Services["mediamtx"].Status != "ok" || health.Network.SynoraNet.Message != "test 5 GHz AP active" {
 		t.Fatalf("health=%#v", health)
 	}
-	if actionProbeCalls != 1 || mediaProbeCalls != 1 {
-		t.Fatalf("action/MediaMTX probe calls=%d/%d, want 1/1", actionProbeCalls, mediaProbeCalls)
+	if mediaProbeCalls != 1 {
+		t.Fatalf("MediaMTX probe calls=%d, want 1", mediaProbeCalls)
 	}
 	executor.assertNoUnexpected(t)
 	deps.assertCalls(t, 1, 0, 2, 1)

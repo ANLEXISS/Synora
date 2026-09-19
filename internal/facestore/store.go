@@ -66,7 +66,7 @@ func (s *Store) Init() error {
 	if s == nil || !filepath.IsAbs(s.Root) {
 		return fmt.Errorf("face root must be absolute")
 	}
-	for _, dir := range []string{s.Root, s.uploadDir(), s.sourceDir(), s.datasetDir(), s.versionDir(), s.stagingDir(), s.legacyDir()} {
+	for _, dir := range []string{s.Root, s.uploadDir(), s.sourceDir(), s.datasetDir(), s.versionDir(), s.stagingDir()} {
 		if err := mkdirNoSymlink(dir, 0o750); err != nil {
 			return err
 		}
@@ -79,7 +79,6 @@ func (s *Store) sourceDir() string  { return filepath.Join(s.Root, "sources") }
 func (s *Store) datasetDir() string { return filepath.Join(s.Root, "datasets") }
 func (s *Store) versionDir() string { return filepath.Join(s.datasetDir(), "versions") }
 func (s *Store) stagingDir() string { return filepath.Join(s.datasetDir(), "staging") }
-func (s *Store) legacyDir() string  { return filepath.Join(s.Root, "legacy") }
 
 func SafeComponent(value string) bool {
 	return value != "" && value != "." && value != ".." && filepath.Base(value) == value &&

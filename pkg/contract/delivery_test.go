@@ -71,8 +71,8 @@ func TestDeliveryStateTransitionsAreFailClosed(t *testing.T) {
 	}
 }
 
-func TestMessageWireShapeRemainsCompatible(t *testing.T) {
-	m := Message{ID: "legacy", Type: EventVisionMotion, Source: "vision", Kind: KindEvent}
+func TestMessageWireShapeRemainsStable(t *testing.T) {
+	m := Message{ID: "msg-wire", Type: EventVisionMotion, Source: "vision", Kind: KindEvent}
 	encoded, err := json.Marshal(m)
 	if err != nil {
 		t.Fatalf("marshal message: %v", err)
@@ -82,6 +82,6 @@ func TestMessageWireShapeRemainsCompatible(t *testing.T) {
 		t.Fatalf("unmarshal message: %v", err)
 	}
 	if decoded.ID != m.ID || decoded.Type != m.Type || decoded.Source != m.Source || decoded.Kind != m.Kind {
-		t.Fatalf("legacy message changed across serialization: %#v", decoded)
+		t.Fatalf("message changed across serialization: %#v", decoded)
 	}
 }

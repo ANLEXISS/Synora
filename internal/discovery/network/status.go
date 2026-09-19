@@ -64,11 +64,9 @@ type PairingSecurityStatus struct {
 
 func wifiSecurityStatus(cfg SynoraNetConfig, active bool) WifiSecurityStatus {
 	status := "degraded"
-	message := "legacy/weak WPA2 mode; use WPA3-SAE with required PMF"
+	message := "WPA3 security policy is not active"
 	if cfg.Security.Mode == "wpa3" && cfg.Security.PMF == "required" && cfg.Security.APIsolate {
 		status, message = "ok", "WPA3-SAE only, PMF required, client isolation enabled"
-	} else if cfg.Security.Mode == "wpa2-wpa3-transition" {
-		message = "transition mode explicitly enabled; WPA2 clients remain accepted"
 	}
 	if !active && cfg.Enabled {
 		status = "unavailable"

@@ -65,7 +65,7 @@ def main() -> int:
     os.environ["SYNORA_YOLO_MODEL_PATH"] = str(model)
     started = time.perf_counter()
     detector_started = time.perf_counter()
-    detector = PersonDetector(debug_enabled=False)
+    detector = PersonDetector()
     detector_init_wall_ms = (time.perf_counter() - detector_started) * 1000.0
     if not detector.available:
         return fail(output, f"RKNN detector unavailable: {detector.error or detector.capability_status}", model_path=str(model))

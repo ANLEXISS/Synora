@@ -39,14 +39,13 @@ func TestPersistentStoreSavesAndReloadsDurableState(t *testing.T) {
 		Evidence:   []string{"event:evt-1"},
 	})
 	first.SetActionResult(&contract.ActionResult{
-		ID:           "ares-1",
-		RequestID:    "areq-1",
-		AutomationID: "auto-1",
-		ActionID:     "action-1",
-		Type:         "device.command",
-		Status:       contract.ActionStatusSuccess,
-		FinishedAt:   now,
-		Data:         map[string]any{"adapter": "fake"},
+		ID:         "ares-1",
+		RequestID:  "areq-1",
+		ActionID:   "action-1",
+		Type:       "device.command",
+		Status:     contract.ActionStatusSuccess,
+		FinishedAt: now,
+		Data:       map[string]any{"adapter": "fake"},
 	})
 	first.SetClip(&ClipState{
 		ID:        "clip-1",
@@ -271,7 +270,7 @@ func TestPersistentStoreUnknownVersionReturnsCleanError(t *testing.T) {
 	}
 }
 
-func TestPersistentStoreLegacyStateWithoutClipsRestoresEmptyClipCollection(t *testing.T) {
+func TestPersistentStoreStateWithoutClipsRestoresEmptyClipCollection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	if err := os.WriteFile(path, []byte(`{"version":1,"events":[]}`), 0640); err != nil {
 		t.Fatal(err)
@@ -279,10 +278,10 @@ func TestPersistentStoreLegacyStateWithoutClipsRestoresEmptyClipCollection(t *te
 	store := NewStore(WithPersistencePath(path))
 	summary, err := store.LoadPersisted()
 	if err != nil || summary.Clips != 0 {
-		t.Fatalf("legacy state load summary=%#v err=%v", summary, err)
+		t.Fatalf("state load summary=%#v err=%v", summary, err)
 	}
 	if clips := store.ClipsList(0); len(clips) != 0 {
-		t.Fatalf("legacy state without clips must restore an empty collection: %#v", clips)
+		t.Fatalf("state without clips must restore an empty collection: %#v", clips)
 	}
 }
 
