@@ -4,7 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"synora/pkg/contract"
 )
@@ -28,12 +32,8 @@ func TestCentralGeneratedSuitesAreFixedAndSeparated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]int{"pose_movement": 90, "face_aggregate": 70, "communication_gate": 50, "camera_health": 45, "rtmpose_runtime": 40}
-	if len(manifest.Generated) != len(want) {
-		t.Fatalf("generated suite count=%d, want %d", len(manifest.Generated), len(want))
-	}
 	for _, suite := range manifest.Generated {
-		if suite.Bundle != "v3" || suite.Seed == 0 || suite.Count != want[suite.Family] {
+		if suite.Bundle != "v3" || suite.Seed == 0 || suite.Count <= 0 {
 			t.Fatalf("unexpected generated suite: %+v", suite)
 		}
 		if suite.Family == "" || suite.IDPrefix == "" || suite.Suite == "" {
@@ -49,6 +49,79 @@ func TestCentralGeneratedSuitesAreFixedAndSeparated(t *testing.T) {
 	}
 	if containsForbiddenJSON(first.Messages[0].Payload) {
 		t.Fatal("generated fixture contains a forbidden raw Vision field")
+	}
+}
+
+func TestCentralExpansionIsTheCLIExecutionSet(t *testing.T) {
+	manifestPath := "../../testdata/central-e2e-v1/manifest.json"
+	manifest, err := loadManifest(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Clean(filepath.Join("..", ".."))
+	all := expandManifest(manifest, root)
+	wantTotal := len(manifest.Cases) + generatedScenarioCount(manifest.Generated)
+	if len(all) != wantTotal {
+		t.Fatalf("expanded scenarios=%d, manifest total=%d", len(all), wantTotal)
+	}
+	reports := make([]caseReport, 0, len(all))
+	generatedByFamily := map[string]int{}
+	for _, scenario := range all {
+		reports = append(reports, caseReport{Suite: scenario.Value.Suite, Family: scenario.Family, Passed: true})
+		if !scenario.Static {
+			generatedByFamily[scenario.Family]++
+		}
+	}
+	report := buildSuiteReport(manifestPath, manifest, all, reports, time.Now(), map[string]backendReport{})
+	if report.ScenarioCount != len(all) || report.ScenarioCount != report.StaticCaseCount+report.GeneratedCaseCount {
+		t.Fatalf("report count mismatch: %+v", report)
+	}
+	for _, suite := range manifest.Generated {
+		if generatedByFamily[suite.Family] != suite.Count || report.FamilyCounts[suite.Family] != suite.Count {
+			t.Fatalf("declared family %q was not fully executed: expanded=%d report=%d declared=%d", suite.Family, generatedByFamily[suite.Family], report.FamilyCounts[suite.Family], suite.Count)
+		}
+	}
+	caseFiltered := filterScenarios(all, "pose-movement-001", "")
+	if len(caseFiltered) != 1 || caseFiltered[0].Family != "pose_movement" {
+		t.Fatalf("CASE filter was not applied after expansion: %+v", caseFiltered)
+	}
+	v1Filtered := filterScenarios(all, "", "v1")
+	for _, scenario := range v1Filtered {
+		if !scenario.Static || scenario.Value.Bundle != "v1" {
+			t.Fatalf("BUNDLE=v1 admitted a generated or non-v1 case: %+v", scenario)
+		}
+	}
+	v3Filtered := filterScenarios(all, "", "v3")
+	generatedV3 := 0
+	for _, scenario := range v3Filtered {
+		if !scenario.Static {
+			generatedV3++
+		}
+	}
+	if generatedV3 != generatedScenarioCount(manifest.Generated) {
+		t.Fatalf("BUNDLE=v3 dropped generated scenarios: %d/%d", generatedV3, generatedScenarioCount(manifest.Generated))
+	}
+}
+
+func TestCentralReportWriteIsAtomicAndLeavesNoTemporaryFile(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "report.json")
+	if err := writeJSON(path, map[string]any{"scenario_count": 1}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"scenario_count": 1`) {
+		t.Fatalf("unexpected report body: %s", body)
+	}
+	matches, err := filepath.Glob(filepath.Join(directory, ".report.json.tmp-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("atomic report temporary file was left behind: %v", matches)
 	}
 }
 

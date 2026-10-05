@@ -14,9 +14,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,9 +30,10 @@ import (
 )
 
 const (
-	defaultManifest = "testdata/central-e2e-v1/manifest.json"
-	defaultOutput   = "/tmp/synora-central-e2e-v1.json"
-	centralTimeout  = 3 * time.Second
+	defaultManifest  = "testdata/central-e2e-v1/manifest.json"
+	defaultOutput    = "/tmp/synora-central-e2e-v1.json"
+	centralTimeout   = 3 * time.Second
+	generatorVersion = "central-generated-fixtures/v1"
 )
 
 type suiteManifest struct {
@@ -50,6 +54,14 @@ type generatedSuite struct {
 	Count    int    `json:"count"`
 	Seed     int64  `json:"seed"`
 	Bundle   string `json:"bundle"`
+}
+
+type expandedScenario struct {
+	Value     fixture
+	Static    bool
+	Family    string
+	Path      string
+	LoadError error
 }
 
 type fixture struct {
@@ -86,6 +98,7 @@ type fixtureExpected struct {
 type caseReport struct {
 	ID                   string            `json:"id"`
 	Suite                string            `json:"suite"`
+	Family               string            `json:"family"`
 	Bundle               string            `json:"bundle"`
 	Passed               bool              `json:"passed"`
 	Error                string            `json:"error,omitempty"`
@@ -191,10 +204,16 @@ type backendReport struct {
 
 type suiteReport struct {
 	SchemaVersion      string                   `json:"schema_version"`
+	Error              string                   `json:"error,omitempty"`
 	Seed               int64                    `json:"seed"`
 	LogicalDate        string                   `json:"logical_date"`
 	ManifestSHA256     string                   `json:"manifest_sha256"`
+	GeneratorVersion   string                   `json:"generator_version"`
+	StaticCaseCount    int                      `json:"static_case_count"`
+	GeneratedCaseCount int                      `json:"generated_case_count"`
 	ScenarioCount      int                      `json:"scenario_count"`
+	PassedCount        int                      `json:"passed_count"`
+	FailedCount        int                      `json:"failed_count"`
 	Passed             bool                     `json:"passed"`
 	DurationMS         float64                  `json:"duration_ms"`
 	NetworkAccess      bool                     `json:"network_access"`
@@ -202,6 +221,7 @@ type suiteReport struct {
 	PhysicalAction     bool                     `json:"physical_action_executed"`
 	RawVisionForwarded bool                     `json:"raw_vision_forwarded"`
 	SuiteCounts        map[string]int           `json:"suite_counts"`
+	FamilyCounts       map[string]int           `json:"family_counts"`
 	Coverage           map[string]int           `json:"coverage"`
 	ModelBackends      map[string]backendReport `json:"model_backends"`
 	Cases              []caseReport             `json:"cases"`
@@ -213,6 +233,13 @@ func main() {
 	bundleOverride := flag.String("bundle", "", "run only v1 or v3 fixtures")
 	outPath := flag.String("out", defaultOutput, "report path")
 	flag.Parse()
+	if os.Getenv("VERBOSE") != "1" {
+		log.SetOutput(io.Discard)
+	}
+	if err := removeOutput(*outPath); err != nil {
+		fmt.Fprintln(os.Stderr, "cannot remove previous central report:", err)
+		os.Exit(1)
+	}
 
 	started := time.Now()
 	manifest, err := loadManifest(*manifestPath)
@@ -224,52 +251,22 @@ func main() {
 		fatalReport(*outPath, fmt.Errorf("central fixture suite has %d cases; minimum is %d", len(manifest.Cases)+generatedCount, manifest.MinimumCases))
 	}
 	root := filepath.Dir(filepath.Dir(filepath.Dir(*manifestPath)))
-	selected := manifest.Cases
-	if *caseID != "" {
-		selected = nil
-		for _, relative := range manifest.Cases {
-			if filepath.Base(relative) == *caseID+".json" {
-				selected = append(selected, relative)
-			}
-		}
-	}
-	reports := make([]caseReport, 0, len(selected)+generatedCount)
-	for _, relative := range selected {
-		path := relative
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(root, relative)
-		}
-		value, loadErr := loadFixture(path)
-		if loadErr != nil {
-			reports = append(reports, caseReport{ID: filepath.Base(path), Passed: false, Error: loadErr.Error(), NetworkAccess: false})
+	allScenarios := expandManifest(manifest, root)
+	scenarios := filterScenarios(allScenarios, *caseID, *bundleOverride)
+	reports := make([]caseReport, 0, len(scenarios))
+	for _, scenario := range scenarios {
+		if scenario.LoadError != nil {
+			reports = append(reports, caseReport{ID: scenarioID(scenario), Suite: scenario.Value.Suite, Family: scenario.Family, Passed: false, Error: scenario.LoadError.Error(), NetworkAccess: false})
 			continue
 		}
-		if *bundleOverride != "" && value.Bundle != *bundleOverride {
-			continue
-		}
-		reports = append(reports, runFixture(root, value))
+		item := runFixture(root, scenario.Value)
+		item.Family = scenario.Family
+		reports = append(reports, item)
 	}
-	for _, spec := range manifest.Generated {
-		for index := 0; index < spec.Count; index++ {
-			value := generatedFixture(spec, index)
-			if *caseID != "" && value.ID != *caseID {
-				continue
-			}
-			if *bundleOverride != "" && value.Bundle != *bundleOverride {
-				continue
-			}
-			reports = append(reports, runFixture(root, value))
-		}
-	}
-	if len(reports) == 0 {
-		reports = append(reports, caseReport{Passed: false, Error: "no fixtures selected", NetworkAccess: false})
-	}
-	passed := true
+	passed := len(reports) > 0
 	for _, item := range reports {
 		passed = passed && item.Passed
 	}
-	suiteCounts := make(map[string]int)
-	coverage := make(map[string]int)
 	backends := map[string]backendReport{
 		"rtmpose":        {Status: "unavailable", Backend: "rknn-rk3588", RealModel: false, Reason: "central harness does not open RKNN; aggregate pose inputs are synthetic test signals"},
 		"face_aggregate": {Status: "unavailable", Backend: "local-only-adapter-not-run", RealModel: false, Reason: "central harness receives aggregate face signals only; no identity backend is executed"},
@@ -284,9 +281,99 @@ func main() {
 	} else {
 		backends["mlp_v3_cpu_candidate"] = backendReport{Status: "not_run", Backend: "cpu-bundle-v3-candidate", RealModel: false, Reason: "bundle was not selected"}
 	}
-	report := suiteReport{SchemaVersion: "synora.central-e2e/v1", Seed: manifest.Seed, LogicalDate: manifest.LogicalDate, ManifestSHA256: fileSHA256(*manifestPath), ScenarioCount: len(reports), Passed: passed, DurationMS: float64(time.Since(started).Microseconds()) / 1000, NetworkAccess: false, AudioRendered: false, PhysicalAction: false, SuiteCounts: suiteCounts, Coverage: coverage, ModelBackends: backends, Cases: reports}
+	report := buildSuiteReport(*manifestPath, manifest, scenarios, reports, started, backends)
+	for _, item := range reports {
+		report.AudioRendered = report.AudioRendered || item.AudioRendered
+		report.PhysicalAction = report.PhysicalAction || item.PhysicalAction
+		report.NetworkAccess = report.NetworkAccess || item.NetworkAccess
+		report.RawVisionForwarded = report.RawVisionForwarded || item.RawVisionForwarded
+	}
+	report.Passed = passed
+	report.PassedCount = 0
+	for _, item := range reports {
+		if item.Passed {
+			report.PassedCount++
+		}
+	}
+	report.FailedCount = report.ScenarioCount - report.PassedCount
+	if err := writeJSON(*outPath, report); err != nil {
+		fatalReport(*outPath, err)
+	}
+	if !passed {
+		fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
+		os.Exit(1)
+	}
+	fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d families=%s manifest_sha256=%s\n", *outPath, report.ScenarioCount, report.PassedCount, report.FailedCount, formatCounts(report.FamilyCounts), report.ManifestSHA256)
+}
+
+func expandManifest(manifest suiteManifest, root string) []expandedScenario {
+	total := len(manifest.Cases) + generatedScenarioCount(manifest.Generated)
+	result := make([]expandedScenario, 0, total)
+	for _, relative := range manifest.Cases {
+		path := relative
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, relative)
+		}
+		value, err := loadFixture(path)
+		if err != nil {
+			result = append(result, expandedScenario{Static: true, Family: "static", Path: path, LoadError: err})
+			continue
+		}
+		result = append(result, expandedScenario{Value: value, Static: true, Family: value.Suite, Path: path})
+	}
+	for _, spec := range manifest.Generated {
+		for index := 0; index < spec.Count; index++ {
+			value := generatedFixture(spec, index)
+			result = append(result, expandedScenario{Value: value, Family: spec.Family})
+		}
+	}
+	return result
+}
+
+func filterScenarios(scenarios []expandedScenario, caseID, bundle string) []expandedScenario {
+	result := make([]expandedScenario, 0, len(scenarios))
+	for _, scenario := range scenarios {
+		if caseID != "" && scenarioID(scenario) != caseID {
+			continue
+		}
+		if bundle != "" && scenario.Value.Bundle != bundle {
+			continue
+		}
+		result = append(result, scenario)
+	}
+	return result
+}
+
+func scenarioID(scenario expandedScenario) string {
+	if scenario.Value.ID != "" {
+		return scenario.Value.ID
+	}
+	base := filepath.Base(scenario.Path)
+	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []expandedScenario, reports []caseReport, started time.Time, backends map[string]backendReport) suiteReport {
+	suiteCounts := make(map[string]int)
+	familyCounts := make(map[string]int)
+	coverage := make(map[string]int)
+	for _, generated := range manifest.Generated {
+		familyCounts[generated.Family] = 0
+	}
+	staticCount, generatedCount := 0, 0
+	for _, scenario := range scenarios {
+		if scenario.Static {
+			staticCount++
+		} else {
+			generatedCount++
+		}
+	}
 	for _, item := range reports {
 		suiteCounts[item.Suite]++
+		family := item.Family
+		if family == "" {
+			family = item.Suite
+		}
+		familyCounts[family]++
 		if item.PoseStatus != "" {
 			coverage["pose:"+item.PoseStatus]++
 		}
@@ -305,19 +392,39 @@ func main() {
 		if item.CommunicationStatus != "" {
 			coverage["communication:"+item.CommunicationStatus]++
 		}
-		report.AudioRendered = report.AudioRendered || item.AudioRendered
-		report.PhysicalAction = report.PhysicalAction || item.PhysicalAction
-		report.NetworkAccess = report.NetworkAccess || item.NetworkAccess
-		report.RawVisionForwarded = report.RawVisionForwarded || item.RawVisionForwarded
 	}
-	if err := writeJSON(*outPath, report); err != nil {
-		fatalReport(*outPath, err)
+	passedCount := 0
+	for _, item := range reports {
+		if item.Passed {
+			passedCount++
+		}
 	}
-	if !passed {
-		fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
-		os.Exit(1)
+	errorText := ""
+	if len(scenarios) == 0 {
+		errorText = "no fixtures selected"
 	}
-	fmt.Println(*outPath)
+	return suiteReport{
+		SchemaVersion: "synora.central-e2e/v1", Error: errorText, Seed: manifest.Seed, LogicalDate: manifest.LogicalDate,
+		ManifestSHA256: fileSHA256(manifestPath), GeneratorVersion: generatorVersion,
+		StaticCaseCount: staticCount, GeneratedCaseCount: generatedCount, ScenarioCount: len(reports),
+		PassedCount: passedCount, FailedCount: len(reports) - passedCount, Passed: len(reports) > 0 && passedCount == len(reports),
+		DurationMS: float64(time.Since(started).Microseconds()) / 1000, NetworkAccess: false,
+		AudioRendered: false, PhysicalAction: false, RawVisionForwarded: false,
+		SuiteCounts: suiteCounts, FamilyCounts: familyCounts, Coverage: coverage, ModelBackends: backends, Cases: reports,
+	}
+}
+
+func formatCounts(counts map[string]int) string {
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
+	}
+	return strings.Join(parts, ",")
 }
 
 func hasBundle(reports []caseReport, bundle string) bool {
@@ -1342,7 +1449,36 @@ func writeJSON(path string, value any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(body, '\n'), 0o600)
+	temporary, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-")
+	if err != nil {
+		return err
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(append(body, '\n')); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryName, path)
+}
+
+func removeOutput(path string) error {
+	err := os.Remove(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 func fileSHA256(path string) string {
