@@ -1,0 +1,77 @@
+package main
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestSanitizeIntelligenceTraceKeepsOnlyBoundedRedactedFields(t *testing.T) {
+	raw := map[string]any{
+		"schema_version": "synora.mlp-trace/v1", "inference_id": "evt-1", "model_version": "cognitive-v1:abc", "redacted": true,
+		"duration_ms": 1.2, "proposed_output": "notify", "weights": []any{1, 2}, "embedding": []any{1, 2},
+		"topology":    map[string]any{"schema_version": "synora.mlp-trace/v1", "model_version": "cognitive-v1:abc", "heads": []any{map[string]any{"name": "danger", "layers": []any{map[string]any{"id": "danger.layer-1", "input_size": 86, "output_size": 32, "activation": "relu", "weights": []any{1}}}}}},
+		"activations": []any{map[string]any{"layer_id": "danger.layer-1", "count": 32, "active_nodes": []any{map[string]any{"node_id": "danger.layer-1.node-1", "activation": .8}}}},
+	}
+	trace := sanitizeIntelligenceTrace(raw)
+	if trace == nil || trace["redacted"] != true {
+		t.Fatalf("trace rejected: %#v", trace)
+	}
+	body, err := json.Marshal(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ToLower(string(body))
+	for _, forbidden := range []string{"\"weights\"", "\"embedding\""} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("forbidden field leaked: %s", text)
+		}
+	}
+}
+
+func TestSanitizeIntelligenceTraceIsBounded(t *testing.T) {
+	nodes := make([]any, 20)
+	paths := make([]any, 100)
+	for i := range nodes {
+		nodes[i] = map[string]any{"node_id": "layer.node", "activation": float64(i)}
+	}
+	for i := range paths {
+		paths[i] = map[string]any{"from": "a", "to": "b", "strength": float64(i)}
+	}
+	raw := map[string]any{
+		"schema_version": "synora.mlp-trace/v1", "inference_id": "evt-1", "model_version": "v1", "redacted": true,
+		"topology":     map[string]any{"heads": []any{map[string]any{"name": "danger", "layers": []any{map[string]any{"id": "layer", "input_size": 86, "output_size": 32, "activation": "relu"}}}}},
+		"activations":  []any{map[string]any{"layer_id": "layer", "active_nodes": nodes}},
+		"active_paths": paths,
+	}
+	trace := sanitizeIntelligenceTraceRuntime(raw, "active_dry_run", "available")
+	if trace == nil || trace["live"] != false {
+		t.Fatalf("dry-run trace was not marked non-live: %#v", trace)
+	}
+	activations := trace["activations"].([]any)
+	if len(activations) != 1 || len(activations[0].(map[string]any)["active_nodes"].([]any)) != maxActiveNodesPerLayer {
+		t.Fatalf("active node bound failed: %#v", trace)
+	}
+	if len(trace["active_paths"].([]any)) != maxActivePaths {
+		t.Fatalf("active path bound failed: %#v", trace)
+	}
+}
+
+func TestSanitizeIntelligenceTraceRejectsUnredactedTrace(t *testing.T) {
+	if got := sanitizeIntelligenceTrace(map[string]any{"inference_id": "evt-1", "model_version": "v1", "redacted": false}); got != nil {
+		t.Fatalf("unredacted trace accepted: %#v", got)
+	}
+}
+
+func TestSanitizeIntelligenceTraceKeepsTestHarnessAuditMarker(t *testing.T) {
+	trace := sanitizeIntelligenceTraceRuntime(map[string]any{
+		"schema_version": "synora.mlp-trace/v1", "inference_id": "test-1", "model_version": "v1", "redacted": true,
+		"test": true, "provenance": "test-harness",
+	}, "active_dry_run", "available")
+	if trace == nil || trace["test"] != true || trace["provenance"] != "test-harness" {
+		t.Fatalf("test audit marker was lost: %#v", trace)
+	}
+	if trace["live"] != false {
+		t.Fatalf("test dry-run trace was marked live: %#v", trace)
+	}
+}
