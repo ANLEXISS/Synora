@@ -47,8 +47,9 @@ sont classées `absorbed` : `origin/codex/v1-j01-incidents`,
 `origin/integration/synora-v1-baseline-20260817`,
 `origin/integration/synora-v1-execution` et
 `origin/release/v1-rc1-local`. Aucun contenu supplémentaire n'est à
-sélectionner. Ces références seront supprimées avec les cinq références
-non absorbées afin de laisser uniquement `origin/master`.
+sélectionner. Les 88 références ont été supprimées explicitement avec
+`git push origin --delete`, sans supprimer `master` ni aucun tag. Il ne reste
+que `origin/master`.
 
 ## Audit des répertoires non suivis
 
@@ -79,7 +80,7 @@ canoniques référencés par V1.
 
 ## Validation et garde-fous
 
-Les changements seront validés avant la suppression distante avec :
+Les changements ont été validés avant la suppression distante avec :
 
 ```text
 git diff --check
@@ -91,8 +92,13 @@ make test
 make web-build
 ```
 
+Les validations Go, le harnais central, `make test` et `make web-build` sont
+passés. La consolidation a été commitée dans `e5263543a4f0f22baea9fd6f69d8b419d675ff49`
+(`chore: consolidate canonical intelligence surfaces`) puis poussée sans
+force-push.
+
 Le bundle V1 reste nominal. Le bundle V3 reste candidat `active_dry_run`.
 RTMPose reste `unavailable` lorsque son backend RKNN ou son modèle sont
 absents. Aucun son, rendu audio, réseau de commande ou action physique n'est
 introduit par cette consolidation. Aucun tag, `git gc`, `git reset`,
-`git clean` ou force-push n'est autorisé.
+`git clean` ou force-push n'a été utilisé.
