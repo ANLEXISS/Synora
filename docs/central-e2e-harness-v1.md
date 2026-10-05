@@ -39,12 +39,15 @@ internes au MLP sont normalisées à zéro dans ce test hermétique afin que les
 payloads de décision et leurs hash soient identiques à chaque exécution. La
 latence opérationnelle se mesure séparément sur le backend concerné.
 
-La suite versionnée est dans `testdata/central-e2e-v1/`. Elle contient 99
-scénarios déclaratifs, un seed et une date logique fixes, deux suites JSONL
-immutables (`reference-suite.jsonl`, `redteam-suite.jsonl`) et un minimum
-déclaré de 80 cas. Les scénarios couvrent l’ingress Edge, les séquences,
-doublons et gaps, topologies, cas invalides/red-team, modèle indisponible,
-matrice V3 pose/posture/chute candidate/récupération, communications et
+La suite versionnée est dans `testdata/central-e2e-v1/`. Elle contient 106
+cas statiques et 295 cas générés déclarativement, soit 401 scénarios, avec un
+seed et une date logique fixes, deux suites JSONL immuables
+(`reference-suite.jsonl`, `redteam-suite.jsonl`) et un minimum déclaré de 280
+cas. Les familles générées sont séparées du corpus d’apprentissage et
+couvrent 90 cas pose/mouvement, 70 agrégats face, 50 garde communication,
+45 santé/intégrité caméra et 40 cas de disponibilité RTMPose. Les scénarios couvrent aussi l’ingress Edge, les
+séquences, doublons et gaps, topologies, cas invalides/red-team, modèle
+indisponible, matrice V3 pose/posture/chute candidate/récupération et
 multi-caméras.
 
 Pour ajouter un cas, ajouter une règle dans
@@ -68,6 +71,13 @@ Les scénarios V3 valident des signaux agrégés synthétiques. Un état
 `fall_state=candidate` n’est pas une qualification de chute et aucun état
 `confirmed` n’est produit par ce harness.
 
+Le rapport expose `model_backends` pour distinguer les modèles réellement
+exécutés des composants indisponibles : les bundles MLP CPU V1/V3 sont
+exécutés lorsque sélectionnés ; RTMPose RKNN et le backend face ne sont pas
+ouverts par ce harness et restent explicitement `unavailable`. Les signaux
+pose/face synthétiques ne sont donc jamais présentés comme une exécution ou
+une qualification réelle de RTMPose ou de reconnaissance faciale.
+
 ## Migration des anciens lanceurs
 
 Le harness central remplace les parcours système concurrents qui combinaient
@@ -87,7 +97,7 @@ sortantes :
 
 | Supprimé | Remplacement | Impact vérifié |
 | --- | --- | --- |
-| `e2e-v1`, `e2e-vision-mlp-v1`, `e2e-cognitive-core-v1`, `e2e-store-compaction-v1` | `make test-central-v1` et tests de composants conservés | le bus réel, Discovery, Core, MLP, Safety Gate et Store sont exercés par les 99 cas |
+| `e2e-v1`, `e2e-vision-mlp-v1`, `e2e-cognitive-core-v1`, `e2e-store-compaction-v1` | `make test-central-v1` et tests de composants conservés | le bus réel, Discovery, Core, MLP, Safety Gate et Store sont exercés par les 401 cas |
 | `replay-edge-vision-v1`, `replay-vision-core-v1`, `cmd/synora-v1-replay`, `replay_*_v1.py` | fixtures Edge sérialisées et `test-central-v1` | plus d’accès clip/caméra dans le runner système |
 | `inject-edge-clip`, `inject-vision-v3`, `cmd/synora-inject-edge-clip`, injecteur HTTP API | caméra simulée sur bus Unix | plus de raccourci direct Core ni de route HTTP d’injection |
 | fixtures `testdata/cognitive-v1/scenarios.jsonl` et scénarios injecteur V3 | `testdata/central-e2e-v1/{manifest.json,cases/,immutable/}` | attentes déclaratives centralisées, seed fixe et red-team versionnée |

@@ -40,6 +40,16 @@ type suiteManifest struct {
 	Cases         []string          `json:"cases"`
 	Immutable     []string          `json:"immutable"`
 	Bundles       map[string]string `json:"bundles"`
+	Generated     []generatedSuite  `json:"generated_suites,omitempty"`
+}
+
+type generatedSuite struct {
+	IDPrefix string `json:"id_prefix"`
+	Suite    string `json:"suite"`
+	Family   string `json:"family"`
+	Count    int    `json:"count"`
+	Seed     int64  `json:"seed"`
+	Bundle   string `json:"bundle"`
 }
 
 type fixture struct {
@@ -74,41 +84,63 @@ type fixtureExpected struct {
 }
 
 type caseReport struct {
-	ID                  string            `json:"id"`
-	Suite               string            `json:"suite"`
-	Bundle              string            `json:"bundle"`
-	Passed              bool              `json:"passed"`
-	Error               string            `json:"error,omitempty"`
-	MessageCount        int               `json:"message_count"`
-	DiscoveryAccepted   int               `json:"discovery_accepted"`
-	DiscoveryRejected   int               `json:"discovery_rejected"`
-	CoreDecisions       int               `json:"core_decisions"`
-	SnapshotVersion     string            `json:"snapshot_version,omitempty"`
-	SnapshotDimension   int               `json:"snapshot_dimension,omitempty"`
-	SnapshotSHA256      string            `json:"snapshot_sha256,omitempty"`
-	PoseStatus          string            `json:"pose_status,omitempty"`
-	PoseQuality         float64           `json:"pose_quality,omitempty"`
-	PoseLatencyMS       float64           `json:"pose_latency_ms"`
-	Posture             string            `json:"posture,omitempty"`
-	FallState           string            `json:"fall_state,omitempty"`
-	RecoveryObserved    bool              `json:"recovery_observed"`
-	MLPHeads            []string          `json:"mlp_heads,omitempty"`
-	MLPObservations     []mlpObservation  `json:"mlp_observations,omitempty"`
-	SafetyGateStatuses  []string          `json:"safety_gate_statuses,omitempty"`
-	StoreRevision       uint64            `json:"store_revision"`
-	OutboxCount         int               `json:"outbox_count"`
-	BusTrace            []traceRecord     `json:"bus_trace,omitempty"`
-	ForbiddenLeak       []string          `json:"forbidden_leak,omitempty"`
-	RawVisionForwarded  bool              `json:"raw_vision_forwarded"`
-	DurationMS          float64           `json:"duration_ms"`
-	NetworkAccess       bool              `json:"network_access"`
-	AudioRendered       bool              `json:"audio_rendered"`
-	PhysicalAction      bool              `json:"physical_action_executed"`
-	AudioFalse          bool              `json:"audio_rendered_false"`
-	PhysicalFalse       bool              `json:"physical_action_executed_false"`
-	NetworkFalse        bool              `json:"network_access_false"`
-	RawFalse            bool              `json:"raw_vision_forwarded_false"`
-	ExpectedActualDiffs []expectationDiff `json:"expected_actual_differences"`
+	ID                   string            `json:"id"`
+	Suite                string            `json:"suite"`
+	Bundle               string            `json:"bundle"`
+	Passed               bool              `json:"passed"`
+	Error                string            `json:"error,omitempty"`
+	MessageCount         int               `json:"message_count"`
+	DiscoveryAccepted    int               `json:"discovery_accepted"`
+	DiscoveryRejected    int               `json:"discovery_rejected"`
+	CoreDecisions        int               `json:"core_decisions"`
+	SnapshotVersion      string            `json:"snapshot_version,omitempty"`
+	SnapshotDimension    int               `json:"snapshot_dimension,omitempty"`
+	SnapshotSHA256       string            `json:"snapshot_sha256,omitempty"`
+	PoseStatus           string            `json:"pose_status,omitempty"`
+	PoseBackendStatus    string            `json:"pose_backend_status,omitempty"`
+	PoseBackendMode      string            `json:"pose_backend_mode,omitempty"`
+	PoseQuality          float64           `json:"pose_quality,omitempty"`
+	PoseLatencyMS        float64           `json:"pose_latency_ms"`
+	Posture              string            `json:"posture,omitempty"`
+	FallState            string            `json:"fall_state,omitempty"`
+	RecoveryObserved     bool              `json:"recovery_observed"`
+	MotionTier           string            `json:"motion_tier,omitempty"`
+	InteractionState     string            `json:"interaction_state,omitempty"`
+	FaceStatus           string            `json:"face_status,omitempty"`
+	FaceQualification    string            `json:"face_qualification,omitempty"`
+	CameraHealthStatus   string            `json:"camera_health_status,omitempty"`
+	CommunicationStatus  string            `json:"communication_status,omitempty"`
+	CommunicationReasons []string          `json:"communication_reasons,omitempty"`
+	MLPHeads             []string          `json:"mlp_heads,omitempty"`
+	MLPObservations      []mlpObservation  `json:"mlp_observations,omitempty"`
+	SafetyGateStatuses   []string          `json:"safety_gate_statuses,omitempty"`
+	SafetyGateReasons    []string          `json:"safety_gate_reasons,omitempty"`
+	StoreRevision        uint64            `json:"store_revision"`
+	OutboxCount          int               `json:"outbox_count"`
+	BusTrace             []traceRecord     `json:"bus_trace,omitempty"`
+	ForbiddenLeak        []string          `json:"forbidden_leak,omitempty"`
+	RawVisionForwarded   bool              `json:"raw_vision_forwarded"`
+	DurationMS           float64           `json:"duration_ms"`
+	NetworkAccess        bool              `json:"network_access"`
+	AudioRendered        bool              `json:"audio_rendered"`
+	PhysicalAction       bool              `json:"physical_action_executed"`
+	AudioFalse           bool              `json:"audio_rendered_false"`
+	PhysicalFalse        bool              `json:"physical_action_executed_false"`
+	NetworkFalse         bool              `json:"network_access_false"`
+	RawFalse             bool              `json:"raw_vision_forwarded_false"`
+	ExpectedActualDiffs  []expectationDiff `json:"expected_actual_differences"`
+	Expected             expectedReport    `json:"expected"`
+}
+
+type expectedReport struct {
+	SnapshotVersion     string   `json:"snapshot_version,omitempty"`
+	SnapshotDimension   int      `json:"snapshot_dimension,omitempty"`
+	MLPStatus           string   `json:"mlp_status,omitempty"`
+	MLPHeads            []string `json:"mlp_heads,omitempty"`
+	ProbabilityContract string   `json:"probability_contract,omitempty"`
+	SafetyGateStatus    string   `json:"safety_gate_status,omitempty"`
+	StoreCommitted      bool     `json:"store_committed"`
+	OutboxNonEmpty      bool     `json:"outbox_non_empty"`
 }
 
 type expectationDiff struct {
@@ -150,20 +182,29 @@ type busRecord struct {
 	Trace   traceRecord
 }
 
+type backendReport struct {
+	Status    string `json:"status"`
+	Backend   string `json:"backend"`
+	RealModel bool   `json:"real_model"`
+	Reason    string `json:"reason"`
+}
+
 type suiteReport struct {
-	SchemaVersion      string         `json:"schema_version"`
-	Seed               int64          `json:"seed"`
-	LogicalDate        string         `json:"logical_date"`
-	ManifestSHA256     string         `json:"manifest_sha256"`
-	ScenarioCount      int            `json:"scenario_count"`
-	Passed             bool           `json:"passed"`
-	DurationMS         float64        `json:"duration_ms"`
-	NetworkAccess      bool           `json:"network_access"`
-	AudioRendered      bool           `json:"audio_rendered"`
-	PhysicalAction     bool           `json:"physical_action_executed"`
-	RawVisionForwarded bool           `json:"raw_vision_forwarded"`
-	SuiteCounts        map[string]int `json:"suite_counts"`
-	Cases              []caseReport   `json:"cases"`
+	SchemaVersion      string                   `json:"schema_version"`
+	Seed               int64                    `json:"seed"`
+	LogicalDate        string                   `json:"logical_date"`
+	ManifestSHA256     string                   `json:"manifest_sha256"`
+	ScenarioCount      int                      `json:"scenario_count"`
+	Passed             bool                     `json:"passed"`
+	DurationMS         float64                  `json:"duration_ms"`
+	NetworkAccess      bool                     `json:"network_access"`
+	AudioRendered      bool                     `json:"audio_rendered"`
+	PhysicalAction     bool                     `json:"physical_action_executed"`
+	RawVisionForwarded bool                     `json:"raw_vision_forwarded"`
+	SuiteCounts        map[string]int           `json:"suite_counts"`
+	Coverage           map[string]int           `json:"coverage"`
+	ModelBackends      map[string]backendReport `json:"model_backends"`
+	Cases              []caseReport             `json:"cases"`
 }
 
 func main() {
@@ -178,15 +219,21 @@ func main() {
 	if err != nil {
 		fatalReport(*outPath, err)
 	}
-	if len(manifest.Cases) < manifest.MinimumCases {
-		fatalReport(*outPath, fmt.Errorf("central fixture suite has %d cases; minimum is %d", len(manifest.Cases), manifest.MinimumCases))
+	generatedCount := generatedScenarioCount(manifest.Generated)
+	if len(manifest.Cases)+generatedCount < manifest.MinimumCases {
+		fatalReport(*outPath, fmt.Errorf("central fixture suite has %d cases; minimum is %d", len(manifest.Cases)+generatedCount, manifest.MinimumCases))
 	}
 	root := filepath.Dir(filepath.Dir(filepath.Dir(*manifestPath)))
 	selected := manifest.Cases
 	if *caseID != "" {
-		selected = []string{filepath.Join(filepath.Dir(*manifestPath), "cases", *caseID+".json")}
+		selected = nil
+		for _, relative := range manifest.Cases {
+			if filepath.Base(relative) == *caseID+".json" {
+				selected = append(selected, relative)
+			}
+		}
 	}
-	reports := make([]caseReport, 0, len(selected))
+	reports := make([]caseReport, 0, len(selected)+generatedCount)
 	for _, relative := range selected {
 		path := relative
 		if !filepath.IsAbs(path) {
@@ -202,6 +249,18 @@ func main() {
 		}
 		reports = append(reports, runFixture(root, value))
 	}
+	for _, spec := range manifest.Generated {
+		for index := 0; index < spec.Count; index++ {
+			value := generatedFixture(spec, index)
+			if *caseID != "" && value.ID != *caseID {
+				continue
+			}
+			if *bundleOverride != "" && value.Bundle != *bundleOverride {
+				continue
+			}
+			reports = append(reports, runFixture(root, value))
+		}
+	}
 	if len(reports) == 0 {
 		reports = append(reports, caseReport{Passed: false, Error: "no fixtures selected", NetworkAccess: false})
 	}
@@ -210,9 +269,42 @@ func main() {
 		passed = passed && item.Passed
 	}
 	suiteCounts := make(map[string]int)
-	report := suiteReport{SchemaVersion: "synora.central-e2e/v1", Seed: manifest.Seed, LogicalDate: manifest.LogicalDate, ManifestSHA256: fileSHA256(*manifestPath), ScenarioCount: len(reports), Passed: passed, DurationMS: float64(time.Since(started).Microseconds()) / 1000, NetworkAccess: false, AudioRendered: false, PhysicalAction: false, SuiteCounts: suiteCounts, Cases: reports}
+	coverage := make(map[string]int)
+	backends := map[string]backendReport{
+		"rtmpose":        {Status: "unavailable", Backend: "rknn-rk3588", RealModel: false, Reason: "central harness does not open RKNN; aggregate pose inputs are synthetic test signals"},
+		"face_aggregate": {Status: "unavailable", Backend: "local-only-adapter-not-run", RealModel: false, Reason: "central harness receives aggregate face signals only; no identity backend is executed"},
+	}
+	if hasBundle(reports, "v1") {
+		backends["mlp_v1_cpu"] = backendReport{Status: "available", Backend: "cpu-bundle-v1", RealModel: true, Reason: "real V1 CPU bundle executed"}
+	} else {
+		backends["mlp_v1_cpu"] = backendReport{Status: "not_run", Backend: "cpu-bundle-v1", RealModel: false, Reason: "bundle was not selected"}
+	}
+	if hasBundle(reports, "v3") {
+		backends["mlp_v3_cpu_candidate"] = backendReport{Status: "available", Backend: "cpu-bundle-v3-candidate", RealModel: true, Reason: "real V3 CPU candidate executed in active_dry_run"}
+	} else {
+		backends["mlp_v3_cpu_candidate"] = backendReport{Status: "not_run", Backend: "cpu-bundle-v3-candidate", RealModel: false, Reason: "bundle was not selected"}
+	}
+	report := suiteReport{SchemaVersion: "synora.central-e2e/v1", Seed: manifest.Seed, LogicalDate: manifest.LogicalDate, ManifestSHA256: fileSHA256(*manifestPath), ScenarioCount: len(reports), Passed: passed, DurationMS: float64(time.Since(started).Microseconds()) / 1000, NetworkAccess: false, AudioRendered: false, PhysicalAction: false, SuiteCounts: suiteCounts, Coverage: coverage, ModelBackends: backends, Cases: reports}
 	for _, item := range reports {
 		suiteCounts[item.Suite]++
+		if item.PoseStatus != "" {
+			coverage["pose:"+item.PoseStatus]++
+		}
+		if item.MotionTier != "" {
+			coverage["motion:"+item.MotionTier]++
+		}
+		if item.FaceStatus != "" {
+			coverage["face:"+item.FaceStatus]++
+		}
+		if item.FaceQualification != "" {
+			coverage["face_qualification:"+item.FaceQualification]++
+		}
+		if item.CameraHealthStatus != "" {
+			coverage["camera_health:"+item.CameraHealthStatus]++
+		}
+		if item.CommunicationStatus != "" {
+			coverage["communication:"+item.CommunicationStatus]++
+		}
 		report.AudioRendered = report.AudioRendered || item.AudioRendered
 		report.PhysicalAction = report.PhysicalAction || item.PhysicalAction
 		report.NetworkAccess = report.NetworkAccess || item.NetworkAccess
@@ -228,6 +320,15 @@ func main() {
 	fmt.Println(*outPath)
 }
 
+func hasBundle(reports []caseReport, bundle string) bool {
+	for _, report := range reports {
+		if report.Bundle == bundle {
+			return true
+		}
+	}
+	return false
+}
+
 func loadManifest(path string) (suiteManifest, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
@@ -239,6 +340,11 @@ func loadManifest(path string) (suiteManifest, error) {
 	}
 	if manifest.SchemaVersion != "synora.central-e2e-manifest/v1" || manifest.MinimumCases < 80 || manifest.Seed == 0 || manifest.LogicalDate == "" {
 		return suiteManifest{}, errors.New("invalid central fixture manifest")
+	}
+	for _, generated := range manifest.Generated {
+		if generated.IDPrefix == "" || generated.Family == "" || generated.Count <= 0 || generated.Seed == 0 || generated.Bundle != "v3" {
+			return suiteManifest{}, fmt.Errorf("invalid generated suite %q", generated.IDPrefix)
+		}
 	}
 	return manifest, nil
 }
@@ -260,7 +366,11 @@ func loadFixture(path string) (fixture, error) {
 
 func runFixture(repo string, value fixture) caseReport {
 	started := time.Now()
-	report := caseReport{ID: value.ID, Suite: value.Suite, Bundle: value.Bundle, MessageCount: len(value.Messages), NetworkAccess: false, AudioRendered: false, PhysicalAction: false, PoseLatencyMS: 0}
+	report := caseReport{ID: value.ID, Suite: value.Suite, Bundle: value.Bundle, MessageCount: len(value.Messages), NetworkAccess: false, AudioRendered: false, PhysicalAction: false, PoseLatencyMS: 0, Expected: expectedReportFrom(value.Expected)}
+	if value.Bundle == "v3" {
+		report.PoseBackendStatus = "unavailable"
+		report.PoseBackendMode = "synthetic_aggregate"
+	}
 	clock, err := time.Parse(time.RFC3339, value.Clock)
 	if err != nil {
 		report.Error = "invalid logical clock: " + err.Error()
@@ -469,6 +579,35 @@ func runFixture(repo string, value fixture) caseReport {
 	report = validateExpected(report, value.Expected)
 	cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)
 	return finishCase(report, started)
+}
+
+func expectedReportFrom(expected fixtureExpected) expectedReport {
+	result := expectedReport{}
+	if value, ok := expected.Snapshot["schema_version"].(string); ok {
+		result.SnapshotVersion = value
+	}
+	if value, ok := expected.Snapshot["input_dimension"].(float64); ok {
+		result.SnapshotDimension = int(value)
+	}
+	if value, ok := expected.MLP["status"].(string); ok {
+		result.MLPStatus = value
+	}
+	if value, ok := expected.MLP["probability_contract"].(string); ok {
+		result.ProbabilityContract = value
+	}
+	if values, ok := expected.MLP["heads"].([]any); ok {
+		for _, value := range values {
+			if head, ok := value.(string); ok {
+				result.MLPHeads = append(result.MLPHeads, head)
+			}
+		}
+	}
+	if value, ok := expected.SafetyGate["status"].(string); ok {
+		result.SafetyGateStatus = value
+	}
+	result.StoreCommitted, _ = expected.Store["committed"].(bool)
+	result.OutboxNonEmpty, _ = expected.Outbox["non_empty"].(bool)
+	return result
 }
 
 // The real CPU bundle still computes every head. Only wall-clock measurements
@@ -868,11 +1007,16 @@ func enrichFromMessages(report caseReport, records []busRecord) caseReport {
 			var envelope struct {
 				Snapshot struct {
 					Vision struct {
-						PoseStatus       string  `json:"pose_status"`
-						PoseQuality      float64 `json:"pose_quality"`
-						Posture          string  `json:"posture"`
-						FallState        string  `json:"fall_state"`
-						RecoveryObserved bool    `json:"recovery_observed"`
+						PoseStatus         string  `json:"pose_status"`
+						PoseQuality        float64 `json:"pose_quality"`
+						Posture            string  `json:"posture"`
+						FallState          string  `json:"fall_state"`
+						RecoveryObserved   bool    `json:"recovery_observed"`
+						MotionTier         string  `json:"motion_tier"`
+						InteractionState   string  `json:"interaction_state"`
+						FaceStatus         string  `json:"face_status"`
+						FaceQualification  string  `json:"face_qualification_provenance"`
+						CameraHealthStatus string  `json:"camera_health_status"`
 					} `json:"vision"`
 				} `json:"snapshot"`
 			}
@@ -882,6 +1026,11 @@ func enrichFromMessages(report caseReport, records []busRecord) caseReport {
 				report.Posture = envelope.Snapshot.Vision.Posture
 				report.FallState = envelope.Snapshot.Vision.FallState
 				report.RecoveryObserved = envelope.Snapshot.Vision.RecoveryObserved
+				report.MotionTier = envelope.Snapshot.Vision.MotionTier
+				report.InteractionState = envelope.Snapshot.Vision.InteractionState
+				report.FaceStatus = envelope.Snapshot.Vision.FaceStatus
+				report.FaceQualification = envelope.Snapshot.Vision.FaceQualification
+				report.CameraHealthStatus = envelope.Snapshot.Vision.CameraHealthStatus
 			}
 		}
 		if event.Type == "core.decision" || event.Type == "core.decision.v3" {
@@ -910,6 +1059,13 @@ func enrichFromMessages(report caseReport, records []busRecord) caseReport {
 				if value, ok := status["status"].(string); ok {
 					report.SafetyGateStatuses = append(report.SafetyGateStatuses, value)
 				}
+				if reasons, ok := status["reasons"].([]any); ok {
+					for _, reason := range reasons {
+						if value, ok := reason.(string); ok {
+							report.SafetyGateReasons = append(report.SafetyGateReasons, value)
+						}
+					}
+				}
 				if value, ok := status["physical_action_executed"].(bool); ok {
 					report.PhysicalAction = report.PhysicalAction || value
 				}
@@ -919,7 +1075,16 @@ func enrichFromMessages(report caseReport, records []busRecord) caseReport {
 			}
 			if communication, ok := decision["communication"].(map[string]any); ok {
 				if value, ok := communication["status"].(string); ok {
+					report.CommunicationStatus = value
 					report.SafetyGateStatuses = append(report.SafetyGateStatuses, value)
+				}
+				if reasons, ok := communication["reasons"].([]any); ok {
+					report.CommunicationReasons = report.CommunicationReasons[:0]
+					for _, reason := range reasons {
+						if value, ok := reason.(string); ok {
+							report.CommunicationReasons = append(report.CommunicationReasons, value)
+						}
+					}
 				}
 				if value, ok := communication["physical_audio_played"].(bool); ok {
 					report.AudioRendered = report.AudioRendered || value

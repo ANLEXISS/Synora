@@ -14,11 +14,41 @@ func TestCentralFixtureManifestHasRequiredMinimum(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.MinimumCases < 80 || len(manifest.Cases) < manifest.MinimumCases {
-		t.Fatalf("fixture minimum is not met: %d/%d", len(manifest.Cases), manifest.MinimumCases)
+	available := len(manifest.Cases) + generatedScenarioCount(manifest.Generated)
+	if manifest.MinimumCases < 80 || available < manifest.MinimumCases {
+		t.Fatalf("fixture minimum is not met: %d/%d", available, manifest.MinimumCases)
 	}
 	if manifest.SchemaVersion != "synora.central-e2e-manifest/v1" || manifest.Seed == 0 || manifest.LogicalDate == "" {
 		t.Fatalf("invalid manifest metadata: %+v", manifest)
+	}
+}
+
+func TestCentralGeneratedSuitesAreFixedAndSeparated(t *testing.T) {
+	manifest, err := loadManifest("../../testdata/central-e2e-v1/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"pose_movement": 90, "face_aggregate": 70, "communication_gate": 50, "camera_health": 45, "rtmpose_runtime": 40}
+	if len(manifest.Generated) != len(want) {
+		t.Fatalf("generated suite count=%d, want %d", len(manifest.Generated), len(want))
+	}
+	for _, suite := range manifest.Generated {
+		if suite.Bundle != "v3" || suite.Seed == 0 || suite.Count != want[suite.Family] {
+			t.Fatalf("unexpected generated suite: %+v", suite)
+		}
+		if suite.Family == "" || suite.IDPrefix == "" || suite.Suite == "" {
+			t.Fatalf("generated suite is not declarative: %+v", suite)
+		}
+	}
+	first := generatedFixture(manifest.Generated[0], 0)
+	second := generatedFixture(manifest.Generated[0], 0)
+	left, _ := json.Marshal(first)
+	right, _ := json.Marshal(second)
+	if string(left) != string(right) {
+		t.Fatal("generated fixture expansion is not deterministic")
+	}
+	if containsForbiddenJSON(first.Messages[0].Payload) {
+		t.Fatal("generated fixture contains a forbidden raw Vision field")
 	}
 }
 

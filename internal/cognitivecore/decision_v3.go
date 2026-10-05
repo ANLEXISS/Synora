@@ -315,6 +315,26 @@ func ApplyCommunicationGateV3(snapshot CognitiveSnapshotV3, output MLPOutputV3) 
 		assessment.Reasons = []string{"high_risk_communication_forbidden"}
 		return assessment
 	}
+	if output.DangerLabel == "high" || output.DangerLabel == "critical" {
+		assessment.Status = "blocked"
+		assessment.Reasons = []string{"danger_high_or_critical"}
+		return assessment
+	}
+	if output.Incident == "interior_intrusion" || output.Incident == "perimeter_presence" {
+		assessment.Status = "blocked"
+		assessment.Reasons = []string{"intrusion_probable"}
+		return assessment
+	}
+	if snapshot.Vision.FaceStatus == FaceV3Unknown && (snapshot.Vision.RiskStatus == RiskSuspected || snapshot.Vision.RiskStatus == RiskConfirmed || output.DangerLabel == "high" || output.DangerLabel == "critical") {
+		assessment.Status = "blocked"
+		assessment.Reasons = []string{"identity_unknown_high_risk"}
+		return assessment
+	}
+	if snapshot.Vision.CameraUncertainty && (snapshot.Vision.RiskStatus == RiskSuspected || snapshot.Vision.RiskStatus == RiskConfirmed || output.DangerLabel == "high" || output.DangerLabel == "critical") {
+		assessment.Status = "blocked"
+		assessment.Reasons = []string{"vision_state_uncertain_high_risk"}
+		return assessment
+	}
 	if !snapshot.Vision.RiskQualitySufficient && snapshot.Vision.RiskStatus != RiskNotAvailable && snapshot.Vision.RiskStatus != RiskNotRequested && snapshot.Vision.RiskStatus != "" {
 		assessment.Status = "blocked"
 		assessment.Reasons = []string{"risk_quality_insufficient"}

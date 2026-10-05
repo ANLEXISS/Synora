@@ -32,6 +32,28 @@ const (
 	FallV3Confirmed = "confirmed"
 	FallV3Unknown   = "unknown"
 
+	MotionV3Unknown          = "unknown"
+	MotionV3Still            = "still"
+	MotionV3Normal           = "normal"
+	MotionV3Rapid            = "rapid"
+	MotionV3VeryRapid        = "very_rapid"
+	InteractionV3None        = "none"
+	InteractionV3Candidate   = "candidate"
+	InteractionV3Unavailable = "unavailable"
+
+	FaceV3NotRequested = "not_requested"
+	FaceV3Unavailable  = "unavailable"
+	FaceV3LowQuality   = "low_quality"
+	FaceV3Uncertain    = "uncertain"
+	FaceV3Recognized   = "recognized"
+	FaceV3Unknown      = "unknown"
+
+	CameraHealthV3Unknown   = "unknown"
+	CameraHealthV3Healthy   = "healthy"
+	CameraHealthV3Degraded  = "degraded"
+	CameraHealthV3Offline   = "offline"
+	CameraHealthV3Uncertain = "uncertain"
+
 	RiskPersistenceNone       = "none"
 	RiskPersistenceIsolated   = "isolated"
 	RiskPersistenceRepeated   = "repeated"
@@ -67,6 +89,22 @@ type VisionSignalsV3 struct {
 	AggregateConfidence    float32 `json:"aggregate_confidence"`
 	EdgeTrackingOK         bool    `json:"edge_tracking_ok"`
 	CentralRetracking      int     `json:"central_retracking_invocations"`
+	// The fields below are aggregate-only contract facts. They deliberately
+	// stay outside the immutable 86D encoder because V3 has no reserved
+	// offsets for them; adding an offset requires a new encoder contract.
+	GroundDurationSeconds        float32   `json:"ground_duration_seconds"`
+	MotionTier                   string    `json:"motion_tier"`
+	InteractionState             string    `json:"interaction_state"`
+	PhysicalInteractionCandidate bool      `json:"physical_interaction_candidate"`
+	FaceStatus                   string    `json:"face_status"`
+	FaceConsensusFrames          int       `json:"face_consensus_frames"`
+	FaceQuality                  float32   `json:"face_quality"`
+	FaceConfidence               float32   `json:"face_confidence"`
+	FaceExpiresAt                time.Time `json:"face_expires_at,omitempty"`
+	FaceQualificationProvenance  string    `json:"face_qualification_provenance"`
+	CameraHealthStatus           string    `json:"camera_health_status"`
+	CameraIntegrityStatus        string    `json:"camera_integrity_status"`
+	CameraUncertainty            bool      `json:"camera_uncertainty"`
 }
 
 // CognitiveSnapshotV3 keeps V2 as a nested, immutable base and adds only the
@@ -98,6 +136,11 @@ func (s CognitiveSnapshotV3) Normalized() CognitiveSnapshotV3 {
 	s.Vision.PoseStatus = normalizeV3(s.Vision.PoseStatus, []string{PoseV3Unavailable, PoseV3NotRequested, PoseV3LowQuality, PoseV3Available}, PoseV3Unavailable)
 	s.Vision.Posture = normalizeV3(s.Vision.Posture, []string{PostureV3Unknown, PostureV3Upright, PostureV3Seated, PostureV3Ground}, PostureV3Unknown)
 	s.Vision.FallState = normalizeV3(s.Vision.FallState, []string{FallV3None, FallV3Candidate, FallV3Confirmed, FallV3Unknown}, FallV3Unknown)
+	s.Vision.MotionTier = normalizeV3(s.Vision.MotionTier, []string{MotionV3Unknown, MotionV3Still, MotionV3Normal, MotionV3Rapid, MotionV3VeryRapid}, MotionV3Unknown)
+	s.Vision.InteractionState = normalizeV3(s.Vision.InteractionState, []string{InteractionV3None, InteractionV3Candidate, InteractionV3Unavailable}, InteractionV3None)
+	s.Vision.FaceStatus = normalizeV3(s.Vision.FaceStatus, []string{FaceV3NotRequested, FaceV3Unavailable, FaceV3LowQuality, FaceV3Uncertain, FaceV3Recognized, FaceV3Unknown}, FaceV3Unavailable)
+	s.Vision.CameraHealthStatus = normalizeV3(s.Vision.CameraHealthStatus, []string{CameraHealthV3Unknown, CameraHealthV3Healthy, CameraHealthV3Degraded, CameraHealthV3Offline, CameraHealthV3Uncertain}, CameraHealthV3Unknown)
+	s.Vision.CameraIntegrityStatus = normalizeV3(s.Vision.CameraIntegrityStatus, []string{CameraHealthV3Unknown, CameraHealthV3Healthy, CameraHealthV3Degraded, CameraHealthV3Offline, CameraHealthV3Uncertain}, CameraHealthV3Unknown)
 	s.Vision.RiskPersistence = normalizeV3(s.Vision.RiskPersistence, []string{RiskPersistenceNone, RiskPersistenceIsolated, RiskPersistenceRepeated, RiskPersistencePersistent, RiskPersistenceConfirmed}, RiskPersistenceNone)
 	s.Vision.PoseQuality = clamp01(s.Vision.PoseQuality)
 	s.Vision.RiskConfidence = clamp01(s.Vision.RiskConfidence)
@@ -105,6 +148,11 @@ func (s CognitiveSnapshotV3) Normalized() CognitiveSnapshotV3 {
 	s.Vision.RiskPersistenceSeconds = nonNegativeV2(s.Vision.RiskPersistenceSeconds)
 	s.Vision.RiskObservationCount = maxInt(s.Vision.RiskObservationCount, 0)
 	s.Vision.PoseObservationCount = maxInt(s.Vision.PoseObservationCount, 0)
+	s.Vision.FaceConsensusFrames = maxInt(s.Vision.FaceConsensusFrames, 0)
+	s.Vision.GroundDurationSeconds = nonNegativeV2(s.Vision.GroundDurationSeconds)
+	s.Vision.FaceQuality = clamp01(s.Vision.FaceQuality)
+	s.Vision.FaceConfidence = clamp01(s.Vision.FaceConfidence)
+	s.Vision.FaceExpiresAt = s.Vision.FaceExpiresAt.UTC()
 	return s
 }
 
@@ -118,6 +166,18 @@ func (s CognitiveSnapshotV3) Validate() error {
 	}
 	if s.Vision.CentralRetracking != 0 {
 		return fmt.Errorf("central visual retracking is forbidden in V3")
+	}
+	if s.Vision.FallState == FallV3Confirmed {
+		return fmt.Errorf("confirmed fall is not produced by V3")
+	}
+	if s.Vision.PhysicalInteractionCandidate && s.Vision.InteractionState != InteractionV3Candidate {
+		return fmt.Errorf("physical interaction candidate requires candidate interaction state")
+	}
+	if s.Vision.FaceStatus == FaceV3Recognized && s.Vision.FaceConfidence <= 0 {
+		return fmt.Errorf("recognized face aggregate requires bounded confidence")
+	}
+	if s.Vision.FaceQualificationProvenance != "" && s.Vision.FaceQualificationProvenance != "not_qualified" && s.Vision.FaceQualificationProvenance != "controlled_test" && s.Vision.FaceQualificationProvenance != "labeled_consent_manifest" {
+		return fmt.Errorf("invalid face qualification provenance")
 	}
 	if (s.Vision.FallState == FallV3Candidate || s.Vision.FallState == FallV3Confirmed) && s.Vision.PoseStatus != PoseV3Available {
 		return fmt.Errorf("V3 fall signal requires an available pose backend")

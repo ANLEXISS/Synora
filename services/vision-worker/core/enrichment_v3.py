@@ -16,7 +16,7 @@ from .enrichment_v2 import ConfirmedHumanROI, PoseEnricherV2, RiskObjectEnricher
 
 POSE_STATES = {"unavailable", "not_requested", "low_quality", "available"}
 POSTURES = {"unknown", "upright", "seated", "ground"}
-FALL_STATES = {"none", "candidate", "confirmed", "unknown"}
+FALL_STATES = {"none", "candidate", "unknown"}
 RISK_STATES = {"not_available", "not_requested", "uncertain", "suspected", "confirmed"}
 PERSISTENCE_STATES = {"none", "isolated", "repeated", "persistent", "confirmed"}
 
@@ -109,8 +109,9 @@ class FallLogicV3:
         state["last"] = pose.posture
         if not state["transition_at"] or state["recovered"] or pose.posture != "ground" or pose.status != "available" or pose.quality < self.minimum_quality:
             return "none"
-        # This task only emits a candidate.  Confirmation requires the later
-        # annotated fall corpus and independent qualification.
+        # This task only emits a candidate.  Confirmation is intentionally not
+        # representable until an annotated fall corpus and independent
+        # qualification exist.
         return "candidate"
 
     def expire(self, key: str) -> None:

@@ -42,9 +42,9 @@
     "onnx_archive_export": "official ONNX package; source metadata has dynamic batch and static 256x192 spatial dimensions"
   },
   "conversion": {
-    "onnx_static_command": "tools/rtmpose_build.py export-onnx --work-dir build/rtmpose-s",
-    "rknn_command": "tools/rtmpose_build.py convert-rknn --work-dir build/rtmpose-s",
-    "runtime_check": "tools/rtmpose_build.py verify-runtime --work-dir build/rtmpose-s",
+    "onnx_static_command": "tools/rtmpose_build.py --work-dir build/rtmpose-s export-onnx",
+    "rknn_command": "tools/rtmpose_build.py --work-dir build/rtmpose-s convert-rknn",
+    "runtime_check": "tools/rtmpose_build.py --work-dir build/rtmpose-s verify-runtime",
     "reproducible": true,
     "generated_artifacts_in_git": false
   }

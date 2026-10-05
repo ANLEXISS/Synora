@@ -1480,7 +1480,7 @@ class VisionPipeline:
                 "all_frames": False,
             },
             {
-                "name": "aggressive",
+                "name": "very_rapid",
                 "target_fps": 15,
                 "face_min": 80,
                 "padding": 0.25,

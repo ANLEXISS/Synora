@@ -1,6 +1,6 @@
 # Architecture cognitive V1 → V3
 
-Audit du 21 septembre 2026 sur `/home/rock/Synora-v1`, branche `main`. Les
+Audit du 5 octobre 2026 sur `/home/rock/Synora-v1`, branche `master`. Les
 modifications locales préexistantes ont été conservées. Aucun fichier de
 `/opt/synora/models` ou `/var/lib/synora` n’a été modifié.
 
@@ -52,6 +52,16 @@ conversion ambiguë n’est effectuée. Une transition upright/seated → ground
 une qualité suffisante et l’absence de récupération permettent au plus
 `fall_state=candidate`. `confirmed` reste non qualifié.
 
+Les agrégats V3 complémentaires restent hors de la dimension encodée fixe
+86D, car aucun offset V3 réservé ne leur est attribué : `ground_duration`,
+les tiers de mouvement, `physical_interaction_candidate`, les agrégats face
+(`face_status`, consensus, qualité, confiance, expiration et provenance) et
+la santé/intégrité caméra. Leur présence dans `CognitiveSnapshotV3` est
+contractuelle et agrégée, mais elle ne change ni l’ordre ni la dimension du
+vecteur ; une extension d’offset exigerait une nouvelle version d’encodeur.
+Le champ historique `fall.confirmed` reste dans l’ordre immuable pour la
+parité de contrat, mais toute entrée V3 qui le produit est rejetée.
+
 Le contrat et les fixtures sont agrégés uniquement : aucun média, frame, bbox,
 crop, embedding, identité, identifiant local ou identifiant matériel ne passe
 dans le bus ou le Store.
@@ -60,10 +70,13 @@ dans le bus ou le Store.
 
 Sans backend qualifié, pose et risque restent explicitement `unavailable` ou
 `not_available`. RTMPose-s conserve son manifest, son backend RKNN, ses scripts
-et ses tests ; il n’y a aucun fallback YOLO-pose. Dans l’environnement audité,
-aucun artefact RTMPose RKNN utilisable ni backend risque qualifié n’est
-disponible. V3 ne peut donc pas être présenté comme un modèle réel de chute ou
-d’arme, et aucune métrique Vision réelle indépendante n’est revendiquée.
+et ses tests ; il n’y a aucun fallback YOLO-pose. Le backend face est local à
+Vision et ne transmet qu’un agrégat ; aucune identité, embedding ou
+`local_track_id` ne franchit la frontière Core. Dans l’environnement audité,
+aucun artefact RTMPose RKNN utilisable ni backend face qualifié n’est
+disponible. V3 ne peut donc pas être présenté comme un modèle réel de chute,
+de visage ou d’arme, et aucune métrique Vision réelle indépendante n’est
+revendiquée.
 
 ## Communication et sécurité
 

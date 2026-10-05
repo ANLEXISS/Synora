@@ -81,9 +81,13 @@ func TestSnapshotV3UsesOneImmobilityDefinitionForEveryPosture(t *testing.T) {
 	}
 }
 
-func TestSnapshotV3RejectsFallWithoutAvailablePose(t *testing.T) {
-	v := CognitiveSnapshotV3{CapturedAt: time.Unix(1, 0).UTC(), BaseV2: goldenSnapshotV2(), Vision: VisionSignalsV3{PoseStatus: PoseV3Unavailable, FallState: FallV3Confirmed}}
-	if err := v.Validate(); err == nil || !strings.Contains(err.Error(), "available pose") {
+func TestSnapshotV3RejectsConfirmedFallAndUnavailableCandidate(t *testing.T) {
+	confirmed := CognitiveSnapshotV3{CapturedAt: time.Unix(1, 0).UTC(), BaseV2: goldenSnapshotV2(), Vision: VisionSignalsV3{PoseStatus: PoseV3Available, FallState: FallV3Confirmed}}
+	if err := confirmed.Validate(); err == nil || !strings.Contains(err.Error(), "confirmed fall") {
+		t.Fatalf("expected confirmed fall to be unavailable in this contract, got %v", err)
+	}
+	candidate := CognitiveSnapshotV3{CapturedAt: time.Unix(1, 0).UTC(), BaseV2: goldenSnapshotV2(), Vision: VisionSignalsV3{PoseStatus: PoseV3Unavailable, FallState: FallV3Candidate}}
+	if err := candidate.Validate(); err == nil || !strings.Contains(err.Error(), "available pose") {
 		t.Fatalf("expected explicit pose gate, got %v", err)
 	}
 }
