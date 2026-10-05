@@ -24,6 +24,23 @@ type Core struct {
 	Now     func() time.Time
 }
 
+// ProcessTest runs the same snapshot encoder, MLP backend, safety gate and
+// redaction path as production inference, but never commits business state or
+// creates an action request. It is callable only for the explicit API test
+// envelope after Service normalizes its catalogued event type.
+func (c *Core) ProcessTest(ctx context.Context, event contract.Event) (ProcessResult, error) {
+	if !isTestHarnessEvent(event) {
+		return ProcessResult{}, errors.New("test-harness provenance is required")
+	}
+	if !c.Gate.DryRun {
+		return ProcessResult{}, errors.New("test-harness requires active_dry_run")
+	}
+	if inference, ok := payloadBool(event.Payload, "test_inference"); ok && !inference {
+		return c.processWithoutInference(event)
+	}
+	return c.process(ctx, event, false)
+}
+
 func (c *Core) now() time.Time {
 	if c != nil && c.Now != nil {
 		return c.Now().UTC()
@@ -32,6 +49,10 @@ func (c *Core) now() time.Time {
 }
 
 func (c *Core) Process(ctx context.Context, event contract.Event) (ProcessResult, error) {
+	return c.process(ctx, event, true)
+}
+
+func (c *Core) process(ctx context.Context, event contract.Event, persist bool) (ProcessResult, error) {
 	if c == nil || c.Store == nil {
 		return ProcessResult{}, errors.New("cognitive core is not configured")
 	}
@@ -51,6 +72,10 @@ func (c *Core) Process(ctx context.Context, event contract.Event) (ProcessResult
 		return ProcessResult{}, err
 	}
 	decision := Decision{SchemaVersion: DecisionSchemaVersion, Status: "unavailable", Mode: "active_dry_run", Source: "mlp", HeadOrder: append([]string(nil), HeadOrder[:]...), InputDimension: CognitiveVectorSize, Action: ActionAssessment{Proposed: ActionIntent{Action: "no_action"}, Status: "not_requested", PhysicalActionExecuted: false}, GeneratedAt: c.now()}
+	if isTestHarnessEvent(event) {
+		decision.Provenance = "test-harness"
+		decision.Test = true
+	}
 	var output MLPOutput
 	if c.MLP == nil {
 		decision.Error = ErrModelUnavailable.Error()
@@ -59,29 +84,70 @@ func (c *Core) Process(ctx context.Context, event contract.Event) (ProcessResult
 		output, latencies, err = c.MLP.Run(ctx, encoded, snapshot)
 		decision.HeadLatencyMS = latencies
 		if err == nil {
+			if output.Trace != nil {
+				output.Trace.InferenceID = event.ID
+				output.Trace.Proposed = output.Action.Action
+				if isTestHarnessEvent(event) {
+					output.Trace.Provenance = "test-harness"
+					output.Trace.Test = true
+				}
+				decision.Trace = output.Trace
+			}
 			mode := "active"
 			if c.Gate.DryRun {
 				mode = "active_dry_run"
 			}
 			decision.Status, decision.Mode, decision.DangerLabel, decision.DangerScore = "available", mode, output.DangerLabel, clamp01(output.DangerScore)
+			decision.IncidentConfidence = clamp01(output.IncidentConfidence)
+			decision.TaskConfidence = clamp01(output.TaskConfidence)
+			decision.ActionConfidence = clamp01(output.ActionConfidence)
 			decision.Incidents, decision.Task = append([]string(nil), output.Incidents...), output.Task
 			decision.Action = c.Gate.Apply(output, snapshot, c.now())
+			if event.Type == contract.EventActionResult || event.Type == "discovery.action.result" {
+				// An action result is a fact to fold into the next snapshot, not
+				// a fresh trigger. This prevents a real bus loop from repeatedly
+				// re-emitting the same dry-run action request.
+				decision.Action = ActionAssessment{Proposed: ActionIntent{Action: "no_action"}, Status: "not_requested", Reasons: []string{"action_result_observed"}, PhysicalActionExecuted: false}
+			}
 		} else {
 			decision.Error = err.Error()
 		}
 	}
 	var action *ActionRequest
-	if decision.Status == "available" && (decision.Action.Status == "allowed" || decision.Action.Status == "allowed_dry_run") && decision.Action.Proposed.Action != "no_action" {
+	if persist && decision.Status == "available" && (decision.Action.Status == "allowed" || decision.Action.Status == "allowed_dry_run") && decision.Action.Proposed.Action != "no_action" {
 		action = &ActionRequest{SchemaVersion: "action-request/v1", RequestID: event.ID, EpisodeID: episodeID(event), Action: decision.Action.Proposed, DryRun: true}
 	}
 	snapshot.Revision = c.Store.Revision() + 1
 	commit := Commit{Event: event, Snapshot: snapshot, Decision: decision, Action: action, CommittedAt: c.now()}
+	if !persist {
+		commit.Snapshot.Revision = c.Store.Revision()
+		return ProcessResult{Commit: commit, Result: CommitResult{Revision: c.Store.Revision()}, Encoded: encoded}, nil
+	}
 	result, err := c.Store.Commit(commit)
 	if err != nil {
 		return ProcessResult{}, err
 	}
 	commit.Snapshot.Revision = result.Revision
 	return ProcessResult{Commit: commit, Result: result, Encoded: encoded}, nil
+}
+
+func (c *Core) processWithoutInference(event contract.Event) (ProcessResult, error) {
+	if c == nil || c.Store == nil {
+		return ProcessResult{}, errors.New("cognitive core is not configured")
+	}
+	if event.ID == "" || event.Type == "" || event.Source == "" {
+		return ProcessResult{}, errors.New("event id, type and source are required")
+	}
+	decision := Decision{
+		SchemaVersion: DecisionSchemaVersion, Status: "not_requested", Mode: "active_dry_run", Source: "mlp",
+		Provenance: "test-harness", Test: true, HeadOrder: append([]string(nil), HeadOrder[:]...), InputDimension: CognitiveVectorSize,
+		Action: ActionAssessment{Proposed: ActionIntent{Action: "no_action"}, Status: "not_requested", PhysicalActionExecuted: false}, GeneratedAt: c.now(),
+	}
+	return ProcessResult{Commit: Commit{Event: event, Snapshot: c.Store.Snapshot(), Decision: decision, CommittedAt: c.now()}, Result: CommitResult{Revision: c.Store.Revision()}}, nil
+}
+
+func isTestHarnessEvent(event contract.Event) bool {
+	return event.Source == "api" && payloadBoolDefault(event.Payload, "test", false) && payloadString(event.Payload, "provenance") == "test-harness"
 }
 
 func (c *Core) composeSnapshot(previous CognitiveSnapshot, event contract.Event) (CognitiveSnapshot, error) {
@@ -165,8 +231,47 @@ func frameFromVisionEvent(previous CognitiveSnapshot, event contract.Event) (Vis
 			phase = VisionPhaseCandidate
 		}
 	}
-	frame := VisionEvidenceFrame{SchemaVersion: VisionEvidenceSchemaVersion, CapturedAt: event.Timestamp.UTC(), Security: VisionEvidenceFrameSecurity{Armed: previous.Security.Armed, Degraded: previous.Security.Degraded, Known: previous.Security.Known}, Presence: VisionEvidenceFramePresence{HumanPresent: payloadBoolDefault(p, "human_present", previous.Presence.HumanPresent), TrackCount: payloadIntDefault(p, "track_count", previous.Presence.TrackCount), TrackConfirmed: payloadBoolDefault(p, "track_confirmed", previous.Presence.TrackConfirmed)}, TopologyClass: payloadStringDefault(p, "topology", previous.Topology), Priority: priority, PriorityOrigin: VisionPriorityOriginVision, EpisodePhase: phase, Enrichment: payloadStringDefault(p, "enrichment_status", VisionEnrichmentUnavailable), Continuity: VisionEvidenceFrameContinuity{SecondsSinceFirstObservation: payloadFloatDefault(p, "seconds_since_first", previous.Episode.SecondsSinceFirst), SecondsSinceLastObservation: payloadFloatDefault(p, "seconds_since_last", previous.Episode.SecondsSinceLast), SegmentCount: payloadIntDefault(p, "segment_count", previous.Episode.SegmentCount+1), GapCount: payloadIntDefault(p, "gap_count", previous.Episode.GapCount), CalmSeconds: payloadFloatDefault(p, "calm_seconds", 0)}, Quality: VisionEvidenceFrameQuality{RealDetection: payloadBoolDefault(p, "real_detection", true), ReplaySimulation: payloadBoolDefault(p, "replay_simulation", false), ObservationCount: payloadIntDefault(p, "observation_count", previous.Sensors.ObservationCount+1), AggregateConfidence: payloadFloatDefault(p, "confidence", previous.Sensors.Confidence)}, CoEvidence: VisionEvidenceFrameCoEvidence{AccessState: payloadStringDefault(p, "access_state", previous.Sensors.AccessState), Movement: payloadBoolDefault(p, "movement", previous.Sensors.Movement), SensorEvidence: payloadBoolDefault(p, "sensor_evidence", true), AlarmState: payloadStringDefault(p, "alarm_state", previous.Sensors.AlarmState)}}
+	topology := payloadString(p, "topology")
+	if topology == "" {
+		topology = payloadStringDefault(p, "topology_class", previous.Topology)
+	}
+	humanPresent, trackCount, trackConfirmed := visionTrackFacts(p, previous.Presence)
+	frame := VisionEvidenceFrame{SchemaVersion: VisionEvidenceSchemaVersion, CapturedAt: event.Timestamp.UTC(), Security: VisionEvidenceFrameSecurity{Armed: previous.Security.Armed, Degraded: previous.Security.Degraded, Known: previous.Security.Known}, Presence: VisionEvidenceFramePresence{HumanPresent: humanPresent, TrackCount: trackCount, TrackConfirmed: trackConfirmed}, TopologyClass: topology, Priority: priority, PriorityOrigin: VisionPriorityOriginVision, EpisodePhase: phase, Enrichment: payloadStringDefault(p, "enrichment_status", VisionEnrichmentUnavailable), Continuity: VisionEvidenceFrameContinuity{SecondsSinceFirstObservation: payloadFloatDefault(p, "seconds_since_first", previous.Episode.SecondsSinceFirst), SecondsSinceLastObservation: payloadFloatDefault(p, "seconds_since_last", previous.Episode.SecondsSinceLast), SegmentCount: payloadIntDefault(p, "segment_count", previous.Episode.SegmentCount+1), GapCount: payloadIntDefault(p, "gap_count", previous.Episode.GapCount), CalmSeconds: payloadFloatDefault(p, "calm_seconds", 0)}, Quality: VisionEvidenceFrameQuality{RealDetection: payloadBoolDefault(p, "real_detection", true), ReplaySimulation: payloadBoolDefault(p, "replay_simulation", false), ObservationCount: payloadIntDefault(p, "observation_count", previous.Sensors.ObservationCount+1), AggregateConfidence: payloadFloatDefault(p, "confidence", previous.Sensors.Confidence)}, CoEvidence: VisionEvidenceFrameCoEvidence{AccessState: payloadStringDefault(p, "access_state", previous.Sensors.AccessState), Movement: payloadBoolDefault(p, "movement", true), SensorEvidence: payloadBoolDefault(p, "sensor_evidence", true), AlarmState: payloadStringDefault(p, "alarm_state", previous.Sensors.AlarmState)}}
 	return frame, frame.Validate()
+}
+
+func visionTrackFacts(payload map[string]any, previous PresenceFacts) (bool, int, bool) {
+	humanPresent, hasHuman := payloadBool(payload, "human_present")
+	trackCount, hasCount := payloadInt(payload, "track_count")
+	trackConfirmed, hasConfirmed := payloadBool(payload, "track_confirmed")
+	tracks, ok := payload["tracks"].([]any)
+	if ok {
+		if !hasCount {
+			trackCount = len(tracks)
+		}
+		for _, raw := range tracks {
+			track, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if !hasHuman && payloadString(track, "subject_type") == "human" {
+				humanPresent = true
+			}
+			if !hasConfirmed && payloadString(track, "state") == "confirmed" {
+				trackConfirmed = true
+			}
+		}
+	}
+	if !hasHuman && !ok {
+		humanPresent = previous.HumanPresent
+	}
+	if !hasCount && !ok {
+		trackCount = previous.TrackCount
+	}
+	if !hasConfirmed && !ok {
+		trackConfirmed = previous.TrackConfirmed
+	}
+	return humanPresent, maxInt(trackCount, 0), trackConfirmed
 }
 
 func (c *Core) Validate() error {
@@ -235,6 +340,22 @@ func payloadIntDefault(payload map[string]any, key string, fallback int) int {
 		return int(n)
 	}
 	return fallback
+}
+func payloadInt(payload map[string]any, key string) (int, bool) {
+	if payload == nil {
+		return 0, false
+	}
+	switch value := payload[key].(type) {
+	case int:
+		return value, true
+	case float64:
+		return int(value), true
+	case json.Number:
+		n, err := value.Int64()
+		return int(n), err == nil
+	default:
+		return 0, false
+	}
 }
 func payloadFloatDefault(payload map[string]any, key string, fallback float32) float32 {
 	if payload == nil {

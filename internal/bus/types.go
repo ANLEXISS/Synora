@@ -51,18 +51,20 @@ type ClientConn struct {
 }
 
 type ServerConfig struct {
-	Auth         AuthConfig
-	ReplayWindow time.Duration
-	Now          func() time.Time
+	Auth             AuthConfig
+	ReplayWindow     time.Duration
+	Now              func() time.Time
+	AllowTestProcess bool
 }
 
 type Server struct {
-	address         string
-	debug           bool
-	allowedServices map[string]struct{}
-	auth            AuthConfig
-	replayWindow    time.Duration
-	now             func() time.Time
+	address          string
+	debug            bool
+	allowedServices  map[string]struct{}
+	auth             AuthConfig
+	replayWindow     time.Duration
+	now              func() time.Time
+	allowTestProcess bool
 
 	mu           sync.RWMutex
 	clients      map[string]*ClientConn

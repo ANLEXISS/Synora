@@ -52,7 +52,7 @@ func authorizeACL(msg contract.Message, service string, allowed map[string]struc
 
 	switch msg.Kind {
 	case contract.KindCommand:
-		if service == "core" && msg.Type == contract.EventActionRequest && msg.Target == "actions" {
+		if service == "core" && msg.Type == contract.EventActionRequest && (msg.Target == "actions" || msg.Target == "discovery") {
 			return nil
 		}
 	case contract.KindRPC:
@@ -101,21 +101,28 @@ func eventACLAllowed(service, eventType, target string) bool {
 	}
 
 	switch service {
+	case "camera-simulator":
+		return target == "discovery" && (eventType == "synora.vision.edge-track-manifest/v1" || eventType == contract.EventVisionEnrichmentV3)
 	case "actions":
 		return (eventType == contract.EventActionResult || eventType == contract.EventActionServiceStarted) && targetOK("", "core")
 	case "discovery":
 		return (hasPrefix("discovery.") || hasPrefix("clip.") || hasPrefix("residents.") || eventType == contract.EventDeviceOffline ||
-			eventType == contract.EventVisionClipSummaryV1 || eventType == contract.EventVisionPreliminaryAlertV1 || eventType == contract.EventVisionClipObservationV1 || eventType == contract.EventVisionSegmentReadyV1 || eventType == contract.EventVisionSegmentGapV1 || eventType == contract.EventVisionContinuityResetV1 || eventType == contract.EventVisionEnd) && targetOK("", "core")
+			eventType == contract.EventVisionClipSummaryV1 || eventType == contract.EventVisionPreliminaryAlertV1 || eventType == contract.EventVisionClipObservationV1 || eventType == contract.EventVisionSegmentReadyV1 || eventType == contract.EventVisionSegmentGapV1 || eventType == contract.EventVisionContinuityResetV1 || eventType == contract.EventVisionEnrichmentV3 || eventType == contract.EventVisionEnd) && targetOK("", "core", "camera-simulator")
 	case "vision":
-		return (hasPrefix("vision.") || eventType == "delivery.ack") && target == "core"
+		return (hasPrefix("vision.") || eventType == contract.EventVisionEnrichmentV3 || eventType == "delivery.ack") && target == "core"
 	case "core", "core-2":
 		if eventType == "state.snapshot" {
 			return targetOK("discovery")
 		}
-		return targetOK("", "core", "core-2", "vision", "discovery") && hasPrefix(
+		return targetOK("", "api", "core", "core-2", "vision", "discovery") && hasPrefix(
 			"system.", "security.", "manual.", "incident.",
 			"chain.", "clip.", "runtime.", "device.", "devices.", "residents.",
-			"automations.", "topology.", "validation.", "action.")
+			"automations.", "topology.", "validation.", "action.", "core.")
+	case "api":
+		if eventType == contract.EventValidationTestInference {
+			return target == "core"
+		}
+		return targetOK("api") && (eventType == "core.decision" || eventType == "core.snapshot")
 	}
 	return false
 }

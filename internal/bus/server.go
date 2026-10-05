@@ -26,7 +26,7 @@ func NewServer(address string) *Server {
 
 func NewServerWithConfig(address string, cfg ServerConfig) *Server {
 	allowed := make(map[string]struct{})
-	for _, service := range []string{"actions", "connectivity", "core", "core-2", "discovery", "runtime-manager", "vision"} {
+	for _, service := range []string{"actions", "api", "camera-simulator", "connectivity", "core", "core-2", "discovery", "runtime-manager", "vision"} {
 		allowed[service] = struct{}{}
 	}
 	if cfg.ReplayWindow <= 0 {
@@ -36,15 +36,16 @@ func NewServerWithConfig(address string, cfg ServerConfig) *Server {
 		cfg.Now = func() time.Time { return time.Now().UTC() }
 	}
 	return &Server{
-		address:         address,
-		clients:         make(map[string]*ClientConn),
-		seenNonces:      make(map[string]time.Time),
-		seenMessages:    make(map[string]messageReplay),
-		allowedServices: allowed,
-		auth:            cfg.Auth,
-		replayWindow:    cfg.ReplayWindow,
-		now:             cfg.Now,
-		debug:           os.Getenv("SYNORA_BUS_DEBUG") == "1",
+		address:          address,
+		clients:          make(map[string]*ClientConn),
+		seenNonces:       make(map[string]time.Time),
+		seenMessages:     make(map[string]messageReplay),
+		allowedServices:  allowed,
+		auth:             cfg.Auth,
+		replayWindow:     cfg.ReplayWindow,
+		now:              cfg.Now,
+		allowTestProcess: cfg.AllowTestProcess,
+		debug:            os.Getenv("SYNORA_BUS_DEBUG") == "1",
 	}
 }
 
@@ -149,7 +150,7 @@ func (s *Server) handle(conn net.Conn) {
 					return
 				}
 			}
-			if !processIdentityAllowed(peer, msg.Source) {
+			if !s.processIdentityAllowed(peer, msg.Source) {
 				log.Printf("bus service rejected: %s reason=peer credentials not authorized", messageActor(service, msg.Source))
 				s.disconnect(service, conn, "unauthorized peer")
 				return
@@ -207,6 +208,13 @@ func (s *Server) handle(conn net.Conn) {
 		}
 	}
 	s.disconnect(service, conn, reason)
+}
+
+func (s *Server) processIdentityAllowed(peer peerCredential, service string) bool {
+	if s != nil && s.allowTestProcess && peer.known && peer.pid == os.Getpid() {
+		return service == "api" || service == "camera-simulator" || service == "core" || service == "discovery"
+	}
+	return processIdentityAllowed(peer, service)
 }
 
 type peerCredential struct {
@@ -268,16 +276,13 @@ func processIdentityAllowed(peer peerCredential, service string) bool {
 	if strings.HasSuffix(base, ".test") && peer.pid == os.Getpid() {
 		return true
 	}
-	for _, expected := range expectedExecutables(service) {
-		if base == expected {
-			return true
-		}
-	}
-	return false
+	return serviceIdentityAllowed(peer.uid, service, base)
 }
 
 func expectedExecutables(service string) []string {
 	switch service {
+	case "actions":
+		return []string{"synora-actions"}
 	case "connectivity":
 		return []string{"synora-connect"}
 	case "core", "core-2":
@@ -286,11 +291,53 @@ func expectedExecutables(service string) []string {
 		return []string{"synora-discovery"}
 	case "runtime-manager":
 		return []string{"synora-runtime-manager"}
+	case "api":
+		return []string{"synora-api"}
 	case "vision":
-		return []string{"synora-vision", "synora-discovery"}
+		return []string{"synora-vision"}
 	default:
 		return nil
 	}
+}
+
+// serviceIdentityAllowed is the second half of the Bus peer check. The
+// service name and executable basename are both allowlisted, and the Unix UID
+// must match the systemd identity used by that service. There is deliberately
+// no wildcard or arbitrary-user fallback.
+func serviceIdentityAllowed(uid uint32, service, executable string) bool {
+	if !containsString(expectedExecutables(service), strings.ToLower(strings.TrimSpace(executable))) {
+		return false
+	}
+	expectedUID, ok := expectedServiceUID(service)
+	return ok && uid == expectedUID
+}
+
+func expectedServiceUID(service string) (uint32, bool) {
+	switch service {
+	case "discovery", "runtime-manager":
+		return 0, true
+	case "actions", "api", "connectivity", "core", "core-2", "vision":
+		identity, err := user.Lookup("synora")
+		if err != nil {
+			return 0, false
+		}
+		value, err := strconv.ParseUint(identity.Uid, 10, 32)
+		if err != nil {
+			return 0, false
+		}
+		return uint32(value), true
+	default:
+		return 0, false
+	}
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) register(service string, conn net.Conn) {

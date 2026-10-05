@@ -53,6 +53,8 @@ const (
 	EventVisionSegmentReadyV1     = "synora.vision.segment-ready/v1"
 	EventVisionSegmentGapV1       = "synora.vision.segment-gap/v1"
 	EventVisionContinuityResetV1  = "synora.vision.continuity-reset/v1"
+	// EventVisionEnrichmentV3 carries the separate aggregate-only V3 candidate.
+	EventVisionEnrichmentV3 = "synora.vision.enrichment/v3"
 
 	// Device events
 	EventDeviceTrigger = "device.trigger"
@@ -91,6 +93,15 @@ const (
 	EventManualRisk           = "manual.risk"
 	EventSystemStateReset     = "system.state.reset"
 	EventSecurityModeChanged  = "security.mode.changed"
+
+	// EventValidationTestInference is a bounded API-to-Core envelope. The
+	// catalogued contract event type is carried in its redacted payload; the
+	// envelope is never accepted from Discovery and never becomes a business
+	// event in the Core store.
+	EventValidationTestInference = "validation.test-inference"
+	EventSensorNormal            = "sensor.normal"
+	EventSensorAnomaly           = "sensor.anomaly"
+	EventWebCommand              = "discovery.web.command"
 )
 
 /*
@@ -261,7 +272,8 @@ func EventCategory(eventType string) string {
 		EventVisionClipObservationV1,
 		EventVisionSegmentReadyV1,
 		EventVisionSegmentGapV1,
-		EventVisionContinuityResetV1:
+		EventVisionContinuityResetV1,
+		EventVisionEnrichmentV3:
 		return EventCategoryVision
 	case EventActionRequest,
 		EventActionResult,
@@ -322,6 +334,7 @@ func NormalizeEventType(raw string) string {
 		EventVisionSegmentReadyV1,
 		EventVisionSegmentGapV1,
 		EventVisionContinuityResetV1,
+		EventVisionEnrichmentV3,
 		EventDeviceTrigger,
 		EventDeviceOffline,
 		EventDiscoveryCameraObserved,
@@ -405,6 +418,7 @@ func EventPriority(eventType string) int {
 		EventVisionSegmentReadyV1,
 		EventVisionSegmentGapV1,
 		EventVisionContinuityResetV1,
+		EventVisionEnrichmentV3,
 		EventDeviceTrigger,
 		EventDiscoveryCameraObserved,
 		EventDiscoveryCameraOnline,

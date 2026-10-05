@@ -32,11 +32,13 @@ type ActionRequest struct {
 }
 
 type Commit struct {
-	Event       contract.Event    `json:"event"`
-	Snapshot    CognitiveSnapshot `json:"snapshot"`
-	Decision    Decision          `json:"decision"`
-	Action      *ActionRequest    `json:"action,omitempty"`
-	CommittedAt time.Time         `json:"committed_at"`
+	Event       contract.Event       `json:"event"`
+	Snapshot    CognitiveSnapshot    `json:"snapshot"`
+	SnapshotV3  *CognitiveSnapshotV3 `json:"snapshot_v3,omitempty"`
+	Decision    Decision             `json:"decision"`
+	DecisionV3  *DecisionV3          `json:"decision_v3,omitempty"`
+	Action      *ActionRequest       `json:"action,omitempty"`
+	CommittedAt time.Time            `json:"committed_at"`
 }
 
 type CommitResult struct {
@@ -46,14 +48,15 @@ type CommitResult struct {
 }
 
 type storeDiskState struct {
-	SchemaVersion string            `json:"schema_version"`
-	Revision      uint64            `json:"revision"`
-	Snapshot      CognitiveSnapshot `json:"snapshot"`
-	Journal       []Commit          `json:"journal"`
-	Decisions     []Decision        `json:"decisions"`
-	ActionOutbox  []ActionRequest   `json:"action_outbox"`
-	Processed     []string          `json:"processed"`
-	Claimed       []string          `json:"claimed"`
+	SchemaVersion string               `json:"schema_version"`
+	Revision      uint64               `json:"revision"`
+	Snapshot      CognitiveSnapshot    `json:"snapshot"`
+	SnapshotV3    *CognitiveSnapshotV3 `json:"snapshot_v3,omitempty"`
+	Journal       []Commit             `json:"journal"`
+	Decisions     []Decision           `json:"decisions"`
+	ActionOutbox  []ActionRequest      `json:"action_outbox"`
+	Processed     []string             `json:"processed"`
+	Claimed       []string             `json:"claimed"`
 }
 
 type storeJournalRecord struct {
@@ -96,6 +99,7 @@ type UniversalStore struct {
 	processed      map[string]struct{}
 	processedOrder []string
 	snapshot       CognitiveSnapshot
+	snapshotV3     *CognitiveSnapshotV3
 	claimed        map[string]struct{}
 	dir            string
 	hooks          PersistenceHooks
@@ -130,7 +134,7 @@ func OpenUniversalStore(dir string) (*UniversalStore, error) {
 		if disk.SchemaVersion != "universal-store/v1" {
 			return nil, fmt.Errorf("unsupported universal store state schema %q", disk.SchemaVersion)
 		}
-		s.revision, s.snapshot, s.journal, s.decisions, s.actionOutbox = disk.Revision, disk.Snapshot.Normalized(), disk.Journal, disk.Decisions, disk.ActionOutbox
+		s.revision, s.snapshot, s.snapshotV3, s.journal, s.decisions, s.actionOutbox = disk.Revision, disk.Snapshot.Normalized(), disk.SnapshotV3, disk.Journal, disk.Decisions, disk.ActionOutbox
 		for _, id := range disk.Processed {
 			s.processed[id] = struct{}{}
 			s.processedOrder = append(s.processedOrder, id)
@@ -166,6 +170,14 @@ func (s *UniversalStore) Commit(value Commit) (CommitResult, error) {
 	if value.Event.ID == "" || value.Event.Type == "" {
 		return CommitResult{}, errors.New("commit event id and type are required")
 	}
+	if value.SnapshotV3 != nil {
+		snapshotV3 := value.SnapshotV3.Normalized()
+		if err := snapshotV3.Validate(); err != nil {
+			return CommitResult{}, err
+		}
+		value.SnapshotV3 = &snapshotV3
+		value.Snapshot = projectV3ToV1(snapshotV3)
+	}
 	if err := value.Snapshot.Validate(); err != nil {
 		return CommitResult{}, err
 	}
@@ -182,6 +194,11 @@ func (s *UniversalStore) Commit(value Commit) (CommitResult, error) {
 	value.Snapshot.Revision = nextRevision
 	value.Snapshot = value.Snapshot.Normalized()
 	value.Snapshot.Revision = nextRevision
+	if value.SnapshotV3 != nil {
+		snapshotV3 := value.SnapshotV3.Normalized()
+		snapshotV3.Revision = nextRevision
+		value.SnapshotV3 = &snapshotV3
+	}
 	if value.Action != nil {
 		value.Action.DryRun = true
 	}
@@ -236,6 +253,25 @@ func (s *UniversalStore) applyCommitLocked(value Commit) {
 		s.actionOutbox = appendBounded(s.actionOutbox, *value.Action, MaxActionOutbox)
 	}
 	s.snapshot = value.Snapshot
+	if value.SnapshotV3 != nil {
+		snapshotV3 := value.SnapshotV3.Normalized()
+		snapshotV3.Revision = value.Snapshot.Revision
+		s.snapshotV3 = &snapshotV3
+	}
+}
+
+// SnapshotV3 returns the latest aggregate-only V3 candidate snapshot. The
+// returned value is detached from store state.
+func (s *UniversalStore) SnapshotV3() (CognitiveSnapshotV3, bool) {
+	if s == nil {
+		return CognitiveSnapshotV3{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.snapshotV3 == nil {
+		return CognitiveSnapshotV3{}, false
+	}
+	return *s.snapshotV3, true
 }
 
 func (s *UniversalStore) appendWAL(record storeJournalRecord) error {
@@ -565,7 +601,17 @@ func (s *UniversalStore) diskStateLocked() storeDiskState {
 	}
 	sort.Strings(processed)
 	sort.Strings(claimed)
-	return storeDiskState{"universal-store/v1", s.revision, s.snapshot, append([]Commit(nil), s.journal...), append([]Decision(nil), s.decisions...), append([]ActionRequest(nil), s.actionOutbox...), processed, claimed}
+	return storeDiskState{
+		SchemaVersion: "universal-store/v1",
+		Revision:      s.revision,
+		Snapshot:      s.snapshot,
+		SnapshotV3:    s.snapshotV3,
+		Journal:       append([]Commit(nil), s.journal...),
+		Decisions:     append([]Decision(nil), s.decisions...),
+		ActionOutbox:  append([]ActionRequest(nil), s.actionOutbox...),
+		Processed:     processed,
+		Claimed:       claimed,
+	}
 }
 
 func (s *UniversalStore) replayJournal() error {
@@ -597,6 +643,11 @@ func (s *UniversalStore) replayJournal() error {
 		}
 		s.revision = record.Revision
 		record.Commit.Snapshot.Revision = record.Revision
+		if record.Commit.SnapshotV3 != nil {
+			snapshotV3 := record.Commit.SnapshotV3.Normalized()
+			snapshotV3.Revision = record.Revision
+			record.Commit.SnapshotV3 = &snapshotV3
+		}
 		s.applyCommitLocked(record.Commit)
 	}
 	if err := scanner.Err(); err != nil {

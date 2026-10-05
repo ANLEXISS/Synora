@@ -186,6 +186,14 @@ type VisionClipObservation struct {
 	ObservedAt       time.Time                     `json:"observed_at"`
 	Sequence         int                           `json:"sequence"`
 	Tracks           []VisionClipObservationTrack  `json:"tracks"`
+	HumanPresent     bool                          `json:"human_present,omitempty"`
+	TrackCount       int                           `json:"track_count,omitempty"`
+	TrackConfirmed   bool                          `json:"track_confirmed,omitempty"`
+	ObservationCount int                           `json:"observation_count,omitempty"`
+	SegmentCount     int                           `json:"segment_count,omitempty"`
+	Topology         string                        `json:"topology,omitempty"`
+	RealDetection    bool                          `json:"real_detection,omitempty"`
+	ReplaySimulation bool                          `json:"replay_simulation,omitempty"`
 	Backend          VisionClipObservationBackend  `json:"backend"`
 	PriorityHint     string                        `json:"priority_hint"`
 	PriorityState    string                        `json:"priority_state"`
@@ -221,6 +229,12 @@ func (o VisionClipObservation) Validate() error {
 		default:
 			return fmt.Errorf("invalid vision observation track state")
 		}
+	}
+	if o.TrackCount < 0 || o.TrackCount > 1000000 || o.ObservationCount < 0 || o.ObservationCount > 1000000 || o.SegmentCount < 0 || o.SegmentCount > 1000000 {
+		return fmt.Errorf("invalid vision observation track count")
+	}
+	if o.Topology != "" && !ValidVisionTopologyClass(o.Topology) {
+		return fmt.Errorf("invalid vision observation topology")
 	}
 	return nil
 }
@@ -392,7 +406,7 @@ func DecodeVisionClipSummary(data []byte) (VisionClipSummary, error) {
 func DecodeVisionClipObservation(data []byte) (VisionClipObservation, error) {
 	var observation VisionClipObservation
 	if err := decodeTypedPayload(data, map[string]struct{}{
-		"schema_version": {}, "clip_id": {}, "episode_id": {}, "camera_id": {}, "node_id": {}, "zone": {}, "topology_class": {}, "trigger": {}, "observed_at": {}, "sequence": {}, "tracks": {}, "backend": {}, "priority_hint": {}, "priority_state": {}, "reason_codes": {}, "priority_timeline": {},
+		"schema_version": {}, "clip_id": {}, "episode_id": {}, "camera_id": {}, "node_id": {}, "zone": {}, "topology_class": {}, "trigger": {}, "observed_at": {}, "sequence": {}, "tracks": {}, "human_present": {}, "track_count": {}, "track_confirmed": {}, "observation_count": {}, "segment_count": {}, "topology": {}, "real_detection": {}, "replay_simulation": {}, "backend": {}, "priority_hint": {}, "priority_state": {}, "reason_codes": {}, "priority_timeline": {},
 		"device_id": {}, "event_id": {}, "source_type": {}, "clip_index": {}, "activation_id": {}, "sequence_key": {}, "track_id": {},
 	}, &observation); err != nil {
 		return VisionClipObservation{}, err

@@ -1,0 +1,49 @@
+{
+  "bundle": "v1",
+  "capabilities": [],
+  "clock": "2026-01-01T00:00:00Z",
+  "expected": {
+    "discovery": {
+      "status": "rejected"
+    },
+    "forbidden": [
+      "raw_vision"
+    ],
+    "store": {
+      "committed": false
+    }
+  },
+  "id": "required-camera-absent",
+  "initial_store": {},
+  "messages": [
+    {
+      "id": "msg-required-camera-absent",
+      "payload": {
+        "confirmed_track_count": 1,
+        "edge_emulated": true,
+        "ended_at": "2026-01-01T00:00:01Z",
+        "episode_id": "episode-required-camera-absent",
+        "evidence_refs": [],
+        "gap_count": 0,
+        "metrics": {
+          "confidence": 0.91
+        },
+        "observation_count": 1,
+        "priority_reason": [
+          "central-test"
+        ],
+        "schema_version": "synora.vision.edge-track-manifest/v1",
+        "segment_count": 1,
+        "started_at": "2026-01-01T00:00:00Z",
+        "topology_class": "protected_interior",
+        "track_count": 1,
+        "tracking_status": "ok",
+        "trigger_class": "human",
+        "trigger_confidence": 0.91
+      },
+      "timestamp": "2026-01-01T00:00:00Z",
+      "type": "synora.vision.edge-track-manifest/v1"
+    }
+  ],
+  "suite": "red-team"
+}

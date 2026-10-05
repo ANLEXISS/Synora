@@ -1,0 +1,1223 @@
+package main
+
+// synora-central-test is the single system-test runner. It starts the real
+// Unix bus, Discovery boundary, Core, Universal Store and CPU MLP loader in a
+// temporary root, then injects serialized contracts as a camera-simulator bus
+// peer. No HTTP listener, camera, network, NPU, RKNN model or production path
+// is opened by this command.
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"synora/internal/bus"
+	"synora/internal/cognitivecore"
+	"synora/internal/discovery"
+	"synora/pkg/contract"
+)
+
+const (
+	defaultManifest = "testdata/central-e2e-v1/manifest.json"
+	defaultOutput   = "/tmp/synora-central-e2e-v1.json"
+	centralTimeout  = 3 * time.Second
+)
+
+type suiteManifest struct {
+	SchemaVersion string            `json:"schema_version"`
+	Seed          int64             `json:"seed"`
+	LogicalDate   string            `json:"logical_date"`
+	MinimumCases  int               `json:"minimum_cases"`
+	Cases         []string          `json:"cases"`
+	Immutable     []string          `json:"immutable"`
+	Bundles       map[string]string `json:"bundles"`
+}
+
+type fixture struct {
+	ID           string           `json:"id"`
+	Suite        string           `json:"suite"`
+	Clock        string           `json:"clock"`
+	InitialStore map[string]any   `json:"initial_store"`
+	Capabilities []string         `json:"capabilities"`
+	Bundle       string           `json:"bundle"`
+	BundlePath   string           `json:"bundle_path,omitempty"`
+	TestBackend  string           `json:"test_backend,omitempty"`
+	ForcedDanger string           `json:"forced_danger,omitempty"`
+	Messages     []fixtureMessage `json:"messages"`
+	Expected     fixtureExpected  `json:"expected"`
+}
+
+type fixtureMessage struct {
+	ID        string          `json:"id"`
+	Type      string          `json:"type"`
+	Timestamp string          `json:"timestamp"`
+	Payload   json.RawMessage `json:"payload"`
+}
+
+type fixtureExpected struct {
+	Discovery  map[string]any `json:"discovery"`
+	Snapshot   map[string]any `json:"snapshot"`
+	MLP        map[string]any `json:"mlp"`
+	SafetyGate map[string]any `json:"safety_gate"`
+	Store      map[string]any `json:"store"`
+	Outbox     map[string]any `json:"outbox"`
+	Forbidden  []string       `json:"forbidden"`
+}
+
+type caseReport struct {
+	ID                  string            `json:"id"`
+	Suite               string            `json:"suite"`
+	Bundle              string            `json:"bundle"`
+	Passed              bool              `json:"passed"`
+	Error               string            `json:"error,omitempty"`
+	MessageCount        int               `json:"message_count"`
+	DiscoveryAccepted   int               `json:"discovery_accepted"`
+	DiscoveryRejected   int               `json:"discovery_rejected"`
+	CoreDecisions       int               `json:"core_decisions"`
+	SnapshotVersion     string            `json:"snapshot_version,omitempty"`
+	SnapshotDimension   int               `json:"snapshot_dimension,omitempty"`
+	SnapshotSHA256      string            `json:"snapshot_sha256,omitempty"`
+	PoseStatus          string            `json:"pose_status,omitempty"`
+	PoseQuality         float64           `json:"pose_quality,omitempty"`
+	PoseLatencyMS       float64           `json:"pose_latency_ms"`
+	Posture             string            `json:"posture,omitempty"`
+	FallState           string            `json:"fall_state,omitempty"`
+	RecoveryObserved    bool              `json:"recovery_observed"`
+	MLPHeads            []string          `json:"mlp_heads,omitempty"`
+	MLPObservations     []mlpObservation  `json:"mlp_observations,omitempty"`
+	SafetyGateStatuses  []string          `json:"safety_gate_statuses,omitempty"`
+	StoreRevision       uint64            `json:"store_revision"`
+	OutboxCount         int               `json:"outbox_count"`
+	BusTrace            []traceRecord     `json:"bus_trace,omitempty"`
+	ForbiddenLeak       []string          `json:"forbidden_leak,omitempty"`
+	RawVisionForwarded  bool              `json:"raw_vision_forwarded"`
+	DurationMS          float64           `json:"duration_ms"`
+	NetworkAccess       bool              `json:"network_access"`
+	AudioRendered       bool              `json:"audio_rendered"`
+	PhysicalAction      bool              `json:"physical_action_executed"`
+	AudioFalse          bool              `json:"audio_rendered_false"`
+	PhysicalFalse       bool              `json:"physical_action_executed_false"`
+	NetworkFalse        bool              `json:"network_access_false"`
+	RawFalse            bool              `json:"raw_vision_forwarded_false"`
+	ExpectedActualDiffs []expectationDiff `json:"expected_actual_differences"`
+}
+
+type expectationDiff struct {
+	Path     string `json:"path"`
+	Expected any    `json:"expected"`
+	Actual   any    `json:"actual"`
+	Reason   string `json:"reason"`
+}
+
+type headObservation struct {
+	Label         string             `json:"label"`
+	Confidence    float64            `json:"confidence"`
+	Probabilities map[string]float64 `json:"probabilities"`
+}
+
+type mlpObservation struct {
+	Backend           string                     `json:"backend"`
+	Forced            bool                       `json:"forced"`
+	BundleSHA256      string                     `json:"bundle_sha256,omitempty"`
+	ModelVersion      string                     `json:"model_version,omitempty"`
+	SnapshotVersion   string                     `json:"snapshot_version,omitempty"`
+	SnapshotDimension int                        `json:"snapshot_dimension,omitempty"`
+	SnapshotSHA256    string                     `json:"snapshot_sha256,omitempty"`
+	LatencyMS         map[string]float64         `json:"latency_ms"`
+	Heads             map[string]headObservation `json:"heads"`
+}
+
+type traceRecord struct {
+	Type       string `json:"type"`
+	Source     string `json:"source"`
+	Target     string `json:"target,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Revision   uint64 `json:"revision,omitempty"`
+	PayloadSHA string `json:"payload_sha256"`
+}
+
+type busRecord struct {
+	Message contract.Message
+	Trace   traceRecord
+}
+
+type suiteReport struct {
+	SchemaVersion      string         `json:"schema_version"`
+	Seed               int64          `json:"seed"`
+	LogicalDate        string         `json:"logical_date"`
+	ManifestSHA256     string         `json:"manifest_sha256"`
+	ScenarioCount      int            `json:"scenario_count"`
+	Passed             bool           `json:"passed"`
+	DurationMS         float64        `json:"duration_ms"`
+	NetworkAccess      bool           `json:"network_access"`
+	AudioRendered      bool           `json:"audio_rendered"`
+	PhysicalAction     bool           `json:"physical_action_executed"`
+	RawVisionForwarded bool           `json:"raw_vision_forwarded"`
+	SuiteCounts        map[string]int `json:"suite_counts"`
+	Cases              []caseReport   `json:"cases"`
+}
+
+func main() {
+	manifestPath := flag.String("manifest", defaultManifest, "central fixture manifest")
+	caseID := flag.String("case", "", "run one fixture")
+	bundleOverride := flag.String("bundle", "", "run only v1 or v3 fixtures")
+	outPath := flag.String("out", defaultOutput, "report path")
+	flag.Parse()
+
+	started := time.Now()
+	manifest, err := loadManifest(*manifestPath)
+	if err != nil {
+		fatalReport(*outPath, err)
+	}
+	if len(manifest.Cases) < manifest.MinimumCases {
+		fatalReport(*outPath, fmt.Errorf("central fixture suite has %d cases; minimum is %d", len(manifest.Cases), manifest.MinimumCases))
+	}
+	root := filepath.Dir(filepath.Dir(filepath.Dir(*manifestPath)))
+	selected := manifest.Cases
+	if *caseID != "" {
+		selected = []string{filepath.Join(filepath.Dir(*manifestPath), "cases", *caseID+".json")}
+	}
+	reports := make([]caseReport, 0, len(selected))
+	for _, relative := range selected {
+		path := relative
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, relative)
+		}
+		value, loadErr := loadFixture(path)
+		if loadErr != nil {
+			reports = append(reports, caseReport{ID: filepath.Base(path), Passed: false, Error: loadErr.Error(), NetworkAccess: false})
+			continue
+		}
+		if *bundleOverride != "" && value.Bundle != *bundleOverride {
+			continue
+		}
+		reports = append(reports, runFixture(root, value))
+	}
+	if len(reports) == 0 {
+		reports = append(reports, caseReport{Passed: false, Error: "no fixtures selected", NetworkAccess: false})
+	}
+	passed := true
+	for _, item := range reports {
+		passed = passed && item.Passed
+	}
+	suiteCounts := make(map[string]int)
+	report := suiteReport{SchemaVersion: "synora.central-e2e/v1", Seed: manifest.Seed, LogicalDate: manifest.LogicalDate, ManifestSHA256: fileSHA256(*manifestPath), ScenarioCount: len(reports), Passed: passed, DurationMS: float64(time.Since(started).Microseconds()) / 1000, NetworkAccess: false, AudioRendered: false, PhysicalAction: false, SuiteCounts: suiteCounts, Cases: reports}
+	for _, item := range reports {
+		suiteCounts[item.Suite]++
+		report.AudioRendered = report.AudioRendered || item.AudioRendered
+		report.PhysicalAction = report.PhysicalAction || item.PhysicalAction
+		report.NetworkAccess = report.NetworkAccess || item.NetworkAccess
+		report.RawVisionForwarded = report.RawVisionForwarded || item.RawVisionForwarded
+	}
+	if err := writeJSON(*outPath, report); err != nil {
+		fatalReport(*outPath, err)
+	}
+	if !passed {
+		fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
+		os.Exit(1)
+	}
+	fmt.Println(*outPath)
+}
+
+func loadManifest(path string) (suiteManifest, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return suiteManifest{}, err
+	}
+	var manifest suiteManifest
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		return suiteManifest{}, err
+	}
+	if manifest.SchemaVersion != "synora.central-e2e-manifest/v1" || manifest.MinimumCases < 80 || manifest.Seed == 0 || manifest.LogicalDate == "" {
+		return suiteManifest{}, errors.New("invalid central fixture manifest")
+	}
+	return manifest, nil
+}
+
+func loadFixture(path string) (fixture, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return fixture{}, err
+	}
+	var value fixture
+	if err := json.Unmarshal(body, &value); err != nil {
+		return fixture{}, err
+	}
+	if value.ID == "" || value.Clock == "" || value.Suite == "" || (value.Bundle != "v1" && value.Bundle != "v3") {
+		return fixture{}, fmt.Errorf("invalid fixture %s", path)
+	}
+	return value, nil
+}
+
+func runFixture(repo string, value fixture) caseReport {
+	started := time.Now()
+	report := caseReport{ID: value.ID, Suite: value.Suite, Bundle: value.Bundle, MessageCount: len(value.Messages), NetworkAccess: false, AudioRendered: false, PhysicalAction: false, PoseLatencyMS: 0}
+	clock, err := time.Parse(time.RFC3339, value.Clock)
+	if err != nil {
+		report.Error = "invalid logical clock: " + err.Error()
+		report.DurationMS = float64(time.Since(started).Microseconds()) / 1000
+		return report
+	}
+	clock = clock.UTC()
+	tempRoot, err := os.MkdirTemp("", "synora-central-e2e-")
+	if err != nil {
+		report.Error = err.Error()
+		return report
+	}
+	defer os.RemoveAll(tempRoot)
+	if err := prepareRuntime(tempRoot); err != nil {
+		report.Error = err.Error()
+		return report
+	}
+	previousEnv := setHermeticEnv(tempRoot)
+	defer restoreEnv(previousEnv)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	socket := filepath.Join(tempRoot, "run", "bus.sock")
+	server := bus.NewServerWithConfig(socket, bus.ServerConfig{AllowTestProcess: true, Now: func() time.Time { return clock }})
+	serverErr := make(chan error, 1)
+	go func() { serverErr <- server.Start() }()
+	if err := waitForPath(socket, centralTimeout); err != nil {
+		report.Error = err.Error()
+		_ = server.Close()
+		return report
+	}
+
+	camera, err := bus.NewClient(socket, "camera-simulator")
+	if err != nil {
+		report.Error = err.Error()
+		_ = server.Close()
+		return report
+	}
+	discoveryClient, err := bus.NewClient(socket, "discovery")
+	if err != nil {
+		report.Error = err.Error()
+		_ = camera.Close()
+		_ = server.Close()
+		return report
+	}
+	coreClient, err := bus.NewClient(socket, "core")
+	if err != nil {
+		report.Error = err.Error()
+		_ = discoveryClient.Close()
+		_ = camera.Close()
+		_ = server.Close()
+		return report
+	}
+	apiClient, err := bus.NewClient(socket, "api")
+	if err != nil {
+		report.Error = err.Error()
+		_ = coreClient.Close()
+		_ = discoveryClient.Close()
+		_ = camera.Close()
+		_ = server.Close()
+		return report
+	}
+
+	manager := discovery.NewManager(discoveryClient)
+	manager.SetClock(func() time.Time { return clock })
+	manager.StartBusOnlyContext(ctx)
+	storeDir := filepath.Join(tempRoot, "store")
+	store, err := cognitivecore.OpenUniversalStore(storeDir)
+	if err != nil {
+		report.Error = err.Error()
+		cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)
+		return report
+	}
+
+	bundlePath := resolveBundle(repo, value)
+	var capture *mlpCapture
+	var captureErr error
+	if value.Bundle == "v1" {
+		mlp, loadErr := cognitivecore.LoadCPUBundle(bundlePath)
+		if loadErr != nil {
+			report.Error = "model unavailable: " + loadErr.Error()
+			report.Passed = expectString(value.Expected.MLP, "status", "unavailable")
+			cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)
+			return finishCase(report, started)
+		}
+		capture, captureErr = newMLPCapture(bundlePath, false)
+		if captureErr != nil {
+			report.Error = "MLP instrumentation unavailable: " + captureErr.Error()
+			cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)
+			return finishCase(report, started)
+		}
+		core := &cognitivecore.Core{Store: store, MLP: deterministicMLPV1{bundle: mlp, capture: capture}, Gate: cognitivecore.SafetyGate{DryRun: true}, Now: func() time.Time { return clock }}
+		service := &cognitivecore.Service{Bus: coreClient, Core: core, Name: "core", Now: func() time.Time { return clock }}
+		go func() { _ = service.Run(ctx) }()
+	} else {
+		mlp, loadErr := cognitivecore.LoadCPUBundleV3(bundlePath)
+		if loadErr != nil {
+			report.Error = "model unavailable: " + loadErr.Error()
+			report.Passed = expectString(value.Expected.MLP, "status", "unavailable")
+			cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)
+			return finishCase(report, started)
+		}
+		if value.TestBackend == "forced_announce" {
+			if value.Suite != "safety_gate_adversarial" {
+				report.Error = "forced test backend is restricted to safety_gate_adversarial"
+				cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)
+				return finishCase(report, started)
+			}
+			capture = &mlpCapture{observation: mlpObservation{Backend: "test-only-forced-announce", Forced: true, BundleSHA256: fileSHA256(filepath.Join(bundlePath, "MANIFEST.v3.json")), ModelVersion: "test-only-forced-announce", SnapshotDimension: cognitivecore.CognitiveVectorSizeV3, LatencyMS: zeroV3Latency(), Heads: make(map[string]headObservation)}}
+			core := &cognitivecore.CoreV3{Store: store, MLP: forcedAnnounceMLPV3{capture: capture, danger: value.ForcedDanger}, ActiveDryRun: true, Now: func() time.Time { return clock }}
+			service := &cognitivecore.ServiceV3{Bus: coreClient, Core: core, Name: "core", Now: func() time.Time { return clock }}
+			go func() { _ = service.Run(ctx) }()
+		} else {
+			capture, captureErr = newMLPCapture(bundlePath, true)
+			if captureErr != nil {
+				report.Error = "MLP instrumentation unavailable: " + captureErr.Error()
+				cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)
+				return finishCase(report, started)
+			}
+			core := &cognitivecore.CoreV3{Store: store, MLP: deterministicMLPV3{bundle: mlp, capture: capture}, ActiveDryRun: true, Now: func() time.Time { return clock }}
+			service := &cognitivecore.ServiceV3{Bus: coreClient, Core: core, Name: "core", Now: func() time.Time { return clock }}
+			go func() { _ = service.Run(ctx) }()
+		}
+	}
+
+	transportRejected := false
+	for _, message := range value.Messages {
+		timestamp := clock
+		if message.Timestamp != "" {
+			if parsed, parseErr := time.Parse(time.RFC3339, message.Timestamp); parseErr == nil {
+				timestamp = parsed.UTC()
+			}
+		}
+		if message.ID == "" {
+			report.Error = "fixture message id is required"
+			break
+		}
+		if err := camera.Send(contract.Message{ID: message.ID, Type: message.Type, Kind: contract.KindEvent, Source: "camera-simulator", Target: "discovery", Timestamp: timestamp, Payload: append([]byte(nil), message.Payload...)}); err != nil {
+			// The bus rejects an oversized frame before Discovery can emit its
+			// normal ingress rejection. Treat that transport-level refusal as
+			// the expected rejection for the dedicated red-team fixture.
+			if expectString(value.Expected.Discovery, "status", "rejected") {
+				report.DiscoveryRejected++
+				report.Error = ""
+				transportRejected = true
+			} else {
+				report.Error = err.Error()
+			}
+			break
+		}
+	}
+
+	wantAccepted := 0
+	if expectString(value.Expected.Discovery, "status", "accepted") {
+		wantAccepted = len(value.Messages)
+	}
+	wantRejected := 0
+	if expectString(value.Expected.Discovery, "status", "rejected") && !transportRejected {
+		wantRejected = 1
+	}
+	wantCore := wantAccepted > 0 && !expectString(value.Expected.MLP, "status", "unavailable")
+	records := collectTrace(camera, apiClient, centralTimeout, wantAccepted, wantRejected, wantCore)
+	trace := make([]traceRecord, 0, len(records))
+	for _, record := range records {
+		trace = append(trace, record.Trace)
+	}
+	report.BusTrace = trace
+	for _, event := range trace {
+		switch event.Type {
+		case "discovery.ingress.accepted":
+			report.DiscoveryAccepted++
+		case "discovery.ingress.rejected":
+			report.DiscoveryRejected++
+		case "core.decision", "core.decision.v3":
+			report.CoreDecisions++
+		}
+	}
+	if reopened, openErr := cognitivecore.OpenUniversalStore(storeDir); openErr == nil {
+		report.StoreRevision = reopened.Revision()
+		report.OutboxCount = len(reopened.ActionOutbox())
+	}
+	// The redacted trace records semantic values separately below. Payloads
+	// themselves are never written to the report.
+	report = enrichFromMessages(report, records)
+	if capture != nil {
+		observations := capture.observations
+		if len(observations) == 0 {
+			observations = []mlpObservation{capture.observation}
+		}
+		if report.SnapshotSHA256 == "" && observations[0].SnapshotSHA256 != "" {
+			report.SnapshotSHA256 = observations[0].SnapshotSHA256
+		}
+		for _, observation := range observations {
+			if report.SnapshotVersion != "" {
+				observation.SnapshotVersion = report.SnapshotVersion
+			}
+			if report.SnapshotDimension != 0 {
+				observation.SnapshotDimension = report.SnapshotDimension
+			}
+			if report.SnapshotSHA256 != "" {
+				observation.SnapshotSHA256 = report.SnapshotSHA256
+			}
+			report.MLPObservations = append(report.MLPObservations, observation)
+		}
+	}
+	report = validateExpected(report, value.Expected)
+	cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)
+	return finishCase(report, started)
+}
+
+// The real CPU bundle still computes every head. Only wall-clock measurements
+// are normalized here so two hermetic runs have byte-stable decision traces.
+type deterministicMLPV1 struct {
+	bundle  *cognitivecore.CPUBundleMLP
+	capture *mlpCapture
+}
+
+func (m deterministicMLPV1) Run(ctx context.Context, encoded cognitivecore.EncodedSnapshot, snapshot cognitivecore.CognitiveSnapshot) (cognitivecore.MLPOutput, map[string]float64, error) {
+	output, latencies, err := m.bundle.Run(ctx, encoded, snapshot)
+	if output.Trace != nil {
+		output.Trace.DurationMS = 0
+	}
+	if err == nil && m.capture != nil {
+		m.capture.recordV1(encoded, output, latencies)
+	}
+	return output, map[string]float64{"danger": 0, "incident": 0, "task": 0, "action": 0}, err
+}
+
+type deterministicMLPV3 struct {
+	bundle  *cognitivecore.CPUBundleMLPV3
+	capture *mlpCapture
+}
+
+func (m deterministicMLPV3) RunV3(ctx context.Context, encoded cognitivecore.EncodedSnapshotV3, snapshot cognitivecore.CognitiveSnapshotV3) (cognitivecore.MLPOutputV3, map[string]float64, error) {
+	output, latencies, err := m.bundle.RunV3(ctx, encoded, snapshot)
+	if err == nil && m.capture != nil {
+		m.capture.recordV3(encoded, output, latencies)
+	}
+	return output, map[string]float64{"danger": 0, "incident": 0, "task": 0, "action": 0, "communication_intent": 0}, err
+}
+
+type forcedAnnounceMLPV3 struct {
+	capture *mlpCapture
+	danger  string
+}
+
+func (m forcedAnnounceMLPV3) RunV3(_ context.Context, encoded cognitivecore.EncodedSnapshotV3, snapshot cognitivecore.CognitiveSnapshotV3) (cognitivecore.MLPOutputV3, map[string]float64, error) {
+	danger := m.danger
+	if danger == "" {
+		danger = "none"
+	}
+	output := cognitivecore.MLPOutputV3{
+		DangerLabel: danger, DangerScore: 1,
+		Incident: "routine_presence", IncidentConfidence: 1,
+		Task: "monitor", TaskConfidence: 1,
+		Action: "announce", ActionConfidence: 1,
+		Communication:           cognitivecore.CommunicationIntentV3{Intent: cognitivecore.CommunicationNeutralPresenceNoticeV3, TemplateID: cognitivecore.TemplateIDV3(cognitivecore.CommunicationNeutralPresenceNoticeV3)},
+		CommunicationConfidence: 1, ModelVersion: "test-only-forced-announce",
+	}
+	if m.capture != nil {
+		m.capture.recordForced(encoded, output)
+	}
+	return output, zeroV3Latency(), nil
+}
+
+type testCPUlayer struct {
+	InputSize  int       `json:"input_size"`
+	OutputSize int       `json:"output_size"`
+	Activation string    `json:"activation"`
+	Weights    []float32 `json:"weights"`
+	Bias       []float32 `json:"bias"`
+}
+
+type testCPUartifact struct {
+	Labels []string       `json:"labels"`
+	Layers []testCPUlayer `json:"layers"`
+}
+
+type testCPUModel struct {
+	V3             bool
+	ManifestSHA256 string
+	ModelVersion   string
+	InputDimension int
+	Labels         map[string][]string
+	Backbone       []testCPUlayer
+	Heads          map[string][]testCPUlayer
+}
+
+type mlpCapture struct {
+	model        *testCPUModel
+	observation  mlpObservation
+	observations []mlpObservation
+}
+
+func newMLPCapture(bundlePath string, v3 bool) (*mlpCapture, error) {
+	model, err := loadTestCPUModel(bundlePath, v3)
+	if err != nil {
+		return nil, err
+	}
+	backend := "cpu-bundle-v1"
+	if v3 {
+		backend = "cpu-bundle-v3-candidate"
+	}
+	return &mlpCapture{model: model, observation: mlpObservation{Backend: backend, Forced: false, BundleSHA256: model.ManifestSHA256, ModelVersion: model.ModelVersion, LatencyMS: zeroLatency(model.V3), Heads: make(map[string]headObservation)}}, nil
+}
+
+func (m *mlpCapture) recordV1(encoded cognitivecore.EncodedSnapshot, output cognitivecore.MLPOutput, latencies map[string]float64) {
+	probabilities := m.model.probabilities(encoded.Values[:])
+	observation := m.observation
+	observation.SnapshotVersion = cognitivecore.SnapshotSchemaVersion
+	observation.SnapshotDimension = len(encoded.Values)
+	observation.SnapshotSHA256 = hashEncoded(encoded)
+	observation.LatencyMS = cloneFloatMap(latencies)
+	observation.Heads = map[string]headObservation{
+		"danger":   makeHeadObservationWithLabels(output.DangerLabel, float64(output.DangerScore), probabilities["danger"], m.model.Labels["danger"]),
+		"incident": makeHeadObservationWithLabels(firstString(output.Incidents), float64(output.IncidentConfidence), probabilities["incident"], m.model.Labels["incident"]),
+		"task":     makeHeadObservationWithLabels(output.Task, float64(output.TaskConfidence), probabilities["task"], m.model.Labels["task"]),
+		"action":   makeHeadObservationWithLabels(output.Action.Action, float64(output.ActionConfidence), probabilities["action"], m.model.Labels["action"]),
+	}
+	m.observations = append(m.observations, observation)
+}
+
+func (m *mlpCapture) recordV3(encoded cognitivecore.EncodedSnapshotV3, output cognitivecore.MLPOutputV3, latencies map[string]float64) {
+	probabilities := m.model.probabilities(encoded.Values[:])
+	observation := m.observation
+	observation.SnapshotVersion = cognitivecore.SnapshotSchemaVersionV3
+	observation.SnapshotDimension = len(encoded.Values)
+	observation.SnapshotSHA256 = hashEncoded(encoded)
+	observation.LatencyMS = cloneFloatMap(latencies)
+	observation.Heads = map[string]headObservation{
+		"danger":               makeHeadObservationWithLabels(output.DangerLabel, float64(output.DangerScore), probabilities["danger"], m.model.Labels["danger"]),
+		"incident":             makeHeadObservationWithLabels(output.Incident, float64(output.IncidentConfidence), probabilities["incident"], m.model.Labels["incident"]),
+		"task":                 makeHeadObservationWithLabels(output.Task, float64(output.TaskConfidence), probabilities["task"], m.model.Labels["task"]),
+		"action":               makeHeadObservationWithLabels(output.Action, float64(output.ActionConfidence), probabilities["action"], m.model.Labels["action"]),
+		"communication_intent": makeHeadObservationWithLabels(output.Communication.Intent, float64(output.CommunicationConfidence), probabilities["communication_intent"], m.model.Labels["communication_intent"]),
+	}
+	m.observations = append(m.observations, observation)
+}
+
+func (m *mlpCapture) recordForced(encoded cognitivecore.EncodedSnapshotV3, output cognitivecore.MLPOutputV3) {
+	observation := m.observation
+	observation.SnapshotVersion = cognitivecore.SnapshotSchemaVersionV3
+	observation.SnapshotDimension = len(encoded.Values)
+	observation.SnapshotSHA256 = hashEncoded(encoded)
+	observation.Heads = map[string]headObservation{
+		"danger":               {Label: output.DangerLabel, Confidence: 1, Probabilities: map[string]float64{output.DangerLabel: 1}},
+		"incident":             {Label: output.Incident, Confidence: 1, Probabilities: map[string]float64{output.Incident: 1}},
+		"task":                 {Label: output.Task, Confidence: 1, Probabilities: map[string]float64{output.Task: 1}},
+		"action":               {Label: output.Action, Confidence: 1, Probabilities: map[string]float64{output.Action: 1}},
+		"communication_intent": {Label: output.Communication.Intent, Confidence: 1, Probabilities: map[string]float64{output.Communication.Intent: 1}},
+	}
+	m.observations = append(m.observations, observation)
+}
+
+func (m *testCPUModel) probabilities(values []float32) map[string][]float64 {
+	input := values
+	if m.V3 {
+		input = runTestLayers(m.Backbone, input)
+	}
+	result := make(map[string][]float64, len(m.Heads))
+	for head, layers := range m.Heads {
+		logits := runTestLayers(layers, input)
+		result[head] = testSoftmax(logits)
+	}
+	return result
+}
+
+func runTestLayers(layers []testCPUlayer, input []float32) []float32 {
+	current := append([]float32(nil), input...)
+	for _, layer := range layers {
+		next := make([]float32, layer.OutputSize)
+		for output := range next {
+			value := layer.Bias[output]
+			for index, x := range current {
+				value += layer.Weights[output*layer.InputSize+index] * x
+			}
+			if layer.Activation == "relu" && value < 0 {
+				value = 0
+			}
+			next[output] = value
+		}
+		current = next
+	}
+	return current
+}
+
+func testSoftmax(values []float32) []float64 {
+	if len(values) == 0 {
+		return nil
+	}
+	maximum := float64(values[0])
+	for _, value := range values[1:] {
+		if float64(value) > maximum {
+			maximum = float64(value)
+		}
+	}
+	probabilities := make([]float64, len(values))
+	total := 0.0
+	for index, value := range values {
+		probabilities[index] = math.Exp(float64(value) - maximum)
+		total += probabilities[index]
+	}
+	for index := range probabilities {
+		probabilities[index] /= total
+	}
+	return probabilities
+}
+
+func loadTestCPUModel(dir string, v3 bool) (*testCPUModel, error) {
+	manifestName := "MANIFEST.v1.json"
+	if v3 {
+		manifestName = "MANIFEST.v3.json"
+	}
+	manifestPath := filepath.Join(dir, manifestName)
+	manifestBody, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return nil, err
+	}
+	model := &testCPUModel{V3: v3, ManifestSHA256: digestBytes(manifestBody), InputDimension: cognitivecore.CognitiveVectorSize, Heads: make(map[string][]testCPUlayer)}
+	if v3 {
+		var manifest cognitivecore.V3Manifest
+		if err := json.Unmarshal(manifestBody, &manifest); err != nil {
+			return nil, err
+		}
+		model.InputDimension = manifest.InputDimension
+		model.ModelVersion = "cognitive-v3:" + manifest.EncoderVersion
+		model.Labels = manifest.Labels
+		backbone, err := loadTestArtifact(filepath.Join(dir, "backbone.cpu.json"))
+		if err != nil {
+			return nil, err
+		}
+		model.Backbone = backbone.Layers
+		for _, head := range cognitivecore.HeadOrderV3 {
+			name := manifest.Artifacts[head]["artifact"]
+			if name == "" {
+				name = head + ".cpu.json"
+			}
+			artifact, err := loadTestArtifact(filepath.Join(dir, name))
+			if err != nil {
+				return nil, err
+			}
+			model.Heads[head] = artifact.Layers
+		}
+		return model, nil
+	}
+	var manifest cognitivecore.Manifest
+	if err := json.Unmarshal(manifestBody, &manifest); err != nil {
+		return nil, err
+	}
+	model.InputDimension = manifest.InputDimension
+	model.ModelVersion = "cognitive-v1:" + manifest.EncoderVersion
+	model.Labels = manifest.Labels
+	for _, head := range cognitivecore.HeadOrder {
+		name := manifest.Artifacts[head].Artifact
+		if name == "" {
+			name = head + ".cpu.json"
+		}
+		artifact, err := loadTestArtifact(filepath.Join(dir, name))
+		if err != nil {
+			return nil, err
+		}
+		model.Heads[head] = artifact.Layers
+	}
+	return model, nil
+}
+
+func loadTestArtifact(path string) (testCPUartifact, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return testCPUartifact{}, err
+	}
+	var artifact testCPUartifact
+	if err := json.Unmarshal(body, &artifact); err != nil {
+		return testCPUartifact{}, err
+	}
+	return artifact, nil
+}
+
+func makeHeadObservationWithLabels(label string, confidence float64, probabilities []float64, labels []string) headObservation {
+	values := make(map[string]float64, len(probabilities))
+	for index, probability := range probabilities {
+		if index < len(labels) {
+			values[labels[index]] = probability
+		}
+	}
+	return headObservation{Label: label, Confidence: confidence, Probabilities: values}
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func zeroLatency(v3 bool) map[string]float64 {
+	if v3 {
+		return zeroV3Latency()
+	}
+	return map[string]float64{"danger": 0, "incident": 0, "task": 0, "action": 0}
+}
+
+func zeroV3Latency() map[string]float64 {
+	return map[string]float64{"danger": 0, "incident": 0, "task": 0, "action": 0, "communication_intent": 0, "shared_backbone": 0}
+}
+
+func cloneFloatMap(values map[string]float64) map[string]float64 {
+	copyValues := make(map[string]float64, len(values))
+	for key, value := range values {
+		copyValues[key] = value
+	}
+	return copyValues
+}
+
+func digestBytes(body []byte) string {
+	digest := sha256.Sum256(body)
+	return hex.EncodeToString(digest[:])
+}
+
+func hashEncoded(value any) string {
+	body, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return digestBytes(body)
+}
+
+// collectTrace drains the two output peers. The payload digest is sufficient
+// for reproducibility checks and guarantees raw Vision content is not copied
+// into the report.
+func collectTrace(camera, api *bus.Client, timeout time.Duration, wantAccepted, wantRejected int, wantCore bool) []busRecord {
+	deadline := time.NewTimer(timeout)
+	quiet := time.NewTimer(time.Hour)
+	defer deadline.Stop()
+	defer quiet.Stop()
+	trace := make([]busRecord, 0, 16)
+	accepted, rejected, coreDecisions := 0, 0, 0
+	ready := func() bool {
+		return accepted >= wantAccepted && rejected >= wantRejected && (!wantCore || coreDecisions > 0)
+	}
+	if ready() {
+		resetTimer(quiet, 300*time.Millisecond)
+	}
+	for {
+		select {
+		case message := <-camera.SubscribeChannel("camera-simulator"):
+			record := busRecord{Message: message, Trace: summarizeMessage(message)}
+			trace = append(trace, record)
+			if message.Type == "discovery.ingress.accepted" {
+				accepted++
+			}
+			if message.Type == "discovery.ingress.rejected" {
+				rejected++
+			}
+			if ready() {
+				resetTimer(quiet, 300*time.Millisecond)
+			}
+		case message := <-api.SubscribeChannel("api"):
+			record := busRecord{Message: message, Trace: summarizeMessage(message)}
+			trace = append(trace, record)
+			if message.Type == "core.decision" || message.Type == "core.decision.v3" {
+				coreDecisions++
+			}
+			if ready() {
+				resetTimer(quiet, 300*time.Millisecond)
+			}
+		case <-quiet.C:
+			return trace
+		case <-deadline.C:
+			return trace
+		}
+	}
+}
+
+func summarizeMessage(message contract.Message) traceRecord {
+	digest := sha256.Sum256(message.Payload)
+	status := ""
+	var value map[string]any
+	if json.Unmarshal(message.Payload, &value) == nil {
+		if candidate, ok := value["status"].(string); ok {
+			status = candidate
+		}
+	}
+	return traceRecord{Type: message.Type, Source: message.Source, Target: message.Target, Status: status, Revision: message.Revision, PayloadSHA: hex.EncodeToString(digest[:])}
+}
+
+func enrichFromMessages(report caseReport, records []busRecord) caseReport {
+	for _, record := range records {
+		event := record.Message
+		var genericEnvelope map[string]any
+		if json.Unmarshal(event.Payload, &genericEnvelope) == nil {
+			if snapshot, ok := genericEnvelope["snapshot"]; ok {
+				if body, marshalErr := json.Marshal(snapshot); marshalErr == nil {
+					report.SnapshotSHA256 = digestBytes(body)
+				}
+			}
+		}
+		if event.Type == "core.snapshot" {
+			report.SnapshotVersion = "cognitive-snapshot/v1"
+			report.SnapshotDimension = cognitivecore.CognitiveVectorSize
+		}
+		if event.Type == "core.snapshot.v3" {
+			report.SnapshotVersion = cognitivecore.SnapshotSchemaVersionV3
+			report.SnapshotDimension = cognitivecore.CognitiveVectorSizeV3
+			var envelope struct {
+				Snapshot struct {
+					Vision struct {
+						PoseStatus       string  `json:"pose_status"`
+						PoseQuality      float64 `json:"pose_quality"`
+						Posture          string  `json:"posture"`
+						FallState        string  `json:"fall_state"`
+						RecoveryObserved bool    `json:"recovery_observed"`
+					} `json:"vision"`
+				} `json:"snapshot"`
+			}
+			if json.Unmarshal(event.Payload, &envelope) == nil {
+				report.PoseStatus = envelope.Snapshot.Vision.PoseStatus
+				report.PoseQuality = envelope.Snapshot.Vision.PoseQuality
+				report.Posture = envelope.Snapshot.Vision.Posture
+				report.FallState = envelope.Snapshot.Vision.FallState
+				report.RecoveryObserved = envelope.Snapshot.Vision.RecoveryObserved
+			}
+		}
+		if event.Type == "core.decision" || event.Type == "core.decision.v3" {
+			var envelope map[string]any
+			if json.Unmarshal(event.Payload, &envelope) != nil {
+				continue
+			}
+			decision, _ := envelope["decision"].(map[string]any)
+			if dimension, ok := decision["input_dimension"].(float64); ok {
+				report.SnapshotDimension = int(dimension)
+				if event.Type == "core.decision.v3" {
+					report.SnapshotVersion = cognitivecore.SnapshotSchemaVersionV3
+				} else if event.Type == "core.decision" {
+					report.SnapshotVersion = "cognitive-snapshot/v1"
+				}
+			}
+			if heads, ok := decision["head_order"].([]any); ok {
+				report.MLPHeads = report.MLPHeads[:0]
+				for _, head := range heads {
+					if value, ok := head.(string); ok {
+						report.MLPHeads = append(report.MLPHeads, value)
+					}
+				}
+			}
+			if status, ok := decision["action"].(map[string]any); ok {
+				if value, ok := status["status"].(string); ok {
+					report.SafetyGateStatuses = append(report.SafetyGateStatuses, value)
+				}
+				if value, ok := status["physical_action_executed"].(bool); ok {
+					report.PhysicalAction = report.PhysicalAction || value
+				}
+			}
+			if value, ok := decision["physical_action_executed"].(bool); ok {
+				report.PhysicalAction = report.PhysicalAction || value
+			}
+			if communication, ok := decision["communication"].(map[string]any); ok {
+				if value, ok := communication["status"].(string); ok {
+					report.SafetyGateStatuses = append(report.SafetyGateStatuses, value)
+				}
+				if value, ok := communication["physical_audio_played"].(bool); ok {
+					report.AudioRendered = report.AudioRendered || value
+				}
+			}
+		}
+		if containsForbiddenJSON(event.Payload) {
+			report.RawVisionForwarded = true
+		}
+	}
+	return report
+}
+
+func validateExpected(report caseReport, expected fixtureExpected) caseReport {
+	errorsFound := make([]string, 0)
+	addDiff := func(path string, wanted, actual any, reason string) {
+		report.ExpectedActualDiffs = append(report.ExpectedActualDiffs, expectationDiff{Path: path, Expected: wanted, Actual: actual, Reason: reason})
+	}
+	if status, ok := expected.Discovery["status"].(string); ok {
+		if status == "accepted" && report.DiscoveryAccepted == 0 {
+			errorsFound = append(errorsFound, "discovery was not accepted")
+			addDiff("discovery.status", status, "not_accepted", "accepted ingress was expected")
+		}
+		if status == "rejected" && report.DiscoveryRejected == 0 {
+			errorsFound = append(errorsFound, "discovery was not rejected")
+			addDiff("discovery.status", status, "not_rejected", "rejected ingress was expected")
+		}
+	}
+	if value, ok := expected.Snapshot["schema_version"].(string); ok && report.SnapshotVersion != value {
+		errorsFound = append(errorsFound, "snapshot schema mismatch")
+		addDiff("snapshot.schema_version", value, report.SnapshotVersion, "snapshot contract version differs")
+	}
+	if value, ok := expected.Snapshot["input_dimension"].(float64); ok && report.SnapshotDimension != int(value) {
+		errorsFound = append(errorsFound, "snapshot dimension mismatch")
+		addDiff("snapshot.input_dimension", int(value), report.SnapshotDimension, "snapshot input dimension differs")
+	}
+	if value, ok := expected.Store["committed"].(bool); ok && value && report.StoreRevision <= 1 {
+		errorsFound = append(errorsFound, "store was not committed")
+	}
+	if value, ok := expected.Outbox["non_empty"].(bool); ok && value && report.OutboxCount == 0 {
+		errorsFound = append(errorsFound, "outbox was empty")
+	}
+	if expectedHeads, ok := expected.MLP["heads"].([]any); ok {
+		if len(expectedHeads) != len(report.MLPHeads) {
+			errorsFound = append(errorsFound, "MLP head count mismatch")
+			addDiff("mlp.heads", expectedHeads, report.MLPHeads, "head count differs")
+		} else {
+			for index, expectedHead := range expectedHeads {
+				if value, ok := expectedHead.(string); !ok || report.MLPHeads[index] != value {
+					errorsFound = append(errorsFound, "MLP head order mismatch")
+					addDiff("mlp.heads", expectedHeads, report.MLPHeads, "head order differs")
+					break
+				}
+			}
+		}
+	}
+	if expectedStatus, ok := expected.MLP["status"].(string); ok && expectedStatus == "available" {
+		if len(report.MLPObservations) == 0 {
+			errorsFound = append(errorsFound, "MLP observation missing")
+			addDiff("mlp.observations", "at_least_one", len(report.MLPObservations), "real backend observation was expected")
+		}
+		for index, observation := range report.MLPObservations {
+			for head, value := range observation.Heads {
+				total := 0.0
+				maximumLabel, maximumProbability := "", -1.0
+				for _, probability := range value.Probabilities {
+					total += probability
+				}
+				for label, probability := range value.Probabilities {
+					if probability > maximumProbability {
+						maximumLabel, maximumProbability = label, probability
+					}
+				}
+				if math.Abs(total-1) > 0.00001 {
+					errorsFound = append(errorsFound, fmt.Sprintf("MLP probability sum mismatch for %s", head))
+					addDiff(fmt.Sprintf("mlp.observations[%d].heads.%s.probabilities", index, head), 1.0, total, "head probabilities must sum to one")
+				}
+				if value.Confidence < 0 || value.Confidence > 1 {
+					errorsFound = append(errorsFound, fmt.Sprintf("MLP confidence out of range for %s", head))
+					addDiff(fmt.Sprintf("mlp.observations[%d].heads.%s.confidence", index, head), "[0,1]", value.Confidence, "confidence must be normalized")
+				}
+				if maximumLabel != "" && value.Probabilities[value.Label] < maximumProbability-0.00001 {
+					errorsFound = append(errorsFound, fmt.Sprintf("MLP label/probability mismatch for %s", head))
+					addDiff(fmt.Sprintf("mlp.observations[%d].heads.%s.label", index, head), maximumLabel, value.Label, "reported label is not the maximum probability")
+				}
+			}
+		}
+	}
+	if expectedStatus, ok := expected.SafetyGate["status"].(string); ok {
+		found := false
+		for _, status := range report.SafetyGateStatuses {
+			if status == expectedStatus {
+				found = true
+				break
+			}
+		}
+		if !found {
+			errorsFound = append(errorsFound, "safety gate status mismatch")
+			addDiff("safety_gate.status", expectedStatus, report.SafetyGateStatuses, "expected safety gate status was not observed")
+		}
+	}
+	if expectedStatus, _ := expected.Discovery["status"].(string); expectedStatus == "rejected" && report.CoreDecisions > 0 {
+		errorsFound = append(errorsFound, "forbidden ingress reached Core")
+	}
+	if report.PhysicalAction || report.AudioRendered || report.NetworkAccess || report.RawVisionForwarded {
+		errorsFound = append(errorsFound, "unsafe side effect or raw Vision forwarding observed")
+		addDiff("safety.side_effects", map[string]bool{"audio_rendered": false, "physical_action_executed": false, "network_access": false, "raw_vision_forwarded": false}, map[string]bool{"audio_rendered": report.AudioRendered, "physical_action_executed": report.PhysicalAction, "network_access": report.NetworkAccess, "raw_vision_forwarded": report.RawVisionForwarded}, "all side effects and raw forwarding must remain false")
+	}
+	report.AudioFalse = !report.AudioRendered
+	report.PhysicalFalse = !report.PhysicalAction
+	report.NetworkFalse = !report.NetworkAccess
+	report.RawFalse = !report.RawVisionForwarded
+	if report.Error != "" && !expectString(expected.MLP, "status", "unavailable") {
+		errorsFound = append(errorsFound, report.Error)
+	}
+	if len(errorsFound) > 0 {
+		report.Error = strings.Join(errorsFound, "; ")
+		report.Passed = false
+		return report
+	}
+	report.Passed = true
+	return report
+}
+
+func expectString(values map[string]any, key, wanted string) bool {
+	value, ok := values[key].(string)
+	return ok && value == wanted
+}
+
+func finishCase(report caseReport, started time.Time) caseReport {
+	report.AudioFalse = !report.AudioRendered
+	report.PhysicalFalse = !report.PhysicalAction
+	report.NetworkFalse = !report.NetworkAccess
+	report.RawFalse = !report.RawVisionForwarded
+	report.DurationMS = float64(time.Since(started).Microseconds()) / 1000
+	return report
+}
+
+func cleanupRuntime(ctx context.Context, manager *discovery.Manager, api, core, discoveryClient, camera *bus.Client, server *bus.Server) {
+	if ctx != nil {
+		// The caller owns cancellation; a short independent context lets
+		// Discovery close its bus peer without touching production paths.
+		closeCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		_ = manager.Close(closeCtx)
+	}
+	_ = api.Close()
+	_ = core.Close()
+	_ = discoveryClient.Close()
+	_ = camera.Close()
+	_ = server.Close()
+}
+
+func prepareRuntime(root string) error {
+	configDir := filepath.Join(root, "config")
+	if err := os.MkdirAll(filepath.Join(root, "run"), 0o700); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return err
+	}
+	files := map[string]string{
+		"security.yaml":  "device_secrets: {}\npairing_enabled: false\nfeatures:\n  diagnostics_enabled: false\n  debug_endpoints_enabled: false\n  dev_simulation_enabled: false\n",
+		"devices.yaml":   "devices: []\n",
+		"topology.yaml":  "version: 1\nlocked: true\nroot_id: central\nhouse_id: central\nnodes: []\nlinks: []\n",
+		"residents.yaml": "residents: []\n",
+		"network.yaml":   "version: 1\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(configDir, name), []byte(body), 0o600); err != nil {
+			return err
+		}
+	}
+	identity := filepath.Join(root, "identities.json")
+	if err := os.WriteFile(identity, []byte(`{"version":1,"identities":{}}`), 0o600); err != nil {
+		return err
+	}
+	return nil
+}
+
+func setHermeticEnv(root string) map[string]string {
+	values := map[string]string{
+		"SYNORA_CONFIG_DIR":           filepath.Join(root, "config"),
+		"SYNORA_BUS":                  filepath.Join(root, "run", "bus.sock"),
+		"SYNORA_STATE_PATH":           filepath.Join(root, "state.json"),
+		"SYNORA_CLIP_ROOT":            filepath.Join(root, "clips"),
+		"SYNORA_FACE_DATA_ROOT":       filepath.Join(root, "faces"),
+		"SYNORA_MODEL_ROOT":           filepath.Join(root, "models"),
+		"SYNORA_CONNECTIVITY_DIR":     filepath.Join(root, "connectivity"),
+		"SYNORA_IDENTITY_REGISTRY":    filepath.Join(root, "identities.json"),
+		"SYNORA_VISION_WORKER_SOCKET": filepath.Join(root, "run", "vision.sock"),
+		"SYNORA_HTTP_ADDR":            "127.0.0.1:0",
+		"SYNORA_HTTPS_ADDR":           "127.0.0.1:0",
+		"SYNORA_VISION_HEALTH_ADDR":   "127.0.0.1:0",
+		"SYNORA_VISION_HTTPS_ADDR":    "127.0.0.1:0",
+		"SYNORA_MEDIAMTX_API_URL":     "http://127.0.0.1:1",
+	}
+	previous := make(map[string]string, len(values))
+	for key, value := range values {
+		previous[key] = os.Getenv(key)
+		_ = os.Setenv(key, value)
+	}
+	return previous
+}
+
+func restoreEnv(previous map[string]string) {
+	for key, value := range previous {
+		if value == "" {
+			_ = os.Unsetenv(key)
+		} else {
+			_ = os.Setenv(key, value)
+		}
+	}
+}
+
+func resolveBundle(repo string, value fixture) string {
+	if value.BundlePath != "" {
+		if filepath.IsAbs(value.BundlePath) {
+			return value.BundlePath
+		}
+		return filepath.Join(repo, value.BundlePath)
+	}
+	if value.Bundle == "v3" {
+		return filepath.Join(repo, "build", "cognitive-mlp-v3-candidate")
+	}
+	return filepath.Join(repo, "build", "cognitive-mlp-v1")
+}
+
+func waitForPath(path string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout waiting for Unix bus socket %s", path)
+}
+
+func resetTimer(timer *time.Timer, duration time.Duration) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(duration)
+}
+
+func writeJSON(path string, value any) error {
+	body, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(body, '\n'), 0o600)
+}
+
+func fileSHA256(path string) string {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(body)
+	return hex.EncodeToString(digest[:])
+}
+
+func fatalReport(path string, err error) {
+	_ = writeJSON(path, map[string]any{"schema_version": "synora.central-e2e/v1", "passed": false, "error": err.Error(), "network_access": false, "audio_rendered": false, "physical_action_executed": false})
+	fmt.Fprintln(os.Stderr, err)
+	os.Exit(1)
+}
+
+func containsForbiddenJSON(body []byte) bool {
+	var value any
+	if json.Unmarshal(body, &value) != nil {
+		return false
+	}
+	return forbiddenJSONValue(value)
+}
+
+func forbiddenJSONValue(value any) bool {
+	forbidden := map[string]bool{"frame": true, "frames": true, "image": true, "images": true, "media": true, "raw_media": true, "media_ref": true, "media_path": true, "bbox": true, "bboxes": true, "crop": true, "crops": true, "keypoints": true, "raw_keypoints": true, "embedding": true, "embeddings": true, "identity": true, "local_track_id": true, "hardware_id": true}
+	switch current := value.(type) {
+	case map[string]any:
+		for key, child := range current {
+			if forbidden[strings.ToLower(strings.TrimSpace(key))] || forbiddenJSONValue(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range current {
+			if forbiddenJSONValue(child) {
+				return true
+			}
+		}
+	}
+	return false
+}

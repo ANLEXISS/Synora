@@ -1,0 +1,108 @@
+{
+  "bundle": "v1",
+  "capabilities": [
+    "record"
+  ],
+  "clock": "2026-01-01T00:00:00Z",
+  "expected": {
+    "discovery": {
+      "status": "accepted"
+    },
+    "forbidden": [
+      "frame",
+      "image",
+      "media",
+      "bbox",
+      "crop",
+      "keypoints",
+      "embedding",
+      "identity",
+      "local_track_id"
+    ],
+    "mlp": {
+      "heads": [
+        "danger",
+        "incident",
+        "task",
+        "action"
+      ],
+      "status": "available"
+    },
+    "outbox": {
+      "non_empty": false
+    },
+    "safety_gate": {
+      "physical_action_executed": false
+    },
+    "snapshot": {
+      "input_dimension": 86,
+      "schema_version": "cognitive-snapshot/v1"
+    },
+    "store": {
+      "committed": true
+    }
+  },
+  "id": "multi-camera-zone-09",
+  "initial_store": {},
+  "messages": [
+    {
+      "id": "multi-camera-zone-09-a",
+      "payload": {
+        "camera_id": "cam_sim_a",
+        "confirmed_track_count": 1,
+        "edge_emulated": true,
+        "ended_at": "2026-01-01T00:00:01Z",
+        "episode_id": "episode-multi-camera-zone-09",
+        "evidence_refs": [],
+        "gap_count": 0,
+        "metrics": {
+          "confidence": 0.91
+        },
+        "observation_count": 1,
+        "priority_reason": [
+          "central-test"
+        ],
+        "schema_version": "synora.vision.edge-track-manifest/v1",
+        "segment_count": 1,
+        "started_at": "2026-01-01T00:00:00Z",
+        "topology_class": "private_perimeter",
+        "track_count": 1,
+        "tracking_status": "ok",
+        "trigger_class": "human",
+        "trigger_confidence": 0.91
+      },
+      "timestamp": "2026-01-01T00:00:00Z",
+      "type": "synora.vision.edge-track-manifest/v1"
+    },
+    {
+      "id": "multi-camera-zone-09-b",
+      "payload": {
+        "camera_id": "cam_sim_b",
+        "confirmed_track_count": 1,
+        "edge_emulated": true,
+        "ended_at": "2026-01-01T00:00:02Z",
+        "episode_id": "episode-multi-camera-zone-09",
+        "evidence_refs": [],
+        "gap_count": 0,
+        "metrics": {
+          "confidence": 0.91
+        },
+        "observation_count": 1,
+        "priority_reason": [
+          "central-test"
+        ],
+        "schema_version": "synora.vision.edge-track-manifest/v1",
+        "segment_count": 1,
+        "started_at": "2026-01-01T00:00:01Z",
+        "topology_class": "protected_interior",
+        "track_count": 1,
+        "tracking_status": "ok",
+        "trigger_class": "human",
+        "trigger_confidence": 0.91
+      },
+      "timestamp": "2026-01-01T00:00:01Z",
+      "type": "synora.vision.edge-track-manifest/v1"
+    }
+  ],
+  "suite": "reference"
+}

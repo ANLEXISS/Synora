@@ -1,0 +1,19 @@
+{
+  "bundle": "v1",
+  "bundle_path": "build/does-not-exist-central-bundle",
+  "capabilities": [],
+  "clock": "2026-01-01T00:00:00Z",
+  "expected": {
+    "forbidden": [],
+    "mlp": {
+      "status": "unavailable"
+    },
+    "store": {
+      "committed": false
+    }
+  },
+  "id": "model-v1-manifest-unavailable",
+  "initial_store": {},
+  "messages": [],
+  "suite": "reference"
+}

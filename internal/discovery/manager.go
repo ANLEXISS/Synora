@@ -29,7 +29,8 @@ import (
 )
 
 type Manager struct {
-	bus *bus.Client
+	bus   *bus.Client
+	clock func() time.Time
 
 	pool *vision.WorkerPool
 
@@ -117,7 +118,8 @@ func NewManager(
 	)
 
 	m := &Manager{
-		bus: busClient,
+		bus:   busClient,
+		clock: func() time.Time { return time.Now().UTC() },
 
 		network: network.NewManager(),
 
@@ -165,6 +167,28 @@ func NewManager(
 	)
 
 	return m
+}
+
+// StartBusOnlyContext starts the real Discovery bus boundary without opening
+// HTTP, HTTPS, MediaMTX, camera, or network services. It is used by the
+// central E2E harness to exercise the production Discovery action and ingress
+// handlers over the real Unix bus in a temporary filesystem.
+func (m *Manager) StartBusOnlyContext(ctx context.Context) {
+	if m == nil || m.bus == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	go m.listenFaceMutations(ctx)
+}
+
+// SetClock makes Discovery's dry-run action result deterministic for the
+// central harness. Production callers leave the default wall clock intact.
+func (m *Manager) SetClock(now func() time.Time) {
+	if m != nil && now != nil {
+		m.clock = now
+	}
 }
 
 func (m *Manager) Start() {
@@ -286,6 +310,10 @@ func (m *Manager) listenFaceMutations(ctx context.Context) {
 			switch msg.Type {
 			case "action.request":
 				m.handleV1ActionRequest(msg)
+			case EdgeTrackManifestSchemaV1:
+				m.handleEdgeTrackManifest(msg)
+			case contract.EventVisionEnrichmentV3:
+				m.handleVisionEnrichmentV3(msg)
 			case "core.snapshot":
 				if m.snapshotCache != nil {
 					if err := m.snapshotCache.Apply(msg); err != nil {
@@ -310,7 +338,7 @@ func (m *Manager) handleV1ActionRequest(message contract.Message) {
 	if err := json.Unmarshal(message.Payload, &request); err != nil {
 		return
 	}
-	event, err := (&Boundary{DryRun: true}).ExecuteAction(request)
+	event, err := (&Boundary{DryRun: true, Now: m.clock}).ExecuteAction(request)
 	if err != nil {
 		return
 	}
@@ -318,7 +346,80 @@ func (m *Manager) handleV1ActionRequest(message contract.Message) {
 	if err != nil {
 		return
 	}
-	_ = m.bus.Send(contract.Message{ID: event.ID, Type: event.Type, Kind: contract.KindEvent, Source: "discovery", Target: "core", CorrelationID: message.CorrelationID, Timestamp: event.Timestamp, Payload: body})
+	// Derive the bus event identity from the request identity. Boundary's
+	// internal event ID remains opaque, while hermetic replays stay stable and
+	// retries cannot create a new logical action-result identity.
+	_ = m.bus.Send(contract.Message{ID: message.ID + ":result", Type: event.Type, Kind: contract.KindEvent, Source: "discovery", Target: "core", CorrelationID: message.CorrelationID, Timestamp: event.Timestamp, Payload: body})
+}
+
+func (m *Manager) handleEdgeTrackManifest(message contract.Message) {
+	if m == nil || m.bus == nil {
+		return
+	}
+	manifest, err := AcceptEdgeTrackManifestAt(message.Payload, m.clock())
+	if err != nil {
+		body, _ := json.Marshal(map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "rejected", "reason": err.Error()})
+		_ = m.bus.Send(contract.Message{ID: message.ID + ":rejected", Type: "discovery.ingress.rejected", Kind: contract.KindEvent, Source: "discovery", Target: message.Source, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
+		return
+	}
+	human := manifest.TriggerClass == "human" && manifest.ConfirmedTrackCount > 0
+	payload := map[string]any{
+		"schema_version":    contract.EventVisionSegmentReadyV1,
+		"camera_id":         manifest.CameraID,
+		"episode_id":        manifest.EpisodeID,
+		"topology":          manifest.TopologyClass,
+		"topology_class":    manifest.TopologyClass,
+		"trigger_class":     manifest.TriggerClass,
+		"human_present":     human,
+		"track_count":       manifest.TrackCount,
+		"track_confirmed":   human,
+		"priority":          edgePriority(manifest.TopologyClass, human),
+		"observation_count": manifest.ObservationCount,
+		"segment_count":     manifest.SegmentCount,
+		"gap_count":         manifest.GapCount,
+		"real_detection":    false,
+		"replay_simulation": true,
+	}
+	body, _ := json.Marshal(map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "accepted", "camera_id": manifest.CameraID, "episode_id": manifest.EpisodeID})
+	_ = m.bus.Send(contract.Message{ID: message.ID + ":accepted", Type: "discovery.ingress.accepted", Kind: contract.KindEvent, Source: "discovery", Target: message.Source, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
+	coreBody, _ := json.Marshal(payload)
+	_ = m.bus.Send(contract.Message{ID: message.ID + ":vision", Type: contract.EventVisionSegmentReadyV1, Kind: contract.KindEvent, Source: "discovery", Target: "core", CorrelationID: message.ID, Timestamp: parseManifestTime(manifest.StartedAt, m.clock), Payload: coreBody})
+}
+
+func (m *Manager) handleVisionEnrichmentV3(message contract.Message) {
+	if m == nil || m.bus == nil {
+		return
+	}
+	if err := ValidatePayload(message.Payload); err != nil {
+		body, _ := json.Marshal(map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "rejected", "reason": err.Error()})
+		_ = m.bus.Send(contract.Message{ID: message.ID + ":rejected", Type: "discovery.ingress.rejected", Kind: contract.KindEvent, Source: "discovery", Target: message.Source, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
+		return
+	}
+	body, _ := json.Marshal(map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "accepted", "event_type": contract.EventVisionEnrichmentV3})
+	_ = m.bus.Send(contract.Message{ID: message.ID + ":accepted", Type: "discovery.ingress.accepted", Kind: contract.KindEvent, Source: "discovery", Target: message.Source, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
+	_ = m.bus.Send(contract.Message{ID: message.ID + ":v3", Type: contract.EventVisionEnrichmentV3, Kind: contract.KindEvent, Source: "discovery", Target: "core", CorrelationID: message.ID, Timestamp: message.Timestamp, Payload: message.Payload})
+}
+
+func edgePriority(topology string, human bool) string {
+	if !human {
+		return contract.VisionPriorityP4
+	}
+	switch topology {
+	case contract.VisionTopologyProtectedInterior:
+		return contract.VisionPriorityP1
+	case contract.VisionTopologyRestrictedThreshold, contract.VisionTopologyPrivatePerimeter:
+		return contract.VisionPriorityP2
+	default:
+		return contract.VisionPriorityP4
+	}
+}
+
+func parseManifestTime(value string, fallback func() time.Time) time.Time {
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err == nil {
+		return parsed.UTC()
+	}
+	return fallback().UTC()
 }
 
 func (m *Manager) Close(ctx context.Context) error {

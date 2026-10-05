@@ -90,7 +90,7 @@ func hasForbiddenValue(value any) bool {
 		for key, child := range current {
 			key = strings.ToLower(strings.TrimSpace(key))
 			switch key {
-			case "frame", "frames", "image", "images", "media", "raw_media", "bbox", "bboxes", "crop", "crops", "embedding", "embeddings", "biometric_embedding", "hardware_id", "mac", "serial_number", "device_serial":
+			case "frame", "frames", "image", "images", "media", "media_ref", "media_path", "clip_path", "raw_media", "bbox", "bboxes", "crop", "crops", "keypoints", "raw_keypoints", "embedding", "embeddings", "biometric_embedding", "hardware_id", "mac", "serial_number", "device_serial", "local_track_id":
 				return true
 			case "identity":
 				return true

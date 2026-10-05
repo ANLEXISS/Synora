@@ -1,0 +1,107 @@
+{
+  "bundle": "v3",
+  "capabilities": [
+    "announce",
+    "record"
+  ],
+  "clock": "2026-01-01T00:00:00Z",
+  "expected": {
+    "discovery": {
+      "status": "accepted"
+    },
+    "forbidden": [
+      "frame",
+      "image",
+      "media",
+      "bbox",
+      "crop",
+      "keypoints",
+      "embedding",
+      "identity",
+      "local_track_id"
+    ],
+    "mlp": {
+      "heads": [
+        "danger",
+        "incident",
+        "task",
+        "action",
+        "communication_intent"
+      ],
+      "status": "available"
+    },
+    "outbox": {
+      "non_empty": false
+    },
+    "safety_gate": {
+      "physical_action_executed": false
+    },
+    "snapshot": {
+      "input_dimension": 86,
+      "schema_version": "cognitive-snapshot/v3"
+    },
+    "store": {
+      "committed": true
+    }
+  },
+  "id": "v3-recovery-observed",
+  "initial_store": {},
+  "messages": [
+    {
+      "id": "msg-v3-recovery-observed",
+      "payload": {
+        "event_type": "synora.vision.enrichment/v3",
+        "provenance": "test-harness",
+        "snapshot": {
+          "base_v2": {
+            "captured_at": "2026-01-01T00:00:00Z",
+            "communication": {
+              "announce_available": true,
+              "cooldown_active": false,
+              "tts_status": "available"
+            },
+            "schema_version": "cognitive-snapshot/v2",
+            "topology": "protected_interior",
+            "vision": {
+              "fall_state": "none",
+              "pose_quality": 0.9,
+              "pose_status": "available",
+              "posture": "standing",
+              "recovery_observed": true,
+              "risk_confidence": 0.0,
+              "risk_kind": "none",
+              "risk_persistence": "none",
+              "risk_status": "not_available"
+            }
+          },
+          "captured_at": "2026-01-01T00:00:00Z",
+          "schema_version": "cognitive-snapshot/v3",
+          "vision": {
+            "central_retracking_invocations": 0,
+            "edge_tracking_ok": true,
+            "fall_state": "none",
+            "ground_duration": 0.0,
+            "pose_observation_count": 2,
+            "pose_quality": 0.9,
+            "pose_sampled": true,
+            "pose_status": "available",
+            "posture": "upright",
+            "real_detection": false,
+            "recovery_observed": true,
+            "replay_simulation": true,
+            "risk_confidence": 0.0,
+            "risk_kind": "none",
+            "risk_observation_count": 0,
+            "risk_persistence": "none",
+            "risk_quality_sufficient": true,
+            "risk_status": "not_available"
+          }
+        },
+        "test": true
+      },
+      "timestamp": "2026-01-01T00:00:00Z",
+      "type": "synora.vision.enrichment/v3"
+    }
+  ],
+  "suite": "mlp_real"
+}

@@ -1,21 +1,24 @@
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -eu -o pipefail -c
 
-.PHONY: build test install update start stop restart doctor delete clean help \
+.PHONY: build test web-build install update start stop restart doctor delete clean help \
 	check-go install-deps install-dirs install-bins install-config install-models \
 	rotate-api-token generate-local-cert generate-discovery-cert install-mediamtx install-vision-worker install-systemd enable-services \
 	build-bootstrap-config install-bootstrap-config generate-version install-version install-model-manifest build-boot-healthcheck install-boot-healthcheck
 
-.PHONY: test e2e-v1 e2e-vision-mlp-v1 e2e-cognitive-core-v1 e2e-store-compaction-v1 qualify-cognitive-v1 perf-baseline-v1 cognitive-runtime-benchmark-v1 replay-edge-vision-v1 replay-vision-core-v1
+.PHONY: test test-central-v1 qualify-cognitive-v1 qualify-cognitive-v3 verify-rtmpose-clip cognitive-runtime-benchmark-v1
+
+CENTRAL_E2E_MANIFEST ?= testdata/central-e2e-v1/manifest.json
+CENTRAL_E2E_OUT ?= $(if $(OUT),$(OUT),/tmp/synora-central-e2e-v1.json)
 
 COGNITIVE_V1_BUNDLE ?= build/cognitive-mlp-v1
 COGNITIVE_BUNDLE ?= $(COGNITIVE_V1_BUNDLE)
-PERF_CLIP ?= /home/rock/test3.mp4
-PERF_BEFORE ?= /tmp/synora-perf-v1-before
-PERF_AFTER ?= /tmp/synora-perf-v1-after
-PERF_COGNITIVE_PYTHON ?= $(COGNITIVE_PYTHON)
-PERF_VISION_PYTHON ?= $(VISION_PYTHON)
 COGNITIVE_RUNTIME_BENCHMARK_OUT ?= /tmp/synora-cognitive-runtime-benchmark.json
+V3_LEARNING ?= /home/rock/Synora-learning
+V3_DATASET ?= $(V3_LEARNING)/build/cognitive-snapshot-v3-dataset
+V3_CHECKPOINT ?= $(V3_LEARNING)/build/cognitive-mlp-v3-checkpoint
+V3_BUNDLE ?= $(CURDIR)/build/cognitive-mlp-v3-candidate
+V3_QUALIFICATION_OUT ?= $(V3_LEARNING)/build/cognitive-v3-qualification.json
 
 PREFIX ?= /opt/synora
 BINDIR ?= $(PREFIX)/bin
@@ -59,6 +62,7 @@ endif
 
 GO_BINS := \
 	synora-bus:./cmd/synora-bus \
+	synora-api:./cmd/synora-api \
 	synora-core:./cmd/synora-core \
 	synora-discovery:./cmd/synora-discovery \
 	synora-network-config:./cmd/synora-network-config \
@@ -83,13 +87,13 @@ help:
 	@printf '%s\n' \
 		'Targets:' \
 		'  make build                 Build Go runtime binaries into ./bin' \
-		'  make test                  Run Go tests and Python compileall' \
-		'  make e2e-v1                Run the hermetic and real-worker V1 trace harnesses' \
-		'  make e2e-vision-mlp-v1    Run the segmented Vision -> Core V1 dry-run replay' \
-		'  make replay-edge-vision-v1 Run the Edge -> Discovery -> Core semantic replay' \
-		'  make e2e-cognitive-core-v1  Run the Core snapshot, Store and action-loop scenarios' \
-		'  make perf-baseline-v1     Run and compare the reproducible Vision/MLP before-after benchmark' \
+		'  make web-build             Build the V1 Intelligence webapp into synora-web/dist' \
+		'  make test                  Run the central harness, Go/Python tests and contract checks' \
+		'  make test-central-v1       Run the single hermetic Core/Store/Discovery/MLP E2E harness' \
+		'  make qualify-cognitive-v3  Generate, train and qualify the V3 candidate in active_dry_run' \
+		'  make test-central-v1 BUNDLE=v3  Run the V3 candidate cases in active_dry_run' \
 		'  make cognitive-runtime-benchmark-v1  Measure cold and steady cognitive runtime only' \
+		'  make verify-rtmpose-clip CLIP=/path/video.mp4  Smoke-test RTMPose without claiming fall validation' \
 		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
 		'  make rotate-api-token      Rotate security.yaml token and restart synora-discovery' \
 		'  make generate-local-cert  Generate a local self-signed TLS certificate' \
@@ -118,6 +122,9 @@ build: check-go build-bootstrap-config build-boot-healthcheck generate-version
 		GOCACHE=$(GOCACHE) "$(GO)" build $(GO_BUILD_FLAGS) -o "bin/$$name" "$$pkg"; \
 		done
 
+web-build:
+	cd synora-web && npm run build
+
 build-boot-healthcheck: check-go
 	@mkdir -p bin
 	@echo "Building synora-boot-healthcheck"
@@ -135,49 +142,31 @@ build-bootstrap-config: check-go
 		GOCACHE=$(GOCACHE) "$(GO)" build -o "bin/$$name" "$$pkg"; \
 	done
 
-test: check-go
+test-central-v1: check-go
+	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-central-test --manifest "$(CENTRAL_E2E_MANIFEST)" --case "$${CASE:-}" --bundle "$${BUNDLE:-}" --out "$(CENTRAL_E2E_OUT)"
+
+test: test-central-v1 check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./...
 	$(PYTHON) -m compileall -q services/vision-worker
 	$(PYTHON) -m unittest discover -s services/vision-worker/tests -p 'test_*.py'
 
-e2e-v1: check-go
-	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$' -count=1 -v
-	GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1ArchitectureHasNoRetiredDecisionImports$$|^TestV1FinalArchitectureHasNoRetiredRuntimeArtifacts$$' -count=1 -v
-
-e2e-vision-mlp-v1: check-go
-	@test -n "$(CLIP)" || { echo "FAIL: CLIP is required" >&2; exit 2; }
-	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
-	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
-	$(MAKE) replay-vision-core-v1 CLIP="$(CLIP)" OUT="$(OUT)"
-
-e2e-cognitive-core-v1: check-go
-	SYNORA_COGNITIVE_BUNDLE="$(CURDIR)/$(COGNITIVE_V1_BUNDLE)" GOCACHE=$(GOCACHE) "$(GO)" test ./cmd/synora-core -run '^TestV1CoreEndToEndScenarios$$|^TestV1DiscoveryCoreStoreDiscoveryActionResultLoop$$|^TestV1LoadedBundleRunsAllHeadsInActiveDryRun$$|^TestV1StoreSaturationRemainsBounded$$|^TestV1ArchitectureHasNoRetiredDecisionImports$$|^TestV1FinalArchitectureHasNoRetiredRuntimeArtifacts$$' -count=1 -v
-
-e2e-store-compaction-v1: check-go
-	GOCACHE=$(GOCACHE) "$(GO)" test ./internal/cognitivecore -run '^TestUniversalStoreCompaction' -count=1 -v
-
 qualify-cognitive-v1: check-go
-	@test -x /home/rock/Synora-learning/qualify_cognitive_v1.py || { echo "FAIL: external learning project is missing" >&2; exit 2; }
-	$(PYTHON) /home/rock/Synora-learning/qualify_cognitive_v1.py --repo "$(CURDIR)" --clip "$(PERF_CLIP)" --before "$(PERF_BEFORE)" --vision-python "$(PERF_VISION_PYTHON)" --cognitive-python "$(PERF_COGNITIVE_PYTHON)"
+	@echo "V1 qualification is the central hermetic suite; no real clip or legacy replay is used."
+	$(MAKE) test-central-v1 BUNDLE=v1
 
-perf-baseline-v1: check-go
-	@test -f "$(PERF_CLIP)" || { echo "FAIL: PERF_CLIP is not a regular file: $(PERF_CLIP)" >&2; exit 2; }
-	@test -d "$(PERF_BEFORE)" || { echo "FAIL: PERF_BEFORE is missing: $(PERF_BEFORE)" >&2; exit 2; }
-	@test ! -e "$(PERF_AFTER)" || { echo "FAIL: PERF_AFTER already exists: $(PERF_AFTER)" >&2; exit 2; }
-	"$(PYTHON)" tools/perf_baseline_v1.py --repo "$(CURDIR)" --clip "$(PERF_CLIP)" --before "$(PERF_BEFORE)" --after "$(PERF_AFTER)" --cognitive-python "$(PERF_COGNITIVE_PYTHON)" --vision-python "$(PERF_VISION_PYTHON)" --cognitive-bundle "$(COGNITIVE_BUNDLE)"
+qualify-cognitive-v3:
+	@test -f "$(V3_LEARNING)/tools/cognitive_v3_pipeline.py" || { echo "FAIL: external V3 learning pipeline is missing" >&2; exit 2; }
+	$(PYTHON) "$(V3_LEARNING)/tools/cognitive_v3_pipeline.py" build --output "$(V3_DATASET)"
+	$(PYTHON) "$(V3_LEARNING)/tools/cognitive_v3_pipeline.py" train --dataset "$(V3_DATASET)" --output "$(V3_CHECKPOINT)"
+	$(PYTHON) "$(V3_LEARNING)/tools/cognitive_v3_pipeline.py" export --checkpoint "$(V3_CHECKPOINT)" --output "$(V3_BUNDLE)"
+	$(PYTHON) "$(V3_LEARNING)/tools/cognitive_v3_pipeline.py" qualify --dataset "$(V3_DATASET)" --bundle "$(V3_BUNDLE)" --out "$(V3_QUALIFICATION_OUT)"
+
+verify-rtmpose-clip:
+	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
+	SYNORA_RTMPOSE_MODEL_PATH="$${RTMPOSE_MODEL_PATH:-}" $(PYTHON) tools/verify_rtmpose_clip.py --clip "$(CLIP)" --out "$${OUT:-/tmp/synora-rtmpose-clip-smoke.json}"
 
 cognitive-runtime-benchmark-v1: check-go
 	"$(GO)" run ./cmd/synora-cognitive-runtime-bench --bundle "$(COGNITIVE_BUNDLE)" --iterations "$${COGNITIVE_RUNTIME_BENCHMARK_ITERATIONS:-128}" --out "$(COGNITIVE_RUNTIME_BENCHMARK_OUT)"
-
-replay-edge-vision-v1: check-go
-	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
-	@test -n "$(OUT)" || { echo "FAIL: OUT is required" >&2; exit 2; }
-	@mkdir -p "$(OUT)/segments"
-	SYNORA_REAL_VISION=1 SYNORA_EDGE_VISION=1 SYNORA_COGNITIVE_BUNDLE="$(COGNITIVE_V1_BUNDLE)" PYTHONPATH=services/vision-worker $(PYTHON) services/vision-worker/replay_segments_v1.py --clip "$(CLIP)" --segment-seconds 1 --camera-id cam_entry_01 --node-id entry --zone protected_interior --trigger motion --out "$(OUT)/segments"
-	@test -f "$(OUT)/segments/core-replay.json" || { echo "FAIL: Core replay report missing" >&2; exit 2; }
-	cp "$(OUT)/segments/core-replay.json" "$(OUT)/core-replay.json"
-
-replay-vision-core-v1: replay-edge-vision-v1
 
 install: install-deps build build-bootstrap-config install-dirs install-bins install-bootstrap-config install-boot-healthcheck install-version install-model-manifest install-config install-models install-mediamtx install-vision-worker install-systemd enable-services
 	@echo "Synora runtime installation complete."

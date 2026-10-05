@@ -29,6 +29,18 @@ func TestBusACLRejectsSpoofAndWrongTarget(t *testing.T) {
 	}, "discovery"); err == nil {
 		t.Fatal("unknown producer/type combination was accepted")
 	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "test-envelope", Type: contract.EventValidationTestInference, Kind: contract.KindEvent,
+		Source: "api", Target: "core", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "api"); err != nil {
+		t.Fatalf("authenticated API test envelope was rejected by ACL: %v", err)
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "spoofed-test", Type: contract.EventValidationTestInference, Kind: contract.KindEvent,
+		Source: "discovery", Target: "core", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "discovery"); err == nil {
+		t.Fatal("Discovery was allowed to publish the test envelope")
+	}
 }
 
 func TestBusRejectsExpiredAndMutatedReplay(t *testing.T) {
@@ -136,5 +148,39 @@ func TestBusProcessIdentityDoesNotTrustSourceAlone(t *testing.T) {
 	defer right.Close()
 	if !peerOwnedByProcess(left) {
 		t.Fatal("hermetic pipe identity should remain usable")
+	}
+}
+
+func TestSystemServicePeerIdentityAllowlistIsExplicit(t *testing.T) {
+	tests := []struct {
+		service    string
+		executable string
+	}{
+		{service: "actions", executable: "synora-actions"},
+		{service: "api", executable: "synora-api"},
+		{service: "core", executable: "synora-core"},
+		{service: "discovery", executable: "synora-discovery"},
+		{service: "runtime-manager", executable: "synora-runtime-manager"},
+	}
+	for _, test := range tests {
+		t.Run(test.service, func(t *testing.T) {
+			uid, ok := expectedServiceUID(test.service)
+			if !ok || !serviceIdentityAllowed(uid, test.service, test.executable) {
+				t.Fatalf("planned system service was not allowlisted: %#v uid=%d ok=%t", test, uid, ok)
+			}
+			if serviceIdentityAllowed(uid, test.service, "unrelated-process") {
+				t.Fatal("unrelated executable was accepted")
+			}
+			wrongUID := uid + 1
+			if uid == ^uint32(0) {
+				wrongUID = uid - 1
+			}
+			if serviceIdentityAllowed(wrongUID, test.service, test.executable) {
+				t.Fatal("wrong Unix identity was accepted")
+			}
+		})
+	}
+	if serviceIdentityAllowed(0, "arbitrary-service", "synora-actions") {
+		t.Fatal("arbitrary service was accepted")
 	}
 }

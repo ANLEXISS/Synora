@@ -170,6 +170,30 @@ class WorkerRuntimeTests(unittest.TestCase):
         worker.release_episode_context("episode-expire")
         self.assertNotIn("episode-expire", worker._episode_contexts)
 
+    def test_v3_rtmpose_is_explicitly_unavailable_without_model_and_aggregate_only(self):
+        with mock.patch.dict(os.environ, {"SYNORA_RTMPOSE_MODEL_PATH": ""}, clear=False):
+            worker = VisionWorker(dry_run=True)
+            response = worker.process_request({
+                "request_id": "enrichment-v3",
+                "operation": "vision.enrichment.v3",
+                "episode_id": "episode-v3",
+                "confirmed_human_rois": [{
+                    "context_key": "process-local-a",
+                    "confirmed": True,
+                    "topology": "protected_interior",
+                    "priority": "P1_urgent_presence",
+                    "observed_at": "2026-09-21T12:00:00Z",
+                }],
+            })
+        self.assertEqual(response["status"], "active_dry_run")
+        self.assertEqual(response["payload"]["pose"]["status"], "unavailable")
+        self.assertEqual(response["payload"]["pose_model"]["status"], "unavailable")
+        self.assertEqual(response["physical_action_executed"], False)
+        self.assertEqual(response["physical_audio_played"], False)
+        encoded = json.dumps(response, sort_keys=True).lower()
+        for forbidden in ("keypoint", "image", "bbox", "crop", "embedding", "local_track_id", "local_track_key"):
+            self.assertNotIn(forbidden, encoded)
+
     def test_worker_restart_signals_continuity_reset_without_detections(self):
         worker = VisionWorker(dry_run=True)
         response = worker.process_request({

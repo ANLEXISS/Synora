@@ -99,12 +99,13 @@ test de contrat. Le statut `ok` ne peut jamais déclencher cette voie.
 La commande permanente est :
 
 ```text
-make replay-edge-vision-v1 CLIP=/home/rock/test3.mp4 OUT=/tmp/synora-edge-replay-v1
+make verify-rtmpose-clip CLIP=/home/rock/test3.mp4 OUT=/tmp/synora-rtmpose-smoke.json
 ```
 
 Elle écrit le manifeste Edge, le JSONL sémantique, le rapport Vision et le
-rapport Core/Store. `make replay-vision-core-v1` passe désormais par cette même
-voie, et `make e2e-vision-mlp-v1` la réutilise.
+rapport Core/Store. Le parcours système hermétique officiel est désormais
+`make test-central-v1`; il injecte des contrats synthétiques sur le vrai bus
+Unix et ne présente pas `test3.mp4` comme une validation de chute.
 
 Sur le replay réel observé pendant cette phase : 31 détections RKNN, 45 frames
 échantillonnées, 252 ignorées par la politique d’échantillonnage, 10 segments,

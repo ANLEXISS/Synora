@@ -35,6 +35,9 @@ from core.clip_pipeline_v1 import (
 )
 from core.detector_backend import ExistingDetectorBackend, ThreePinnedDetectorBackend
 from core.model_runner import model_status
+from core.enrichment_v2 import ConfirmedHumanROI
+from core.enrichment_v3 import VisionEnrichmentPipelineV3
+from core.rtmpose_backend import RTMPosePoseEnricher
 from edge.worker import EdgeVisionWorkerV1
 from face_dataset import FaceDatasetError, FaceDatasetManager, safe_component, _regular_file
 
@@ -46,6 +49,7 @@ CLIP_PROCESS = "clip.process"
 SEGMENT_PROCESS = "segment.process"
 EDGE_PIPELINE = "edge-v1"
 EPISODE_RELEASE = "episode.release"
+VISION_ENRICHMENT_V3 = "vision.enrichment.v3"
 ARCFACE_EMBEDDING_DIMENSION = 512
 FACE_DATA_ROOT = os.path.abspath(os.path.realpath(os.getenv("SYNORA_FACE_DATA_ROOT", "/var/lib/synora/vision/face")))
 MODEL_ROOT = os.getenv("SYNORA_MODEL_ROOT", "/var/lib/synora/models")
@@ -114,6 +118,8 @@ class VisionWorker:
         self.detector_backend = None
         self._episode_contexts = {}
         self._episode_contexts_lock = threading.RLock()
+        self._v3_enrichment_contexts = {}
+        self._rtmpose_pose_backend = None
 
         if dry_run:
             self.face_recognizer = None
@@ -194,6 +200,8 @@ class VisionWorker:
                     "object_detection": dict(available),
                     "weapon_detection": dict(available),
                     "fall_detection": dict(available),
+                    "pose_enrichment_v3": {"status": "unavailable", "integrated": True, "candidate": True, "reason": "no qualified pose backend"},
+                    "risk_object_enrichment_v3": {"status": "not_available", "integrated": True, "candidate": True, "reason": "no qualified risk backend"},
                 },
                 "models": {},
                 "face_dataset": {"status": "not_configured", "dimension": ARCFACE_EMBEDDING_DIMENSION},
@@ -245,6 +253,8 @@ class VisionWorker:
                 "object_detection": object_capability,
                 "weapon_detection": weapon_capability,
                 "fall_detection": {"status": "unavailable", "error": "fall detector is not enabled in the clip pipeline"},
+                "pose_enrichment_v3": {"status": "unavailable", "integrated": True, "candidate": True, "reason": "no qualified pose backend"},
+                "risk_object_enrichment_v3": {"status": "not_available", "integrated": True, "candidate": True, "reason": "no qualified risk backend"},
             },
             "models": models,
             "error": self.pipeline_error,
@@ -302,6 +312,8 @@ class VisionWorker:
             return self._with_request_id(request_id, self.process_face_embed(req))
         if operation == "face_dataset.reload":
             return self._with_request_id(request_id, self.process_face_reload(req))
+        if operation == VISION_ENRICHMENT_V3:
+            return self._with_request_id(request_id, self.process_enrichment_v3(req))
         if operation == SEGMENT_PROCESS:
             if req.get("pipeline") not in {"clip-v1", EDGE_PIPELINE}:
                 return self._with_request_id(request_id, {
@@ -468,6 +480,46 @@ class VisionWorker:
     def release_episode_context(self, episode_id):
         with self._episode_contexts_lock:
             self._episode_contexts.pop(episode_id, None)
+            self._v3_enrichment_contexts.pop(episode_id, None)
+
+    def process_enrichment_v3(self, req):
+        """Run the separate V3 candidate adapter in active dry-run only."""
+        episode_id = str(req.get("episode_id") or "v3-episode")
+        continuity_reset = bool(req.get("continuity_reset", False))
+        with self._episode_contexts_lock:
+            pipeline = self._v3_enrichment_contexts.get(episode_id)
+            if pipeline is None or continuity_reset:
+                if getattr(self, "_rtmpose_pose_backend", None) is None:
+                    self._rtmpose_pose_backend = RTMPosePoseEnricher()
+                # The adapter is the only V3 pose backend.  It has no YOLO
+                # fallback and reports unavailable when model/toolkit/runtime
+                # loading fails.
+                pipeline = VisionEnrichmentPipelineV3(pose=self._rtmpose_pose_backend)
+                self._v3_enrichment_contexts[episode_id] = pipeline
+        rois = []
+        for index, item in enumerate(req.get("confirmed_human_rois", [])):
+            if not isinstance(item, dict):
+                continue
+            observed_at = _parse_worker_time(item.get("observed_at")) or datetime.now(timezone.utc)
+            rois.append(ConfirmedHumanROI(
+                local_track_key=str(item.get("context_key") or f"roi-{index}"),
+                confirmed=bool(item.get("confirmed", False)),
+                topology=str(item.get("topology") or "unknown"),
+                priority=str(item.get("priority") or "P4_background"),
+                observed_at=observed_at,
+                pose_sample=item.get("pose_sample") if isinstance(item.get("pose_sample"), dict) else None,
+                risk_sample=item.get("risk_sample") if isinstance(item.get("risk_sample"), dict) else None,
+            ))
+        aggregate = pipeline.process(rois, real_detection=bool(req.get("real_detection", False)), replay_simulation=bool(req.get("replay_simulation", True)))
+        return {
+            "status": "active_dry_run",
+            "schema_version": "synora.vision.enrichment/v3",
+            "continuity_reset": continuity_reset,
+            "episode_id": episode_id,
+            "payload": aggregate.as_bus_payload(),
+            "physical_action_executed": False,
+            "physical_audio_played": False,
+        }
 
     def process_clip_v1(self, req, episode_context=None):
         """Run the opt-in clip pipeline and return observations before final summaries."""

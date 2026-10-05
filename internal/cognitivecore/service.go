@@ -18,6 +18,14 @@ type Service struct {
 	Bus  Bus
 	Core *Core
 	Name string
+	Now  func() time.Time
+}
+
+func (s *Service) now() time.Time {
+	if s != nil && s.Now != nil {
+		return s.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 func (s *Service) Handle(ctx context.Context, message contract.Message) error {
@@ -25,6 +33,26 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 		return fmt.Errorf("cognitive core service is not configured")
 	}
 	event := EventFromMessage(message)
+	if message.Type == contract.EventValidationTestInference {
+		if event.Source != "api" || payloadString(event.Payload, "provenance") != "test-harness" || !payloadBoolDefault(event.Payload, "test", false) {
+			return fmt.Errorf("invalid test-harness envelope")
+		}
+		event.Type = payloadString(event.Payload, "event_type")
+		if event.Type == "" {
+			return fmt.Errorf("test-harness event type is required")
+		}
+		if !cataloguedTestEventType(event.Type) {
+			return fmt.Errorf("test-harness event type is not catalogued")
+		}
+		result, err := s.Core.ProcessTest(ctx, event)
+		if err != nil {
+			return err
+		}
+		if result.Commit.Decision.Trace == nil {
+			return nil
+		}
+		return s.sendTestDecision(event, result)
+	}
 	result, err := s.Core.Process(ctx, event)
 	if err != nil {
 		return err
@@ -41,7 +69,13 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 	if err != nil {
 		return err
 	}
-	if err := s.Bus.Send(contract.Message{ID: event.ID + ":decision", Type: "core.decision", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "discovery", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: time.Now().UTC(), Payload: decisionPayload}); err != nil {
+	if err := s.Bus.Send(contract.Message{ID: event.ID + ":decision", Type: "core.decision", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "discovery", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: s.now(), Payload: decisionPayload}); err != nil {
+		return err
+	}
+	// The API is a read-only consumer of the already-redacted decision trace.
+	// It receives a separate targeted event so Discovery remains the only
+	// external runtime peer for the normal Core flow.
+	if err := s.Bus.Send(contract.Message{ID: event.ID + ":decision:api", Type: "core.decision", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "api", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: s.now(), Payload: decisionPayload}); err != nil {
 		return err
 	}
 	snapshotPayload, err := json.Marshal(struct {
@@ -53,7 +87,7 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 	if err != nil {
 		return err
 	}
-	if err := s.Bus.Send(contract.Message{ID: event.ID + ":snapshot", Type: "core.snapshot", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "discovery", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: time.Now().UTC(), Payload: snapshotPayload}); err != nil {
+	if err := s.Bus.Send(contract.Message{ID: event.ID + ":snapshot", Type: "core.snapshot", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "discovery", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: s.now(), Payload: snapshotPayload}); err != nil {
 		return err
 	}
 	if result.Result.Action != nil {
@@ -69,11 +103,33 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 		if err != nil {
 			return err
 		}
-		if err := s.Bus.Send(contract.Message{ID: result.Result.Action.RequestID + ":request", Type: "action.request", Kind: contract.KindCommand, Source: serviceName(s.Name), Target: "discovery", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: time.Now().UTC(), Payload: body}); err != nil {
+		if err := s.Bus.Send(contract.Message{ID: result.Result.Action.RequestID + ":request", Type: "action.request", Kind: contract.KindCommand, Source: serviceName(s.Name), Target: "discovery", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: s.now(), Payload: body}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func cataloguedTestEventType(eventType string) bool {
+	for _, item := range contract.TestInferenceCatalog() {
+		if item.EventType == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) sendTestDecision(event contract.Event, result ProcessResult) error {
+	decisionPayload, err := json.Marshal(struct {
+		SchemaVersion          string   `json:"schema_version"`
+		Revision               uint64   `json:"revision"`
+		Decision               Decision `json:"decision"`
+		PhysicalActionExecuted bool     `json:"physical_action_executed"`
+	}{"core-decision/v1", result.Result.Revision, result.Commit.Decision, false})
+	if err != nil {
+		return err
+	}
+	return s.Bus.Send(contract.Message{ID: event.ID + ":decision:api", Type: "core.decision", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "api", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: s.now(), Payload: decisionPayload})
 }
 
 func (s *Service) Run(ctx context.Context) error {

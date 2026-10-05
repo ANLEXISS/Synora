@@ -1,0 +1,51 @@
+{
+  "schema_version": "synora.vision.rtmpose-s-manifest/v1",
+  "model": "RTMPose-s",
+  "task": "top-down 2D human body pose, 17 COCO keypoints",
+  "input": {
+    "width": 192,
+    "height": 256,
+    "layout": "NCHW",
+    "color": "BGR_to_RGB",
+    "mean": [123.675, 116.28, 103.53],
+    "std": [58.395, 57.12, 57.375],
+    "roi_padding": 1.25,
+    "batch": 1,
+    "static_spatial_shape": true
+  },
+  "output": {
+    "format": "SimCC",
+    "names": ["simcc_x", "simcc_y"],
+    "keypoints": 17,
+    "postprocess": "argmax per keypoint on simcc_x/simcc_y; confidence is bounded max decoded score; raw keypoints never leave the process"
+  },
+  "backend": {
+    "candidate": "RKNN",
+    "target": "rk3588",
+    "model_env": "SYNORA_RTMPOSE_MODEL_PATH",
+    "default_path": "",
+    "status": "candidate_not_installed"
+  },
+  "source": {
+    "organization": "OpenMMLab",
+    "repository": "https://github.com/open-mmlab/mmpose",
+    "repository_license": "Apache-2.0",
+    "official_archive_url": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/rtmpose-s_simcc-body7_pt-body7_420e-256x192-acd4a1ef_20230504.zip",
+    "official_checkpoint_url": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-s_simcc-body7_pt-body7_420e-256x192-acd4a1ef_20230504.pth",
+    "official_config_url": "https://github.com/open-mmlab/mmpose/blob/main/configs/body_2d_keypoint/rtmpose/coco/rtmpose-s_8xb256-420e_coco-256x192.py",
+    "official_onnx_config_url": "https://github.com/open-mmlab/mmdeploy/blob/main/configs/mmpose/pose-detection_simcc_onnxruntime_static-256x192.py",
+    "official_rknn_config_url": "https://github.com/open-mmlab/mmdeploy/blob/main/configs/mmpose/pose-detection_simcc_rknn-fp16_static-256x192.py",
+    "weights_license": "not separately stated in the model archive; verify before redistribution",
+    "archive_sha256": "7673922e531014906ca4f0f239b7e233b740146a10b632deaa2a28d45470d802",
+    "checkpoint_sha256": "acd4a1efd8f01669cadd699ce0cceeebfc0f57a008074858e0d3063110c73c94",
+    "onnx_sha256": "9aeb635b83f86aea45cf45d85798f7eba1a162de8e0d721c44e54fe5eebaf47d",
+    "onnx_archive_export": "official ONNX package; source metadata has dynamic batch and static 256x192 spatial dimensions"
+  },
+  "conversion": {
+    "onnx_static_command": "tools/rtmpose_build.py export-onnx --work-dir build/rtmpose-s",
+    "rknn_command": "tools/rtmpose_build.py convert-rknn --work-dir build/rtmpose-s",
+    "runtime_check": "tools/rtmpose_build.py verify-runtime --work-dir build/rtmpose-s",
+    "reproducible": true,
+    "generated_artifacts_in_git": false
+  }
+}
