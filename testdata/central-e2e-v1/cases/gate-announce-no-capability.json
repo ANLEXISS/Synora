@@ -27,6 +27,7 @@
         "action",
         "communication_intent"
       ],
+      "probability_contract": "normalized",
       "status": "available"
     },
     "outbox": {

@@ -33,7 +33,7 @@ def expected(bundle: str, *, accepted: bool = True, committed: bool = True, safe
     safety = {"physical_action_executed": False}
     if safety_status:
         safety["status"] = safety_status
-    return {"discovery": {"status": "accepted"}, "snapshot": {"schema_version": version, "input_dimension": dimension}, "mlp": {"heads": heads, "status": "available"}, "safety_gate": safety, "store": {"committed": committed}, "outbox": {"non_empty": False}, "forbidden": ["frame", "image", "media", "bbox", "crop", "keypoints", "embedding", "identity", "local_track_id"]}
+    return {"discovery": {"status": "accepted"}, "snapshot": {"schema_version": version, "input_dimension": dimension}, "mlp": {"heads": heads, "status": "available", "probability_contract": "normalized"}, "safety_gate": safety, "store": {"committed": committed}, "outbox": {"non_empty": False}, "forbidden": ["frame", "image", "media", "bbox", "crop", "keypoints", "embedding", "identity", "local_track_id"]}
 
 
 def edge_payload(case_id: str, *, topology: str = "protected_interior", trigger: str = "human", confirmed: int = 1, segment: int = 1, gap: int = 0, at: datetime = CLOCK, **extra) -> dict:

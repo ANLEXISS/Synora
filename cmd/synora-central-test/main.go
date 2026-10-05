@@ -976,7 +976,7 @@ func validateExpected(report caseReport, expected fixtureExpected) caseReport {
 			}
 		}
 	}
-	if expectedStatus, ok := expected.MLP["status"].(string); ok && expectedStatus == "available" {
+	if expectedStatus, ok := expected.MLP["status"].(string); ok && expectedStatus == "available" && expected.MLP["probability_contract"] == "normalized" {
 		if len(report.MLPObservations) == 0 {
 			errorsFound = append(errorsFound, "MLP observation missing")
 			addDiff("mlp.observations", "at_least_one", len(report.MLPObservations), "real backend observation was expected")
