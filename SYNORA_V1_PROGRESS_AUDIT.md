@@ -1448,7 +1448,7 @@ La validation explicite de la branche et du commit de référence, puis l’alig
 - L’interface affiche désormais un écran de session et n’envoie le jeton bootstrap qu’au POST de création ; le jeton n’est pas persisté dans le navigateur.
 - Tests ajoutés et verts : session signée/expiration/tampering/RBAC, 401/403 HTTP, bootstrap de session et origine WebSocket.
 
-Cette tranche ne clôt pas J1 : la session est encore signée stateless (pas de registre serveur de révocation), les comptes `auth.yaml` et la revalidation des rôles ne sont pas raccordés, et la suppression métier/reprise idempotente entre les deux Stores doit encore être traitée.
+Cette tranche ne clôt pas J1 : les comptes `auth.yaml` et la revalidation des rôles ne sont pas encore raccordés, et la suppression métier/reprise idempotente entre les deux Stores doit encore être traitée.
 
 Mise à jour : un registre `session_store_file` persistant est maintenant
 utilisé pour inscrire les sessions, les retrouver après redémarrage et les
@@ -1468,3 +1468,18 @@ matérialisé, le WAL et les segments compactés, avec un marqueur durable qui
 permet de terminer proprement la suppression après un crash. Des tests
 vérifient l’absence de réapparition après redémarrage et la récupération d’un
 marqueur d’effacement interrompu.
+
+## Vérification J2 — état matériel actuel
+
+La qualification caméra n’est pas acquise sur l’état matériel observé :
+
+- `/etc/synora/devices.yaml` déclare `cam_03` et `cam_04`, mais aucun endpoint
+  RTSP/ONVIF ni capacité n’est configuré ;
+- l’API MediaMTX locale répond avec `itemCount=0` sur `/v3/paths/list` ;
+- aucun port RTSP n’est ouvert sur les voisins réseau vérifiés ;
+- le seul périphérique vidéo local est `/dev/video0`, identifié comme entrée
+  HDMI RK3588, pas comme caméra Synora appairée.
+
+Conclusion : J2 reste non qualifié matériellement. Les clips synthétiques,
+Le2i et l’entrée HDMI ne reçoivent aucun crédit de caméra réelle ou de
+parcours Discovery → Vision → Core.
