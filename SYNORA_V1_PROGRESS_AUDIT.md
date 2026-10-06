@@ -1520,3 +1520,20 @@ de rétention/suppression et la validation critique ne sont pas formellement
 acceptées. J2 reste bloqué par l’absence de matériel caméra qualifiable ; J3
 et J4 restent explicitement non démarrés en validation terrain. J5 à J9 ne
 doivent pas être ouverts.
+
+## Addendum d’exécution — santé caméra en échec fermé
+
+Le commit `3f12b17` relie maintenant l’état du registre caméra à `/healthz` :
+aucune caméra configurée est `unknown`, aucune caméra observée est `offline`,
+une couverture partielle est `degraded`, et Discovery n’est `ok` que lorsque
+toutes les caméras configurées sont effectivement vues en ligne. Le compteur
+est rafraîchi depuis `devices.yaml` et le registre runtime ; les transitions
+sont couvertes par `internal/discovery/health_test.go`. Cela empêche de
+confondre la réussite de la réconciliation de configuration MediaMTX avec la
+présence d’un flux caméra réel.
+
+La vérification Go complète après ce correctif est verte. Le run central lancé
+en parallèle d’un second harnais a obtenu `397/401` avec quatre timeouts de
+décision ; il est classé non validant et non archivé comme preuve de sortie.
+Le dernier run complet isolé précédemment validé reste `401/401` avec le même
+manifeste ; un nouveau `401/401` isolé est requis avant validation critique.
