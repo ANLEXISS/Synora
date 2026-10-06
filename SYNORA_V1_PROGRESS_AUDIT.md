@@ -1546,7 +1546,7 @@ Un run isolé depuis l’état courant a produit le 2026-10-06 :
 
 - harnais central : **401/401**, `failed=0`, manifeste
   `e827e22dbe4b99a96f86325eb32ed7c3098962c5fe796f67b3cd54bbded75a7e` ;
-- commit source courant : `c8a30fe9305321ac7c7fb0018e346256b0283206` ;
+- commit source courant à cette étape : `c8a30fe9305321ac7c7fb0018e346256b0283206` ;
 - build propre depuis ce commit réalisé dans un worktree temporaire ;
 - les six hash de binaires comparés au contenu de `/opt/synora/bin` sont tous
   différents, et `/opt/synora/version.json` déclare encore
@@ -1576,3 +1576,7 @@ réseau illisible/invalide pour l’utilisateur courant, manifeste modèles
 absent, modèles visage manquants et volume `/var/lib/synora` non writable pour
 cet utilisateur. La preuve source est donc renforcée, mais le déploiement
 reste non aligné et non validable sans intervention privilégiée.
+
+Vérification post-commit `5e082b1` : `go test ./...` vert, **89 tests Python**
+verts et build web vert. Les cinq modifications concurrentes du harnais et de
+sa documentation restent explicitement non committées et préservées.
