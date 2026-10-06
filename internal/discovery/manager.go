@@ -29,8 +29,11 @@ import (
 )
 
 type Manager struct {
-	bus   *bus.Client
-	clock func() time.Time
+	bus            *bus.Client
+	clock          func() time.Time
+	actionExecutor ActionExecutor
+	actionMu       sync.Mutex
+	actionResults  map[string]contract.Event
 
 	pool *vision.WorkerPool
 
@@ -138,6 +141,7 @@ func NewManager(
 		auth:          auth,
 		securityCfg:   cfg,
 		snapshotCache: NewSnapshotCache(),
+		actionResults: make(map[string]contract.Event),
 	}
 	faceRoot := runtime.Paths.FaceDataRoot
 	if strings.TrimSpace(os.Getenv("SYNORA_FACE_DATA_ROOT")) == "" && strings.TrimSpace(cfg.Vision.FaceDataRoot) != "" {
@@ -188,6 +192,22 @@ func (m *Manager) StartBusOnlyContext(ctx context.Context) {
 func (m *Manager) SetClock(now func() time.Time) {
 	if m != nil && now != nil {
 		m.clock = now
+	}
+}
+
+// ActionExecutor is the narrow Discovery-side action boundary. Production
+// keeps the Boundary implementation; the central harness may install a
+// test-only dry-run executor without bypassing Discovery's action ingress.
+type ActionExecutor interface {
+	ExecuteAction(ActionRequest) (contract.Event, error)
+}
+
+// SetActionExecutor is intended for hermetic central-harness replays. It does
+// not expose a physical device adapter and must never be used to enable
+// hardware execution.
+func (m *Manager) SetActionExecutor(executor ActionExecutor) {
+	if m != nil {
+		m.actionExecutor = executor
 	}
 }
 
@@ -338,8 +358,32 @@ func (m *Manager) handleV1ActionRequest(message contract.Message) {
 	if err := json.Unmarshal(message.Payload, &request); err != nil {
 		return
 	}
-	event, err := (&Boundary{DryRun: true, Now: m.clock}).ExecuteAction(request)
+	m.actionMu.Lock()
+	if previous, ok := m.actionResults[request.RequestID]; ok {
+		m.actionMu.Unlock()
+		m.publishActionResult(message, previous)
+		return
+	}
+	m.actionMu.Unlock()
+	executor := ActionExecutor(&Boundary{DryRun: true, Now: m.clock})
+	if m.actionExecutor != nil {
+		executor = m.actionExecutor
+	}
+	event, err := executor.ExecuteAction(request)
 	if err != nil {
+		return
+	}
+	m.actionMu.Lock()
+	if m.actionResults == nil {
+		m.actionResults = make(map[string]contract.Event)
+	}
+	m.actionResults[request.RequestID] = event
+	m.actionMu.Unlock()
+	m.publishActionResult(message, event)
+}
+
+func (m *Manager) publishActionResult(message contract.Message, event contract.Event) {
+	if m == nil || m.bus == nil {
 		return
 	}
 	body, err := json.Marshal(event.Payload)

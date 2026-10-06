@@ -2,8 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"synora/internal/security"
 )
 
 func TestSanitizeIntelligenceTraceKeepsOnlyBoundedRedactedFields(t *testing.T) {
@@ -26,6 +30,18 @@ func TestSanitizeIntelligenceTraceKeepsOnlyBoundedRedactedFields(t *testing.T) {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("forbidden field leaked: %s", text)
 		}
+	}
+}
+
+func TestWebSocketRejectsUnconfiguredOrigin(t *testing.T) {
+	cfg := &security.Config{AllowedOrigins: []string{"https://synora.example"}}
+	hub := newWebSocketHub(cfg)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/ws", nil)
+	request.Header.Set("Origin", "https://attacker.example")
+	hub.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("unexpected status for unconfigured origin: %d", recorder.Code)
 	}
 }
 

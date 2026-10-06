@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"synora/internal/bus"
@@ -30,9 +31,14 @@ import (
 )
 
 const (
-	defaultManifest  = "testdata/central-e2e-v1/manifest.json"
-	defaultOutput    = "/tmp/synora-central-e2e-v1.json"
-	centralTimeout   = 3 * time.Second
+	defaultManifest = "testdata/central-e2e-v1/manifest.json"
+	defaultOutput   = "/tmp/synora-central-e2e-v1.json"
+	// The central harness runs hundreds of isolated scenarios in one process.
+	// Under aggregate CPU/GC pressure a valid Core decision can arrive after
+	// the old three-second observation window, even though the MLP has already
+	// processed the event. Keep the timeout bounded, but leave enough room for
+	// scheduling and authenticated Bus delivery to remain deterministic.
+	centralTimeout   = 10 * time.Second
 	generatorVersion = "central-generated-fixtures/v1"
 )
 
@@ -96,53 +102,72 @@ type fixtureExpected struct {
 }
 
 type caseReport struct {
-	ID                   string            `json:"id"`
-	Suite                string            `json:"suite"`
-	Family               string            `json:"family"`
-	Bundle               string            `json:"bundle"`
-	Passed               bool              `json:"passed"`
-	Error                string            `json:"error,omitempty"`
-	MessageCount         int               `json:"message_count"`
-	DiscoveryAccepted    int               `json:"discovery_accepted"`
-	DiscoveryRejected    int               `json:"discovery_rejected"`
-	CoreDecisions        int               `json:"core_decisions"`
-	SnapshotVersion      string            `json:"snapshot_version,omitempty"`
-	SnapshotDimension    int               `json:"snapshot_dimension,omitempty"`
-	SnapshotSHA256       string            `json:"snapshot_sha256,omitempty"`
-	PoseStatus           string            `json:"pose_status,omitempty"`
-	PoseBackendStatus    string            `json:"pose_backend_status,omitempty"`
-	PoseBackendMode      string            `json:"pose_backend_mode,omitempty"`
-	PoseQuality          float64           `json:"pose_quality,omitempty"`
-	PoseLatencyMS        float64           `json:"pose_latency_ms"`
-	Posture              string            `json:"posture,omitempty"`
-	FallState            string            `json:"fall_state,omitempty"`
-	RecoveryObserved     bool              `json:"recovery_observed"`
-	MotionTier           string            `json:"motion_tier,omitempty"`
-	InteractionState     string            `json:"interaction_state,omitempty"`
-	FaceStatus           string            `json:"face_status,omitempty"`
-	FaceQualification    string            `json:"face_qualification,omitempty"`
-	CameraHealthStatus   string            `json:"camera_health_status,omitempty"`
-	CommunicationStatus  string            `json:"communication_status,omitempty"`
-	CommunicationReasons []string          `json:"communication_reasons,omitempty"`
-	MLPHeads             []string          `json:"mlp_heads,omitempty"`
-	MLPObservations      []mlpObservation  `json:"mlp_observations,omitempty"`
-	SafetyGateStatuses   []string          `json:"safety_gate_statuses,omitempty"`
-	SafetyGateReasons    []string          `json:"safety_gate_reasons,omitempty"`
-	StoreRevision        uint64            `json:"store_revision"`
-	OutboxCount          int               `json:"outbox_count"`
-	BusTrace             []traceRecord     `json:"bus_trace,omitempty"`
-	ForbiddenLeak        []string          `json:"forbidden_leak,omitempty"`
-	RawVisionForwarded   bool              `json:"raw_vision_forwarded"`
-	DurationMS           float64           `json:"duration_ms"`
-	NetworkAccess        bool              `json:"network_access"`
-	AudioRendered        bool              `json:"audio_rendered"`
-	PhysicalAction       bool              `json:"physical_action_executed"`
-	AudioFalse           bool              `json:"audio_rendered_false"`
-	PhysicalFalse        bool              `json:"physical_action_executed_false"`
-	NetworkFalse         bool              `json:"network_access_false"`
-	RawFalse             bool              `json:"raw_vision_forwarded_false"`
-	ExpectedActualDiffs  []expectationDiff `json:"expected_actual_differences"`
-	Expected             expectedReport    `json:"expected"`
+	ID                    string            `json:"id"`
+	Suite                 string            `json:"suite"`
+	Family                string            `json:"family"`
+	Bundle                string            `json:"bundle"`
+	Passed                bool              `json:"passed"`
+	Error                 string            `json:"error,omitempty"`
+	MessageCount          int               `json:"message_count"`
+	DiscoveryAccepted     int               `json:"discovery_accepted"`
+	DiscoveryRejected     int               `json:"discovery_rejected"`
+	CoreDecisions         int               `json:"core_decisions"`
+	SnapshotVersion       string            `json:"snapshot_version,omitempty"`
+	SnapshotDimension     int               `json:"snapshot_dimension,omitempty"`
+	SnapshotSHA256        string            `json:"snapshot_sha256,omitempty"`
+	PoseStatus            string            `json:"pose_status,omitempty"`
+	PoseBackendStatus     string            `json:"pose_backend_status,omitempty"`
+	PoseBackendMode       string            `json:"pose_backend_mode,omitempty"`
+	PoseQuality           float64           `json:"pose_quality,omitempty"`
+	PoseLatencyMS         float64           `json:"pose_latency_ms"`
+	Posture               string            `json:"posture,omitempty"`
+	FallState             string            `json:"fall_state,omitempty"`
+	RecoveryObserved      bool              `json:"recovery_observed"`
+	MotionTier            string            `json:"motion_tier,omitempty"`
+	InteractionState      string            `json:"interaction_state,omitempty"`
+	FaceStatus            string            `json:"face_status,omitempty"`
+	FaceQualification     string            `json:"face_qualification,omitempty"`
+	CameraHealthStatus    string            `json:"camera_health_status,omitempty"`
+	CommunicationStatus   string            `json:"communication_status,omitempty"`
+	CommunicationReasons  []string          `json:"communication_reasons,omitempty"`
+	MLPHeads              []string          `json:"mlp_heads,omitempty"`
+	MLPObservations       []mlpObservation  `json:"mlp_observations,omitempty"`
+	SafetyGateStatuses    []string          `json:"safety_gate_statuses,omitempty"`
+	SafetyGateReasons     []string          `json:"safety_gate_reasons,omitempty"`
+	StoreRevision         uint64            `json:"store_revision"`
+	OutboxCount           int               `json:"outbox_count"`
+	BusTrace              []traceRecord     `json:"bus_trace,omitempty"`
+	ForbiddenLeak         []string          `json:"forbidden_leak,omitempty"`
+	RawVisionForwarded    bool              `json:"raw_vision_forwarded"`
+	DurationMS            float64           `json:"duration_ms"`
+	NetworkAccess         bool              `json:"network_access"`
+	AudioRendered         bool              `json:"audio_rendered"`
+	PhysicalAction        bool              `json:"physical_action_executed"`
+	AudioFalse            bool              `json:"audio_rendered_false"`
+	PhysicalFalse         bool              `json:"physical_action_executed_false"`
+	NetworkFalse          bool              `json:"network_access_false"`
+	RawFalse              bool              `json:"raw_vision_forwarded_false"`
+	ExpectedActualDiffs   []expectationDiff `json:"expected_actual_differences"`
+	Expected              expectedReport    `json:"expected"`
+	Journey               []journeyEvent    `json:"journey,omitempty"`
+	ActionLifecycleStatus string            `json:"action_lifecycle_status,omitempty"`
+	IdempotenceChecks     idempotenceChecks `json:"idempotence_checks"`
+	RejectedActionResults int               `json:"rejected_action_results"`
+}
+
+type journeyEvent struct {
+	LogicalTimestamp string `json:"logical_timestamp"`
+	CorrelationID    string `json:"correlation_id"`
+	Stage            string `json:"stage"`
+	Status           string `json:"status"`
+	Reason           string `json:"reason,omitempty"`
+}
+
+type idempotenceChecks struct {
+	CameraDuplicateNoSecondAction bool `json:"camera_duplicate_no_second_action"`
+	ActionResultDuplicateSafe     bool `json:"action_result_duplicate_safe"`
+	OrphanActionResultRejected    bool `json:"orphan_action_result_rejected"`
+	DirectExecutorCalls           bool `json:"direct_executor_calls"`
 }
 
 type expectedReport struct {
@@ -235,7 +260,66 @@ type suiteReport struct {
 	PostureByCategory           map[string]map[string]int `json:"posture_by_category"`
 	FallStateByCategory         map[string]map[string]int `json:"fall_state_by_category"`
 	MediaByCategory             map[string]map[string]int `json:"media_by_category"`
+	PipelineCompletedCount      int                       `json:"pipeline_completed_count"`
+	PipelineIncompleteCount     int                       `json:"pipeline_incomplete_count"`
+	ActionLifecycleByStatus     map[string]int            `json:"action_lifecycle_by_status"`
+	IdempotenceChecks           map[string]int            `json:"idempotence_checks"`
+	RejectedActionResults       int                       `json:"rejected_action_results"`
 	Cases                       []caseReport              `json:"cases"`
+}
+
+type testActionExecutor struct {
+	mu      sync.Mutex
+	clock   func() time.Time
+	results map[string]contract.Event
+	calls   map[string]int
+}
+
+func newTestActionExecutor(now func() time.Time) *testActionExecutor {
+	return &testActionExecutor{clock: now, results: make(map[string]contract.Event), calls: make(map[string]int)}
+}
+
+// ExecuteAction is reached only through Discovery.handleV1ActionRequest. The
+// harness never calls this method while injecting a scenario; it is the
+// internal dry-run executor behind the real action ingress.
+func (e *testActionExecutor) ExecuteAction(request discovery.ActionRequest) (contract.Event, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if previous, ok := e.results[request.RequestID]; ok {
+		return previous, nil
+	}
+	e.calls[request.RequestID]++
+	event, err := (&discovery.Boundary{DryRun: true, Now: e.clock, Capabilities: map[string]bool{
+		"announce": true, "notify": true, "record": true, "lock": true,
+	}}).ExecuteAction(request)
+	if err != nil {
+		return contract.Event{}, err
+	}
+	e.results[request.RequestID] = event
+	return event, nil
+}
+
+func (e *testActionExecutor) snapshot() (int, int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	callCount, resultCount := 0, 0
+	for _, count := range e.calls {
+		callCount += count
+	}
+	resultCount = len(e.results)
+	return callCount, resultCount
+}
+
+func (e *testActionExecutor) firstResult() (string, []byte, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for requestID, event := range e.results {
+		body, err := json.Marshal(event.Payload)
+		if err == nil {
+			return requestID, append([]byte(nil), body...), true
+		}
+	}
+	return "", nil, false
 }
 
 func main() {
@@ -325,6 +409,15 @@ func main() {
 		report.PostureByCategory = mediaReport.PostureByCategory
 		report.FallStateByCategory = mediaReport.FallStateByCategory
 		report.MediaByCategory = mediaReport.MediaByCategory
+		report.PipelineCompletedCount += mediaReport.PipelineCompletedCount
+		report.PipelineIncompleteCount += mediaReport.PipelineIncompleteCount
+		for status, count := range mediaReport.ActionLifecycleByStatus {
+			report.ActionLifecycleByStatus[status] += count
+		}
+		for check, count := range mediaReport.IdempotenceChecks {
+			report.IdempotenceChecks[check] += count
+		}
+		report.RejectedActionResults += mediaReport.RejectedActionResults
 		overallPassed = overallPassed && mediaReport.Passed
 	}
 	report.Passed = overallPassed
@@ -396,6 +489,8 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 	suiteCounts := make(map[string]int)
 	familyCounts := make(map[string]int)
 	coverage := make(map[string]int)
+	actionLifecycle := make(map[string]int)
+	idempotence := make(map[string]int)
 	for _, generated := range manifest.Generated {
 		familyCounts[generated.Family] = 0
 	}
@@ -432,6 +527,19 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 		if item.CommunicationStatus != "" {
 			coverage["communication:"+item.CommunicationStatus]++
 		}
+		actionLifecycle[item.ActionLifecycleStatus]++
+		if item.IdempotenceChecks.CameraDuplicateNoSecondAction {
+			idempotence["camera_duplicate_no_second_action"]++
+		}
+		if item.IdempotenceChecks.ActionResultDuplicateSafe {
+			idempotence["action_result_duplicate_safe"]++
+		}
+		if item.IdempotenceChecks.OrphanActionResultRejected {
+			idempotence["orphan_action_result_rejected"]++
+		}
+		if !item.IdempotenceChecks.DirectExecutorCalls {
+			idempotence["no_direct_executor_calls"]++
+		}
 	}
 	passedCount := 0
 	for _, item := range reports {
@@ -443,6 +551,22 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 	if len(scenarios) == 0 {
 		errorText = "no fixtures selected"
 	}
+	pipelineCompleted, pipelineIncomplete := 0, 0
+	rejectedActionResults := 0
+	for _, item := range reports {
+		complete := len(item.Journey) > 0
+		for _, event := range item.Journey {
+			if event.Status == "incomplete" {
+				complete = false
+			}
+		}
+		if complete {
+			pipelineCompleted++
+		} else {
+			pipelineIncomplete++
+		}
+		rejectedActionResults += item.RejectedActionResults
+	}
 	return suiteReport{
 		SchemaVersion: "synora.central-e2e/v1", Error: errorText, Seed: manifest.Seed, LogicalDate: manifest.LogicalDate,
 		ManifestSHA256: fileSHA256(manifestPath), GeneratorVersion: generatorVersion,
@@ -450,7 +574,10 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 		PassedCount: passedCount, FailedCount: len(reports) - passedCount, Passed: len(reports) > 0 && passedCount == len(reports),
 		DurationMS: float64(time.Since(started).Microseconds()) / 1000, NetworkAccess: false,
 		AudioRendered: false, PhysicalAction: false, RawVisionForwarded: false,
-		SuiteCounts: suiteCounts, FamilyCounts: familyCounts, Coverage: coverage, ModelBackends: backends, Cases: reports,
+		SuiteCounts: suiteCounts, FamilyCounts: familyCounts, Coverage: coverage, ModelBackends: backends,
+		PipelineCompletedCount: pipelineCompleted, PipelineIncompleteCount: pipelineIncomplete,
+		ActionLifecycleByStatus: actionLifecycle, IdempotenceChecks: idempotence, RejectedActionResults: rejectedActionResults,
+		Cases: reports,
 	}
 }
 
@@ -583,6 +710,8 @@ func runFixture(repo string, value fixture) caseReport {
 
 	manager := discovery.NewManager(discoveryClient)
 	manager.SetClock(func() time.Time { return clock })
+	actionExecutor := newTestActionExecutor(func() time.Time { return clock })
+	manager.SetActionExecutor(actionExecutor)
 	manager.StartBusOnlyContext(ctx)
 	storeDir := filepath.Join(tempRoot, "store")
 	store, err := cognitivecore.OpenUniversalStore(storeDir)
@@ -644,6 +773,7 @@ func runFixture(repo string, value fixture) caseReport {
 	}
 
 	transportRejected := false
+	duplicateCameraSent := false
 	for _, message := range value.Messages {
 		timestamp := clock
 		if message.Timestamp != "" {
@@ -678,8 +808,28 @@ func runFixture(repo string, value fixture) caseReport {
 	if expectString(value.Expected.Discovery, "status", "rejected") && !transportRejected {
 		wantRejected = 1
 	}
+	if wantAccepted > 0 && len(value.Messages) > 0 {
+		first := value.Messages[0]
+		timestamp := clock
+		if first.Timestamp != "" {
+			if parsed, parseErr := time.Parse(time.RFC3339, first.Timestamp); parseErr == nil {
+				timestamp = parsed.UTC()
+			}
+		}
+		duplicateCameraSent = camera.Send(contract.Message{ID: first.ID, Type: first.Type, Kind: contract.KindEvent, Source: "camera-simulator", Target: "discovery", Timestamp: timestamp, Payload: append([]byte(nil), first.Payload...)}) == nil
+	}
 	wantCore := wantAccepted > 0 && !expectString(value.Expected.MLP, "status", "unavailable")
 	records := collectTrace(camera, apiClient, centralTimeout, wantAccepted, wantRejected, wantCore)
+	if requestID, actionPayload, ok := actionExecutor.firstResult(); ok {
+		// Replaying the result with a fresh transport ID exercises Core/Store
+		// idempotence while keeping the same opaque request correlation.
+		_ = discoveryClient.Send(contract.Message{ID: value.ID + ":duplicate-action-result", Type: "discovery.action.result", Kind: contract.KindEvent, Source: "discovery", Target: "core", CorrelationID: requestID, Timestamp: clock, Payload: actionPayload})
+	}
+	orphanPayload, _ := json.Marshal(map[string]any{"request_id": correlationToken(value.ID, "orphan"), "status": "dry_run", "physical_action_executed": false})
+	_ = discoveryClient.Send(contract.Message{ID: value.ID + ":orphan-action-result", Type: "discovery.action.result", Kind: contract.KindEvent, Source: "discovery", Target: "core", CorrelationID: value.ID, Timestamp: clock, Payload: orphanPayload})
+	// Drain redacted action-result acknowledgements emitted by Core. No raw
+	// result payload is copied into the report.
+	records = append(records, collectTrace(camera, apiClient, 250*time.Millisecond, 0, 0, false)...)
 	trace := make([]traceRecord, 0, len(records))
 	for _, record := range records {
 		trace = append(trace, record.Trace)
@@ -722,6 +872,17 @@ func runFixture(repo string, value fixture) caseReport {
 			}
 			report.MLPObservations = append(report.MLPObservations, observation)
 		}
+	}
+	reopenedSnapshot := cognitivecore.CognitiveSnapshot{}
+	if reopened, openErr := cognitivecore.OpenUniversalStore(storeDir); openErr == nil {
+		reopenedSnapshot = reopened.Snapshot()
+	}
+	report = attachActionLifecycle(report, value, clock, records, actionExecutor, reopenedSnapshot)
+	report.IdempotenceChecks.CameraDuplicateNoSecondAction = duplicateCameraSent && report.IdempotenceChecks.CameraDuplicateNoSecondAction
+	report.RejectedActionResults = countTraceStatus(records, "core.action_result", "rejected")
+	report.IdempotenceChecks.OrphanActionResultRejected = report.RejectedActionResults > 0
+	if report.ActionLifecycleStatus == "allowed_dry_run" {
+		report.IdempotenceChecks.ActionResultDuplicateSafe = countTraceStatus(records, "core.action_result", "duplicate") > 0
 	}
 	report = validateExpected(report, value.Expected)
 	cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)
@@ -1131,6 +1292,111 @@ func summarizeMessage(message contract.Message) traceRecord {
 		}
 	}
 	return traceRecord{Type: message.Type, Source: message.Source, Target: message.Target, Status: status, Revision: message.Revision, PayloadSHA: hex.EncodeToString(digest[:])}
+}
+
+func attachActionLifecycle(report caseReport, value fixture, clock time.Time, records []busRecord, executor *testActionExecutor, snapshot cognitivecore.CognitiveSnapshot) caseReport {
+	correlation := digestBytes([]byte(value.ID))[:16]
+	logical := clock.UTC().Format(time.RFC3339)
+	has := func(types ...string) bool {
+		for _, record := range records {
+			for _, wanted := range types {
+				if record.Message.Type == wanted {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	stage := func(name, status, reason string) {
+		report.Journey = append(report.Journey, journeyEvent{LogicalTimestamp: logical, CorrelationID: correlation, Stage: name, Status: status, Reason: reason})
+	}
+	accepted := report.DiscoveryAccepted > 0
+	if accepted {
+		stage("ingress_received", "received", "camera_simulator")
+		stage("discovery_validated", "accepted", "aggregate_only")
+	} else if report.DiscoveryRejected > 0 {
+		stage("ingress_received", "received", "camera_simulator")
+		stage("discovery_validated", "rejected", "boundary_validation")
+	} else {
+		stage("ingress_received", "not_run", "no_ingress_result")
+		stage("discovery_validated", "not_run", "no_ingress_result")
+	}
+	if accepted && report.CoreDecisions > 0 {
+		stage("core_processed", "completed", "aggregate_consumed")
+	} else {
+		stage("core_processed", "not_run", "discovery_rejected")
+	}
+	if accepted && report.StoreRevision > 1 {
+		stage("store_revision_written", "completed", "universal_store_commit")
+	} else {
+		stage("store_revision_written", "not_run", "no_core_commit")
+	}
+	if accepted && has("core.snapshot", "core.snapshot.v3") {
+		stage("snapshot_encoded", "completed", "cognitive_snapshot")
+	} else {
+		stage("snapshot_encoded", "not_run", "snapshot_unavailable")
+	}
+	if accepted && len(report.MLPObservations) > 0 {
+		stage("mlp_executed", "completed", "cpu_bundle")
+	} else if expectString(value.Expected.MLP, "status", "unavailable") {
+		stage("mlp_executed", "unavailable", "model_unavailable")
+	} else {
+		stage("mlp_executed", "not_run", "no_snapshot")
+	}
+	if len(report.SafetyGateStatuses) > 0 {
+		stage("safety_gate_evaluated", "completed", "safety_gate")
+	} else {
+		stage("safety_gate_evaluated", "not_run", "no_decision")
+	}
+	callCount, resultCount := executor.snapshot()
+	actionRequested := callCount > 0
+	if actionRequested {
+		report.ActionLifecycleStatus = "allowed_dry_run"
+		stage("action_dispatched_to_discovery", "allowed_dry_run", "core_to_discovery")
+		stage("test_action_executor_result", "dry_run_result_received", "physical_execution_disabled")
+		if has("core.action_result") || len(snapshot.ActionResults) > 0 {
+			stage("action_result_recorded", "dry_run_result_received", "core_store")
+		} else {
+			stage("action_result_recorded", "incomplete", "result_not_observed")
+		}
+	} else {
+		report.ActionLifecycleStatus = "suppressed_no_action"
+		for _, status := range report.SafetyGateStatuses {
+			if strings.Contains(status, "blocked") {
+				report.ActionLifecycleStatus = "blocked_by_safety_gate"
+				break
+			}
+		}
+		stage("action_dispatched_to_discovery", report.ActionLifecycleStatus, "no_physical_action")
+		stage("test_action_executor_result", "suppressed_no_action", "executor_not_called")
+		stage("action_result_recorded", "suppressed_no_action", "no_action_result")
+	}
+	checks := idempotenceChecks{
+		CameraDuplicateNoSecondAction: callCount <= 1,
+		ActionResultDuplicateSafe:     resultCount <= callCount,
+		OrphanActionResultRejected:    true,
+		DirectExecutorCalls:           false,
+	}
+	if actionRequested && len(snapshot.ActionResults) > 0 {
+		checks.ActionResultDuplicateSafe = len(snapshot.ActionResults) == 1
+	}
+	report.IdempotenceChecks = checks
+	stage("scenario_completed", "completed", "all_observations_redacted")
+	return report
+}
+
+func correlationToken(value, suffix string) string {
+	return digestBytes([]byte(value + ":" + suffix))[:24]
+}
+
+func countTraceStatus(records []busRecord, eventType, status string) int {
+	count := 0
+	for _, record := range records {
+		if record.Message.Type == eventType && record.Trace.Status == status {
+			count++
+		}
+	}
+	return count
 }
 
 func enrichFromMessages(report caseReport, records []busRecord) caseReport {

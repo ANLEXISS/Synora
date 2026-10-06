@@ -54,6 +54,22 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 		return s.sendTestDecision(event, result)
 	}
 	result, err := s.Core.Process(ctx, event)
+	if event.Type == contract.EventActionResult || event.Type == "discovery.action.result" {
+		status := "recorded"
+		if err != nil {
+			status = "rejected"
+		} else if result.Result.Duplicate {
+			status = "duplicate"
+		}
+		body, marshalErr := json.Marshal(map[string]any{"schema_version": "core-action-result/v1", "status": status, "revision": result.Result.Revision, "request_id": ActionResultRequestID(event.Payload)})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if sendErr := s.Bus.Send(contract.Message{ID: event.ID + ":action-result", Type: "core.action_result", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "api", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: s.now(), Payload: body}); sendErr != nil {
+			return sendErr
+		}
+		return nil
+	}
 	if err != nil {
 		return err
 	}

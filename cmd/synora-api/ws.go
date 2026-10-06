@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"synora/internal/security"
 	"synora/pkg/contract"
 )
 
@@ -33,6 +34,9 @@ type websocketHub struct {
 	clients map[*websocketClient]struct{}
 	closed  bool
 
+	security *security.Config
+	auth     *apiAuth
+
 	intelligenceMu       sync.RWMutex
 	intelligenceTopology map[string]any
 	intelligenceTraces   []map[string]any
@@ -50,8 +54,12 @@ type websocketBus interface {
 	SubscribeChannel(string) <-chan contract.Message
 }
 
-func newWebSocketHub() *websocketHub {
-	return &websocketHub{clients: make(map[*websocketClient]struct{})}
+func newWebSocketHub(cfg *security.Config, auth ...*apiAuth) *websocketHub {
+	hub := &websocketHub{clients: make(map[*websocketClient]struct{}), security: cfg}
+	if len(auth) > 0 {
+		hub.auth = auth[0]
+	}
+	return hub
 }
 
 func (h *websocketHub) observeBus(bus websocketBus) {
@@ -325,7 +333,24 @@ func (h *websocketHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	if h == nil || h.security == nil || !h.security.AllowsOrigin(r.Header.Get("Origin")) {
+		http.Error(w, "forbidden origin", http.StatusForbidden)
+		return
+	}
+	if h.auth != nil {
+		claims, ok := h.auth.authenticate(r)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if !security.RoleAllows(claims.Role, "guest") {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+	}
+	upgrader := websocket.Upgrader{CheckOrigin: func(request *http.Request) bool {
+		return h.security != nil && h.security.AllowsOrigin(request.Header.Get("Origin"))
+	}}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return

@@ -122,7 +122,7 @@ func eventACLAllowed(service, eventType, target string) bool {
 		if eventType == contract.EventValidationTestInference {
 			return target == "core"
 		}
-		return targetOK("api") && (eventType == "core.decision" || eventType == "core.snapshot")
+		return targetOK("api") && (eventType == "core.decision" || eventType == "core.snapshot" || eventType == "core.action_result")
 	}
 	return false
 }

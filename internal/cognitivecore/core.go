@@ -62,6 +62,22 @@ func (c *Core) process(ctx context.Context, event contract.Event, persist bool) 
 	if event.Timestamp.IsZero() {
 		event.Timestamp = c.now()
 	}
+	if event.Type == contract.EventActionResult || event.Type == "discovery.action.result" {
+		requestID := actionResultRequestID(event.Payload)
+		if requestID == "" {
+			return ProcessResult{}, errors.New("action result request_id is required")
+		}
+		requestFound, duplicate, err := actionResultState(c.Store, requestID)
+		if err != nil {
+			return ProcessResult{}, err
+		}
+		if !requestFound {
+			return ProcessResult{}, errors.New("orphan action result rejected")
+		}
+		if duplicate {
+			return ProcessResult{Result: CommitResult{Revision: c.Store.Revision(), Duplicate: true}}, nil
+		}
+	}
 	previous := c.Store.Snapshot()
 	snapshot, err := c.composeSnapshot(previous, event)
 	if err != nil {

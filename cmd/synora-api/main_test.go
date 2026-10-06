@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"synora/internal/runtimeconfig"
+	"synora/internal/security"
 )
 
 func TestConfiguredHTTPSUsesExisting8443Configuration(t *testing.T) {
@@ -47,5 +49,51 @@ func TestHealthIsLocalAndReadOnly(t *testing.T) {
 	handleHealth(recorder, request)
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"status":"ok"`) {
 		t.Fatalf("unexpected health response: code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestIntelligenceRequiresAuthenticationAndRole(t *testing.T) {
+	cfg := &security.Config{APIToken: "admin-token", AllowedOrigins: []string{"https://synora.example"}}
+	auth := newAPIAuth(cfg)
+	hub := newWebSocketHub(cfg, auth)
+	handler := auth.require("guest", http.HandlerFunc(handleIntelligenceTopology(hub)))
+
+	unauthenticated := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/intelligence/topology", nil))
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status = %d", unauthenticated.Code)
+	}
+
+	forbidden := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/intelligence/topology", nil)
+	request.AddCookie(&http.Cookie{Name: security.SessionCookieName, Value: "invalid"})
+	handler.ServeHTTP(forbidden, request)
+	if forbidden.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid session status = %d", forbidden.Code)
+	}
+
+	token, err := security.SignSession(auth.secret, security.SessionClaims{Subject: "guest-1", Role: "guest", CSRF: "csrf", ExpiresAt: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roleHandler := auth.require("admin", http.HandlerFunc(handleIntelligenceTopology(hub)))
+	roleDenied := httptest.NewRecorder()
+	roleRequest := httptest.NewRequest(http.MethodGet, "/api/admin", nil)
+	roleRequest.AddCookie(&http.Cookie{Name: security.SessionCookieName, Value: token})
+	roleHandler.ServeHTTP(roleDenied, roleRequest)
+	if roleDenied.Code != http.StatusForbidden {
+		t.Fatalf("insufficient role status = %d", roleDenied.Code)
+	}
+}
+
+func TestSessionBootstrapReturnsCSRFProtectedCookie(t *testing.T) {
+	cfg := &security.Config{APIToken: "admin-token", AllowedOrigins: []string{"https://synora.example"}}
+	auth := newAPIAuth(cfg)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/session", nil)
+	request.Header.Set("Authorization", "Bearer admin-token")
+	auth.createSession(recorder, request)
+	if recorder.Code != http.StatusCreated || recorder.Header().Get("Set-Cookie") == "" || recorder.Header().Get("X-Synora-CSRF") == "" {
+		t.Fatalf("session bootstrap failed: code=%d headers=%v", recorder.Code, recorder.Header())
 	}
 }

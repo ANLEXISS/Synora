@@ -57,32 +57,36 @@ type visionMediaExpectation struct {
 }
 
 type mediaCaseReport struct {
-	ID                           string           `json:"id"`
-	Family                       string           `json:"family"`
-	Category                     string           `json:"category,omitempty"`
-	Status                       string           `json:"status"`
-	Reason                       string           `json:"reason,omitempty"`
-	PoseStatus                   string           `json:"pose_status,omitempty"`
-	Posture                      string           `json:"posture,omitempty"`
-	ImmobilitySeconds            float64          `json:"immobility_seconds,omitempty"`
-	FallState                    string           `json:"fall_state,omitempty"`
-	RapidMotionState             string           `json:"rapid_motion_state,omitempty"`
-	PhysicalInteractionCandidate bool             `json:"physical_interaction_candidate"`
-	Confidence                   float64          `json:"confidence,omitempty"`
-	LatencyMS                    float64          `json:"latency_ms,omitempty"`
-	Expected                     map[string]any   `json:"expected,omitempty"`
-	SemanticStatus               string           `json:"semantic_status,omitempty"`
-	CorePassed                   bool             `json:"core_passed"`
-	SnapshotVersion              string           `json:"snapshot_version,omitempty"`
-	SnapshotDimension            int              `json:"snapshot_dimension,omitempty"`
-	MLPHeads                     []string         `json:"mlp_heads,omitempty"`
-	MLPObservations              []mlpObservation `json:"mlp_observations,omitempty"`
-	SafetyGateStatuses           []string         `json:"safety_gate_statuses,omitempty"`
-	SafetyGateReasons            []string         `json:"safety_gate_reasons,omitempty"`
-	RawVisionForwarded           bool             `json:"raw_vision_forwarded"`
-	AudioRendered                bool             `json:"audio_rendered"`
-	PhysicalActionExecuted       bool             `json:"physical_action_executed"`
-	NetworkAccess                bool             `json:"network_access"`
+	ID                           string            `json:"id"`
+	Family                       string            `json:"family"`
+	Category                     string            `json:"category,omitempty"`
+	Status                       string            `json:"status"`
+	Reason                       string            `json:"reason,omitempty"`
+	PoseStatus                   string            `json:"pose_status,omitempty"`
+	Posture                      string            `json:"posture,omitempty"`
+	ImmobilitySeconds            float64           `json:"immobility_seconds,omitempty"`
+	FallState                    string            `json:"fall_state,omitempty"`
+	RapidMotionState             string            `json:"rapid_motion_state,omitempty"`
+	PhysicalInteractionCandidate bool              `json:"physical_interaction_candidate"`
+	Confidence                   float64           `json:"confidence,omitempty"`
+	LatencyMS                    float64           `json:"latency_ms,omitempty"`
+	Expected                     map[string]any    `json:"expected,omitempty"`
+	SemanticStatus               string            `json:"semantic_status,omitempty"`
+	CorePassed                   bool              `json:"core_passed"`
+	SnapshotVersion              string            `json:"snapshot_version,omitempty"`
+	SnapshotDimension            int               `json:"snapshot_dimension,omitempty"`
+	MLPHeads                     []string          `json:"mlp_heads,omitempty"`
+	MLPObservations              []mlpObservation  `json:"mlp_observations,omitempty"`
+	SafetyGateStatuses           []string          `json:"safety_gate_statuses,omitempty"`
+	SafetyGateReasons            []string          `json:"safety_gate_reasons,omitempty"`
+	RawVisionForwarded           bool              `json:"raw_vision_forwarded"`
+	AudioRendered                bool              `json:"audio_rendered"`
+	PhysicalActionExecuted       bool              `json:"physical_action_executed"`
+	NetworkAccess                bool              `json:"network_access"`
+	Journey                      []journeyEvent    `json:"journey,omitempty"`
+	ActionLifecycleStatus        string            `json:"action_lifecycle_status,omitempty"`
+	IdempotenceChecks            idempotenceChecks `json:"idempotence_checks"`
+	RejectedActionResults        int               `json:"rejected_action_results"`
 }
 
 type mediaSuiteReport struct {
@@ -109,6 +113,11 @@ type mediaSuiteReport struct {
 	FallStateByCategory         map[string]map[string]int `json:"fall_state_by_category"`
 	SemanticQualification       string                    `json:"semantic_qualification"`
 	SemanticDebtByCategory      map[string]int            `json:"semantic_debt_by_category"`
+	PipelineCompletedCount      int                       `json:"pipeline_completed_count"`
+	PipelineIncompleteCount     int                       `json:"pipeline_incomplete_count"`
+	ActionLifecycleByStatus     map[string]int            `json:"action_lifecycle_by_status"`
+	IdempotenceChecks           map[string]int            `json:"idempotence_checks"`
+	RejectedActionResults       int                       `json:"rejected_action_results"`
 	Cases                       []mediaCaseReport         `json:"cases"`
 }
 
@@ -299,7 +308,7 @@ func runLe2iSuite(repoRoot, manifestPath, mediaRoot, modelPath string) mediaSuit
 		Mode: "le2i", MediaRootSet: mediaRoot != "", StatusCounts: make(map[string]int), FamilyCounts: make(map[string]int),
 		MediaByCategory: make(map[string]map[string]int), PoseLatencyMS: map[string]float64{"p50_ms": 0, "p95_ms": 0, "max_ms": 0},
 		PostureByCategory: make(map[string]map[string]int), FallStateByCategory: make(map[string]map[string]int), SemanticQualification: "not_qualified",
-		SemanticDebtByCategory: make(map[string]int), Cases: make([]mediaCaseReport, 0, len(manifest.Cases)),
+		SemanticDebtByCategory: make(map[string]int), ActionLifecycleByStatus: make(map[string]int), IdempotenceChecks: make(map[string]int), Cases: make([]mediaCaseReport, 0, len(manifest.Cases)),
 	}
 	model := diagnosePoseModel(repoRoot, modelPath)
 	report.ModelStatus, report.ModelReason = le2iModelStatus(modelPath, model), model.Reason
@@ -338,6 +347,32 @@ func runLe2iSuite(repoRoot, manifestPath, mediaRoot, modelPath string) mediaSuit
 		if item.SemanticStatus == "observed_mismatch" {
 			report.SemanticDebtByCategory[item.Category]++
 		}
+		report.ActionLifecycleByStatus[item.ActionLifecycleStatus]++
+		if item.IdempotenceChecks.CameraDuplicateNoSecondAction {
+			report.IdempotenceChecks["camera_duplicate_no_second_action"]++
+		}
+		if item.IdempotenceChecks.ActionResultDuplicateSafe {
+			report.IdempotenceChecks["action_result_duplicate_safe"]++
+		}
+		if item.IdempotenceChecks.OrphanActionResultRejected {
+			report.IdempotenceChecks["orphan_action_result_rejected"]++
+		}
+		if !item.IdempotenceChecks.DirectExecutorCalls {
+			report.IdempotenceChecks["no_direct_executor_calls"]++
+		}
+		if len(item.Journey) > 0 {
+			report.PipelineCompletedCount++
+			for _, event := range item.Journey {
+				if event.Status == "incomplete" {
+					report.PipelineCompletedCount--
+					report.PipelineIncompleteCount++
+					break
+				}
+			}
+		} else {
+			report.PipelineIncompleteCount++
+		}
+		report.RejectedActionResults += item.RejectedActionResults
 	}
 	report.ScenarioCount = len(report.Cases)
 	report.FailedCount = report.ScenarioCount - report.PassedCount
@@ -447,6 +482,7 @@ func evaluateLe2iCase(repoRoot string, entry le2iCase, mediaRoot string, model p
 	item.MLPHeads, item.MLPObservations = coreReport.MLPHeads, coreReport.MLPObservations
 	item.SafetyGateStatuses, item.SafetyGateReasons = coreReport.SafetyGateStatuses, coreReport.SafetyGateReasons
 	item.RawVisionForwarded, item.AudioRendered, item.PhysicalActionExecuted, item.NetworkAccess = coreReport.RawVisionForwarded, coreReport.AudioRendered, coreReport.PhysicalAction, coreReport.NetworkAccess
+	item.Journey, item.ActionLifecycleStatus, item.IdempotenceChecks, item.RejectedActionResults = coreReport.Journey, coreReport.ActionLifecycleStatus, coreReport.IdempotenceChecks, coreReport.RejectedActionResults
 	item.Status = mediaStatusPassed
 	if !item.CorePassed || item.RawVisionForwarded || item.AudioRendered || item.PhysicalActionExecuted || item.NetworkAccess || item.FallState == "confirmed" {
 		item.Status, item.Reason = mediaStatusFailed, "central safety or redaction gate failed"

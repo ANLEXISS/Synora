@@ -38,9 +38,31 @@ func (s *ServiceV3) Handle(ctx context.Context, message contract.Message) error 
 	if s == nil || s.Bus == nil || s.Core == nil {
 		return fmt.Errorf("V3 cognitive core service is not configured")
 	}
-	if message.Type == contract.EventActionResult {
-		// The action result is already represented by Discovery's immutable
-		// event. V3 keeps the candidate path dry-run and does not re-emit it.
+	if message.Type == contract.EventActionResult || message.Type == "discovery.action.result" {
+		var payload map[string]any
+		if err := json.Unmarshal(message.Payload, &payload); err != nil {
+			return fmt.Errorf("decode V3 action result: %w", err)
+		}
+		event := contract.Event{ID: message.ID, Type: message.Type, Source: message.Source, Timestamp: message.Timestamp.UTC(), Payload: payload}
+		if event.Timestamp.IsZero() {
+			event.Timestamp = s.now()
+		}
+		result, err := s.Core.RecordActionResult(event)
+		status := "recorded"
+		if err != nil {
+			status = "rejected"
+		} else if result.Duplicate {
+			status = "duplicate"
+		}
+		body, marshalErr := json.Marshal(map[string]any{"schema_version": "core-action-result/v1", "status": status, "revision": result.Revision, "request_id": ActionResultRequestID(payload)})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if sendErr := s.Bus.Send(contract.Message{ID: message.ID + ":action-result", Type: "core.action_result", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "api", CorrelationID: message.ID, Revision: result.Revision, Timestamp: s.now(), Payload: body}); sendErr != nil {
+			return sendErr
+		}
+		// An orphan or duplicate result is an explicit harness-observable
+		// rejection/idempotence outcome, not a reason to restart Core.
 		return nil
 	}
 	if message.Type != contract.EventVisionEnrichmentV3 && message.Type != contract.EventValidationTestInference {
@@ -63,6 +85,9 @@ func (s *ServiceV3) Handle(ctx context.Context, message contract.Message) error 
 	result, err := s.Core.Process(ctx, event, envelope.Snapshot)
 	if err != nil {
 		return err
+	}
+	if result.Result.Duplicate {
+		return nil
 	}
 	decisionPayload, err := json.Marshal(struct {
 		SchemaVersion          string     `json:"schema_version"`

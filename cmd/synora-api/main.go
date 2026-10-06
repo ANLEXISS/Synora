@@ -42,11 +42,14 @@ func main() {
 	}
 	defer client.Close()
 
-	hub := newWebSocketHub()
+	auth := newAPIAuth(serverConfig.Security)
+	hub := newWebSocketHub(serverConfig.Security, auth)
 	go hub.observeBus(client)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/intelligence/topology", handleIntelligenceTopology(hub))
-	mux.HandleFunc("/api/intelligence/traces", handleIntelligenceTraces(hub))
+	mux.Handle("/api/auth/session", http.HandlerFunc(auth.createSession))
+	mux.Handle("/api/auth/me", auth.require("guest", http.HandlerFunc(auth.me)))
+	mux.Handle("/api/intelligence/topology", auth.require("guest", http.HandlerFunc(handleIntelligenceTopology(hub))))
+	mux.Handle("/api/intelligence/traces", auth.require("guest", http.HandlerFunc(handleIntelligenceTraces(hub))))
 	mux.HandleFunc("/health", handleHealth)
 	mux.Handle("/api/ws", hub)
 	webRoot := strings.TrimSpace(os.Getenv("SYNORA_WEB_ROOT"))
@@ -113,6 +116,7 @@ type apiServerConfig struct {
 	HTTPSAddr    string
 	TLSCertFile  string
 	TLSKeyFile   string
+	Security     *security.Config
 }
 
 func loadAPIServerConfig(runtime runtimeconfig.Config) (apiServerConfig, error) {
@@ -126,6 +130,7 @@ func loadAPIServerConfig(runtime runtimeconfig.Config) (apiServerConfig, error) 
 		HTTPSAddr:    runtime.Endpoints.HTTPS,
 		TLSCertFile:  runtime.Paths.TLSCert,
 		TLSKeyFile:   runtime.Paths.TLSKey,
+		Security:     cfg,
 	}
 	if value := strings.TrimSpace(cfg.Server.HTTPAddr); value != "" && strings.TrimSpace(os.Getenv("SYNORA_HTTP_ADDR")) == "" {
 		result.HTTPAddr = value

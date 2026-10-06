@@ -18,6 +18,8 @@ import time
 import cv2
 import numpy as np
 
+from modules.detect.person_detector import PersonDetector
+
 from core.model_runner import ModelUnavailableError, create_model_runner
 
 
@@ -191,14 +193,19 @@ def percentile(values, fraction):
 
 def run_video(video_path, model_path, max_frames):
     runner = load_backend(model_path)
+    person_detector = PersonDetector()
     capture = cv2.VideoCapture(video_path)
     if not capture.isOpened():
         runner.close()
+        if person_detector.runner is not None:
+            person_detector.runner.close()
         raise RuntimeError("video could not be decoded")
     frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     if frame_count <= 0:
         capture.release()
         runner.close()
+        if person_detector.runner is not None:
+            person_detector.runner.close()
         raise RuntimeError("video has no readable frames")
     stride = max(1, int(np.ceil(frame_count / max_frames)))
     previous_center = None
@@ -211,6 +218,10 @@ def run_video(video_path, model_path, max_frames):
     rapid = False
     fall_candidate = False
     processed = 0
+    human_confirmed = 0
+    pose_requests = 0
+    human_detector_available = person_detector.available
+    pose_request_reason = "human_not_confirmed"
     index = 0
     try:
         while processed < max_frames:
@@ -221,12 +232,18 @@ def run_video(video_path, model_path, max_frames):
                 index += 1
                 continue
             index += 1
+            processed += 1
+            humans = person_detector.detect(frame)
+            if not humans:
+                continue
+            human_confirmed += 1
+            pose_requests += 1
+            pose_request_reason = "confirmed_human"
             started = time.perf_counter()
             tensor, meta = letterbox(frame)
             outputs = runner.infer(tensor)
             pose = decode_best(outputs, meta)
             latency_samples.append((time.perf_counter() - started) * 1000.0)
-            processed += 1
             if pose is None:
                 continue
             posture = posture_from_pose(pose)
@@ -250,6 +267,8 @@ def run_video(video_path, model_path, max_frames):
     finally:
         capture.release()
         runner.close()
+        if person_detector.runner is not None:
+            person_detector.runner.close()
     common = {
         "latency_ms": round(float(np.mean(latency_samples)) if latency_samples else 0.0, 3),
         "latency_p50_ms": round(percentile(latency_samples, 50), 3),
@@ -257,10 +276,14 @@ def run_video(video_path, model_path, max_frames):
         "latency_max_ms": round(max(latency_samples) if latency_samples else 0.0, 3),
         "frame_count": processed,
         "pose_frame_count": len(postures),
+        "human_detector_status": "available" if human_detector_available else "unavailable",
+        "human_confirmed_frame_count": human_confirmed,
+        "pose_request_count": pose_requests,
+        "pose_request_reason": pose_request_reason,
     }
     if not postures:
         return {
-            **common, "pose_status": "low_quality", "posture": "unavailable", "immobility_seconds": 0.0,
+            **common, "pose_status": "not_requested" if human_confirmed == 0 else "low_quality", "posture": "unavailable", "immobility_seconds": 0.0,
             "fall_state": "none", "rapid_motion_state": "unknown", "physical_interaction_candidate": False, "confidence": 0.0,
         }
     counts = {value: postures.count(value) for value in set(postures)}

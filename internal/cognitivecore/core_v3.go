@@ -2,7 +2,9 @@ package cognitivecore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"synora/pkg/contract"
@@ -88,4 +90,100 @@ func (c *CoreV3) Process(ctx context.Context, event contract.Event, snapshot Cog
 	snapshot.Revision = result.Revision
 	commit.SnapshotV3 = &snapshot
 	return ProcessResultV3{Commit: commit, Result: result, Encoded: encoded}, nil
+}
+
+// RecordActionResult folds a Discovery action result into the durable V1 view
+// of the Store. It deliberately does not encode or run the V3 MLP again: an
+// action result is a fact, not a new Vision trigger. Request correlation and
+// duplicate handling are checked against the committed journal.
+func (c *CoreV3) RecordActionResult(event contract.Event) (CommitResult, error) {
+	if c == nil || c.Store == nil {
+		return CommitResult{}, errors.New("V3 cognitive core store unavailable")
+	}
+	if event.ID == "" || event.Type == "" || event.Source == "" {
+		return CommitResult{}, errors.New("action result event id, type and source are required")
+	}
+	requestID := actionResultRequestID(event.Payload)
+	if requestID == "" {
+		return CommitResult{}, errors.New("action result request_id is required")
+	}
+	requestFound, duplicate, err := actionResultState(c.Store, requestID)
+	if err != nil {
+		return CommitResult{}, err
+	}
+	if duplicate {
+		return CommitResult{Revision: c.Store.Revision(), Duplicate: true}, nil
+	}
+	if !requestFound {
+		return CommitResult{}, fmt.Errorf("orphan action result rejected: request_id=%s", requestID)
+	}
+	snapshot := c.Store.Snapshot()
+	snapshot.ActionResults = append(snapshot.ActionResults, actionResultFromPayload(event.Payload))
+	commit := Commit{
+		Event:    event,
+		Snapshot: snapshot,
+		Decision: Decision{
+			SchemaVersion: DecisionSchemaVersion, Status: "not_requested", Mode: "active_dry_run", Source: "discovery-action-result",
+			HeadOrder: append([]string(nil), HeadOrder[:]...), InputDimension: CognitiveVectorSize,
+			Action:      ActionAssessment{Proposed: ActionIntent{Action: "no_action"}, Status: "not_requested", Reasons: []string{"action_result_observed"}, PhysicalActionExecuted: false},
+			GeneratedAt: c.now(),
+		},
+		CommittedAt: c.now(),
+	}
+	return c.Store.Commit(commit)
+}
+
+func actionResultState(store *UniversalStore, requestID string) (bool, bool, error) {
+	if store == nil {
+		return false, false, errors.New("universal store is nil")
+	}
+	history, err := store.History()
+	if err != nil {
+		return false, false, err
+	}
+	requestFound := false
+	for _, commit := range history {
+		if commit.Action != nil && commit.Action.RequestID == requestID {
+			requestFound = true
+		}
+		if commit.Event.Type == contract.EventActionResult || commit.Event.Type == "discovery.action.result" {
+			if actionResultRequestID(commit.Event.Payload) == requestID {
+				return requestFound, true, nil
+			}
+		}
+	}
+	return requestFound, false, nil
+}
+
+func actionResultRequestID(payload map[string]any) string {
+	if payload == nil {
+		return ""
+	}
+	if value, ok := payload["request_id"].(string); ok {
+		return value
+	}
+	if request, ok := payload["request"].(map[string]any); ok {
+		if value, ok := request["request_id"].(string); ok {
+			return value
+		}
+	}
+	return ""
+}
+
+// ActionResultRequestID is a redacted helper for the central harness and
+// contract tests; it never exposes an action payload or device identifier.
+func ActionResultRequestID(payload map[string]any) string { return actionResultRequestID(payload) }
+
+// ValidateActionResultJSON keeps the V3 service boundary explicit for action
+// results that arrived through Discovery.
+func ValidateActionResultJSON(payload []byte) (string, error) {
+	var value map[string]any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		return "", err
+	}
+	requestID := actionResultRequestID(value)
+	if requestID == "" {
+		return "", errors.New("action result request_id is required")
+	}
+	return requestID, nil
 }
