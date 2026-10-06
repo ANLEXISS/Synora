@@ -268,7 +268,8 @@ func (m *Manager) StartContext(ctx context.Context) {
 		healthState.setVisionWorker("ok", "")
 	}
 	healthState.setSuccess(0)
-	go m.monitorVisionHealth(ctx)
+	m.refreshCameraHealth(runtime.Paths.Devices)
+	go m.monitorVisionHealth(ctx, runtime.Paths.Devices)
 	boundary := &Boundary{DryRun: true, Store: m.snapshotCache}
 	api := NewExternalAPI(m.securityCfg, boundary, busEventPublisher{client: m.bus}, m.snapshotCache, func() map[string]any {
 		status := healthState.snapshot()
@@ -891,7 +892,7 @@ func statusForDiscovery(status *discoveryHealth) string {
 	return "ok"
 }
 
-func (m *Manager) monitorVisionHealth(ctx context.Context) {
+func (m *Manager) monitorVisionHealth(ctx context.Context, devicePath string) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -902,17 +903,39 @@ func (m *Manager) monitorVisionHealth(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			cameraChanged := m.refreshCameraHealth(devicePath)
 			snapshot := m.vision.Snapshot()
 			status, reason := classifyVisionWorkerStatus(snapshot, missingVisionModel())
 			changed := healthState.setVisionWorker(status, reason)
 			if status == "unavailable" {
 				m.vision.PublishUnavailable(snapshot.Status)
 			}
-			if changed {
+			if changed || cameraChanged {
 				m.publishRuntimeStatus()
 			}
 		}
 	}
+}
+
+func (m *Manager) refreshCameraHealth(devicePath string) bool {
+	known := 0
+	if configs, err := device.Load(devicePath); err == nil {
+		for _, configured := range configs {
+			if configured.Type == contract.DeviceTypeCamera && configured.Enabled && configured.DeletedAt == nil {
+				known++
+			}
+		}
+	}
+	online := 0
+	if m != nil && m.devices != nil {
+		for _, observed := range m.devices.Snapshot() {
+			if observed.Type == "camera" && observed.Online {
+				online++
+			}
+		}
+	}
+	healthState.setSuccess(known)
+	return healthState.setCameraStatus(known, online)
 }
 
 func classifyVisionWorkerStatus(snapshot vision.WorkerSnapshot, modelsMissing bool) (string, string) {

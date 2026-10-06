@@ -10,7 +10,12 @@ import (
 type discoveryHealth struct {
 	mu sync.RWMutex
 
-	KnownCams int `json:"known_cameras"`
+	KnownCams  int `json:"known_cameras"`
+	OnlineCams int `json:"online_cameras"`
+
+	CameraStatus string `json:"camera_status"`
+
+	CameraError string `json:"camera_error,omitempty"`
 
 	LastSuccess time.Time `json:"last_success"`
 
@@ -36,6 +41,7 @@ var healthState = &discoveryHealth{
 	VisionWorkerStatus:  "unknown",
 	VisionIngressStatus: "unknown",
 	MediaMTXStatus:      "unknown",
+	CameraStatus:        "unknown",
 }
 
 func startHealthServer(address string) *http.Server {
@@ -57,13 +63,15 @@ func startHealthServer(address string) *http.Server {
 				status.VisionIngressStatus != "error" &&
 				status.MediaMTXStatus != "degraded" &&
 				status.MediaMTXStatus != "unavailable" &&
-				status.MediaMTXStatus != "error"
+				status.MediaMTXStatus != "error" &&
+				status.CameraStatus == "ok"
 
 		payload := map[string]any{
-			"service":       "discovery",
-			"status":        map[bool]string{true: "ok", false: "degraded"}[healthy],
-			"known_cameras": status.KnownCams,
-			"last_success":  status.LastSuccess,
+			"service":        "discovery",
+			"status":         map[bool]string{true: "ok", false: "degraded"}[healthy],
+			"known_cameras":  status.KnownCams,
+			"online_cameras": status.OnlineCams,
+			"last_success":   status.LastSuccess,
 			"network": map[string]any{
 				"status": status.NetworkStatus,
 			},
@@ -75,6 +83,9 @@ func startHealthServer(address string) *http.Server {
 			},
 			"mediamtx": map[string]any{
 				"status": status.MediaMTXStatus,
+			},
+			"cameras": map[string]any{
+				"status": status.CameraStatus,
 			},
 		}
 
@@ -89,6 +100,9 @@ func startHealthServer(address string) *http.Server {
 		}
 		if status.MediaMTXError != "" {
 			payload["mediamtx"].(map[string]any)["message"] = status.MediaMTXError
+		}
+		if status.CameraError != "" {
+			payload["cameras"].(map[string]any)["message"] = status.CameraError
 		}
 
 		if !healthy {
@@ -165,6 +179,43 @@ func (h *discoveryHealth) setMediaMTX(status, message string) {
 	}
 }
 
+func (h *discoveryHealth) setCameraStatus(known, online int) bool {
+	if known < 0 {
+		known = 0
+	}
+	if online < 0 {
+		online = 0
+	}
+	if online > known {
+		online = known
+	}
+	status, message := cameraHealthStatus(known, online)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	changed := h.CameraStatus != status || h.CameraError != message || h.KnownCams != known || h.OnlineCams != online
+	h.KnownCams = known
+	h.OnlineCams = online
+	h.CameraStatus = status
+	h.CameraError = message
+	if message != "" {
+		h.LastError = message
+	}
+	return changed
+}
+
+func cameraHealthStatus(known, online int) (string, string) {
+	switch {
+	case known <= 0:
+		return "unknown", "no enabled camera is configured"
+	case online <= 0:
+		return "offline", "no configured camera is online"
+	case online < known:
+		return "degraded", "only some configured cameras are online"
+	default:
+		return "ok", ""
+	}
+}
+
 func (h *discoveryHealth) snapshot() discoveryHealth {
 
 	h.mu.RLock()
@@ -172,6 +223,9 @@ func (h *discoveryHealth) snapshot() discoveryHealth {
 
 	return discoveryHealth{
 		KnownCams:           h.KnownCams,
+		OnlineCams:          h.OnlineCams,
+		CameraStatus:        h.CameraStatus,
+		CameraError:         h.CameraError,
 		LastSuccess:         h.LastSuccess,
 		LastError:           h.LastError,
 		NetworkStatus:       h.NetworkStatus,
