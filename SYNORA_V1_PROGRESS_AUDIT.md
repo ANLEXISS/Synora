@@ -1754,3 +1754,20 @@ La vérification post-commit reste verte : `go test ./...`, Python Vision
 logiciel ; elle ne
 prouve toujours pas le flux d’une caméra réelle ni l’alignement du binaire
 déployé.
+
+## Vérification J2/J3 — preuves négatives récentes
+
+Le pack média `MEDIA=le2i` a été exécuté avec un rapport isolé le
+2026-10-06. Le cœur reste à **403/403**, mais les 48 cas Vision LE2I sont tous
+`blocked_media_missing` : `SYNORA_VISION_MEDIA_ROOT` n’est pas configuré, le
+modèle pose RKNN n’est pas configuré, `media_hash_verification_passed=false`
+et `semantic_qualification=not_qualified`. Aucune latence ou sortie de pose
+n’est donc créditée comme qualification matérielle.
+
+Le contrôle read-only `make qualify-camera` du 2026-10-06 retourne
+`decision=not_qualified` et `passed=false`. Il observe deux caméras déclarées
+(`cam_03`, `cam_04`), zéro identité active, aucun endpoint, aucun chemin
+MediaMTX, Discovery `503 degraded`, réseau `ok`, ingress `listening` et worker
+Vision `degraded` avec modèles manquants. `/dev/video0` reste une entrée
+`rk_hdmirx`, pas une caméra Synora. Ces preuves maintiennent J2 et J3 hors
+qualification terrain et empêchent la promotion J4 pilote.
