@@ -52,6 +52,29 @@ func TestHealthIsLocalAndReadOnly(t *testing.T) {
 	}
 }
 
+func TestVersionEndpointReturnsNonSecretManifest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "version.json")
+	if err := os.WriteFile(path, []byte(`{"image_version":"test","synora_version":"1.0.0","git_commit":"abc123","build_time":"2026-10-06T00:00:00Z","target_board":"rk3588","os_base":"debian","kernel_expected":"6.1","rknn_runtime_expected":"2.2","config_schema_version":1,"bundle_id":"local-abc123"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	handleVersion(recorder, httptest.NewRequest(http.MethodGet, "/api/system/version", nil), path)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"git_commit":"abc123"`) {
+		t.Fatalf("unexpected version response: code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(strings.ToLower(recorder.Body.String()), "secret") {
+		t.Fatal("version response contains an unexpected secret field")
+	}
+}
+
+func TestVersionEndpointFailsClosedWhenManifestMissing(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	handleVersion(recorder, httptest.NewRequest(http.MethodGet, "/api/system/version", nil), filepath.Join(t.TempDir(), "missing.json"))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("missing version manifest status=%d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+}
+
 func TestIntelligenceRequiresAuthenticationAndRole(t *testing.T) {
 	cfg := &security.Config{APIToken: "admin-token", AllowedOrigins: []string{"https://synora.example"}}
 	auth := newAPIAuth(cfg)

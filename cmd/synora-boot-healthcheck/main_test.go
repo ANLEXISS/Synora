@@ -1,13 +1,42 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"synora/internal/boothealth"
 )
+
+func TestGetVersionRejectsCommitMismatch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/system/version" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		fmt.Fprint(w, `{"git_commit":"deployed-1","bundle_id":"local-deployed-1"}`)
+	}))
+	defer server.Close()
+	status, _ := getVersion(context.Background(), server.URL, "source-2")
+	if status != "fatal" {
+		t.Fatalf("commit mismatch status=%q, want fatal", status)
+	}
+}
+
+func TestGetVersionAcceptsMatchingCommit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"git_commit":"source-2","bundle_id":"local-source-2"}`)
+	}))
+	defer server.Close()
+	status, message := getVersion(context.Background(), server.URL, "source-2")
+	if status != "ok" || message == "" {
+		t.Fatalf("matching version status=%q message=%q", status, message)
+	}
+}
 
 func TestWriteReportDoesNotContainSecretValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "boot-health.json")

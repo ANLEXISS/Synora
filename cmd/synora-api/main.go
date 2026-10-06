@@ -52,6 +52,9 @@ func main() {
 	mux.Handle("/api/auth/logout", auth.require("guest", http.HandlerFunc(auth.logout)))
 	mux.Handle("/api/intelligence/topology", auth.require("guest", http.HandlerFunc(handleIntelligenceTopology(hub))))
 	mux.Handle("/api/intelligence/traces", auth.require("guest", http.HandlerFunc(handleIntelligenceTraces(hub))))
+	mux.HandleFunc("/api/system/version", func(w http.ResponseWriter, r *http.Request) {
+		handleVersion(w, r, runtime.Paths.VersionFile)
+	})
 	mux.HandleFunc("/health", handleHealth)
 	mux.Handle("/api/ws", hub)
 	webRoot := strings.TrimSpace(os.Getenv("SYNORA_WEB_ROOT"))

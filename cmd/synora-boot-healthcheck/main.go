@@ -55,6 +55,7 @@ func explain() {
 
 type options struct {
 	baseURL, report, manifest, models string
+	expectedCommit                    string
 	timeout                           time.Duration
 	readonly                          bool
 	allowSynoraNetDegraded            bool
@@ -68,6 +69,7 @@ func run(args []string) int {
 	set.StringVar(&opts.report, "report", "", "JSON report path; no report is written when empty")
 	set.StringVar(&opts.manifest, "manifest", envOr("SYNORA_MODELS_MANIFEST", defaultManifest), "model manifest path")
 	set.StringVar(&opts.models, "models", envOr("SYNORA_MODELS_ROOT", defaultModels), "model directory")
+	set.StringVar(&opts.expectedCommit, "expected-commit", strings.TrimSpace(os.Getenv("SYNORA_EXPECTED_GIT_COMMIT")), "expected deployed git commit")
 	set.DurationVar(&opts.timeout, "timeout", 60*time.Second, "overall healthcheck timeout")
 	set.BoolVar(&opts.readonly, "readonly", true, "explicitly require readonly checks")
 	set.BoolVar(&opts.allowSynoraNetDegraded, "allow-synoranet-degraded", false, "allow degraded SynoraNet without rollback")
@@ -109,6 +111,8 @@ func runChecks(ctx context.Context, opts options) []boothealth.Check {
 		status, message := getEndpoint(ctx, opts.baseURL, endpoint)
 		add("http."+strings.TrimPrefix(endpoint, "/api/"), status, message, status == "fatal")
 	}
+	versionStatus, versionMessage := getVersion(ctx, opts.baseURL, opts.expectedCommit)
+	add("system.version", versionStatus, versionMessage, versionStatus == "fatal")
 	addPath := func(name, path string, writable bool) {
 		info, err := os.Stat(path)
 		if err != nil || !info.IsDir() {
@@ -175,6 +179,40 @@ func runChecks(ctx context.Context, opts options) []boothealth.Check {
 		add("logs.recent_fatal", "ok", "no recent panic/fatal pattern", false)
 	}
 	return checks
+}
+
+type versionPayload struct {
+	GitCommit string `json:"git_commit"`
+	BundleID  string `json:"bundle_id"`
+}
+
+func getVersion(ctx context.Context, baseURL, expectedCommit string) (string, string) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/api/system/version", nil)
+	if err != nil {
+		return "fatal", "invalid API URL"
+	}
+	if token := strings.TrimSpace(os.Getenv("SYNORA_API_TOKEN")); token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
+	if err != nil {
+		return "fatal", "version endpoint unavailable"
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "fatal", "version endpoint returned unexpected status"
+	}
+	var payload versionPayload
+	if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&payload); err != nil {
+		return "fatal", "version endpoint returned invalid JSON"
+	}
+	if strings.TrimSpace(payload.GitCommit) == "" || strings.TrimSpace(payload.BundleID) == "" {
+		return "fatal", "version manifest is incomplete"
+	}
+	if expectedCommit = strings.TrimSpace(expectedCommit); expectedCommit != "" && payload.GitCommit != expectedCommit {
+		return "fatal", "deployed git commit does not match expected commit"
+	}
+	return "ok", "git_commit=" + payload.GitCommit
 }
 
 func getEndpoint(ctx context.Context, baseURL, endpoint string) (string, string) {
