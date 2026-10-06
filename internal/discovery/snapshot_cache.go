@@ -88,6 +88,18 @@ func (c *SnapshotCache) HistoryJSON() ([]byte, error) {
 	return json.Marshal(items)
 }
 
+// Clear removes the bounded read model after a successful data reset. It does
+// not alter Core state or configuration files.
+func (c *SnapshotCache) Clear() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.snapshot = nil
+	c.history = nil
+	c.mu.Unlock()
+}
+
 func (c *SnapshotCache) Subscribe(ctx context.Context) <-chan contract.Event {
 	channel := make(chan contract.Event, 1)
 	if c == nil {

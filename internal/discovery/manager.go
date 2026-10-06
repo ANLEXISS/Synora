@@ -59,6 +59,11 @@ type Manager struct {
 	snapshotCache *SnapshotCache
 	apiServer     *externalAPIServer
 	securityCfg   *security.Config
+
+	stateMu        sync.Mutex
+	activeIngress  int
+	stateResetting bool
+	clipRoot       string
 }
 
 func NewManager(
@@ -142,6 +147,7 @@ func NewManager(
 		securityCfg:   cfg,
 		snapshotCache: NewSnapshotCache(),
 		actionResults: make(map[string]contract.Event),
+		clipRoot:      runtime.Paths.ClipRoot,
 	}
 	faceRoot := runtime.Paths.FaceDataRoot
 	if strings.TrimSpace(os.Getenv("SYNORA_FACE_DATA_ROOT")) == "" && strings.TrimSpace(cfg.Vision.FaceDataRoot) != "" {
@@ -329,6 +335,8 @@ func (m *Manager) listenFaceMutations(ctx context.Context) {
 				return
 			}
 			switch msg.Type {
+			case contract.RPCSystemResetState:
+				m.handleSystemStateReset(msg)
 			case "action.request":
 				m.handleV1ActionRequest(msg)
 			case EdgeTrackManifestSchemaV1:

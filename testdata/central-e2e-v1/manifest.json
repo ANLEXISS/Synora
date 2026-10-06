@@ -5,6 +5,7 @@
   },
   "cases": [
     "testdata/central-e2e-v1/cases/human-public-outdoor.json",
+    "testdata/central-e2e-v1/cases/system-state-reset.json",
     "testdata/central-e2e-v1/cases/human-private-perimeter.json",
     "testdata/central-e2e-v1/cases/human-restricted-threshold.json",
     "testdata/central-e2e-v1/cases/human-interior-armed.json",

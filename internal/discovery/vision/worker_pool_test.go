@@ -1,6 +1,7 @@
 package vision
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -142,5 +143,55 @@ func TestWorkerPoolClampsWorkersAndQueueToV1Budgets(t *testing.T) {
 	}
 	if err := p.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWorkerPoolResetDrainsAndRemainsReusable(t *testing.T) {
+	root := t.TempDir()
+	queuePath := filepath.Join(root, "queue.json")
+	started := make(chan struct{})
+	release := make(chan struct{})
+	p := NewWorkerPoolWithConfig(1, func(job *ClipJob) error {
+		if job.ID == "clip-reset" {
+			close(started)
+			<-release
+		}
+		return nil
+	}, WorkerPoolConfig{PersistencePath: queuePath, ProcessTimeout: time.Second})
+	defer p.Close()
+	if err := p.Enqueue(&ClipJob{ID: "clip-reset", CameraID: "cam-1"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("reset job did not start")
+	}
+	resetDone := make(chan error, 1)
+	go func() { resetDone <- p.ResetData(context.Background()) }()
+	deadline := time.After(time.Second)
+	for {
+		if err := p.Enqueue(&ClipJob{ID: "blocked-during-reset", CameraID: "cam-1"}); errors.Is(err, ErrPoolResetting) {
+			break
+		} else if err != nil && !errors.Is(err, ErrQueueFull) {
+			t.Fatalf("unexpected enqueue error during reset: %v", err)
+		}
+		select {
+		case <-deadline:
+			t.Fatal("reset did not pause enqueue")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	close(release)
+	if err := <-resetDone; err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(queuePath)
+	if err != nil || string(data) != "[]" {
+		t.Fatalf("reset queue=%s err=%v", data, err)
+	}
+	if err := p.Enqueue(&ClipJob{ID: "after-reset", CameraID: "cam-1"}); err != nil {
+		t.Fatalf("pool was not reusable after reset: %v", err)
 	}
 }

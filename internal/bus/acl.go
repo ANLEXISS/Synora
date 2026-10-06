@@ -61,12 +61,24 @@ func authorizeACL(msg contract.Message, service string, allowed map[string]struc
 			if msg.Target == "core" && (strings.HasPrefix(msg.Type, "face_dataset.") || strings.HasPrefix(msg.Type, "residents.photos.") || msg.Type == "clips.list" || msg.Type == "health.check") {
 				return nil
 			}
+			if msg.Target == "api" && msg.Type == contract.RPCSystemResetState {
+				return nil
+			}
 		case "api":
 			if msg.Target == "runtime-manager" && msg.Type == contract.RPCRuntimeHealth {
 				return nil
 			}
+			if msg.Target == "core" && msg.Type == contract.RPCSystemResetState {
+				return nil
+			}
+			if msg.Target == "discovery" && msg.Type == contract.RPCSystemResetState {
+				return nil
+			}
 		case "core":
 			if msg.Target == "runtime-manager" {
+				return nil
+			}
+			if msg.Target == "api" && msg.Type == contract.RPCSystemResetState {
 				return nil
 			}
 		case "runtime-manager", "connectivity":

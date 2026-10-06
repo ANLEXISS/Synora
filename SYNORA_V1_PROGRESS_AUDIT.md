@@ -1611,3 +1611,77 @@ créditée comme caméra réelle.
 
 Après `0b6aae0`, `go test ./...` reste entièrement vert, y compris la
 commande de qualification J2 et les nouveaux contrôles ACL/runtime.
+
+## Progression J1/J4 — suppression coordonnée contrôlée et bornée
+
+Le chemin d’effacement contrôlé est maintenant raccordé de bout en bout pour
+les stores actifs du runtime V1 : `DELETE /api/system/data` exige le rôle
+`admin`, une raison explicite, le CSRF/origin de session lorsqu’il s’agit d’une
+session web, puis exige deux accusés stricts `system.reset_state`, Core et
+Discovery. Le Core n’accepte que `target_state=empty`, un acteur non vide et
+une raison bornée ; il efface durablement l’état matérialisé, le WAL et les
+segments via le marqueur de récupération existant. Discovery quiesce l’ingress
+caméra, draine la queue Vision, puis efface spool clips, face store, cache de
+snapshots, observations caméra et résultats d’actions volatils. Le Bus
+autorise explicitement les directions API↔Core et API↔Discovery.
+
+Preuves ajoutées : refus d’une enveloppe invalide sans effacement, effacement
+idempotent, quiescence de la queue et de l’ingress, absence de réapparition
+après réouverture du store, absence de fichiers dans les racines clip/face,
+réponse API fail-closed si un composant est indisponible, et cas dédié dans le
+harnais central (`system-state-reset`). Le cas central a produit `1/1` et
+`data_reset_status=erased`.
+
+Cette capacité ne clôt pas la suppression J1/J4 : la coordination est
+séquentielle et n’est pas encore une transaction deux-phases. Une panne entre
+les deux accusés doit rester `unknown` et faire l’objet d’une reprise opérateur;
+le burn-in et la preuve multi-processus restent à réaliser.
+
+## Vérification finale de cette tranche
+
+- `make test-central-v1` : **402/402**, `failed=0`, `system-state-reset` à
+  `data_reset_status=erased`, manifeste
+  `51d61b86e292ce63ddd9b801f37d48a915e35dd19937f46e02cf73e320834602` ;
+- `go test ./...` : vert ;
+- Python Vision : **89 tests**, `unittest discover`, vert ;
+- build web Vite : vert ;
+- `git diff --check` : vert.
+
+La sortie est une progression logicielle vérifiée, pas une validation critique
+de jalon : l’installation `/opt/synora` n’est toujours pas alignée sur le dépôt
+et la suppression coordonnée reste séquentielle, sans reprise deux-phases
+démontrée.
+
+## Vérification post-coordination Discovery
+
+Après l’extension au spool clips, à la queue Vision, au face store, aux caches
+et à l’ingress Discovery :
+
+- `make test-central-v1` : **402/402**, `failed=0`, `pipeline_completed=373`,
+  `pipeline_incomplete=29` ; manifeste
+  `51d61b86e292ce63ddd9b801f37d48a915e35dd19937f46e02cf73e320834602` ;
+- le cas `system-state-reset` retourne `data_reset_status=erased` après deux
+  accusés (`core`, `discovery`) et vérifie l’absence de fichiers résiduels dans
+  les racines clips/face ;
+- `go test ./...` : vert ; Python Vision : **89 tests** verts ; build web :
+  vert ; `git diff --check` : vert.
+
+La surface web admin expose maintenant le même contrôle avec confirmation,
+raison et jeton CSRF ; elle n’affiche `Données ... effacées` que pour une
+réponse globale `scope=global,status=erased`, et conserve un état inconnu en
+cas d’échec ou de composant indisponible.
+
+La coordination reste volontairement non promue comme suppression atomique :
+une panne entre les deux composants doit produire `unknown` et nécessite une
+reprise opérateur. Une validation critique J1/J4 et la qualification du
+déploiement restent donc requises.
+
+## Relevé matériel et déployé courant
+
+Le dépôt est sur `97f7627`, tandis que `/opt/synora/version.json` déclare
+toujours `c510e5a45aa691c571a75248bc0437bff44680e1`. `sudo -n` reste
+indisponible, donc aucun alignement ou redémarrage privilégié n’a été tenté.
+MediaMTX répond mais expose `itemCount=0`; `/dev/video0` est identifié comme
+`rk_hdmirx` (entrée HDMI), pas comme caméra Synora. Les modèles
+`arcface_w600k_r50.rknn` et `det_10g.rknn` restent absents. Ces éléments
+maintiennent J0/J2/J3/J4 hors validation pilote malgré les preuves logicielles.

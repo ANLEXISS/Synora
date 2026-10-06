@@ -386,6 +386,23 @@ func (rejectingAuthenticator) VerifyCameraRequest(*http.Request, string) error {
 	return errors.New("unknown or unpaired camera")
 }
 
+type resettingAuthenticator struct{}
+
+func (resettingAuthenticator) VerifyCameraRequest(*http.Request, string) error { return nil }
+func (resettingAuthenticator) AcquireIngress() (func(), bool)                  { return func() {}, false }
+
+func TestClipIngressFailsClosedDuringDataReset(t *testing.T) {
+	handler := NewHandler(Config{ClipDir: t.TempDir(), Authenticator: resettingAuthenticator{}})
+	recorder, contentType := multipartRequest(t, "cam-1", "clip-reset", []byte("video-bytes"))
+	recorder.Header.Set("X-Synora-Device", "cam-1")
+	recorder.Header.Set("Content-Type", contentType)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, recorder)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("resetting ingress status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func multipartRequest(t *testing.T, cameraID, clipID string, data []byte) (*http.Request, string) {
 	return multipartRequestWithMedia(t, cameraID, clipID, data, "video/mp4")
 }

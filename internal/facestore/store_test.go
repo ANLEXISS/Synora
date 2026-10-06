@@ -117,3 +117,26 @@ func TestRemoveResidentSourcesIsScopedAndRejectsSymlink(t *testing.T) {
 		t.Fatal("symlink resident source accepted")
 	}
 }
+
+func TestEraseAllClearsDedicatedRootAndReinitializesIt(t *testing.T) {
+	root := t.TempDir()
+	store := New(root, Limits{})
+	if err := store.Init(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "uploads", "stale.part"), []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EraseAll(); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{store.uploadDir(), store.sourceDir(), store.datasetDir(), store.stagingDir()} {
+		info, err := os.Stat(path)
+		if err != nil || !info.IsDir() {
+			t.Fatalf("face root was not reinitialized: %s err=%v", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "uploads", "stale.part")); !os.IsNotExist(err) {
+		t.Fatalf("stale upload remains: %v", err)
+	}
+}

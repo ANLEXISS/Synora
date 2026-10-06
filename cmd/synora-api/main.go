@@ -55,6 +55,14 @@ func main() {
 	mux.Handle("/api/system/health", auth.require("guest", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleSystemHealth(w, r, client)
 	})))
+	mux.Handle("/api/system/data", auth.require("admin", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := auth.authenticate(r)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		handleSystemDataDelete(w, r, client, claims.Subject)
+	})))
 	mux.HandleFunc("/api/system/version", func(w http.ResponseWriter, r *http.Request) {
 		handleVersion(w, r, runtime.Paths.VersionFile)
 	})

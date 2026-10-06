@@ -156,5 +156,5 @@ func (a *apiAuth) logout(w http.ResponseWriter, r *http.Request) {
 
 func (a *apiAuth) me(w http.ResponseWriter, r *http.Request) {
 	claims, _ := a.authenticate(r)
-	writeJSON(w, http.StatusOK, map[string]any{"id": claims.Subject, "role": claims.Role, "permissions": []string{"intelligence:read"}, "expires_at": claims.ExpiresAt})
+	writeJSON(w, http.StatusOK, map[string]any{"id": claims.Subject, "role": claims.Role, "csrf": claims.CSRF, "permissions": []string{"intelligence:read"}, "expires_at": claims.ExpiresAt})
 }

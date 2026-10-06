@@ -1,6 +1,7 @@
 package vision
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ var (
 	ErrInvalidClipJob       = errors.New("invalid clip job")
 	ErrProcessorUnavailable = errors.New("worker processor unavailable")
 	ErrPoolClosed           = errors.New("worker pool closed")
+	ErrPoolResetting        = errors.New("worker pool resetting")
 	ErrProcessingTimeout    = errors.New("clip processing timeout")
 	ErrQueuePersistence     = errors.New("worker queue persistence failed")
 )
@@ -49,6 +51,7 @@ type WorkerPool struct {
 	mu        sync.Mutex
 	workersWG sync.WaitGroup
 	closed    bool
+	paused    bool
 
 	process func(*ClipJob) error
 
@@ -135,6 +138,9 @@ func (p *WorkerPool) Enqueue(job *ClipJob) error {
 	if p.closed {
 		return ErrPoolClosed
 	}
+	if p.paused {
+		return ErrPoolResetting
+	}
 	if _, exists := p.pending[cloned.ID]; exists {
 		return nil
 	}
@@ -157,6 +163,47 @@ func (p *WorkerPool) Enqueue(job *ClipJob) error {
 		p.pendingOrder = p.pendingOrder[:len(p.pendingOrder)-1]
 		_ = p.persistLocked()
 		return ErrQueueFull
+	}
+}
+
+// ResetData pauses new work, waits for queued and active jobs to settle, and
+// persists an empty queue. The worker pool remains reusable after the reset.
+func (p *WorkerPool) ResetData(ctx context.Context) error {
+	if p == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return ErrPoolClosed
+	}
+	p.paused = true
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		p.paused = false
+		p.mu.Unlock()
+	}()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		p.mu.Lock()
+		pending := len(p.pending)
+		active := p.activeJobs.Load()
+		if pending == 0 && active == 0 {
+			err := p.persistLocked()
+			p.mu.Unlock()
+			return err
+		}
+		p.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 

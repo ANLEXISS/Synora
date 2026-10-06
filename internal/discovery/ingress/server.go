@@ -30,6 +30,12 @@ type Authenticator interface {
 	VerifyCameraRequest(r *http.Request, bodyHash string) error
 }
 
+// IngressGate lets the owning runtime quiesce uploads before erasing media.
+// It is optional so hermetic handlers can continue to use small test doubles.
+type IngressGate interface {
+	AcquireIngress() (release func(), ok bool)
+}
+
 type DeviceTracker interface {
 	TouchCameraClip(deviceID string, now time.Time) bool
 }
@@ -125,6 +131,14 @@ func NewHandler(cfg Config) http.Handler {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
+		}
+		if gate, ok := cfg.Authenticator.(IngressGate); ok {
+			release, admitted := gate.AcquireIngress()
+			if !admitted {
+				http.Error(w, "clip ingress is resetting", http.StatusServiceUnavailable)
+				return
+			}
+			defer release()
 		}
 		deviceID := strings.TrimSpace(r.Header.Get("X-Synora-Device"))
 		if !clipstore.SafeComponent(deviceID) {

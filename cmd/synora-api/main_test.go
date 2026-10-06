@@ -82,6 +82,30 @@ type fakeRuntimeHealthRequester struct {
 	err     error
 }
 
+type fakeSystemDataResetRequester struct {
+	message *contract.Message
+	err     error
+	msgType string
+	source  string
+	payload []byte
+	target  string
+	targets []string
+}
+
+func (f *fakeSystemDataResetRequester) RequestWithTimeout(msgType, source string, payload []byte, target string, _ time.Duration) (*contract.Message, error) {
+	f.msgType, f.source, f.payload, f.target = msgType, source, append([]byte(nil), payload...), target
+	f.targets = append(f.targets, target)
+	if f.message != nil && target == "discovery" {
+		var result contract.SystemStateResetResult
+		if json.Unmarshal(f.message.Payload, &result) == nil {
+			result.Scope = "discovery"
+			body, _ := json.Marshal(result)
+			return &contract.Message{Payload: body}, f.err
+		}
+	}
+	return f.message, f.err
+}
+
 func (f fakeRuntimeHealthRequester) RequestWithTimeout(string, string, []byte, string, time.Duration) (*contract.Message, error) {
 	return f.message, f.err
 }
@@ -105,6 +129,91 @@ func TestSystemHealthFailsClosedWhenRuntimeUnavailable(t *testing.T) {
 	handleSystemHealth(recorder, httptest.NewRequest(http.MethodGet, "/api/system/health", nil), fakeRuntimeHealthRequester{err: os.ErrNotExist})
 	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), `"status":"unknown"`) {
 		t.Fatalf("unexpected unavailable health: code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestSystemDataDeleteRequiresReasonAndReturnsErasureEvidence(t *testing.T) {
+	body, err := json.Marshal(contract.SystemStateResetResult{Status: "erased", Scope: "core", TargetState: "empty", CreatedBy: "admin-1", Reason: "operator requested erasure", ErasedAt: time.Unix(100, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requester := &fakeSystemDataResetRequester{message: &contract.Message{Payload: body}}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodDelete, "/api/system/data", strings.NewReader(`{"reason":"operator requested erasure"}`))
+	handleSystemDataDelete(recorder, request, requester, "admin-1")
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"status":"erased"`) {
+		t.Fatalf("unexpected data delete response: code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var sent contract.SystemStateResetRequest
+	if err := json.Unmarshal(requester.payload, &sent); err != nil || sent.TargetState != "empty" || sent.CreatedBy != "admin-1" {
+		t.Fatalf("unexpected reset request: %#v err=%v", sent, err)
+	}
+	if requester.msgType != contract.RPCSystemResetState || requester.source != "api" || strings.Join(requester.targets, ",") != "core,discovery" {
+		t.Fatalf("unexpected reset routing: %#v", requester)
+	}
+}
+
+func TestSystemDataDeleteRejectsMissingReasonAndFailsClosed(t *testing.T) {
+	requester := &fakeSystemDataResetRequester{}
+	recorder := httptest.NewRecorder()
+	handleSystemDataDelete(recorder, httptest.NewRequest(http.MethodDelete, "/api/system/data", strings.NewReader(`{}`)), requester, "admin-1")
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("missing reason status=%d", recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	handleSystemDataDelete(recorder, httptest.NewRequest(http.MethodDelete, "/api/system/data", strings.NewReader(`{"reason":"operator requested erasure"}`)), &fakeSystemDataResetRequester{message: &contract.Message{Payload: []byte(`{"status":"error","error":"reset failed"}`)}}, "admin-1")
+	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), `"status":"unknown"`) {
+		t.Fatalf("reset failure was not fail-closed: code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestSystemDataDeleteIsAdminOnlyAndCSRFProtected(t *testing.T) {
+	cfg := &security.Config{APIToken: "admin-token", AllowedOrigins: []string{"https://synora.example"}}
+	auth := newAPIAuth(cfg)
+	responseBody, _ := json.Marshal(contract.SystemStateResetResult{Status: "erased", Scope: "core", TargetState: "empty", Reason: "operator requested erasure", ErasedAt: time.Now().UTC()})
+	requester := &fakeSystemDataResetRequester{message: &contract.Message{Payload: responseBody}}
+	handler := auth.require("admin", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, _ := auth.authenticate(r)
+		handleSystemDataDelete(w, r, requester, claims.Subject)
+	}))
+
+	unauthorized := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodDelete, "/api/system/data", strings.NewReader(`{"reason":"operator requested erasure"}`)))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized delete status=%d", unauthorized.Code)
+	}
+
+	guestToken, err := security.SignSession(auth.secret, security.SessionClaims{Subject: "guest-1", Role: "guest", CSRF: "csrf", ExpiresAt: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.sessions.Register(guestToken, security.SessionClaims{Subject: "guest-1", Role: "guest", CSRF: "csrf", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	forbidden := httptest.NewRecorder()
+	guestRequest := httptest.NewRequest(http.MethodDelete, "/api/system/data", strings.NewReader(`{"reason":"operator requested erasure"}`))
+	guestRequest.AddCookie(&http.Cookie{Name: security.SessionCookieName, Value: guestToken})
+	handler.ServeHTTP(forbidden, guestRequest)
+	if forbidden.Code != http.StatusForbidden {
+		t.Fatalf("guest delete status=%d", forbidden.Code)
+	}
+
+	adminToken, err := security.SignSession(auth.secret, security.SessionClaims{Subject: "admin-1", Role: "admin", CSRF: "admin-csrf", ExpiresAt: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.sessions.Register(adminToken, security.SessionClaims{Subject: "admin-1", Role: "admin", CSRF: "admin-csrf", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	adminRequest := httptest.NewRequest(http.MethodDelete, "/api/system/data", strings.NewReader(`{"reason":"operator requested erasure"}`))
+	adminRequest.AddCookie(&http.Cookie{Name: security.SessionCookieName, Value: adminToken})
+	adminRequest.Header.Set("Origin", "https://synora.example")
+	adminRequest.Header.Set(csrfHeader, "admin-csrf")
+	adminResponse := httptest.NewRecorder()
+	handler.ServeHTTP(adminResponse, adminRequest)
+	if adminResponse.Code != http.StatusOK {
+		t.Fatalf("admin delete status=%d body=%s", adminResponse.Code, adminResponse.Body.String())
 	}
 }
 

@@ -324,6 +324,36 @@ func (s *Store) RemoveResidentSources(residentID string) error {
 	return nil
 }
 
+// EraseAll removes every resident source, upload, dataset and staging object
+// below this dedicated face-data root. The root itself is retained so the
+// running Discovery process can continue in an empty state.
+func (s *Store) EraseAll() error {
+	if s == nil || !filepath.IsAbs(s.Root) || filepath.Clean(s.Root) != s.Root {
+		return errors.New("face root must be a clean absolute path")
+	}
+	info, err := os.Lstat(s.Root)
+	if errors.Is(err, os.ErrNotExist) {
+		return s.Init()
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("unsafe face storage root")
+	}
+	entries, err := os.ReadDir(s.Root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := removeTreeNoSymlink(filepath.Join(s.Root, entry.Name())); err != nil {
+			return err
+		}
+	}
+	syncDir(s.Root)
+	return s.Init()
+}
+
 func removeTreeNoSymlink(path string) error {
 	entries, err := os.ReadDir(path)
 	if err != nil {

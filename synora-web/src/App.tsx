@@ -4,19 +4,28 @@ import type { FormEvent } from "react";
 import { Intelligence } from "./pages/Intelligence";
 import { Sidebar } from "./components/Sidebar";
 import { RuntimeHealthCard } from "./components/RuntimeHealth";
+import { DataReset } from "./components/DataReset";
+
+type Session = { role?: string; csrf?: string };
 
 export default function App() {
-  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [csrfToken, setCsrfToken] = useState("");
   const [authError, setAuthError] = useState("");
 
   useEffect(() => {
     fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" })
-      .then((response) => setAuthenticated(response.ok))
-      .catch(() => setAuthenticated(false));
+      .then(async (response) => {
+        if (!response.ok) { setSession(null); return; }
+        const nextSession = await response.json();
+        setCsrfToken(nextSession.csrf ?? "");
+        setSession(nextSession);
+      })
+      .catch(() => setSession(null));
   }, []);
 
-  if (authenticated === null) return <AuthLoading />;
-  if (!authenticated) return <AuthPanel onAuthenticated={() => { setAuthError(""); setAuthenticated(true); }} error={authError} onError={setAuthError} />;
+  if (session === undefined) return <AuthLoading />;
+  if (!session) return <AuthPanel onAuthenticated={(nextSession, nextCsrf) => { setAuthError(""); setSession(nextSession); setCsrfToken(nextCsrf); }} error={authError} onError={setAuthError} />;
   return (
     <div className="app-shell">
       <Sidebar />
@@ -30,6 +39,7 @@ export default function App() {
           <span className="dry-run-badge"><ShieldCheck size={15} /> Aucune action physique</span>
         </header>
         <RuntimeHealthCard />
+        {session.role === "admin" && <DataReset csrfToken={csrfToken} />}
         <Intelligence />
       </main>
     </div>
@@ -40,7 +50,7 @@ function AuthLoading() {
   return <main className="auth-shell"><section className="auth-card"><strong>Vérification de la session</strong><span>Synora prépare l’accès local.</span></section></main>;
 }
 
-function AuthPanel({ onAuthenticated, error, onError }: { onAuthenticated: () => void; error: string; onError: (value: string) => void }) {
+function AuthPanel({ onAuthenticated, error, onError }: { onAuthenticated: (session: Session, csrfToken: string) => void; error: string; onError: (value: string) => void }) {
   const [token, setToken] = useState("");
   const [pending, setPending] = useState(false);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -50,8 +60,9 @@ function AuthPanel({ onAuthenticated, error, onError }: { onAuthenticated: () =>
     try {
       const response = await fetch("/api/auth/session", { method: "POST", headers: { Authorization: `Bearer ${token}` }, credentials: "same-origin" });
       if (!response.ok) throw new Error(response.status === 401 ? "Jeton refusé." : "Session indisponible.");
+      const nextSession = await response.json();
       setToken("");
-      onAuthenticated();
+      onAuthenticated(nextSession, response.headers.get("X-Synora-CSRF") ?? "");
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : "Connexion impossible.");
     } finally {

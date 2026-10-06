@@ -61,6 +61,47 @@ func TestReconcileOrphansPreservesReferencedAndFreshFiles(t *testing.T) {
 	}
 }
 
+func TestEraseAllRemovesClipTreeWithoutFollowingSymlink(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "cam-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cam-1", "clip.mp4"), []byte("clip"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.mp4")
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := EraseAll(root); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("clip tree was not erased: entries=%v err=%v", entries, err)
+	}
+	if body, err := os.ReadFile(outside); err != nil || string(body) != "keep" {
+		t.Fatalf("outside file was touched: body=%q err=%v", body, err)
+	}
+}
+
+func TestEraseAllRejectsSymlinkEntry(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(t.TempDir(), "outside")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if err := EraseAll(root); err == nil {
+		t.Fatal("symlink entry was erased instead of rejected")
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("symlink target was touched: %v", err)
+	}
+}
+
 func TestEnsureCameraDirRejectsSymlinkAndVerifyStreamsChecksum(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

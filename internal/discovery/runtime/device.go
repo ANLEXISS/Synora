@@ -231,6 +231,18 @@ func (r *Registry) TouchCameraClip(deviceID string, now time.Time) bool {
 	return true
 }
 
+// ClearRuntime drops volatile camera observations while retaining the
+// deployment configuration loaded from devices.yaml.
+func (r *Registry) ClearRuntime() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.devices = map[string]*Device{}
+	r.hardwareToCamera = map[string]string{}
+	r.mu.Unlock()
+}
+
 func (r *Registry) ForEachLocked(fn func(device *Device)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

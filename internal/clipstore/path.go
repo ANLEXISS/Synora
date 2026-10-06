@@ -166,3 +166,69 @@ func ReconcileOrphans(root string, referenced map[string]struct{}, now time.Time
 	})
 	return removed, err
 }
+
+// EraseAll removes every clip and temporary upload below the dedicated clip
+// root without removing the root itself or following symlinks. The root is
+// deployment-owned; callers must never pass a shared configuration directory.
+func EraseAll(root string) error {
+	root = strings.TrimSpace(root)
+	if root == "" || !filepath.IsAbs(root) || filepath.Clean(root) != root {
+		return errors.New("clip storage root must be a clean absolute path")
+	}
+	info, err := os.Lstat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return os.MkdirAll(root, 0o700)
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("clip storage root is unsafe")
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		path := filepath.Join(root, entry.Name())
+		if err := removeTreeNoSymlink(path); err != nil {
+			return err
+		}
+	}
+	return syncDirectory(root)
+}
+
+func removeTreeNoSymlink(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("clip storage contains unsafe symlink")
+	}
+	if !info.IsDir() {
+		return os.Remove(path)
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := removeTreeNoSymlink(filepath.Join(path, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return os.Remove(path)
+}
+
+func syncDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
+}

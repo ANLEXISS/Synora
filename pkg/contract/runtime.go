@@ -129,6 +129,16 @@ type SystemStateResetRequest struct {
 	CreatedBy   string `json:"created_by,omitempty"`
 }
 
+type SystemStateResetResult struct {
+	Status      string    `json:"status"`
+	Scope       string    `json:"scope,omitempty"`
+	Scopes      []string  `json:"scopes,omitempty"`
+	TargetState string    `json:"target_state"`
+	CreatedBy   string    `json:"created_by,omitempty"`
+	Reason      string    `json:"reason"`
+	ErasedAt    time.Time `json:"erased_at"`
+}
+
 type ManualRiskRequest struct {
 	DangerLevel     string `json:"danger_level"`
 	DurationSeconds int    `json:"duration_seconds"`

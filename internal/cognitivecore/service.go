@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"synora/pkg/contract"
@@ -31,6 +32,9 @@ func (s *Service) now() time.Time {
 func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 	if s == nil || s.Bus == nil || s.Core == nil {
 		return fmt.Errorf("cognitive core service is not configured")
+	}
+	if message.Kind == contract.KindRPC && message.Type == contract.RPCSystemResetState {
+		return s.handleSystemStateReset(message)
 	}
 	event := EventFromMessage(message)
 	if message.Type == contract.EventValidationTestInference {
@@ -124,6 +128,60 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) handleSystemStateReset(message contract.Message) error {
+	var request contract.SystemStateResetRequest
+	if err := json.Unmarshal(message.Payload, &request); err != nil {
+		return s.sendSystemStateResetError(message, "invalid reset request")
+	}
+	request.TargetState = strings.TrimSpace(request.TargetState)
+	request.Reason = strings.TrimSpace(request.Reason)
+	request.CreatedBy = strings.TrimSpace(request.CreatedBy)
+	if message.Source != "api" || request.TargetState != "empty" || request.CreatedBy == "" || len(request.Reason) < 8 || len(request.Reason) > 500 {
+		return s.sendSystemStateResetError(message, "reset request is not authorized or valid")
+	}
+	if err := s.Core.Store.EraseAll(); err != nil {
+		return s.sendSystemStateResetError(message, "state reset failed")
+	}
+	body, err := json.Marshal(contract.SystemStateResetResult{
+		Status:      "erased",
+		Scope:       "core",
+		TargetState: request.TargetState,
+		CreatedBy:   request.CreatedBy,
+		Reason:      request.Reason,
+		ErasedAt:    s.now(),
+	})
+	if err != nil {
+		return err
+	}
+	return s.Bus.Send(contract.Message{
+		ID:            message.ID,
+		Type:          contract.RPCSystemResetState,
+		Kind:          contract.KindRPC,
+		Source:        serviceName(s.Name),
+		Target:        message.Source,
+		CorrelationID: message.ID,
+		Timestamp:     s.now(),
+		Payload:       body,
+	})
+}
+
+func (s *Service) sendSystemStateResetError(message contract.Message, reason string) error {
+	body, err := json.Marshal(map[string]string{"status": "error", "error": reason})
+	if err != nil {
+		return err
+	}
+	return s.Bus.Send(contract.Message{
+		ID:            message.ID,
+		Type:          contract.RPCSystemResetState,
+		Kind:          contract.KindRPC,
+		Source:        serviceName(s.Name),
+		Target:        message.Source,
+		CorrelationID: message.ID,
+		Timestamp:     s.now(),
+		Payload:       body,
+	})
 }
 
 func cataloguedTestEventType(eventType string) bool {

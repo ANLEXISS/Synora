@@ -53,6 +53,30 @@ func TestBusACLRejectsSpoofAndWrongTarget(t *testing.T) {
 	}, "runtime-manager"); err != nil {
 		t.Fatalf("runtime health response rejected by ACL: %v", err)
 	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "api-reset", Type: contract.RPCSystemResetState, Kind: contract.KindRPC,
+		Source: "api", Target: "core", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "api"); err != nil {
+		t.Fatalf("API state reset request rejected by ACL: %v", err)
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "core-reset-response", Type: contract.RPCSystemResetState, Kind: contract.KindRPC,
+		Source: "core", Target: "api", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "core"); err != nil {
+		t.Fatalf("Core state reset response rejected by ACL: %v", err)
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "api-discovery-reset", Type: contract.RPCSystemResetState, Kind: contract.KindRPC,
+		Source: "api", Target: "discovery", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "api"); err != nil {
+		t.Fatalf("API Discovery reset request rejected by ACL: %v", err)
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "discovery-reset-response", Type: contract.RPCSystemResetState, Kind: contract.KindRPC,
+		Source: "discovery", Target: "api", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "discovery"); err != nil {
+		t.Fatalf("Discovery state reset response rejected by ACL: %v", err)
+	}
 }
 
 func TestBusRejectsExpiredAndMutatedReplay(t *testing.T) {
