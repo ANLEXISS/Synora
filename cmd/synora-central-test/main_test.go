@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"synora/internal/cognitivecore"
 	"synora/pkg/contract"
 )
 
@@ -219,6 +220,25 @@ func TestCentralForbiddenPayloadDetection(t *testing.T) {
 		if !containsForbiddenJSON([]byte(payload)) {
 			t.Errorf("forbidden payload was not detected: %s", payload)
 		}
+	}
+}
+
+func TestCentralJourneyContainsFullActionLifecycleForNoAction(t *testing.T) {
+	value := generatedFixture(generatedSuite{IDPrefix: "journey", Suite: "pose_movement", Family: "pose_movement", Count: 1, Seed: 20260111, Bundle: "v3"}, 0)
+	executor := newTestActionExecutor(func() time.Time { return time.Unix(100, 0).UTC() })
+	report := caseReport{ID: value.ID, DiscoveryAccepted: 1, CoreDecisions: 1, StoreRevision: 2, SnapshotVersion: "cognitive-snapshot/v3", SnapshotDimension: 86, MLPObservations: []mlpObservation{{Backend: "test"}}, SafetyGateStatuses: []string{"not_requested"}}
+	report = attachActionLifecycle(report, value, time.Unix(100, 0).UTC(), []busRecord{{Message: contract.Message{Type: "core.snapshot.v3"}}}, executor, cognitivecore.CognitiveSnapshot{})
+	want := []string{"ingress_received", "discovery_validated", "core_processed", "store_revision_written", "snapshot_encoded", "mlp_executed", "safety_gate_evaluated", "action_dispatched_to_discovery", "test_action_executor_result", "action_result_recorded", "scenario_completed"}
+	if len(report.Journey) != len(want) {
+		t.Fatalf("journey stages=%d want=%d: %+v", len(report.Journey), len(want), report.Journey)
+	}
+	for index, stage := range want {
+		if report.Journey[index].Stage != stage {
+			t.Fatalf("journey[%d]=%s want=%s", index, report.Journey[index].Stage, stage)
+		}
+	}
+	if report.ActionLifecycleStatus != "suppressed_no_action" || !report.IdempotenceChecks.OrphanActionResultRejected {
+		t.Fatalf("unexpected no-action lifecycle: %+v", report)
 	}
 }
 

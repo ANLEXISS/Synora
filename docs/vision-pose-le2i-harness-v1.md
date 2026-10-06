@@ -30,8 +30,26 @@ The same central runner validates the clip, executes the local Vision worker
 backend, injects only its aggregate result into the hermetic Unix-bus/Core/V3
 fixture, and records MLP V3 candidate and Safety Gate test-only results. No
 raw frame, keypoint, coordinate, box, crop, embedding, identity or local
-track ID crosses that boundary. Audio, network access, persistent Store
-changes and physical actions remain disabled.
+track ID crosses that boundary. Audio, network access, production Store
+changes and physical actions remain disabled; the temporary harness Store is
+used to prove the Core commit path.
+
+The camera-simulator adapter invokes the existing local human detector first.
+Pose is requested only for a confirmed human and the pose backend never
+decides whether a human exists. A Blank clip therefore emits
+`pose_status=not_requested` (or `low_quality`), `posture=unavailable` and
+`fall_state=none`; it can never activate pose or a candidate. Detector boxes
+and all intermediate tensors are process-local and released after the
+aggregate is built. The detector model is read-only test input; it is not
+copied into Git, `/opt/synora/models` or the Universal Store.
+
+Each media case then follows the same central action lifecycle as the static
+cases. Its redacted journey records ingress, Discovery, Core, Store, snapshot,
+MLP, Safety Gate, Discovery action ingress, the internal dry-run
+`TestActionExecutor`, the result recording and completion. Duplicate camera
+messages cannot create a second action, duplicate results are idempotent, and
+orphan results are rejected. No action status is interpreted as a physical
+execution; `physical_action_executed` and `audio_rendered` remain false.
 
 `fall_state=candidate` is only a temporal pose signal. It is not a confirmed
 fall, emergency decision or clinical result. The report separates integrity,
@@ -43,3 +61,11 @@ manifest and is not executed by the visible regression command.
 The corpus is short and processed into fixed 16-frame clips. It is useful for
 runtime, redaction, latency and non-regression evidence only; it does not
 qualify fall detection or promote V3.
+
+The five categories have conservative semantics: Stand cannot emit a fall
+candidate, Lie cannot emit one without an upright-to-ground transition,
+Likefall remains ambiguous/non-confirmed, and Fall may emit only
+`candidate`. `confirmed` is forbidden. The central report includes human
+confirmation counts, pose request reason, action lifecycle, MLP head labels,
+Safety Gate outcomes and the p50/p95/max pose latency. It never turns these
+clips into a fall qualification set.

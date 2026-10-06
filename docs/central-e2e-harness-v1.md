@@ -6,13 +6,16 @@ Unix temporaire :
 
 ```text
 camera-simulator
-    -> message Edge versionné sur le vrai bus Unix
-    -> Discovery réel, mode bus-only
+    -> message Edge agrégé versionné sur le vrai bus Unix
+    -> Discovery réel, validation/idempotence, mode bus-only
     -> Core réel (V1 nominal ou V3 active_dry_run)
     -> encodeur + chargeur MLP CPU réel
     -> Safety Gate réel, dry-run
     -> Universal Store réel sur disque temporaire
-    -> outbox/action result via Discovery
+    -> action.request via Discovery
+    -> TestActionExecutor interne, dry-run
+    -> action.result via Discovery -> Core/Store
+    -> trace de parcours et assertions d’idempotence
 ```
 
 Aucune caméra, aucun clip, aucun NPU/RKNN, aucun socket réseau, aucun chemin
@@ -66,10 +69,30 @@ Les assertions centrales vérifient notamment :
 - `physical_action_executed=false`, `audio_rendered=false` et l’absence de
   réseau ;
 - les sorties V1/V3 et leur Safety Gate sans promotion de bundle.
+- le parcours redacted `ingress_received` → `discovery_validated` →
+  `core_processed` → `store_revision_written` → `snapshot_encoded` →
+  `mlp_executed` → `safety_gate_evaluated` →
+  `action_dispatched_to_discovery` → `test_action_executor_result` →
+  `action_result_recorded` → `scenario_completed` ;
+- l’absence d’appel direct à l’exécuteur, la corrélation request/result, le
+  rejet des résultats orphelins et l’idempotence des doublons caméra/résultat ;
+- pour un scénario sans action, les étapes d’action restent présentes avec
+  `suppressed_no_action`; les autres statuts autorisés sont
+  `blocked_by_safety_gate`, `allowed_dry_run` et
+  `dry_run_result_received`.
 
 Les scénarios V3 valident des signaux agrégés synthétiques. Un état
 `fall_state=candidate` n’est pas une qualification de chute et aucun état
 `confirmed` n’est produit par ce harness.
+
+Le rapport expose `static_case_count`, `generated_case_count`,
+`scenario_count`, les comptes par suite/famille, `manifest_sha256` et
+`generator_version`. Les filtres `CASE=` et `BUNDLE=` sont appliqués après
+l’expansion du manifest. Il expose aussi les compteurs de parcours complets,
+les statuts de cycle d’action, les contrôles d’idempotence et les résultats
+orphelins rejetés. L’écriture de `/tmp/synora-central-e2e-v1.json` est
+atomique : seul ce chemin précis est supprimé au démarrage et un échec laisse
+un rapport d’échec explicite.
 
 Le rapport expose `model_backends` pour distinguer les modèles réellement
 exécutés des composants indisponibles : les bundles MLP CPU V1/V3 sont

@@ -83,6 +83,10 @@ type mediaCaseReport struct {
 	AudioRendered                bool              `json:"audio_rendered"`
 	PhysicalActionExecuted       bool              `json:"physical_action_executed"`
 	NetworkAccess                bool              `json:"network_access"`
+	HumanDetectorStatus          string            `json:"human_detector_status,omitempty"`
+	HumanConfirmedFrameCount     int               `json:"human_confirmed_frame_count,omitempty"`
+	PoseRequestCount             int               `json:"pose_request_count,omitempty"`
+	PoseRequestReason            string            `json:"pose_request_reason,omitempty"`
 	Journey                      []journeyEvent    `json:"journey,omitempty"`
 	ActionLifecycleStatus        string            `json:"action_lifecycle_status,omitempty"`
 	IdempotenceChecks            idempotenceChecks `json:"idempotence_checks"`
@@ -166,6 +170,10 @@ type poseAggregateResult struct {
 	LatencyMaxMS                 float64 `json:"latency_max_ms"`
 	FrameCount                   int     `json:"frame_count"`
 	PoseFrameCount               int     `json:"pose_frame_count"`
+	HumanDetectorStatus          string  `json:"human_detector_status"`
+	HumanConfirmedFrameCount     int     `json:"human_confirmed_frame_count"`
+	PoseRequestCount             int     `json:"pose_request_count"`
+	PoseRequestReason            string  `json:"pose_request_reason"`
 }
 
 func loadVisionMediaManifest(path string) (visionMediaManifest, error) {
@@ -360,15 +368,8 @@ func runLe2iSuite(repoRoot, manifestPath, mediaRoot, modelPath string) mediaSuit
 		if !item.IdempotenceChecks.DirectExecutorCalls {
 			report.IdempotenceChecks["no_direct_executor_calls"]++
 		}
-		if len(item.Journey) > 0 {
+		if journeyComplete(item.Journey) {
 			report.PipelineCompletedCount++
-			for _, event := range item.Journey {
-				if event.Status == "incomplete" {
-					report.PipelineCompletedCount--
-					report.PipelineIncompleteCount++
-					break
-				}
-			}
 		} else {
 			report.PipelineIncompleteCount++
 		}
@@ -476,6 +477,8 @@ func evaluateLe2iCase(repoRoot string, entry le2iCase, mediaRoot string, model p
 	item.PoseStatus, item.Posture, item.ImmobilitySeconds = result.PoseStatus, result.Posture, result.ImmobilitySeconds
 	item.FallState, item.RapidMotionState = result.FallState, result.RapidMotionState
 	item.PhysicalInteractionCandidate, item.Confidence, item.LatencyMS = result.PhysicalInteractionCandidate, result.Confidence, result.LatencyMS
+	item.HumanDetectorStatus, item.HumanConfirmedFrameCount = result.HumanDetectorStatus, result.HumanConfirmedFrameCount
+	item.PoseRequestCount, item.PoseRequestReason = result.PoseRequestCount, result.PoseRequestReason
 	coreReport := runLe2iAggregateThroughCore(repoRoot, entry, result)
 	item.CorePassed = coreReport.Passed
 	item.SnapshotVersion, item.SnapshotDimension = coreReport.SnapshotVersion, coreReport.SnapshotDimension
@@ -492,7 +495,38 @@ func evaluateLe2iCase(repoRoot string, entry le2iCase, mediaRoot string, model p
 	} else {
 		item.SemanticStatus = "observed_mismatch"
 	}
+	if reason := le2iSafetySemanticMismatch(entry.Category, result); reason != "" {
+		item.Status, item.Reason = mediaStatusFailed, reason
+	}
 	return item
+}
+
+func le2iSafetySemanticMismatch(category string, result poseAggregateResult) string {
+	if result.FallState == "confirmed" {
+		return "confirmed fall state is forbidden in this harness"
+	}
+	switch category {
+	case "Blank":
+		if result.PoseStatus == "available" || result.FallState == "candidate" {
+			return "Blank media must never activate pose or a fall candidate"
+		}
+		if result.Posture != "unavailable" || result.FallState != "none" {
+			return "Blank media must remain unavailable with no fall state"
+		}
+	case "Stand":
+		if result.FallState == "candidate" {
+			return "Stand media cannot emit a fall candidate"
+		}
+	case "Lie":
+		if result.FallState == "candidate" {
+			return "Lie media cannot emit a fall candidate without an upright-to-ground transition"
+		}
+	case "Likefall":
+		if result.FallState == "confirmed" {
+			return "Likefall media cannot emit a confirmed fall"
+		}
+	}
+	return ""
 }
 
 func validateLe2iClip(path string, entry le2iCase) error {
