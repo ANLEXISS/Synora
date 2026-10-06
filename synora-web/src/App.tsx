@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Intelligence } from "./pages/Intelligence";
 import { Sidebar } from "./components/Sidebar";
+import { RuntimeHealthCard } from "./components/RuntimeHealth";
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -28,6 +29,7 @@ export default function App() {
           </div>
           <span className="dry-run-badge"><ShieldCheck size={15} /> Aucune action physique</span>
         </header>
+        <RuntimeHealthCard />
         <Intelligence />
       </main>
     </div>
