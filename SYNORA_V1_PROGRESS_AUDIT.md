@@ -1692,10 +1692,28 @@ annuler une purge déjà effectuée.
 
 ## Relevé matériel et déployé courant
 
-Le dépôt est sur `e0d8241`, tandis que `/opt/synora/version.json` déclare
+Le dépôt est sur `f91c8a8`, tandis que `/opt/synora/version.json` déclare
 toujours `c510e5a45aa691c571a75248bc0437bff44680e1`. `sudo -n` reste
 indisponible, donc aucun alignement ou redémarrage privilégié n’a été tenté.
 MediaMTX répond mais expose `itemCount=0`; `/dev/video0` est identifié comme
 `rk_hdmirx` (entrée HDMI), pas comme caméra Synora. Les modèles
 `arcface_w600k_r50.rknn` et `det_10g.rknn` restent absents. Ces éléments
 maintiennent J0/J2/J3/J4 hors validation pilote malgré les preuves logicielles.
+
+## Progression J4 — journal d’événements Intelligence borné
+
+La surface Intelligence expose maintenant `GET /api/intelligence/events`, avec
+un maximum de 64 résumés `synora.recent-event/v1`. Chaque entrée est dérivée
+du même flux `core.decision` déjà filtré et redacted : timestamp, références
+inférence/modèle, statut live/test et éventuelle sortie proposée. La projection
+n’embarque ni topologie, activations, chemins, poids, embeddings, médias,
+identités ou chemins matériels. Le WebSocket transmet la même projection et le
+snapshot initial la restitue.
+
+La page affiche « Événements récents » avec un état vide explicite
+« Aucun événement récent » ; elle ne fabrique donc pas d’activité lorsque le
+flux est vide. Tests dédiés : création depuis une trace redacted, rejet d’une
+trace non redacted et contrôle d’absence de champs sensibles. Le build web et
+la qualification centrale restent verts (`402/402`, `failed=0`). Cette avancée
+renforce la preuve logicielle J4 sans constituer une validation terrain : les
+blocages matériels et de déploiement relevés ci-dessus restent inchangés.

@@ -25,7 +25,14 @@ l’absence d’inférence live.
 - `GET /api/intelligence/topology` retourne la dernière topologie redacted, ou
   une topologie vide si aucun bundle n’a produit de trace.
 - `GET /api/intelligence/traces` retourne au plus 24 traces redacted.
-- `GET /api/ws` diffuse `intelligence.inference` avec la même projection.
+- `GET /api/intelligence/events` retourne au plus 64 événements récents
+  `synora.recent-event/v1`, dérivés exclusivement des traces redacted.
+- `GET /api/ws` diffuse `intelligence.inference` avec la trace MLP et son
+  résumé d’événement borné ; le snapshot initial contient aussi les événements
+  conservés.
+
+La page affiche une section « Événements récents ». Elle rend un état vide
+explicite lorsqu’aucun flux n’a été observé et ne fabrique aucune entrée.
 
 La webapp est volontairement réduite à la navigation Intelligence V1. Le build
 est produit dans `synora-web/dist`; aucun `node_modules`, secret, configuration

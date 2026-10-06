@@ -25,6 +25,15 @@ func handleIntelligenceTraces(hub *websocketHub) http.HandlerFunc {
 	}
 }
 
+func handleIntelligenceEvents(hub *websocketHub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireMethod(w, r, http.MethodGet) {
+			return
+		}
+		writeJSON(w, http.StatusOK, hub.recentEventsSnapshot())
+	}
+}
+
 func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
 	if r.Method == method {
 		return true

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"synora/internal/security"
 )
@@ -89,5 +90,47 @@ func TestSanitizeIntelligenceTraceKeepsTestHarnessAuditMarker(t *testing.T) {
 	}
 	if trace["live"] != false {
 		t.Fatalf("test dry-run trace was marked live: %#v", trace)
+	}
+}
+
+func TestIntelligenceDecisionCreatesBoundedRecentEvent(t *testing.T) {
+	hub := newWebSocketHub(&security.Config{AllowedOrigins: []string{"https://synora.example"}})
+	payload, err := json.Marshal(map[string]any{"decision": map[string]any{
+		"mode": "active_dry_run", "status": "available",
+		"trace": map[string]any{
+			"schema_version": "synora.mlp-trace/v1", "inference_id": "evt-1", "model_version": "v1", "redacted": true,
+			"proposed_output": "notify", "embedding": []any{1, 2}, "topology": map[string]any{"heads": []any{}},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	when := time.Date(2026, 10, 6, 12, 0, 0, 123000000, time.UTC)
+	hub.handleIntelligenceDecisionAt(payload, when)
+	events := hub.recentEventsSnapshot()
+	if len(events) != 1 {
+		t.Fatalf("recent event count = %d", len(events))
+	}
+	event := events[0]
+	if event["schema_version"] != "synora.recent-event/v1" || event["event_type"] != "inference" || event["timestamp"] != "2026-10-06T12:00:00.123Z" {
+		t.Fatalf("unexpected event identity: %#v", event)
+	}
+	if event["live"] != false || event["runtime_mode"] != "active_dry_run" || event["proposed_output"] != "notify" {
+		t.Fatalf("event status projection failed: %#v", event)
+	}
+	body, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToLower(string(body)), "embedding") || strings.Contains(strings.ToLower(string(body)), "topology") {
+		t.Fatalf("event leaked trace-only fields: %s", body)
+	}
+}
+
+func TestIntelligenceDecisionWithoutRedactedTraceCreatesNoRecentEvent(t *testing.T) {
+	hub := newWebSocketHub(&security.Config{AllowedOrigins: []string{"https://synora.example"}})
+	hub.handleIntelligenceDecision([]byte(`{"decision":{"trace":{"schema_version":"synora.mlp-trace/v1","inference_id":"evt-1","model_version":"v1","redacted":false}}}`))
+	if events := hub.recentEventsSnapshot(); len(events) != 0 {
+		t.Fatalf("unredacted decision created events: %#v", events)
 	}
 }

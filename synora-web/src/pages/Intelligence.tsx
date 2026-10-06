@@ -1,11 +1,11 @@
 import { BrainCircuit, CircleDot, Info, Radio, ShieldCheck } from "lucide-react";
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
-import { type IntelligenceTopology, type IntelligenceTrace, useIntelligenceTelemetry } from "../lib/intelligence";
+import { type IntelligenceEvent, type IntelligenceTopology, type IntelligenceTrace, useIntelligenceTelemetry } from "../lib/intelligence";
 
 const headLabels: Record<string, string> = { danger: "Ce que la maison perçoit", incident: "Les indices se croisent", task: "Le sens se précise", action: "Réponse proposée" };
 
 export function Intelligence() {
-  const { topology, latest, traces, error } = useIntelligenceTelemetry();
+  const { topology, latest, traces, events, error } = useIntelligenceTelemetry();
   const [selectedLayer, setSelectedLayer] = useState<string | null>(null);
   const selected = latest?.activations.find((item) => item.layer_id === selectedLayer);
   const dryRun = latest?.runtime_mode === "active_dry_run";
@@ -13,7 +13,20 @@ export function Intelligence() {
     <section className="intelligence-intro"><div><div className="intelligence-kicker"><BrainCircuit size={16} /> Intelligence locale</div><h2>Réseau de compréhension</h2><p>Seules les traces réelles et protégées reçues par Synora sont affichées.</p></div><div className={`intelligence-live-pill ${latest?.live ? "is-live" : ""}`}><Radio size={15} />{latest?.test ? "Simulation contrôlée" : latest?.live ? "Inférence en cours" : dryRun ? "Calcul local" : "Aucune inférence récente"}</div></section>
     {error && <div className="intelligence-notice"><Info size={17} />{error}</div>}
     {!topology ? <section className="intelligence-empty"><CircleDot size={32} /><h3>Aucune inférence MLP récente</h3><p>Synora n’invente aucune donnée pour remplir cette vue. Les scénarios sont exécutés par le harnais central local.</p></section> : <><NetworkGraph topology={topology} trace={latest} selectedLayer={selectedLayer} onSelect={setSelectedLayer} /><div className="intelligence-footer"><div className="intelligence-status"><ShieldCheck size={17} /><span>{latest?.test ? "Simulation contrôlée · aucune action physique" : latest?.live ? `Trace live · ${(latest.duration_ms ?? 0).toFixed(1)} ms` : dryRun ? "Calcul local · aucune action physique" : "Aucune inférence récente"}</span>{latest && <small>Les sorties restent consultatives et protégées.</small>}</div>{selected && <div className="intelligence-explanation"><strong>Les indices se rejoignent ici</strong><span>Cette étape relie les signaux reçus.</span></div>}</div><details className="intelligence-admin-details"><summary>Détails techniques réservés à l’administration</summary><div><span>Version modèle : {latest?.model_version ?? (topology.model_version || "indisponible")}</span><span>Traces conservées : {traces.length}/24</span><span>{latest?.test ? "Provenance : test-harness · trace de validation" : "Provenance : flux runtime"}</span><span>Poids, valeurs brutes, embeddings, médias, identités et chemins matériels exclus.</span></div></details></>}
+    <RecentEvents events={events} />
   </div>;
+}
+
+function RecentEvents({ events }: { events: IntelligenceEvent[] }) {
+  return <section className="intelligence-events" aria-labelledby="intelligence-events-title">
+    <div className="intelligence-events-head"><div><span className="intelligence-events-kicker">Journal protégé</span><h3 id="intelligence-events-title">Événements récents</h3></div><small>{events.length}/64 conservés</small></div>
+    {events.length === 0 ? <p className="intelligence-events-empty">Aucun événement récent.</p> : <ol className="intelligence-events-list">{events.slice().reverse().map((event) => <li key={`${event.inference_id}-${event.timestamp}`}><div><strong>{event.test ? "Simulation contrôlée" : event.live ? "Inférence live" : "Calcul local"}</strong><span>{event.proposed_output ? `Sortie proposée : ${event.proposed_output}` : "Trace reçue"}</span></div><time dateTime={event.timestamp}>{formatEventTime(event.timestamp)}</time></li>)}</ol>}
+  </section>;
+}
+
+function formatEventTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Heure indisponible" : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function NetworkGraph({ topology, trace, selectedLayer, onSelect }: { topology: IntelligenceTopology; trace: IntelligenceTrace | null; selectedLayer: string | null; onSelect: (layer: string) => void }) {

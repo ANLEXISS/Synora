@@ -56,6 +56,7 @@ func main() {
 	mux.Handle("/api/auth/logout", auth.require("guest", http.HandlerFunc(auth.logout)))
 	mux.Handle("/api/intelligence/topology", auth.require("guest", http.HandlerFunc(handleIntelligenceTopology(hub))))
 	mux.Handle("/api/intelligence/traces", auth.require("guest", http.HandlerFunc(handleIntelligenceTraces(hub))))
+	mux.Handle("/api/intelligence/events", auth.require("guest", http.HandlerFunc(handleIntelligenceEvents(hub))))
 	mux.Handle("/api/system/health", auth.require("guest", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleSystemHealth(w, r, client)
 	})))

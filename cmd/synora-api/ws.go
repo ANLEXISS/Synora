@@ -19,6 +19,7 @@ const (
 	wsWriteWait            = 10 * time.Second
 	wsReadLimit            = 1 << 20
 	maxIntelligenceTraces  = 24
+	maxIntelligenceEvents  = 64
 	maxActiveNodesPerLayer = 5
 	maxActivePaths         = 64
 )
@@ -40,6 +41,7 @@ type websocketHub struct {
 	intelligenceMu       sync.RWMutex
 	intelligenceTopology map[string]any
 	intelligenceTraces   []map[string]any
+	intelligenceEvents   []map[string]any
 }
 
 type websocketClient struct {
@@ -68,12 +70,16 @@ func (h *websocketHub) observeBus(bus websocketBus) {
 	}
 	for msg := range bus.SubscribeChannel("api") {
 		if msg.Type == "core.decision" {
-			h.handleIntelligenceDecision(msg.Payload)
+			h.handleIntelligenceDecisionAt(msg.Payload, msg.Timestamp)
 		}
 	}
 }
 
 func (h *websocketHub) handleIntelligenceDecision(payload []byte) {
+	h.handleIntelligenceDecisionAt(payload, time.Now().UTC())
+}
+
+func (h *websocketHub) handleIntelligenceDecisionAt(payload []byte, timestamp time.Time) {
 	var envelope struct {
 		Decision map[string]any `json:"decision"`
 	}
@@ -88,6 +94,7 @@ func (h *websocketHub) handleIntelligenceDecision(payload []byte) {
 	if trace == nil {
 		return
 	}
+	event := intelligenceEvent(trace, timestamp)
 	topology, _ := trace["topology"].(map[string]any)
 	h.intelligenceMu.Lock()
 	h.intelligenceTopology = topology
@@ -95,8 +102,12 @@ func (h *websocketHub) handleIntelligenceDecision(payload []byte) {
 	if len(h.intelligenceTraces) > maxIntelligenceTraces {
 		h.intelligenceTraces = h.intelligenceTraces[len(h.intelligenceTraces)-maxIntelligenceTraces:]
 	}
+	h.intelligenceEvents = append(h.intelligenceEvents, event)
+	if len(h.intelligenceEvents) > maxIntelligenceEvents {
+		h.intelligenceEvents = h.intelligenceEvents[len(h.intelligenceEvents)-maxIntelligenceEvents:]
+	}
 	h.intelligenceMu.Unlock()
-	h.Publish("intelligence.inference", map[string]any{"trace": trace})
+	h.Publish("intelligence.inference", map[string]any{"trace": trace, "event": event})
 }
 
 func (h *websocketHub) intelligenceSnapshot() (map[string]any, []map[string]any) {
@@ -111,6 +122,33 @@ func (h *websocketHub) intelligenceSnapshot() (map[string]any, []map[string]any)
 		traces = append(traces, cloneMap(trace))
 	}
 	return topology, traces
+}
+
+func (h *websocketHub) recentEventsSnapshot() []map[string]any {
+	h.intelligenceMu.RLock()
+	defer h.intelligenceMu.RUnlock()
+	events := make([]map[string]any, 0, len(h.intelligenceEvents))
+	for _, event := range h.intelligenceEvents {
+		events = append(events, cloneMap(event))
+	}
+	return events
+}
+
+func intelligenceEvent(trace map[string]any, timestamp time.Time) map[string]any {
+	event := map[string]any{
+		"schema_version": "synora.recent-event/v1",
+		"event_type":     "inference",
+		"timestamp":      timestamp.UTC().Format(time.RFC3339Nano),
+		"inference_id":   trace["inference_id"],
+		"model_version":  trace["model_version"],
+		"live":           trace["live"],
+	}
+	for _, key := range []string{"runtime_mode", "inference_status", "proposed_output", "provenance", "test"} {
+		if value, ok := trace[key]; ok {
+			event[key] = value
+		}
+	}
+	return event
 }
 
 func emptyIntelligenceTopology() map[string]any {
@@ -358,7 +396,8 @@ func (h *websocketHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	client := &websocketClient{hub: h, conn: conn, send: make(chan []byte, wsClientQueueSize), done: make(chan struct{})}
 	h.register(client)
 	topology, traces := h.intelligenceSnapshot()
-	initial, _ := json.Marshal(wsEnvelope{Type: "snapshot.initial", Timestamp: time.Now().UTC(), Data: map[string]any{"topology": topology, "traces": traces}})
+	events := h.recentEventsSnapshot()
+	initial, _ := json.Marshal(wsEnvelope{Type: "snapshot.initial", Timestamp: time.Now().UTC(), Data: map[string]any{"topology": topology, "traces": traces, "events": events}})
 	client.send <- initial
 	go client.writePump()
 	go client.readPump()
