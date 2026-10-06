@@ -41,6 +41,18 @@ func TestBusACLRejectsSpoofAndWrongTarget(t *testing.T) {
 	}, "discovery"); err == nil {
 		t.Fatal("Discovery was allowed to publish the test envelope")
 	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "api-runtime-health", Type: contract.RPCRuntimeHealth, Kind: contract.KindRPC,
+		Source: "api", Target: "runtime-manager", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "api"); err != nil {
+		t.Fatalf("API runtime health request rejected by ACL: %v", err)
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "runtime-health-response", Type: contract.RPCRuntimeHealth, Kind: contract.KindRPC,
+		Source: "runtime-manager", Target: "api", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "runtime-manager"); err != nil {
+		t.Fatalf("runtime health response rejected by ACL: %v", err)
+	}
 }
 
 func TestBusRejectsExpiredAndMutatedReplay(t *testing.T) {
