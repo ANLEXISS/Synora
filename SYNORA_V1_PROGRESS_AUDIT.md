@@ -1771,3 +1771,13 @@ MediaMTX, Discovery `503 degraded`, réseau `ok`, ingress `listening` et worker
 Vision `degraded` avec modèles manquants. `/dev/video0` reste une entrée
 `rk_hdmirx`, pas une caméra Synora. Ces preuves maintiennent J2 et J3 hors
 qualification terrain et empêchent la promotion J4 pilote.
+
+## Vérification J0 — build local traçable
+
+`make build` a réussi sur le commit `50109ac84915226858251057a2e62c3b83b4f000`.
+Le manifeste local `build/version.json` porte `git_commit=50109ac` et
+`bundle_id=local-50109ac`; les binaires API, Core, Discovery et
+Runtime Manager ont été produits dans `bin/`. Cette preuve établit la
+reproductibilité du build source, mais pas son installation :
+`/opt/synora/version.json` porte toujours `c510e5a...`, et l’absence d’autorité
+sudo empêche l’alignement et le redémarrage des services.
