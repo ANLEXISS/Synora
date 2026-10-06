@@ -125,6 +125,9 @@ func OpenUniversalStore(dir string) (*UniversalStore, error) {
 	}
 	s := newUniversalStore(1)
 	s.dir = filepath.Clean(dir)
+	if err := s.recoverEraseMarker(); err != nil {
+		return nil, err
+	}
 	statePath := filepath.Join(s.dir, "state.json")
 	if body, err := os.ReadFile(statePath); err == nil {
 		var disk storeDiskState
@@ -155,6 +158,88 @@ func OpenUniversalStore(dir string) (*UniversalStore, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// EraseAll durably removes every user-observable record from this Store. A
+// marker is written before deleting the WAL and compacted segments so a crash
+// cannot make deleted history reappear on the next open.
+func (s *UniversalStore) EraseAll() error {
+	if s == nil {
+		return errors.New("universal store is nil")
+	}
+	if s.dir == "" {
+		return errors.New("universal store is not durable")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	marker := filepath.Join(s.dir, "erase.marker")
+	file, err := os.OpenFile(marker, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("create universal store erase marker: %w", err)
+	}
+	if _, err := file.WriteString("universal-store/erase/v1\n"); err == nil {
+		err = file.Sync()
+	}
+	closeErr := file.Close()
+	if err != nil {
+		return fmt.Errorf("write universal store erase marker: %w", err)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close universal store erase marker: %w", closeErr)
+	}
+	if err := s.clearDurableHistoryLocked(); err != nil {
+		return err
+	}
+	s.resetMemoryLocked()
+	if err := s.persistStateLocked(); err != nil {
+		return err
+	}
+	if err := os.Remove(marker); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove universal store erase marker: %w", err)
+	}
+	return syncDir(s.dir)
+}
+
+func (s *UniversalStore) recoverEraseMarker() error {
+	marker := filepath.Join(s.dir, "erase.marker")
+	if _, err := os.Stat(marker); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect universal store erase marker: %w", err)
+	}
+	if err := s.clearDurableHistoryLocked(); err != nil {
+		return err
+	}
+	s.resetMemoryLocked()
+	if err := s.persistStateLocked(); err != nil {
+		return err
+	}
+	if err := os.Remove(marker); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove recovered universal store erase marker: %w", err)
+	}
+	return syncDir(s.dir)
+}
+
+func (s *UniversalStore) clearDurableHistoryLocked() error {
+	if err := os.Remove(filepath.Join(s.dir, "journal.jsonl")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove universal store journal: %w", err)
+	}
+	if err := os.RemoveAll(filepath.Join(s.dir, "segments")); err != nil {
+		return fmt.Errorf("remove universal store segments: %w", err)
+	}
+	return nil
+}
+
+func (s *UniversalStore) resetMemoryLocked() {
+	initial := newUniversalStore(s.revision)
+	s.journal = initial.journal
+	s.decisions = initial.decisions
+	s.actionOutbox = initial.actionOutbox
+	s.processed = initial.processed
+	s.processedOrder = nil
+	s.snapshot = initial.snapshot
+	s.snapshotV3 = nil
+	s.claimed = initial.claimed
 }
 
 func (s *UniversalStore) SetPersistenceHooks(hooks PersistenceHooks) {

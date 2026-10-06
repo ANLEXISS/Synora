@@ -1455,3 +1455,9 @@ Un garde-fou supplémentaire est maintenant versionné dans
 `docs/v1-store-authority.md` : le chemin Core V1 ouvre exclusivement
 `cognitivecore.UniversalStore`; `internal/state` reste hors du runtime jusqu’à
 une migration explicitement revue.
+
+`UniversalStore.EraseAll` complète cette tranche : il supprime l’état
+matérialisé, le WAL et les segments compactés, avec un marqueur durable qui
+permet de terminer proprement la suppression après un crash. Des tests
+vérifient l’absence de réapparition après redémarrage et la récupération d’un
+marqueur d’effacement interrompu.

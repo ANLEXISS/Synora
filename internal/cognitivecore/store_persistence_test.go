@@ -149,3 +149,70 @@ func TestUniversalStoreCorruptionFailsClosed(t *testing.T) {
 		t.Fatal("corrupt journal opened successfully")
 	}
 }
+
+func TestUniversalStoreEraseAllDoesNotReappearAfterRestart(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenUniversalStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Commit(Commit{
+		Event:       contract.Event{ID: "erase-me", Type: "sensor.motion", Timestamp: time.Unix(100, 0).UTC()},
+		Snapshot:    CognitiveSnapshot{SchemaVersion: SnapshotSchemaVersion, CapturedAt: time.Unix(100, 0).UTC(), Topology: contract.VisionTopologyPrivatePerimeter, Episode: EpisodeFacts{Phase: "candidate"}},
+		Decision:    Decision{SchemaVersion: DecisionSchemaVersion, Status: "available", GeneratedAt: time.Unix(100, 0).UTC()},
+		CommittedAt: time.Unix(100, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Compact(CompactionOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if history, err := store.History(); err != nil || len(history) != 1 {
+		t.Fatalf("history before erase=%d err=%v", len(history), err)
+	}
+	if err := store.EraseAll(); err != nil {
+		t.Fatal(err)
+	}
+	if history, err := store.History(); err != nil || len(history) != 0 {
+		t.Fatalf("history after erase=%d err=%v", len(history), err)
+	}
+	restarted, err := OpenUniversalStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history, err := restarted.History(); err != nil || len(history) != 0 {
+		t.Fatalf("history after restart=%d err=%v", len(history), err)
+	}
+	if got := restarted.Snapshot().Topology; got != contract.VisionTopologyUnknown {
+		t.Fatalf("snapshot survived erase: %q", got)
+	}
+}
+
+func TestUniversalStoreRecoversInterruptedEraseMarker(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenUniversalStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Commit(Commit{
+		Event:       contract.Event{ID: "erase-interrupted", Type: "sensor.motion", Timestamp: time.Unix(100, 0).UTC()},
+		Snapshot:    CognitiveSnapshot{SchemaVersion: SnapshotSchemaVersion, CapturedAt: time.Unix(100, 0).UTC(), Topology: contract.VisionTopologyPrivatePerimeter, Episode: EpisodeFacts{Phase: "candidate"}},
+		Decision:    Decision{SchemaVersion: DecisionSchemaVersion, Status: "available", GeneratedAt: time.Unix(100, 0).UTC()},
+		CommittedAt: time.Unix(100, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Compact(CompactionOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "erase.marker"), []byte("universal-store/erase/v1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := OpenUniversalStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history, err := restarted.History(); err != nil || len(history) != 0 {
+		t.Fatalf("interrupted erase recovered history=%d err=%v", len(history), err)
+	}
+}
