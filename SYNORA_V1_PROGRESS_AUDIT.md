@@ -1556,3 +1556,23 @@ La preuve confirme donc la non-régression source, mais contredit toujours le
 critère J0 d’alignement déployé. L’installation appartient à `root` et
 `sudo -n` ne permet pas l’actualisation non interactive ; aucune écriture ou
 redémarrage privilégié n’a été tenté.
+
+## Addendum d’exécution — vérification versionnelle livrée
+
+Le commit `5e082b1` ajoute `GET /api/system/version`, qui ne renvoie que le
+manifeste non secret et retourne `503` si celui-ci est absent ou invalide. Le
+boot healthcheck interroge maintenant cet endpoint et accepte
+`--expected-commit` ou `SYNORA_EXPECTED_GIT_COMMIT` ; toute divergence du
+`git_commit` ou tout manifeste incomplet est fatal. Les tests API et boot
+healthcheck couvrent succès, absence de manifeste et divergence de commit.
+
+Après ce commit, le harnais central unique a de nouveau produit **401/401**
+avec `failed=0` et le manifeste
+`e827e22dbe4b99a96f86325eb32ed7c3098962c5fe796f67b3cd54bbded75a7e`. Le
+healthcheck exécuté contre l’installation actuelle reste en
+`rollback_required` : `synora-connect` absent, API V1 non JSON car l’ancienne
+installation sert l’interface HTML sur les routes attendues, configuration
+réseau illisible/invalide pour l’utilisateur courant, manifeste modèles
+absent, modèles visage manquants et volume `/var/lib/synora` non writable pour
+cet utilisateur. La preuve source est donc renforcée, mais le déploiement
+reste non aligné et non validable sans intervention privilégiée.
