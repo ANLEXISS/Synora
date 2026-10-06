@@ -1448,14 +1448,16 @@ La validation explicite de la branche et du commit de référence, puis l’alig
 - L’interface affiche désormais un écran de session et n’envoie le jeton bootstrap qu’au POST de création ; le jeton n’est pas persisté dans le navigateur.
 - Tests ajoutés et verts : session signée/expiration/tampering/RBAC, 401/403 HTTP, bootstrap de session et origine WebSocket.
 
-Cette tranche ne clôt pas J1 : les comptes `auth.yaml` et la revalidation des rôles ne sont pas encore raccordés, et la suppression métier/reprise idempotente entre les deux Stores doit encore être traitée.
+Cette tranche ne clôt pas J1 : les comptes `auth.yaml` et la revalidation des
+rôles sont maintenant raccordés pour les sessions web, mais la suppression
+métier/reprise idempotente entre les deux Stores doit encore être traitée.
 
 Mise à jour : un registre `session_store_file` persistant est maintenant
 utilisé pour inscrire les sessions, les retrouver après redémarrage et les
 révoquer via `POST /api/auth/logout`. Le fichier ne conserve que le hash du
 cookie et les métadonnées minimales ; les tests couvrent persistance,
 expiration, révocation et refus après logout. La revalidation des comptes
-`auth.yaml` et des changements de rôle reste à raccorder.
+`auth.yaml` et des changements de rôle est maintenant couverte côté API.
 
 Un garde-fou supplémentaire est maintenant versionné dans
 `cmd/synora-core/store_authority_test.go` et documenté dans
