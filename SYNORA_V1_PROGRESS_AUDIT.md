@@ -1715,6 +1715,23 @@ La page affiche « Événements récents » avec un état vide explicite
 « Aucun événement récent » ; elle ne fabrique donc pas d’activité lorsque le
 flux est vide. Tests dédiés : création depuis une trace redacted, rejet d’une
 trace non redacted et contrôle d’absence de champs sensibles. Le build web et
-la qualification centrale restent verts (`402/402`, `failed=0`). Cette avancée
+la qualification centrale restent verts (`403/403`, `failed=0`). Cette avancée
 renforce la preuve logicielle J4 sans constituer une validation terrain : les
 blocages matériels et de déploiement relevés ci-dessus restent inchangés.
+
+## Progression J4 — burn-in compressé du harnais central
+
+Le manifeste central contient maintenant le cas nommé
+`pilot-burn-in-compressed`. Il enchaîne six segments d’une même caméra et zone
+simulées, avec présence humaine puis disparition, vérifie les contrats de
+découverte/MLP/Store, conserve les champs interdits hors bus et déclenche la
+suppression contrôlée après l’événement. Le cas ciblé passe `1/1` avec
+`pipeline_completed=1` et `data_reset_status=erased`.
+
+La non-régression du manifeste complet passe désormais `403/403`, `failed=0`,
+avec `pipeline_completed=374`, `pipeline_incomplete=29`, famille
+`pilot_burn_in=1`, et empreinte
+`a303ab935fde0126f583c9b5675a3670fee06b1ba099fda5d7d2595b2840ebd1`.
+Cette séquence est une compression logicielle reproductible ; elle ne remplace
+pas un burn-in multi-jours sur matériel cible, qui reste requis avant validation
+critique J4.

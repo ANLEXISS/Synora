@@ -1,0 +1,26 @@
+{
+  "bundle": "v1",
+  "capabilities": ["record", "announce"],
+  "clock": "2026-01-01T00:00:00Z",
+  "expected": {
+    "discovery": {"status": "accepted"},
+    "forbidden": ["frame", "image", "media", "bbox", "crop", "keypoints", "embedding", "identity", "local_track_id"],
+    "mlp": {"heads": ["danger", "incident", "task", "action"], "probability_contract": "normalized", "status": "available"},
+    "outbox": {"non_empty": false},
+    "safety_gate": {"physical_action_executed": false},
+    "snapshot": {"input_dimension": 86, "schema_version": "cognitive-snapshot/v1"},
+    "store": {"committed": true}
+  },
+  "id": "pilot-burn-in-compressed",
+  "initial_store": {},
+  "messages": [
+    {"id": "pilot-burn-in-compressed-1", "payload": {"camera_id": "cam_sim_01", "confirmed_track_count": 1, "edge_emulated": true, "ended_at": "2026-01-01T00:00:02Z", "episode_id": "episode-pilot-burn-in-compressed", "evidence_refs": [], "gap_count": 0, "metrics": {"confidence": 0.91}, "observation_count": 1, "priority_reason": ["central-test"], "schema_version": "synora.vision.edge-track-manifest/v1", "segment_count": 1, "started_at": "2026-01-01T00:00:01Z", "topology_class": "protected_interior", "track_count": 1, "tracking_status": "ok", "trigger_class": "human", "trigger_confidence": 0.91}, "timestamp": "2026-01-01T00:00:01Z", "type": "synora.vision.edge-track-manifest/v1"},
+    {"id": "pilot-burn-in-compressed-2", "payload": {"camera_id": "cam_sim_01", "confirmed_track_count": 1, "edge_emulated": true, "ended_at": "2026-01-01T00:00:03Z", "episode_id": "episode-pilot-burn-in-compressed", "evidence_refs": [], "gap_count": 0, "metrics": {"confidence": 0.91}, "observation_count": 2, "priority_reason": ["central-test"], "schema_version": "synora.vision.edge-track-manifest/v1", "segment_count": 2, "started_at": "2026-01-01T00:00:02Z", "topology_class": "protected_interior", "track_count": 1, "tracking_status": "ok", "trigger_class": "human", "trigger_confidence": 0.91}, "timestamp": "2026-01-01T00:00:02Z", "type": "synora.vision.edge-track-manifest/v1"},
+    {"id": "pilot-burn-in-compressed-3", "payload": {"camera_id": "cam_sim_01", "confirmed_track_count": 1, "edge_emulated": true, "ended_at": "2026-01-01T00:00:04Z", "episode_id": "episode-pilot-burn-in-compressed", "evidence_refs": [], "gap_count": 0, "metrics": {"confidence": 0.91}, "observation_count": 3, "priority_reason": ["central-test"], "schema_version": "synora.vision.edge-track-manifest/v1", "segment_count": 3, "started_at": "2026-01-01T00:00:03Z", "topology_class": "protected_interior", "track_count": 1, "tracking_status": "ok", "trigger_class": "human", "trigger_confidence": 0.91}, "timestamp": "2026-01-01T00:00:03Z", "type": "synora.vision.edge-track-manifest/v1"},
+    {"id": "pilot-burn-in-compressed-4", "payload": {"camera_id": "cam_sim_01", "confirmed_track_count": 1, "edge_emulated": true, "ended_at": "2026-01-01T00:00:05Z", "episode_id": "episode-pilot-burn-in-compressed", "evidence_refs": [], "gap_count": 0, "metrics": {"confidence": 0.91}, "observation_count": 4, "priority_reason": ["central-test"], "schema_version": "synora.vision.edge-track-manifest/v1", "segment_count": 4, "started_at": "2026-01-01T00:00:04Z", "topology_class": "protected_interior", "track_count": 1, "tracking_status": "ok", "trigger_class": "human", "trigger_confidence": 0.91}, "timestamp": "2026-01-01T00:00:04Z", "type": "synora.vision.edge-track-manifest/v1"},
+    {"id": "pilot-burn-in-compressed-5", "payload": {"camera_id": "cam_sim_01", "confirmed_track_count": 1, "edge_emulated": true, "ended_at": "2026-01-01T00:00:06Z", "episode_id": "episode-pilot-burn-in-compressed", "evidence_refs": [], "gap_count": 0, "metrics": {"confidence": 0.91}, "observation_count": 5, "priority_reason": ["central-test"], "schema_version": "synora.vision.edge-track-manifest/v1", "segment_count": 5, "started_at": "2026-01-01T00:00:05Z", "topology_class": "protected_interior", "track_count": 1, "tracking_status": "ok", "trigger_class": "human", "trigger_confidence": 0.91}, "timestamp": "2026-01-01T00:00:05Z", "type": "synora.vision.edge-track-manifest/v1"},
+    {"id": "pilot-burn-in-compressed-6", "payload": {"camera_id": "cam_sim_01", "confirmed_track_count": 0, "edge_emulated": true, "ended_at": "2026-01-01T00:00:07Z", "episode_id": "episode-pilot-burn-in-compressed", "evidence_refs": [], "gap_count": 0, "metrics": {"confidence": 0.91}, "observation_count": 6, "priority_reason": ["central-test"], "schema_version": "synora.vision.edge-track-manifest/v1", "segment_count": 6, "started_at": "2026-01-01T00:00:06Z", "topology_class": "protected_interior", "track_count": 0, "tracking_status": "ok", "trigger_class": "unknown", "trigger_confidence": 0.82}, "timestamp": "2026-01-01T00:00:06Z", "type": "synora.vision.edge-track-manifest/v1"}
+  ],
+  "reset": {"reason": "compressed pilot burn-in cleanup", "created_by": "central-test", "expect_state": "empty"},
+  "suite": "pilot_burn_in"
+}
