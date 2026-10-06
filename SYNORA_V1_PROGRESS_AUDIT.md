@@ -1738,7 +1738,8 @@ critique J4.
 
 ## Progression J4 — état agrégé Core en lecture contrôlée
 
-Le Core V1 envoie désormais son snapshot normalisé au consommateur API en
+Le commit `d8f62c6` fait désormais envoyer au consommateur API le snapshot
+normalisé du Core V1 en
 lecture seule, en plus de Discovery ; V3 utilisait déjà cette direction. La
 nouvelle ressource authentifiée `GET /api/system/state` expose uniquement une
 projection allow-listée de présence, zone, capteurs, épisode, sécurité et
@@ -1747,7 +1748,9 @@ identifiants de requêtes sont exclus par test. Sans snapshot reçu, la réponse
 est `503` avec `status=unknown`, et l’interface affiche « Aucun état Core
 observé ».
 
-Tests ciblés Go, build web et cas central `pilot-burn-in-compressed` restent
-verts. Cette ressource complète l’API minimale de J4 côté logiciel ; elle ne
+La vérification post-commit reste verte : `go test ./...`, Python Vision
+(`89 tests`), build web et qualification centrale (`403/403`, `failed=0`,
+`pipeline_completed=374`). Cette ressource complète l’API minimale de J4 côté
+logiciel ; elle ne
 prouve toujours pas le flux d’une caméra réelle ni l’alignement du binaire
 déployé.
