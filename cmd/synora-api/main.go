@@ -41,6 +41,10 @@ func main() {
 		return
 	}
 	defer client.Close()
+	dataResetMarker := filepath.Join(filepath.Dir(runtime.Paths.State), "api-data-reset.json")
+	if err := recoverSystemDataReset(ctx, client, dataResetMarker); err != nil {
+		log.Printf("interrupted data reset remains unresolved: %v", err)
+	}
 
 	auth := newAPIAuth(serverConfig.Security)
 	auth.accountPath = runtime.Paths.Auth
@@ -61,7 +65,7 @@ func main() {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		handleSystemDataDelete(w, r, client, claims.Subject)
+		handleSystemDataDelete(w, r, client, claims.Subject, dataResetMarker)
 	})))
 	mux.HandleFunc("/api/system/version", func(w http.ResponseWriter, r *http.Request) {
 		handleVersion(w, r, runtime.Paths.VersionFile)

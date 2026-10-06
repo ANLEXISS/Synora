@@ -175,6 +175,17 @@ func NewManager(
 			},
 		},
 	)
+	if pending, markerErr := m.hasResetMarker(); markerErr != nil {
+		log.Fatal("discovery reset marker unavailable: ", markerErr)
+	} else if pending {
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		recoveryErr := m.ResetData(recoveryCtx)
+		cancel()
+		if recoveryErr != nil {
+			log.Fatal("discovery data reset recovery failed: ", recoveryErr)
+		}
+		log.Printf("discovery recovered interrupted data reset")
+	}
 
 	return m
 }

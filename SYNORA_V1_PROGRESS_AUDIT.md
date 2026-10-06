@@ -1676,9 +1676,23 @@ une panne entre les deux composants doit produire `unknown` et nécessite une
 reprise opérateur. Une validation critique J1/J4 et la qualification du
 déploiement restent donc requises.
 
+## Reprise après interruption de suppression
+
+Le commit suivant ajoute un marqueur durable côté API avant la coordination et
+un marqueur Discovery avant la purge de ses données. Les deux marqueurs sont
+écrits atomiquement, conservés si une étape échoue et rejoués au démarrage ; ils
+ne sont supprimés qu’après les accusés `core` et `discovery`. Les tests couvrent
+le marqueur conservé sur échec, sa reprise API, la reprise Discovery et
+l’idempotence du nettoyage. Le statut reste `unknown` tant que les deux scopes
+ne sont pas confirmés.
+
+La suppression n’est toujours pas une transaction deux-phases : la reprise
+est conçue pour rendre un état partiel convergent après redémarrage, pas pour
+annuler une purge déjà effectuée.
+
 ## Relevé matériel et déployé courant
 
-Le dépôt est sur `97f7627`, tandis que `/opt/synora/version.json` déclare
+Le dépôt est sur `e0d8241`, tandis que `/opt/synora/version.json` déclare
 toujours `c510e5a45aa691c571a75248bc0437bff44680e1`. `sudo -n` reste
 indisponible, donc aucun alignement ou redémarrage privilégié n’a été tenté.
 MediaMTX répond mais expose `itemCount=0`; `/dev/video0` est identifié comme

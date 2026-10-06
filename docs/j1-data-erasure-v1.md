@@ -20,6 +20,11 @@ Le protocole est idempotent. L’état effacé ne réapparaît pas après réouv
 du store. Une panne ou une réponse invalide reste exposée comme `unknown` côté
 API ; aucune réussite fictive n’est produite.
 
+La coordination écrit un marqueur API avant les deux RPC et Discovery écrit un
+marqueur local avant sa purge. Un redémarrage rejoue les deux scopes et ne
+supprime le marqueur qu’après succès ; un échec conserve le marqueur pour la
+reprise suivante.
+
 ## Preuves
 
 | Vérification | Résultat |
@@ -31,15 +36,16 @@ API ; aucune réussite fictive n’est produite.
 | cas central `system-state-reset` | `data_reset_status=erased`, scopes Core + Discovery |
 | manifeste central | `51d61b86e292ce63ddd9b801f37d48a915e35dd19937f46e02cf73e320834602` |
 | `git diff --check` | vert |
+| tests de marqueur/reprise API + Discovery | vert |
 
 ## Limites et décision
 
 Cette preuve couvre les stores et caches actuellement actifs dans le runtime V1.
 La coordination est séquentielle et ne constitue pas encore une transaction
-deux-phases : une panne entre les deux accusés doit rester affichée comme
-`unknown` et faire l’objet d’une reprise opérateur. J1 et J4 restent donc
-ouverts tant que cette reprise multi-processus, le burn-in et la validation
-critique ne sont pas démontrés.
+deux-phases : une panne entre les deux accusés reste affichée comme `unknown`,
+mais les marqueurs permettent la reprise automatique au redémarrage ou à la
+prochaine tentative. J1 et J4 restent donc ouverts tant que le burn-in et la
+validation critique ne sont pas démontrés.
 
 L’installation `/opt/synora` reste sur un commit antérieur et ne peut pas être
 mise à jour sans autorité privilégiée. Aucun jalon critique n’est déclaré

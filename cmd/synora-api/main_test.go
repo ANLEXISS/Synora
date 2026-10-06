@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -138,9 +139,10 @@ func TestSystemDataDeleteRequiresReasonAndReturnsErasureEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	requester := &fakeSystemDataResetRequester{message: &contract.Message{Payload: body}}
+	markerPath := filepath.Join(t.TempDir(), "reset.json")
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodDelete, "/api/system/data", strings.NewReader(`{"reason":"operator requested erasure"}`))
-	handleSystemDataDelete(recorder, request, requester, "admin-1")
+	handleSystemDataDelete(recorder, request, requester, "admin-1", markerPath)
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"status":"erased"`) {
 		t.Fatalf("unexpected data delete response: code=%d body=%s", recorder.Code, recorder.Body.String())
 	}
@@ -156,15 +158,34 @@ func TestSystemDataDeleteRequiresReasonAndReturnsErasureEvidence(t *testing.T) {
 func TestSystemDataDeleteRejectsMissingReasonAndFailsClosed(t *testing.T) {
 	requester := &fakeSystemDataResetRequester{}
 	recorder := httptest.NewRecorder()
-	handleSystemDataDelete(recorder, httptest.NewRequest(http.MethodDelete, "/api/system/data", strings.NewReader(`{}`)), requester, "admin-1")
+	handleSystemDataDelete(recorder, httptest.NewRequest(http.MethodDelete, "/api/system/data", strings.NewReader(`{}`)), requester, "admin-1", filepath.Join(t.TempDir(), "reset.json"))
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("missing reason status=%d", recorder.Code)
 	}
 
 	recorder = httptest.NewRecorder()
-	handleSystemDataDelete(recorder, httptest.NewRequest(http.MethodDelete, "/api/system/data", strings.NewReader(`{"reason":"operator requested erasure"}`)), &fakeSystemDataResetRequester{message: &contract.Message{Payload: []byte(`{"status":"error","error":"reset failed"}`)}}, "admin-1")
+	failureMarker := filepath.Join(t.TempDir(), "reset.json")
+	handleSystemDataDelete(recorder, httptest.NewRequest(http.MethodDelete, "/api/system/data", strings.NewReader(`{"reason":"operator requested erasure"}`)), &fakeSystemDataResetRequester{message: &contract.Message{Payload: []byte(`{"status":"error","error":"reset failed"}`)}}, "admin-1", failureMarker)
 	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), `"status":"unknown"`) {
 		t.Fatalf("reset failure was not fail-closed: code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if _, err := os.Stat(failureMarker); err != nil {
+		t.Fatalf("failed reset marker was not retained: %v", err)
+	}
+}
+
+func TestSystemDataResetMarkerRecoversAfterCoordinatorRestart(t *testing.T) {
+	markerPath := filepath.Join(t.TempDir(), "api-reset.json")
+	request := contract.SystemStateResetRequest{TargetState: "empty", Reason: "restart recovery test", CreatedBy: "admin-1"}
+	if err := writeSystemDataResetMarker(markerPath, request); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(contract.SystemStateResetResult{Status: "erased", Scope: "core", TargetState: "empty", CreatedBy: request.CreatedBy, Reason: request.Reason, ErasedAt: time.Now().UTC()})
+	if err := recoverSystemDataReset(context.Background(), &fakeSystemDataResetRequester{message: &contract.Message{Payload: body}}, markerPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(markerPath); !os.IsNotExist(err) {
+		t.Fatalf("reset marker remains after recovery: %v", err)
 	}
 }
 
@@ -173,9 +194,10 @@ func TestSystemDataDeleteIsAdminOnlyAndCSRFProtected(t *testing.T) {
 	auth := newAPIAuth(cfg)
 	responseBody, _ := json.Marshal(contract.SystemStateResetResult{Status: "erased", Scope: "core", TargetState: "empty", Reason: "operator requested erasure", ErasedAt: time.Now().UTC()})
 	requester := &fakeSystemDataResetRequester{message: &contract.Message{Payload: responseBody}}
+	markerPath := filepath.Join(t.TempDir(), "reset.json")
 	handler := auth.require("admin", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, _ := auth.authenticate(r)
-		handleSystemDataDelete(w, r, requester, claims.Subject)
+		handleSystemDataDelete(w, r, requester, claims.Subject, markerPath)
 	}))
 
 	unauthorized := httptest.NewRecorder()

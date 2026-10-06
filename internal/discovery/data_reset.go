@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,13 @@ import (
 )
 
 var errDiscoveryResetInProgress = errors.New("discovery data reset already in progress")
+
+const discoveryResetMarkerSchema = "synora.discovery-data-reset/v1"
+
+type discoveryResetMarker struct {
+	Schema    string    `json:"schema"`
+	StartedAt time.Time `json:"started_at"`
+}
 
 // AcquireIngress admits one upload unless a data reset has started. The
 // release callback is idempotent so handler error paths cannot leak a lease.
@@ -56,6 +65,12 @@ func (m *Manager) ResetData(ctx context.Context) error {
 	}
 	m.stateResetting = true
 	m.stateMu.Unlock()
+	if err := m.writeResetMarker(); err != nil {
+		m.stateMu.Lock()
+		m.stateResetting = false
+		m.stateMu.Unlock()
+		return fmt.Errorf("write discovery reset marker: %w", err)
+	}
 	defer func() {
 		m.stateMu.Lock()
 		m.stateResetting = false
@@ -96,7 +111,87 @@ func (m *Manager) ResetData(ctx context.Context) error {
 	m.actionMu.Lock()
 	m.actionResults = make(map[string]contract.Event)
 	m.actionMu.Unlock()
+	if err := m.removeResetMarker(); err != nil {
+		return fmt.Errorf("remove discovery reset marker: %w", err)
+	}
 	return nil
+}
+
+func (m *Manager) resetMarkerPath() string {
+	return filepath.Join(filepath.Dir(filepath.Clean(m.clipRoot)), ".synora-discovery-data-reset.json")
+}
+
+func (m *Manager) writeResetMarker() error {
+	if m == nil || strings.TrimSpace(m.clipRoot) == "" || !filepath.IsAbs(m.clipRoot) {
+		return errors.New("discovery clip root is invalid")
+	}
+	parent := filepath.Dir(filepath.Clean(m.clipRoot))
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return err
+	}
+	body, err := json.Marshal(discoveryResetMarker{Schema: discoveryResetMarkerSchema, StartedAt: time.Now().UTC()})
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(parent, ".synora-discovery-reset-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	keep := false
+	defer func() {
+		_ = tmp.Close()
+		if !keep {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := tmp.Write(body); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, m.resetMarkerPath()); err != nil {
+		return err
+	}
+	keep = true
+	return syncResetDirectory(parent)
+}
+
+func (m *Manager) removeResetMarker() error {
+	if m == nil {
+		return nil
+	}
+	if err := os.Remove(m.resetMarkerPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (m *Manager) hasResetMarker() (bool, error) {
+	if m == nil {
+		return false, nil
+	}
+	_, err := os.Stat(m.resetMarkerPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func syncResetDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
 
 func (m *Manager) handleSystemStateReset(message contract.Message) {
