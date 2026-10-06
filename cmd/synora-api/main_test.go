@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"synora/internal/runtimeconfig"
 	"synora/internal/security"
+	"synora/pkg/contract"
 )
 
 func TestConfiguredHTTPSUsesExisting8443Configuration(t *testing.T) {
@@ -72,6 +74,37 @@ func TestVersionEndpointFailsClosedWhenManifestMissing(t *testing.T) {
 	handleVersion(recorder, httptest.NewRequest(http.MethodGet, "/api/system/version", nil), filepath.Join(t.TempDir(), "missing.json"))
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("missing version manifest status=%d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+}
+
+type fakeRuntimeHealthRequester struct {
+	message *contract.Message
+	err     error
+}
+
+func (f fakeRuntimeHealthRequester) RequestWithTimeout(string, string, []byte, string, time.Duration) (*contract.Message, error) {
+	return f.message, f.err
+}
+
+func TestSystemHealthReturnsRuntimeEvidence(t *testing.T) {
+	body, err := json.Marshal(contract.RuntimeHealth{Status: "ok", Services: map[string]contract.RuntimeServiceHealth{
+		"synora-core": {Name: "synora-core", Status: "ok", Active: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	handleSystemHealth(recorder, httptest.NewRequest(http.MethodGet, "/api/system/health", nil), fakeRuntimeHealthRequester{message: &contract.Message{Payload: body}})
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"status":"ok"`) {
+		t.Fatalf("unexpected runtime health: code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestSystemHealthFailsClosedWhenRuntimeUnavailable(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	handleSystemHealth(recorder, httptest.NewRequest(http.MethodGet, "/api/system/health", nil), fakeRuntimeHealthRequester{err: os.ErrNotExist})
+	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), `"status":"unknown"`) {
+		t.Fatalf("unexpected unavailable health: code=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
