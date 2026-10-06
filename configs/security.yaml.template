@@ -1,6 +1,7 @@
 # Safe versioned template. Run synora-bootstrap-config init before production use.
 api_token_hash: "__GENERATED_AT_INSTALL__"
 session_secret_file: "/etc/synora/secrets/session_secret"
+session_store_file: "/var/lib/synora/auth/sessions.json"
 allowed_origins: []
 device_secrets: {}
 pairing_enabled: true

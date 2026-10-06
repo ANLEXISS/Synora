@@ -15,9 +15,11 @@ const (
 )
 
 type apiAuth struct {
-	config *security.Config
-	secret []byte
-	now    func() time.Time
+	config       *security.Config
+	secret       []byte
+	sessions     *security.SessionStore
+	sessionError error
+	now          func() time.Time
 }
 
 func newAPIAuth(config *security.Config) *apiAuth {
@@ -35,6 +37,11 @@ func newAPIAuth(config *security.Config) *apiAuth {
 	// keeping sessions invalidated when the API token is rotated.
 	if len(auth.secret) < 16 {
 		auth.secret = []byte(strings.TrimSpace(config.APITokenHash))
+	}
+	if store, err := security.OpenSessionStore(strings.TrimSpace(config.SessionStoreFile)); err != nil {
+		auth.sessionError = err
+	} else {
+		auth.sessions = store
 	}
 	return auth
 }
@@ -66,7 +73,14 @@ func (a *apiAuth) authenticate(r *http.Request) (security.SessionClaims, bool) {
 		return security.SessionClaims{}, false
 	}
 	claims, err := security.VerifySession(a.secret, cookie.Value, a.now())
-	return claims, err == nil
+	if err != nil || a.sessions == nil {
+		return security.SessionClaims{}, false
+	}
+	active, ok := a.sessions.Active(cookie.Value, a.now())
+	if !ok || active.Subject != claims.Subject || active.Role != claims.Role {
+		return security.SessionClaims{}, false
+	}
+	return claims, true
 }
 
 func (a *apiAuth) require(role string, next http.Handler) http.Handler {
@@ -97,7 +111,7 @@ func (a *apiAuth) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	claims, ok := a.bearerRole(r)
-	if !ok || len(a.secret) < 16 {
+	if !ok || len(a.secret) < 16 || a.sessions == nil || a.sessionError != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -113,9 +127,24 @@ func (a *apiAuth) createSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	if err := a.sessions.Register(token, claims); err != nil {
+		http.Error(w, "session unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{Name: security.SessionCookieName, Value: token, Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, Expires: claims.ExpiresAt})
 	w.Header().Set(csrfHeader, csrf)
 	writeJSON(w, http.StatusCreated, map[string]any{"subject": claims.Subject, "role": claims.Role, "expires_at": claims.ExpiresAt})
+}
+
+func (a *apiAuth) logout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(security.SessionCookieName); err == nil && a.sessions != nil {
+		if err := a.sessions.Revoke(cookie.Value); err != nil {
+			http.Error(w, "session unavailable", http.StatusServiceUnavailable)
+			return
+		}
+	}
+	http.SetCookie(w, &http.Cookie{Name: security.SessionCookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *apiAuth) me(w http.ResponseWriter, r *http.Request) {

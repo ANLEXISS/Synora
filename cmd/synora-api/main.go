@@ -48,6 +48,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/api/auth/session", http.HandlerFunc(auth.createSession))
 	mux.Handle("/api/auth/me", auth.require("guest", http.HandlerFunc(auth.me)))
+	mux.Handle("/api/auth/logout", auth.require("guest", http.HandlerFunc(auth.logout)))
 	mux.Handle("/api/intelligence/topology", auth.require("guest", http.HandlerFunc(handleIntelligenceTopology(hub))))
 	mux.Handle("/api/intelligence/traces", auth.require("guest", http.HandlerFunc(handleIntelligenceTraces(hub))))
 	mux.HandleFunc("/health", handleHealth)

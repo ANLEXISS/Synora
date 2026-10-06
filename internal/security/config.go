@@ -30,6 +30,7 @@ type Config struct {
 	APITokenHash            string            `yaml:"api_token_hash,omitempty"`
 	APIToken                string            `yaml:"api_token,omitempty"`
 	SessionSecretFile       string            `yaml:"session_secret_file,omitempty"`
+	SessionStoreFile        string            `yaml:"session_store_file,omitempty"`
 	AllowedOrigins          []string          `yaml:"allowed_origins"`
 	DeviceSecrets           map[string]string `yaml:"device_secrets"`
 	PairingEnabled          bool              `yaml:"pairing_enabled"`

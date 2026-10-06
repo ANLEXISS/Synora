@@ -1450,6 +1450,13 @@ La validation explicite de la branche et du commit de référence, puis l’alig
 
 Cette tranche ne clôt pas J1 : la session est encore signée stateless (pas de registre serveur de révocation), les comptes `auth.yaml` et la revalidation des rôles ne sont pas raccordés, et la suppression métier/reprise idempotente entre les deux Stores doit encore être traitée.
 
+Mise à jour : un registre `session_store_file` persistant est maintenant
+utilisé pour inscrire les sessions, les retrouver après redémarrage et les
+révoquer via `POST /api/auth/logout`. Le fichier ne conserve que le hash du
+cookie et les métadonnées minimales ; les tests couvrent persistance,
+expiration, révocation et refus après logout. La revalidation des comptes
+`auth.yaml` et des changements de rôle reste à raccorder.
+
 Un garde-fou supplémentaire est maintenant versionné dans
 `cmd/synora-core/store_authority_test.go` et documenté dans
 `docs/v1-store-authority.md` : le chemin Core V1 ouvre exclusivement
