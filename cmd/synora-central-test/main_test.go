@@ -173,6 +173,22 @@ func TestVisionMediaPathCannotEscapeRoot(t *testing.T) {
 	}
 }
 
+func TestLe2iManifestStrictContractAndMissingModelState(t *testing.T) {
+	manifest, err := loadLe2iManifest("../../testdata/central-e2e-v1/media/le2i-v1-regression.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.CaseCount != 48 || len(manifest.Cases) != 48 || manifest.Backend != "yolov8n_pose_rknn/v1" {
+		t.Fatalf("unexpected Le2i manifest: %+v", manifest)
+	}
+	if le2iModelStatus("", poseModelDiagnostic{Status: "unavailable"}) != mediaStatusModelMissing {
+		t.Fatal("missing explicit model path was not classified as blocked_model_missing")
+	}
+	if le2iModelStatus("/tmp/does-not-exist-yolov8n-pose.rknn", poseModelDiagnostic{Status: "unavailable"}) != mediaStatusModelMissing {
+		t.Fatal("missing model file was not classified as blocked_model_missing")
+	}
+}
+
 func TestCentralSummaryRedactsPayload(t *testing.T) {
 	payload := []byte(`{"media_ref":"must-not-appear","keypoints":[[1,2,0.9]],"status":"accepted"}`)
 	digest := sha256.Sum256(payload)

@@ -1,0 +1,781 @@
+{
+  "schema_version": "synora.vision.media-manifest/v1",
+  "version": "le2i-v1-regression",
+  "dataset": "le2i-processed-v1",
+  "purpose": "visible_non_regression",
+  "seed": "synora-le2i-v1-20261006",
+  "source_manifest_sha256": "54a688e6a1876ebace06b075b5ecd65743bef8381a932c54ee5273fbb46aed1f",
+  "case_count": 48,
+  "media_root_env": "SYNORA_VISION_MEDIA_ROOT",
+  "backend": "yolov8n_pose_rknn/v1",
+  "cases": [
+    {
+      "id": "le2i-v1-fall-home_v9c1",
+      "category": "Fall",
+      "clip_relative_path": "clips/regression/le2i-v1-fall-home_v9c1.mp4",
+      "clip_sha256": "62e6bdb012b636f2a73a9dfb87f12ed94895424c009f029ab6d334d6a1d54c08",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_or_transition",
+        "fall_expectation": "candidate_only"
+      }
+    },
+    {
+      "id": "le2i-v1-fall-home_v26c1",
+      "category": "Fall",
+      "clip_relative_path": "clips/regression/le2i-v1-fall-home_v26c1.mp4",
+      "clip_sha256": "66d1e1b364d61a7b8f09ab5f8dc80bdd4b39cc77fc1ff58dc08cff47d625590d",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_or_transition",
+        "fall_expectation": "candidate_only"
+      }
+    },
+    {
+      "id": "le2i-v1-fall-home_v31c1",
+      "category": "Fall",
+      "clip_relative_path": "clips/regression/le2i-v1-fall-home_v31c1.mp4",
+      "clip_sha256": "6f65585c3f22d1ae4bc8c64c434d6096ac5e29a34941ecf8877e82b9e72236f7",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_or_transition",
+        "fall_expectation": "candidate_only"
+      }
+    },
+    {
+      "id": "le2i-v1-fall-coffee_v20c2",
+      "category": "Fall",
+      "clip_relative_path": "clips/regression/le2i-v1-fall-coffee_v20c2.mp4",
+      "clip_sha256": "d429d54367bfba940f323d9af539253581445adba95a328eb82071ae0e4dd423",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_or_transition",
+        "fall_expectation": "candidate_only"
+      }
+    },
+    {
+      "id": "le2i-v1-fall-coffee_v23c2",
+      "category": "Fall",
+      "clip_relative_path": "clips/regression/le2i-v1-fall-coffee_v23c2.mp4",
+      "clip_sha256": "d6f0a10e9f4d6f9e7817f1cc5a47896b4dcc318755fcebf1903efac8d36df55f",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_or_transition",
+        "fall_expectation": "candidate_only"
+      }
+    },
+    {
+      "id": "le2i-v1-fall-home_v25c1",
+      "category": "Fall",
+      "clip_relative_path": "clips/regression/le2i-v1-fall-home_v25c1.mp4",
+      "clip_sha256": "f61018ad0ccc9d3b4bb44b4e6e778f3fcf53439fe4b25d41ce361612769639a7",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_or_transition",
+        "fall_expectation": "candidate_only"
+      }
+    },
+    {
+      "id": "le2i-v1-fall-coffee_v7c1",
+      "category": "Fall",
+      "clip_relative_path": "clips/regression/le2i-v1-fall-coffee_v7c1.mp4",
+      "clip_sha256": "518c3b87fa49b977d509adf77a9e0dc62aba14ba70ce26456989fd0dc6f1ffb6",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_or_transition",
+        "fall_expectation": "candidate_only"
+      }
+    },
+    {
+      "id": "le2i-v1-fall-home_v5c1",
+      "category": "Fall",
+      "clip_relative_path": "clips/regression/le2i-v1-fall-home_v5c1.mp4",
+      "clip_sha256": "fed22ac67192a561e2f8a0614a58f68895325d474e3aa29f319ce3772c954a8b",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_or_transition",
+        "fall_expectation": "candidate_only"
+      }
+    },
+    {
+      "id": "le2i-v1-fall-coffee_v22c1",
+      "category": "Fall",
+      "clip_relative_path": "clips/regression/le2i-v1-fall-coffee_v22c1.mp4",
+      "clip_sha256": "929aad2ada23a43e294e55605ac56b84292a8096d4c0d6b19fc6fe8581be14ca",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_or_transition",
+        "fall_expectation": "candidate_only"
+      }
+    },
+    {
+      "id": "le2i-v1-fall-coffee_v12c1",
+      "category": "Fall",
+      "clip_relative_path": "clips/regression/le2i-v1-fall-coffee_v12c1.mp4",
+      "clip_sha256": "2fd4ca0006af1dac2c5df5b5f2b239edc98aae2fa64dbb70a48e1431a40fb04d",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_or_transition",
+        "fall_expectation": "candidate_only"
+      }
+    },
+    {
+      "id": "le2i-v1-lie-coffee_v4c4",
+      "category": "Lie",
+      "clip_relative_path": "clips/regression/le2i-v1-lie-coffee_v4c4.mp4",
+      "clip_sha256": "9c8eab7eb21406ac4ec1bf3985ff6e7721d9dc3ef78b92d15b95d23fff5c85cf",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_like",
+        "fall_expectation": "none_without_transition"
+      }
+    },
+    {
+      "id": "le2i-v1-lie-coffee_v12c7",
+      "category": "Lie",
+      "clip_relative_path": "clips/regression/le2i-v1-lie-coffee_v12c7.mp4",
+      "clip_sha256": "f5432ce5ba2e7787af1dfed5fe8baab13815fa501881689226a2a8f9e2232f37",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_like",
+        "fall_expectation": "none_without_transition"
+      }
+    },
+    {
+      "id": "le2i-v1-lie-coffee_v11c3",
+      "category": "Lie",
+      "clip_relative_path": "clips/regression/le2i-v1-lie-coffee_v11c3.mp4",
+      "clip_sha256": "13598bbe611ceb1ce27eb30422033e7277dc1db3e7a4641b0f738e5613fcf03f",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_like",
+        "fall_expectation": "none_without_transition"
+      }
+    },
+    {
+      "id": "le2i-v1-lie-coffee_v13c2",
+      "category": "Lie",
+      "clip_relative_path": "clips/regression/le2i-v1-lie-coffee_v13c2.mp4",
+      "clip_sha256": "e00110f06d2fcbfca5a22f23b090218d8a54aaaffa8b68ee09589e1e2c85fb99",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_like",
+        "fall_expectation": "none_without_transition"
+      }
+    },
+    {
+      "id": "le2i-v1-lie-home_v31c3",
+      "category": "Lie",
+      "clip_relative_path": "clips/regression/le2i-v1-lie-home_v31c3.mp4",
+      "clip_sha256": "161cc1b5be93ed0f45fcaaa4243301babe79b886087d1b4659d41b8b054c5d92",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_like",
+        "fall_expectation": "none_without_transition"
+      }
+    },
+    {
+      "id": "le2i-v1-lie-coffee_v11c7",
+      "category": "Lie",
+      "clip_relative_path": "clips/regression/le2i-v1-lie-coffee_v11c7.mp4",
+      "clip_sha256": "a0095d8b6c0be063a4e4200af9e800fea19fcae2a750a3be6fcc0a1d535f5de8",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_like",
+        "fall_expectation": "none_without_transition"
+      }
+    },
+    {
+      "id": "le2i-v1-lie-coffee_v15c4",
+      "category": "Lie",
+      "clip_relative_path": "clips/regression/le2i-v1-lie-coffee_v15c4.mp4",
+      "clip_sha256": "3c386d57705d674bfe485b7b03c6dc886302a3394f066b0c8d6b832a532eb1b9",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_like",
+        "fall_expectation": "none_without_transition"
+      }
+    },
+    {
+      "id": "le2i-v1-lie-coffee_v10c3",
+      "category": "Lie",
+      "clip_relative_path": "clips/regression/le2i-v1-lie-coffee_v10c3.mp4",
+      "clip_sha256": "aaa976e238695f89bbab2ff252149e74a98abb776473a4a15bf374a2d05d62bd",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_like",
+        "fall_expectation": "none_without_transition"
+      }
+    },
+    {
+      "id": "le2i-v1-lie-coffee_v13c4",
+      "category": "Lie",
+      "clip_relative_path": "clips/regression/le2i-v1-lie-coffee_v13c4.mp4",
+      "clip_sha256": "c275ba934ac5fee40cd2e251b4ff536878a6660b08e8716d6d50663e14d5be6e",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_like",
+        "fall_expectation": "none_without_transition"
+      }
+    },
+    {
+      "id": "le2i-v1-lie-coffee_v12c4",
+      "category": "Lie",
+      "clip_relative_path": "clips/regression/le2i-v1-lie-coffee_v12c4.mp4",
+      "clip_sha256": "d496bddaafdd26000a51b13dd11d6a77f4382ce31665bd1614f67182a109d97c",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ground_like",
+        "fall_expectation": "none_without_transition"
+      }
+    },
+    {
+      "id": "le2i-v1-likefall-coffee_v10c10",
+      "category": "Likefall",
+      "clip_relative_path": "clips/regression/le2i-v1-likefall-coffee_v10c10.mp4",
+      "clip_sha256": "3854a6d9693cd9a30c589280136928cd0f2cb69437fc45876d3b0f6b6ef8db5f",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ambiguous",
+        "fall_expectation": "candidate_or_uncertain"
+      }
+    },
+    {
+      "id": "le2i-v1-likefall-coffee_v27c5",
+      "category": "Likefall",
+      "clip_relative_path": "clips/regression/le2i-v1-likefall-coffee_v27c5.mp4",
+      "clip_sha256": "f32d9521bf89baac9a807f7496e1f337d3c076fdf2f408a60f26dfa6280f3d5b",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ambiguous",
+        "fall_expectation": "candidate_or_uncertain"
+      }
+    },
+    {
+      "id": "le2i-v1-likefall-coffee_v11c22",
+      "category": "Likefall",
+      "clip_relative_path": "clips/regression/le2i-v1-likefall-coffee_v11c22.mp4",
+      "clip_sha256": "c15fcd04688ad010b7db5695a81dcd23e967bd49fee3bfbde43432c042bc1e1f",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ambiguous",
+        "fall_expectation": "candidate_or_uncertain"
+      }
+    },
+    {
+      "id": "le2i-v1-likefall-coffee_v28c8",
+      "category": "Likefall",
+      "clip_relative_path": "clips/regression/le2i-v1-likefall-coffee_v28c8.mp4",
+      "clip_sha256": "c58a1ba819708d6f9c8854c4790c60e41ba0eb9a9b4ba9bd8842a206ae14f4ea",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ambiguous",
+        "fall_expectation": "candidate_or_uncertain"
+      }
+    },
+    {
+      "id": "le2i-v1-likefall-coffee_v19c7",
+      "category": "Likefall",
+      "clip_relative_path": "clips/regression/le2i-v1-likefall-coffee_v19c7.mp4",
+      "clip_sha256": "706165b9979cc28002e437853b4e536fe95700f4301ee24af5a365ae2d679433",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ambiguous",
+        "fall_expectation": "candidate_or_uncertain"
+      }
+    },
+    {
+      "id": "le2i-v1-likefall-coffee_v21c9",
+      "category": "Likefall",
+      "clip_relative_path": "clips/regression/le2i-v1-likefall-coffee_v21c9.mp4",
+      "clip_sha256": "893c173ba7492ac11aba1c2c74b33305601117a426e6e34d6addf033ce937530",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ambiguous",
+        "fall_expectation": "candidate_or_uncertain"
+      }
+    },
+    {
+      "id": "le2i-v1-likefall-coffee_v25c12",
+      "category": "Likefall",
+      "clip_relative_path": "clips/regression/le2i-v1-likefall-coffee_v25c12.mp4",
+      "clip_sha256": "872bc8c73a76210478b1225a158218afd00e235c38829e9e4691fc02b0112391",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ambiguous",
+        "fall_expectation": "candidate_or_uncertain"
+      }
+    },
+    {
+      "id": "le2i-v1-likefall-coffee_v21c7",
+      "category": "Likefall",
+      "clip_relative_path": "clips/regression/le2i-v1-likefall-coffee_v21c7.mp4",
+      "clip_sha256": "b45e7c9c3803ec337e0a0952dfe8efce1b0a6d7a678f23cc14572f7e06cc16aa",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "ambiguous",
+        "fall_expectation": "candidate_or_uncertain"
+      }
+    },
+    {
+      "id": "le2i-v1-stand-coffee_v12c9",
+      "category": "Stand",
+      "clip_relative_path": "clips/regression/le2i-v1-stand-coffee_v12c9.mp4",
+      "clip_sha256": "8370ad2aef9a479c6d541a2727b5224375be23b5ac9c40aa455c8ec6e2e470e3",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "upright",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-stand-coffee_v18c10",
+      "category": "Stand",
+      "clip_relative_path": "clips/regression/le2i-v1-stand-coffee_v18c10.mp4",
+      "clip_sha256": "11e1de19a1aec7e9644ec91d300ed772eda7ab7f80b82f579d85e6eba4977e17",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "upright",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-stand-coffee_v30c9",
+      "category": "Stand",
+      "clip_relative_path": "clips/regression/le2i-v1-stand-coffee_v30c9.mp4",
+      "clip_sha256": "c045aca2861250f9d34bcebe5a0b92877c35cfaf970b20112681edcb92a0e029",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "upright",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-stand-home_v28c6",
+      "category": "Stand",
+      "clip_relative_path": "clips/regression/le2i-v1-stand-home_v28c6.mp4",
+      "clip_sha256": "b330fb5a9f988218ba9e2ca87f01a16cf3e2abbf8df8c2a065956687d1890358",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "upright",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-stand-coffee_v27c8",
+      "category": "Stand",
+      "clip_relative_path": "clips/regression/le2i-v1-stand-coffee_v27c8.mp4",
+      "clip_sha256": "71d432be11ce4a1afd18ab0ab9da8b44f3ccab86a0b5128edf39bd38eeca0339",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "upright",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-stand-coffee_v20c15",
+      "category": "Stand",
+      "clip_relative_path": "clips/regression/le2i-v1-stand-coffee_v20c15.mp4",
+      "clip_sha256": "3f57d19f5ef8ae05ccbc2e756bfbc61ee36088529bdb4ea04669c0f90b61c131",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "upright",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-stand-coffee_v21c10",
+      "category": "Stand",
+      "clip_relative_path": "clips/regression/le2i-v1-stand-coffee_v21c10.mp4",
+      "clip_sha256": "c704ae041a178f3b6457b46da1a0be7f1e2993fbf656639fdfa96072d94621f9",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "upright",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-stand-home_v30c7",
+      "category": "Stand",
+      "clip_relative_path": "clips/regression/le2i-v1-stand-home_v30c7.mp4",
+      "clip_sha256": "86f0271d7b54e0d3aac350556e2245118c6ae6476add72de0d383bb778defeca",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "upright",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-stand-coffee_v18c14",
+      "category": "Stand",
+      "clip_relative_path": "clips/regression/le2i-v1-stand-coffee_v18c14.mp4",
+      "clip_sha256": "ce8b19a0fbeb12a9413d877985a7025a74325397887462f4c1f64fd83b696efd",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "upright",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-stand-coffee_v23c11",
+      "category": "Stand",
+      "clip_relative_path": "clips/regression/le2i-v1-stand-coffee_v23c11.mp4",
+      "clip_sha256": "45c9519e674d9a8ed7912bb25d5adb3468180daaba25d502e0b440bed13f0719",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": true,
+        "pose_expectation": "upright",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-blank-home_v1c74",
+      "category": "Blank",
+      "clip_relative_path": "clips/regression/le2i-v1-blank-home_v1c74.mp4",
+      "clip_sha256": "cdd4cb383a4b33fa548f3901fd0834a353bf819c7bebc6307278b927d67fdf0f",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": false,
+        "pose_expectation": "no_person",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-blank-home_v2c5",
+      "category": "Blank",
+      "clip_relative_path": "clips/regression/le2i-v1-blank-home_v2c5.mp4",
+      "clip_sha256": "ee5b44a54e80001dcb7359dca102e4e1375ca2f2fdb44492989b53fa6599d28d",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": false,
+        "pose_expectation": "no_person",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-blank-home_v2c2",
+      "category": "Blank",
+      "clip_relative_path": "clips/regression/le2i-v1-blank-home_v2c2.mp4",
+      "clip_sha256": "ee5b44a54e80001dcb7359dca102e4e1375ca2f2fdb44492989b53fa6599d28d",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": false,
+        "pose_expectation": "no_person",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-blank-Coffee_room_v99",
+      "category": "Blank",
+      "clip_relative_path": "clips/regression/le2i-v1-blank-Coffee_room_v99.mp4",
+      "clip_sha256": "889d13cd6ebd9226934e49c7d20c21dcd7287a9dc6ca6c9381f61570c1f6ea5f",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": false,
+        "pose_expectation": "no_person",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-blank-Coffee_room_v100",
+      "category": "Blank",
+      "clip_relative_path": "clips/regression/le2i-v1-blank-Coffee_room_v100.mp4",
+      "clip_sha256": "889d13cd6ebd9226934e49c7d20c21dcd7287a9dc6ca6c9381f61570c1f6ea5f",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": false,
+        "pose_expectation": "no_person",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-blank-Coffee_room_v83",
+      "category": "Blank",
+      "clip_relative_path": "clips/regression/le2i-v1-blank-Coffee_room_v83.mp4",
+      "clip_sha256": "889d13cd6ebd9226934e49c7d20c21dcd7287a9dc6ca6c9381f61570c1f6ea5f",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 240,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": false,
+        "pose_expectation": "no_person",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-blank-home_v2c4",
+      "category": "Blank",
+      "clip_relative_path": "clips/regression/le2i-v1-blank-home_v2c4.mp4",
+      "clip_sha256": "ee5b44a54e80001dcb7359dca102e4e1375ca2f2fdb44492989b53fa6599d28d",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": false,
+        "pose_expectation": "no_person",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-blank-home_v1c6",
+      "category": "Blank",
+      "clip_relative_path": "clips/regression/le2i-v1-blank-home_v1c6.mp4",
+      "clip_sha256": "cdd4cb383a4b33fa548f3901fd0834a353bf819c7bebc6307278b927d67fdf0f",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": false,
+        "pose_expectation": "no_person",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-blank-home_v1c1",
+      "category": "Blank",
+      "clip_relative_path": "clips/regression/le2i-v1-blank-home_v1c1.mp4",
+      "clip_sha256": "cdd4cb383a4b33fa548f3901fd0834a353bf819c7bebc6307278b927d67fdf0f",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": false,
+        "pose_expectation": "no_person",
+        "fall_expectation": "none"
+      }
+    },
+    {
+      "id": "le2i-v1-blank-home_v1c72",
+      "category": "Blank",
+      "clip_relative_path": "clips/regression/le2i-v1-blank-home_v1c72.mp4",
+      "clip_sha256": "cdd4cb383a4b33fa548f3901fd0834a353bf819c7bebc6307278b927d67fdf0f",
+      "clip_codec": "h264",
+      "clip_width": 320,
+      "clip_height": 180,
+      "clip_fps": "25/1",
+      "clip_frame_count": 16,
+      "expectation": {
+        "person_expected": false,
+        "pose_expectation": "no_person",
+        "fall_expectation": "none"
+      }
+    }
+  ]
+}

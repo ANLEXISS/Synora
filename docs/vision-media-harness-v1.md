@@ -46,6 +46,10 @@ signals: pose status, posture, immobility, fall candidate/none/uncertain,
 rapid motion, physical interaction candidate, confidence and latency. A
 `confirmed` fall is rejected by the adapter.
 
+The four-output decoder is based on the public Rockchip implementation in
+[`airockchip/rknn_model_zoo/examples/yolov8_pose/python/yolov8_pose.py`](https://github.com/airockchip/rknn_model_zoo/blob/main/examples/yolov8_pose/python/yolov8_pose.py),
+with its drawing and raw-output publication removed for this harness.
+
 Face families remain `blocked_model_unavailable`; no face recognizer or
 identity path is added here. Delivery failures are classified as
 `blocked_media_missing` or `blocked_integrity_failure`. The report uses the

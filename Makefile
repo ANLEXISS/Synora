@@ -10,6 +10,7 @@ SHELL := /usr/bin/env bash
 
 CENTRAL_E2E_MANIFEST ?= testdata/central-e2e-v1/manifest.json
 CENTRAL_E2E_OUT ?= $(if $(OUT),$(OUT),/tmp/synora-central-e2e-v1.json)
+CENTRAL_E2E_MEDIA_MANIFEST ?= testdata/central-e2e-v1/media/le2i-v1-regression.json
 
 COGNITIVE_V1_BUNDLE ?= build/cognitive-mlp-v1
 COGNITIVE_BUNDLE ?= $(COGNITIVE_V1_BUNDLE)
@@ -143,8 +144,8 @@ build-bootstrap-config: check-go
 	done
 
 test-central-v1: check-go
-	if [ -n "$${MEDIA_ROOT:-}" ]; then MEDIA_FLAG=--media; else MEDIA_FLAG=; fi; \
-	SYNORA_VISION_MEDIA_ROOT="$${MEDIA_ROOT:-}" SYNORA_POSE_RKNN_MODEL="$${POSE_MODEL:-}" GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-central-test --manifest "$(CENTRAL_E2E_MANIFEST)" --case "$${CASE:-}" --bundle "$${BUNDLE:-}" --media-manifest "$${MEDIA_MANIFEST:-testdata/central-e2e-v1/vision-media-v1/manifest.json}" $$MEDIA_FLAG --out "$(CENTRAL_E2E_OUT)"
+	VISION_ROOT="$${MEDIA_ROOT:-$${SYNORA_VISION_MEDIA_ROOT:-}}"; if [ "$(MEDIA)" = "le2i" ]; then MEDIA_FLAG="--media --media-manifest $${MEDIA_MANIFEST:-$(CENTRAL_E2E_MEDIA_MANIFEST)}"; elif [ -n "$$VISION_ROOT" ]; then MEDIA_FLAG="--media --media-manifest $${MEDIA_MANIFEST:-testdata/central-e2e-v1/vision-media-v1/manifest.json}"; else MEDIA_FLAG=; fi; \
+	SYNORA_VISION_MEDIA_ROOT="$$VISION_ROOT" SYNORA_POSE_RKNN_MODEL="$${POSE_MODEL:-$${SYNORA_POSE_RKNN_MODEL:-}}" GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-central-test --manifest "$(CENTRAL_E2E_MANIFEST)" --case "$${CASE:-}" --bundle "$${BUNDLE:-}" $$MEDIA_FLAG --out "$(CENTRAL_E2E_OUT)"
 
 test: test-central-v1 check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./...

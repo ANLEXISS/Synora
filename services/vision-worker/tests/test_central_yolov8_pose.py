@@ -1,4 +1,3 @@
-import importlib.util
 import json
 import sys
 import unittest
@@ -9,24 +8,23 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "services" / "vision-worker"))
-SPEC = importlib.util.spec_from_file_location("central_yolov8_pose", ROOT / "tools" / "central_yolov8_pose.py")
-MODULE = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-SPEC.loader.exec_module(MODULE)
+from core import yolov8_pose_backend as MODULE  # noqa: E402
 
 
 class CentralYOLOPoseTests(unittest.TestCase):
     def test_synthetic_output_decodes_to_aggregate_only(self):
-        row = np.zeros((1, 56, 1), dtype=np.float32)
-        row[0, 0:4, 0] = (320.0, 320.0, 180.0, 520.0)
-        row[0, 4, 0] = 0.95
-        for index in range(17):
-            row[0, 5 + index * 3, 0] = 320.0
-            row[0, 6 + index * 3, 0] = 320.0 + index
-            row[0, 7 + index * 3, 0] = 0.95
-        pose = MODULE.decode_best([row], (1.0, 0, 0, 640, 640))
+        outputs = []
+        for height, width in MODULE.BRANCH_SHAPES:
+            head = np.full((1, 65, height, width), -10.0, dtype=np.float32)
+            head[0, 64, height // 2, width // 2] = 10.0
+            outputs.append(head)
+        keypoints = np.ones((1, 17, 3, 8400), dtype=np.float32)
+        keypoints[:, :, 0, :] = 320.0
+        keypoints[:, :, 1, :] = 320.0
+        keypoints[:, :, 2, :] = 0.95
+        outputs.append(keypoints)
+        pose = MODULE.decode_best(outputs, (1.0, 0, 0, 640, 640))
         self.assertIsNotNone(pose)
-        self.assertEqual(MODULE.posture_from_pose(pose), "upright")
         aggregate = {
             "pose_status": "available",
             "posture": MODULE.posture_from_pose(pose),
@@ -38,7 +36,14 @@ class CentralYOLOPoseTests(unittest.TestCase):
             self.assertNotIn(forbidden, encoded)
 
     def test_unknown_output_layout_is_rejected(self):
-        self.assertIsNone(MODULE.normalize_output(np.zeros((1, 84, 10), dtype=np.float32)))
+        with self.assertRaises(RuntimeError):
+            MODULE.validate_outputs([np.zeros((1, 84, 10), dtype=np.float32)])
+
+    def test_preprocess_matches_validated_rknn_input(self):
+        tensor, _ = MODULE.letterbox(np.zeros((180, 320, 3), dtype=np.uint8))
+        self.assertEqual(tensor.shape, (1, 640, 640, 3))
+        self.assertEqual(tensor.dtype, np.uint8)
+        self.assertEqual(int(tensor[0, 0, 0, 0]), MODULE.PADDING)
 
     def test_model_path_is_explicit_and_unavailable(self):
         with self.assertRaises(MODULE.ModelUnavailableError):

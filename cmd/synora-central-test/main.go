@@ -203,29 +203,39 @@ type backendReport struct {
 }
 
 type suiteReport struct {
-	SchemaVersion      string                   `json:"schema_version"`
-	Error              string                   `json:"error,omitempty"`
-	Seed               int64                    `json:"seed"`
-	LogicalDate        string                   `json:"logical_date"`
-	ManifestSHA256     string                   `json:"manifest_sha256"`
-	GeneratorVersion   string                   `json:"generator_version"`
-	StaticCaseCount    int                      `json:"static_case_count"`
-	GeneratedCaseCount int                      `json:"generated_case_count"`
-	ScenarioCount      int                      `json:"scenario_count"`
-	PassedCount        int                      `json:"passed_count"`
-	FailedCount        int                      `json:"failed_count"`
-	Passed             bool                     `json:"passed"`
-	DurationMS         float64                  `json:"duration_ms"`
-	NetworkAccess      bool                     `json:"network_access"`
-	AudioRendered      bool                     `json:"audio_rendered"`
-	PhysicalAction     bool                     `json:"physical_action_executed"`
-	RawVisionForwarded bool                     `json:"raw_vision_forwarded"`
-	SuiteCounts        map[string]int           `json:"suite_counts"`
-	FamilyCounts       map[string]int           `json:"family_counts"`
-	Coverage           map[string]int           `json:"coverage"`
-	ModelBackends      map[string]backendReport `json:"model_backends"`
-	VisionMedia        *mediaSuiteReport        `json:"vision_media,omitempty"`
-	Cases              []caseReport             `json:"cases"`
+	SchemaVersion               string                    `json:"schema_version"`
+	Error                       string                    `json:"error,omitempty"`
+	Seed                        int64                     `json:"seed"`
+	LogicalDate                 string                    `json:"logical_date"`
+	ManifestSHA256              string                    `json:"manifest_sha256"`
+	GeneratorVersion            string                    `json:"generator_version"`
+	StaticCaseCount             int                       `json:"static_case_count"`
+	GeneratedCaseCount          int                       `json:"generated_case_count"`
+	ScenarioCount               int                       `json:"scenario_count"`
+	PassedCount                 int                       `json:"passed_count"`
+	FailedCount                 int                       `json:"failed_count"`
+	Passed                      bool                      `json:"passed"`
+	DurationMS                  float64                   `json:"duration_ms"`
+	NetworkAccess               bool                      `json:"network_access"`
+	AudioRendered               bool                      `json:"audio_rendered"`
+	PhysicalAction              bool                      `json:"physical_action_executed"`
+	RawVisionForwarded          bool                      `json:"raw_vision_forwarded"`
+	SuiteCounts                 map[string]int            `json:"suite_counts"`
+	FamilyCounts                map[string]int            `json:"family_counts"`
+	Coverage                    map[string]int            `json:"coverage"`
+	ModelBackends               map[string]backendReport  `json:"model_backends"`
+	VisionMedia                 *mediaSuiteReport         `json:"vision_media,omitempty"`
+	MediaCaseCount              int                       `json:"media_case_count"`
+	NotRunCount                 int                       `json:"not_run_count"`
+	BlockedModelMissingCount    int                       `json:"blocked_model_missing_count"`
+	PoseBackendStatus           string                    `json:"pose_backend_status"`
+	MediaManifestSHA256         string                    `json:"media_manifest_sha256"`
+	MediaHashVerificationPassed bool                      `json:"media_hash_verification_passed"`
+	PoseLatencyMS               map[string]float64        `json:"pose_latency_ms"`
+	PostureByCategory           map[string]map[string]int `json:"posture_by_category"`
+	FallStateByCategory         map[string]map[string]int `json:"fall_state_by_category"`
+	MediaByCategory             map[string]map[string]int `json:"media_by_category"`
+	Cases                       []caseReport              `json:"cases"`
 }
 
 func main() {
@@ -305,6 +315,16 @@ func main() {
 		mediaReport := runVisionMediaSuite(root, *mediaManifestPath, os.Getenv("SYNORA_VISION_MEDIA_ROOT"), os.Getenv("SYNORA_POSE_RKNN_MODEL"))
 		report.VisionMedia = &mediaReport
 		report.ModelBackends["yolov8n_pose"] = backendReport{Status: mediaReport.ModelStatus, Backend: "yolov8n-pose-rknn-rk3588", RealModel: mediaReport.ModelStatus == "available", Reason: mediaReport.ModelReason}
+		report.MediaCaseCount = mediaReport.ScenarioCount
+		report.NotRunCount = mediaReport.NotRunCount
+		report.BlockedModelMissingCount = mediaReport.BlockedModelMissingCount
+		report.PoseBackendStatus = mediaReport.PoseBackendStatus
+		report.MediaManifestSHA256 = mediaReport.ManifestSHA256
+		report.MediaHashVerificationPassed = mediaReport.MediaHashVerificationPassed
+		report.PoseLatencyMS = mediaReport.PoseLatencyMS
+		report.PostureByCategory = mediaReport.PostureByCategory
+		report.FallStateByCategory = mediaReport.FallStateByCategory
+		report.MediaByCategory = mediaReport.MediaByCategory
 		overallPassed = overallPassed && mediaReport.Passed
 	}
 	report.Passed = overallPassed
