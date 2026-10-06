@@ -1449,3 +1449,9 @@ La validation explicite de la branche et du commit de référence, puis l’alig
 - Tests ajoutés et verts : session signée/expiration/tampering/RBAC, 401/403 HTTP, bootstrap de session et origine WebSocket.
 
 Cette tranche ne clôt pas J1 : la session est encore signée stateless (pas de registre serveur de révocation), les comptes `auth.yaml` et la revalidation des rôles ne sont pas raccordés, et la suppression métier/reprise idempotente entre les deux Stores doit encore être traitée.
+
+Un garde-fou supplémentaire est maintenant versionné dans
+`cmd/synora-core/store_authority_test.go` et documenté dans
+`docs/v1-store-authority.md` : le chemin Core V1 ouvre exclusivement
+`cognitivecore.UniversalStore`; `internal/state` reste hors du runtime jusqu’à
+une migration explicitement revue.
