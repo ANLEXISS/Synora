@@ -1,0 +1,2176 @@
+{
+  "schema_version": "synora.vision-test-media-manifest/v1",
+  "version": "vision-media-v1",
+  "logical_date": "2026-10-06",
+  "media_root_env": "SYNORA_VISION_MEDIA_ROOT",
+  "description": "Declarative local media inventory only. No media is stored in Git; zero hashes and zero duration mark entries awaiting local deposit.",
+  "source_policy": "Only locally deposited, consented clips may be used. The central runner never downloads media.",
+  "backend_policy": "YOLOv8n-pose body keypoints through RKNN on RK3588 is optional. No YOLO pose fallback, face backend, or raw Vision forwarding.",
+  "entries": [
+    {
+      "id": "fall-001",
+      "family": "fall",
+      "relative_path": "fall/fall-001.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-fall-001",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "candidate"
+        },
+        "core": {
+          "fall_state": "candidate"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "fall-002",
+      "family": "fall",
+      "relative_path": "fall/fall-002.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-fall-002",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "candidate"
+        },
+        "core": {
+          "fall_state": "candidate"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "fall-003",
+      "family": "fall",
+      "relative_path": "fall/fall-003.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-fall-003",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "candidate"
+        },
+        "core": {
+          "fall_state": "candidate"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "fall-004",
+      "family": "fall",
+      "relative_path": "fall/fall-004.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-fall-004",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "candidate"
+        },
+        "core": {
+          "fall_state": "candidate"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "fall-005",
+      "family": "fall",
+      "relative_path": "fall/fall-005.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-fall-005",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "candidate"
+        },
+        "core": {
+          "fall_state": "candidate"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "fall-006",
+      "family": "fall",
+      "relative_path": "fall/fall-006.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-fall-006",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "candidate"
+        },
+        "core": {
+          "fall_state": "candidate"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "fall-007",
+      "family": "fall",
+      "relative_path": "fall/fall-007.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-fall-007",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "candidate"
+        },
+        "core": {
+          "fall_state": "candidate"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "fall-008",
+      "family": "fall",
+      "relative_path": "fall/fall-008.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-fall-008",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "candidate"
+        },
+        "core": {
+          "fall_state": "candidate"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "fall-009",
+      "family": "fall",
+      "relative_path": "fall/fall-009.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-fall-009",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "candidate"
+        },
+        "core": {
+          "fall_state": "candidate"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "fall-010",
+      "family": "fall",
+      "relative_path": "fall/fall-010.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-fall-010",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "candidate"
+        },
+        "core": {
+          "fall_state": "candidate"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "lie_down-001",
+      "family": "lie_down",
+      "relative_path": "lie_down/lie_down-001.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-lie_down-001",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "lie_down-002",
+      "family": "lie_down",
+      "relative_path": "lie_down/lie_down-002.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-lie_down-002",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "lie_down-003",
+      "family": "lie_down",
+      "relative_path": "lie_down/lie_down-003.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-lie_down-003",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "lie_down-004",
+      "family": "lie_down",
+      "relative_path": "lie_down/lie_down-004.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-lie_down-004",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "lie_down-005",
+      "family": "lie_down",
+      "relative_path": "lie_down/lie_down-005.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-lie_down-005",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "lie_down-006",
+      "family": "lie_down",
+      "relative_path": "lie_down/lie_down-006.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-lie_down-006",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "lie_down-007",
+      "family": "lie_down",
+      "relative_path": "lie_down/lie_down-007.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-lie_down-007",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "lie_down-008",
+      "family": "lie_down",
+      "relative_path": "lie_down/lie_down-008.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-lie_down-008",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "lie_down-009",
+      "family": "lie_down",
+      "relative_path": "lie_down/lie_down-009.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-lie_down-009",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "lie_down-010",
+      "family": "lie_down",
+      "relative_path": "lie_down/lie_down-010.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-lie_down-010",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "ground",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "sit_down-001",
+      "family": "sit_down",
+      "relative_path": "sit_down/sit_down-001.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-sit_down-001",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "seated",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "sit_down-002",
+      "family": "sit_down",
+      "relative_path": "sit_down/sit_down-002.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-sit_down-002",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "seated",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "sit_down-003",
+      "family": "sit_down",
+      "relative_path": "sit_down/sit_down-003.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-sit_down-003",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "seated",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "sit_down-004",
+      "family": "sit_down",
+      "relative_path": "sit_down/sit_down-004.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-sit_down-004",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "seated",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "sit_down-005",
+      "family": "sit_down",
+      "relative_path": "sit_down/sit_down-005.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-sit_down-005",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "seated",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "sit_down-006",
+      "family": "sit_down",
+      "relative_path": "sit_down/sit_down-006.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-sit_down-006",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "seated",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "sit_down-007",
+      "family": "sit_down",
+      "relative_path": "sit_down/sit_down-007.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-sit_down-007",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "seated",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "sit_down-008",
+      "family": "sit_down",
+      "relative_path": "sit_down/sit_down-008.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-sit_down-008",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "seated",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "sit_down-009",
+      "family": "sit_down",
+      "relative_path": "sit_down/sit_down-009.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-sit_down-009",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "seated",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "sit_down-010",
+      "family": "sit_down",
+      "relative_path": "sit_down/sit_down-010.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-sit_down-010",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "seated",
+          "fall_state": "none"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_known-001",
+      "family": "face_known",
+      "relative_path": "face_known/face_known-001.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_known-001",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_known-002",
+      "family": "face_known",
+      "relative_path": "face_known/face_known-002.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_known-002",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_known-003",
+      "family": "face_known",
+      "relative_path": "face_known/face_known-003.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_known-003",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_known-004",
+      "family": "face_known",
+      "relative_path": "face_known/face_known-004.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_known-004",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_known-005",
+      "family": "face_known",
+      "relative_path": "face_known/face_known-005.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_known-005",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_known-006",
+      "family": "face_known",
+      "relative_path": "face_known/face_known-006.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_known-006",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_known-007",
+      "family": "face_known",
+      "relative_path": "face_known/face_known-007.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_known-007",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_known-008",
+      "family": "face_known",
+      "relative_path": "face_known/face_known-008.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_known-008",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_known-009",
+      "family": "face_known",
+      "relative_path": "face_known/face_known-009.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_known-009",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_known-010",
+      "family": "face_known",
+      "relative_path": "face_known/face_known-010.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_known-010",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_unknown-001",
+      "family": "face_unknown",
+      "relative_path": "face_unknown/face_unknown-001.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_unknown-001",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_unknown-002",
+      "family": "face_unknown",
+      "relative_path": "face_unknown/face_unknown-002.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_unknown-002",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_unknown-003",
+      "family": "face_unknown",
+      "relative_path": "face_unknown/face_unknown-003.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_unknown-003",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_unknown-004",
+      "family": "face_unknown",
+      "relative_path": "face_unknown/face_unknown-004.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_unknown-004",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_unknown-005",
+      "family": "face_unknown",
+      "relative_path": "face_unknown/face_unknown-005.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_unknown-005",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_unknown-006",
+      "family": "face_unknown",
+      "relative_path": "face_unknown/face_unknown-006.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_unknown-006",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_unknown-007",
+      "family": "face_unknown",
+      "relative_path": "face_unknown/face_unknown-007.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_unknown-007",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_unknown-008",
+      "family": "face_unknown",
+      "relative_path": "face_unknown/face_unknown-008.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_unknown-008",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_unknown-009",
+      "family": "face_unknown",
+      "relative_path": "face_unknown/face_unknown-009.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_unknown-009",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "face_unknown-010",
+      "family": "face_unknown",
+      "relative_path": "face_unknown/face_unknown-010.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-face_unknown-010",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "unavailable",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "near_fall_or_bend-001",
+      "family": "near_fall_or_bend",
+      "relative_path": "near_fall_or_bend/near_fall_or_bend-001.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-near_fall_or_bend-001",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "upright",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "near_fall_or_bend-002",
+      "family": "near_fall_or_bend",
+      "relative_path": "near_fall_or_bend/near_fall_or_bend-002.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-near_fall_or_bend-002",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "upright",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "near_fall_or_bend-003",
+      "family": "near_fall_or_bend",
+      "relative_path": "near_fall_or_bend/near_fall_or_bend-003.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-near_fall_or_bend-003",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "upright",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "near_fall_or_bend-004",
+      "family": "near_fall_or_bend",
+      "relative_path": "near_fall_or_bend/near_fall_or_bend-004.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-near_fall_or_bend-004",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "upright",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "near_fall_or_bend-005",
+      "family": "near_fall_or_bend",
+      "relative_path": "near_fall_or_bend/near_fall_or_bend-005.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-near_fall_or_bend-005",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "upright",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "near_fall_or_bend-006",
+      "family": "near_fall_or_bend",
+      "relative_path": "near_fall_or_bend/near_fall_or_bend-006.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-near_fall_or_bend-006",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "upright",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "near_fall_or_bend-007",
+      "family": "near_fall_or_bend",
+      "relative_path": "near_fall_or_bend/near_fall_or_bend-007.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-near_fall_or_bend-007",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "upright",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "near_fall_or_bend-008",
+      "family": "near_fall_or_bend",
+      "relative_path": "near_fall_or_bend/near_fall_or_bend-008.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-near_fall_or_bend-008",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "upright",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "near_fall_or_bend-009",
+      "family": "near_fall_or_bend",
+      "relative_path": "near_fall_or_bend/near_fall_or_bend-009.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-near_fall_or_bend-009",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "upright",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "near_fall_or_bend-010",
+      "family": "near_fall_or_bend",
+      "relative_path": "near_fall_or_bend/near_fall_or_bend-010.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-near_fall_or_bend-010",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "upright",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "no_person_or_occluded-001",
+      "family": "no_person_or_occluded",
+      "relative_path": "no_person_or_occluded/no_person_or_occluded-001.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-no_person_or_occluded-001",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "no_person_or_occluded-002",
+      "family": "no_person_or_occluded",
+      "relative_path": "no_person_or_occluded/no_person_or_occluded-002.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-no_person_or_occluded-002",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "no_person_or_occluded-003",
+      "family": "no_person_or_occluded",
+      "relative_path": "no_person_or_occluded/no_person_or_occluded-003.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-no_person_or_occluded-003",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "no_person_or_occluded-004",
+      "family": "no_person_or_occluded",
+      "relative_path": "no_person_or_occluded/no_person_or_occluded-004.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-no_person_or_occluded-004",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "no_person_or_occluded-005",
+      "family": "no_person_or_occluded",
+      "relative_path": "no_person_or_occluded/no_person_or_occluded-005.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-no_person_or_occluded-005",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "no_person_or_occluded-006",
+      "family": "no_person_or_occluded",
+      "relative_path": "no_person_or_occluded/no_person_or_occluded-006.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-no_person_or_occluded-006",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "no_person_or_occluded-007",
+      "family": "no_person_or_occluded",
+      "relative_path": "no_person_or_occluded/no_person_or_occluded-007.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-no_person_or_occluded-007",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "no_person_or_occluded-008",
+      "family": "no_person_or_occluded",
+      "relative_path": "no_person_or_occluded/no_person_or_occluded-008.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-no_person_or_occluded-008",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "no_person_or_occluded-009",
+      "family": "no_person_or_occluded",
+      "relative_path": "no_person_or_occluded/no_person_or_occluded-009.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-no_person_or_occluded-009",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "no_person_or_occluded-010",
+      "family": "no_person_or_occluded",
+      "relative_path": "no_person_or_occluded/no_person_or_occluded-010.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-no_person_or_occluded-010",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "multi_person-001",
+      "family": "multi_person",
+      "relative_path": "multi_person/multi_person-001.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-multi_person-001",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "multi_person-002",
+      "family": "multi_person",
+      "relative_path": "multi_person/multi_person-002.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-multi_person-002",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "multi_person-003",
+      "family": "multi_person",
+      "relative_path": "multi_person/multi_person-003.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-multi_person-003",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "multi_person-004",
+      "family": "multi_person",
+      "relative_path": "multi_person/multi_person-004.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-multi_person-004",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "multi_person-005",
+      "family": "multi_person",
+      "relative_path": "multi_person/multi_person-005.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-multi_person-005",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "uncertain"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        }
+      }
+    },
+    {
+      "id": "delivery_failure-001",
+      "family": "delivery_failure",
+      "relative_path": "delivery_failure/delivery_failure-001.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-delivery_failure-001",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "unavailable"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        },
+        "media_status": "blocked_media_missing_or_integrity_failure"
+      }
+    },
+    {
+      "id": "delivery_failure-002",
+      "family": "delivery_failure",
+      "relative_path": "delivery_failure/delivery_failure-002.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-delivery_failure-002",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "unavailable"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        },
+        "media_status": "blocked_media_missing_or_integrity_failure"
+      }
+    },
+    {
+      "id": "delivery_failure-003",
+      "family": "delivery_failure",
+      "relative_path": "delivery_failure/delivery_failure-003.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-delivery_failure-003",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "unavailable"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        },
+        "media_status": "blocked_media_missing_or_integrity_failure"
+      }
+    },
+    {
+      "id": "delivery_failure-004",
+      "family": "delivery_failure",
+      "relative_path": "delivery_failure/delivery_failure-004.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-delivery_failure-004",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "unavailable"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        },
+        "media_status": "blocked_media_missing_or_integrity_failure"
+      }
+    },
+    {
+      "id": "delivery_failure-005",
+      "family": "delivery_failure",
+      "relative_path": "delivery_failure/delivery_failure-005.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_state": "pending_local_media",
+      "duration_ms": 0,
+      "camera_id": "cam_test_vision_01",
+      "topology_zone": "protected_interior",
+      "edge_track_fixture": "edge-fixture-delivery_failure-005",
+      "licence_or_consent_reference": "pending_local_consent",
+      "expectation": {
+        "vision": {
+          "pose_status": "available",
+          "posture": "unknown",
+          "fall_state": "unavailable"
+        },
+        "core": {
+          "fall_state": "none_or_uncertain"
+        },
+        "safety_gate": {
+          "mode": "active_dry_run",
+          "physical_action_executed": false,
+          "audio_rendered": false
+        },
+        "media_status": "blocked_media_missing_or_integrity_failure"
+      }
+    }
+  ]
+}

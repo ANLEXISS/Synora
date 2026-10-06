@@ -143,7 +143,8 @@ build-bootstrap-config: check-go
 	done
 
 test-central-v1: check-go
-	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-central-test --manifest "$(CENTRAL_E2E_MANIFEST)" --case "$${CASE:-}" --bundle "$${BUNDLE:-}" --out "$(CENTRAL_E2E_OUT)"
+	if [ -n "$${MEDIA_ROOT:-}" ]; then MEDIA_FLAG=--media; else MEDIA_FLAG=; fi; \
+	SYNORA_VISION_MEDIA_ROOT="$${MEDIA_ROOT:-}" SYNORA_POSE_RKNN_MODEL="$${POSE_MODEL:-}" GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-central-test --manifest "$(CENTRAL_E2E_MANIFEST)" --case "$${CASE:-}" --bundle "$${BUNDLE:-}" --media-manifest "$${MEDIA_MANIFEST:-testdata/central-e2e-v1/vision-media-v1/manifest.json}" $$MEDIA_FLAG --out "$(CENTRAL_E2E_OUT)"
 
 test: test-central-v1 check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./...

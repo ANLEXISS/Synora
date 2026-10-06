@@ -224,6 +224,7 @@ type suiteReport struct {
 	FamilyCounts       map[string]int           `json:"family_counts"`
 	Coverage           map[string]int           `json:"coverage"`
 	ModelBackends      map[string]backendReport `json:"model_backends"`
+	VisionMedia        *mediaSuiteReport        `json:"vision_media,omitempty"`
 	Cases              []caseReport             `json:"cases"`
 }
 
@@ -232,6 +233,8 @@ func main() {
 	caseID := flag.String("case", "", "run one fixture")
 	bundleOverride := flag.String("bundle", "", "run only v1 or v3 fixtures")
 	outPath := flag.String("out", defaultOutput, "report path")
+	mediaMode := flag.Bool("media", false, "explicitly run the versioned local vision-media manifest")
+	mediaManifestPath := flag.String("media-manifest", defaultVisionMediaManifest, "versioned local vision-media manifest")
 	flag.Parse()
 	if os.Getenv("VERBOSE") != "1" {
 		log.SetOutput(io.Discard)
@@ -269,6 +272,7 @@ func main() {
 	}
 	backends := map[string]backendReport{
 		"rtmpose":        {Status: "unavailable", Backend: "rknn-rk3588", RealModel: false, Reason: "central harness does not open RKNN; aggregate pose inputs are synthetic test signals"},
+		"yolov8n_pose":   {Status: "unavailable", Backend: "yolov8n-pose-rknn-rk3588", RealModel: false, Reason: "optional backend requires SYNORA_POSE_RKNN_MODEL and a successful RKNNLite runtime load"},
 		"face_aggregate": {Status: "unavailable", Backend: "local-only-adapter-not-run", RealModel: false, Reason: "central harness receives aggregate face signals only; no identity backend is executed"},
 	}
 	if hasBundle(reports, "v1") {
@@ -282,6 +286,7 @@ func main() {
 		backends["mlp_v3_cpu_candidate"] = backendReport{Status: "not_run", Backend: "cpu-bundle-v3-candidate", RealModel: false, Reason: "bundle was not selected"}
 	}
 	report := buildSuiteReport(*manifestPath, manifest, scenarios, reports, started, backends)
+	overallPassed := passed
 	for _, item := range reports {
 		report.AudioRendered = report.AudioRendered || item.AudioRendered
 		report.PhysicalAction = report.PhysicalAction || item.PhysicalAction
@@ -296,14 +301,29 @@ func main() {
 		}
 	}
 	report.FailedCount = report.ScenarioCount - report.PassedCount
+	if *mediaMode {
+		mediaReport := runVisionMediaSuite(root, *mediaManifestPath, os.Getenv("SYNORA_VISION_MEDIA_ROOT"), os.Getenv("SYNORA_POSE_RKNN_MODEL"))
+		report.VisionMedia = &mediaReport
+		report.ModelBackends["yolov8n_pose"] = backendReport{Status: mediaReport.ModelStatus, Backend: "yolov8n-pose-rknn-rk3588", RealModel: mediaReport.ModelStatus == "available", Reason: mediaReport.ModelReason}
+		overallPassed = overallPassed && mediaReport.Passed
+	}
+	report.Passed = overallPassed
 	if err := writeJSON(*outPath, report); err != nil {
 		fatalReport(*outPath, err)
 	}
-	if !passed {
+	if report.VisionMedia != nil {
+		fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d families=%s manifest_sha256=%s vision_media_total=%d vision_media_status=%s\n", *outPath, report.ScenarioCount, report.PassedCount, report.FailedCount, formatCounts(report.FamilyCounts), report.ManifestSHA256, report.VisionMedia.ScenarioCount, formatCounts(report.VisionMedia.StatusCounts))
+		if !overallPassed {
+			fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
+			os.Exit(1)
+		}
+		return
+	}
+	fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d families=%s manifest_sha256=%s\n", *outPath, report.ScenarioCount, report.PassedCount, report.FailedCount, formatCounts(report.FamilyCounts), report.ManifestSHA256)
+	if !overallPassed {
 		fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
 		os.Exit(1)
 	}
-	fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d families=%s manifest_sha256=%s\n", *outPath, report.ScenarioCount, report.PassedCount, report.FailedCount, formatCounts(report.FamilyCounts), report.ManifestSHA256)
 }
 
 func expandManifest(manifest suiteManifest, root string) []expandedScenario {

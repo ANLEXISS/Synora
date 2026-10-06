@@ -125,6 +125,54 @@ func TestCentralReportWriteIsAtomicAndLeavesNoTemporaryFile(t *testing.T) {
 	}
 }
 
+func TestVisionMediaManifestIsDeclarativeAndMissingMediaIsExplicit(t *testing.T) {
+	manifestPath := "../../testdata/central-e2e-v1/vision-media-v1/manifest.json"
+	manifest, err := loadVisionMediaManifest(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Entries) != 80 {
+		t.Fatalf("unexpected vision media inventory size: %d", len(manifest.Entries))
+	}
+	wantFamilies := map[string]int{"fall": 10, "lie_down": 10, "sit_down": 10, "face_known": 10, "face_unknown": 10, "near_fall_or_bend": 10, "no_person_or_occluded": 10, "multi_person": 5, "delivery_failure": 5}
+	gotFamilies := make(map[string]int)
+	for _, entry := range manifest.Entries {
+		gotFamilies[entry.Family]++
+		if filepath.Dir(entry.RelativePath) != entry.Family {
+			t.Fatalf("media entry is outside its family directory: %+v", entry)
+		}
+	}
+	if len(gotFamilies) != len(wantFamilies) {
+		t.Fatalf("unexpected media families: %+v", gotFamilies)
+	}
+	for family, count := range wantFamilies {
+		if gotFamilies[family] != count {
+			t.Fatalf("media family %s count=%d want=%d", family, gotFamilies[family], count)
+		}
+	}
+	root := t.TempDir()
+	report := runVisionMediaSuite(filepath.Clean(filepath.Join("..", "..")), manifestPath, root, "")
+	if report.ScenarioCount != len(manifest.Entries) || report.StatusCounts[mediaStatusMediaMissing] != len(manifest.Entries) {
+		t.Fatalf("missing media was not explicit: %+v", report)
+	}
+	if report.Passed || report.FailedCount != len(manifest.Entries) {
+		t.Fatalf("missing media was reported as success: %+v", report)
+	}
+	body, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsForbiddenJSON(body) {
+		t.Fatal("vision media report exposed a raw media or Vision field")
+	}
+}
+
+func TestVisionMediaPathCannotEscapeRoot(t *testing.T) {
+	if _, err := safeMediaPath(t.TempDir(), "../outside.mp4"); err == nil {
+		t.Fatal("media path traversal was accepted")
+	}
+}
+
 func TestCentralSummaryRedactsPayload(t *testing.T) {
 	payload := []byte(`{"media_ref":"must-not-appear","keypoints":[[1,2,0.9]],"status":"accepted"}`)
 	digest := sha256.Sum256(payload)
