@@ -1580,3 +1580,16 @@ reste non aligné et non validable sans intervention privilégiée.
 Vérification post-commit `5e082b1` : `go test ./...` vert, **89 tests Python**
 verts et build web vert. Les cinq modifications concurrentes du harnais et de
 sa documentation restent explicitement non committées et préservées.
+
+## Progression J4 — lecture contrôlée de la santé runtime
+
+Les commits `30384f6` et `2deacb7` ajoutent une lecture authentifiée de la
+santé runtime via le RPC borné vers `synora-runtime-manager`, puis l’affichent
+dans l’interface avec les états `Opérationnel`, `Dégradé` ou `Inconnu`. Un
+timeout, une réponse invalide ou un service indisponible produit `503` et
+`unknown`; aucune réussite n’est fabriquée. Le build web est vert après cette
+tranche.
+
+Cette progression ne clôt pas J4 : l’API des événements/suppression et le
+burn-in restent à exercer, et le binaire déployé n’intègre pas encore ces
+commits.
