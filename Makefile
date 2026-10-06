@@ -147,6 +147,9 @@ test-central-v1: check-go
 	VISION_ROOT="$${MEDIA_ROOT:-$${SYNORA_VISION_MEDIA_ROOT:-}}"; if [ "$(MEDIA)" = "le2i" ]; then MEDIA_FLAG="--media --media-manifest $${MEDIA_MANIFEST:-$(CENTRAL_E2E_MEDIA_MANIFEST)}"; elif [ -n "$$VISION_ROOT" ]; then MEDIA_FLAG="--media --media-manifest $${MEDIA_MANIFEST:-testdata/central-e2e-v1/vision-media-v1/manifest.json}"; else MEDIA_FLAG=; fi; \
 	SYNORA_VISION_MEDIA_ROOT="$$VISION_ROOT" SYNORA_POSE_RKNN_MODEL="$${POSE_MODEL:-$${SYNORA_POSE_RKNN_MODEL:-}}" GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-central-test --manifest "$(CENTRAL_E2E_MANIFEST)" --case "$${CASE:-}" --bundle "$${BUNDLE:-}" $$MEDIA_FLAG --out "$(CENTRAL_E2E_OUT)"
 
+qualify-camera: check-go
+	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-camera-qualification --out "$${OUT:-/tmp/synora-camera-qualification.json}"
+
 test: test-central-v1 check-go
 	GOCACHE=$(GOCACHE) "$(GO)" test ./...
 	$(PYTHON) -m compileall -q services/vision-worker
