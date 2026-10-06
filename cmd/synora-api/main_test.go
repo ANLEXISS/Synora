@@ -127,3 +127,38 @@ func TestSessionBootstrapReturnsCSRFProtectedCookie(t *testing.T) {
 		t.Fatalf("revoked session remained accepted: %d", meAfterLogout.Code)
 	}
 }
+
+func TestSessionIsRejectedAfterAccountRoleOrEnabledStateChanges(t *testing.T) {
+	root := t.TempDir()
+	authPath := filepath.Join(root, "auth.yaml")
+	if err := os.WriteFile(authPath, []byte("users:\n  - id: user_guest\n    login: guest\n    role: guest\n    enabled: true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &security.Config{APIToken: "admin-token"}
+	auth := newAPIAuth(cfg)
+	auth.accountPath = authPath
+	claims := security.SessionClaims{Subject: "user_guest", Role: "guest", CSRF: "csrf", ExpiresAt: time.Now().Add(time.Hour)}
+	token, err := security.SignSession(auth.secret, claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.sessions.Register(token, claims); err != nil {
+		t.Fatal(err)
+	}
+	handler := auth.require("guest", http.HandlerFunc(auth.me))
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	request.AddCookie(&http.Cookie{Name: security.SessionCookieName, Value: token})
+	accepted := httptest.NewRecorder()
+	handler.ServeHTTP(accepted, request)
+	if accepted.Code != http.StatusOK {
+		t.Fatalf("active account was rejected: %d", accepted.Code)
+	}
+	if err := os.WriteFile(authPath, []byte("users:\n  - id: user_guest\n    login: guest\n    role: resident\n    enabled: false\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rejected := httptest.NewRecorder()
+	handler.ServeHTTP(rejected, request)
+	if rejected.Code != http.StatusUnauthorized {
+		t.Fatalf("stale session remained accepted after account change: %d", rejected.Code)
+	}
+}

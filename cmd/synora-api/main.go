@@ -43,6 +43,7 @@ func main() {
 	defer client.Close()
 
 	auth := newAPIAuth(serverConfig.Security)
+	auth.accountPath = runtime.Paths.Auth
 	hub := newWebSocketHub(serverConfig.Security, auth)
 	go hub.observeBus(client)
 	mux := http.NewServeMux()

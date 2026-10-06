@@ -19,6 +19,7 @@ type apiAuth struct {
 	secret       []byte
 	sessions     *security.SessionStore
 	sessionError error
+	accountPath  string
 	now          func() time.Time
 }
 
@@ -79,6 +80,12 @@ func (a *apiAuth) authenticate(r *http.Request) (security.SessionClaims, bool) {
 	active, ok := a.sessions.Active(cookie.Value, a.now())
 	if !ok || active.Subject != claims.Subject || active.Role != claims.Role {
 		return security.SessionClaims{}, false
+	}
+	if claims.Subject != "api-token" && strings.TrimSpace(a.accountPath) != "" {
+		accounts, err := security.LoadAccounts(a.accountPath)
+		if err != nil || !security.AccountAllows(accounts, claims.Subject, claims.Role) {
+			return security.SessionClaims{}, false
+		}
 	}
 	return claims, true
 }
