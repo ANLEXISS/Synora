@@ -109,58 +109,62 @@ type fixtureExpected struct {
 }
 
 type caseReport struct {
-	ID                    string            `json:"id"`
-	Suite                 string            `json:"suite"`
-	Family                string            `json:"family"`
-	Bundle                string            `json:"bundle"`
-	Passed                bool              `json:"passed"`
-	Error                 string            `json:"error,omitempty"`
-	MessageCount          int               `json:"message_count"`
-	DiscoveryAccepted     int               `json:"discovery_accepted"`
-	DiscoveryRejected     int               `json:"discovery_rejected"`
-	CoreDecisions         int               `json:"core_decisions"`
-	SnapshotVersion       string            `json:"snapshot_version,omitempty"`
-	SnapshotDimension     int               `json:"snapshot_dimension,omitempty"`
-	SnapshotSHA256        string            `json:"snapshot_sha256,omitempty"`
-	PoseStatus            string            `json:"pose_status,omitempty"`
-	PoseBackendStatus     string            `json:"pose_backend_status,omitempty"`
-	PoseBackendMode       string            `json:"pose_backend_mode,omitempty"`
-	PoseQuality           float64           `json:"pose_quality,omitempty"`
-	PoseLatencyMS         float64           `json:"pose_latency_ms"`
-	Posture               string            `json:"posture,omitempty"`
-	FallState             string            `json:"fall_state,omitempty"`
-	RecoveryObserved      bool              `json:"recovery_observed"`
-	MotionTier            string            `json:"motion_tier,omitempty"`
-	InteractionState      string            `json:"interaction_state,omitempty"`
-	FaceStatus            string            `json:"face_status,omitempty"`
-	FaceQualification     string            `json:"face_qualification,omitempty"`
-	CameraHealthStatus    string            `json:"camera_health_status,omitempty"`
-	CommunicationStatus   string            `json:"communication_status,omitempty"`
-	CommunicationReasons  []string          `json:"communication_reasons,omitempty"`
-	MLPHeads              []string          `json:"mlp_heads,omitempty"`
-	MLPObservations       []mlpObservation  `json:"mlp_observations,omitempty"`
-	SafetyGateStatuses    []string          `json:"safety_gate_statuses,omitempty"`
-	SafetyGateReasons     []string          `json:"safety_gate_reasons,omitempty"`
-	StoreRevision         uint64            `json:"store_revision"`
-	OutboxCount           int               `json:"outbox_count"`
-	BusTrace              []traceRecord     `json:"bus_trace,omitempty"`
-	ForbiddenLeak         []string          `json:"forbidden_leak,omitempty"`
-	RawVisionForwarded    bool              `json:"raw_vision_forwarded"`
-	DurationMS            float64           `json:"duration_ms"`
-	NetworkAccess         bool              `json:"network_access"`
-	AudioRendered         bool              `json:"audio_rendered"`
-	PhysicalAction        bool              `json:"physical_action_executed"`
-	AudioFalse            bool              `json:"audio_rendered_false"`
-	PhysicalFalse         bool              `json:"physical_action_executed_false"`
-	NetworkFalse          bool              `json:"network_access_false"`
-	RawFalse              bool              `json:"raw_vision_forwarded_false"`
-	ExpectedActualDiffs   []expectationDiff `json:"expected_actual_differences"`
-	Expected              expectedReport    `json:"expected"`
-	Journey               []journeyEvent    `json:"journey,omitempty"`
-	ActionLifecycleStatus string            `json:"action_lifecycle_status,omitempty"`
-	IdempotenceChecks     idempotenceChecks `json:"idempotence_checks"`
-	RejectedActionResults int               `json:"rejected_action_results"`
-	DataResetStatus       string            `json:"data_reset_status,omitempty"`
+	ID                       string            `json:"id"`
+	Suite                    string            `json:"suite"`
+	Family                   string            `json:"family"`
+	Bundle                   string            `json:"bundle"`
+	Passed                   bool              `json:"passed"`
+	Error                    string            `json:"error,omitempty"`
+	MessageCount             int               `json:"message_count"`
+	DiscoveryAccepted        int               `json:"discovery_accepted"`
+	DiscoveryRejected        int               `json:"discovery_rejected"`
+	CoreDecisions            int               `json:"core_decisions"`
+	SnapshotVersion          string            `json:"snapshot_version,omitempty"`
+	SnapshotDimension        int               `json:"snapshot_dimension,omitempty"`
+	SnapshotSHA256           string            `json:"snapshot_sha256,omitempty"`
+	PoseStatus               string            `json:"pose_status,omitempty"`
+	PoseBackendStatus        string            `json:"pose_backend_status,omitempty"`
+	PoseBackendMode          string            `json:"pose_backend_mode,omitempty"`
+	PoseQuality              float64           `json:"pose_quality,omitempty"`
+	PoseLatencyMS            float64           `json:"pose_latency_ms"`
+	Posture                  string            `json:"posture,omitempty"`
+	FallState                string            `json:"fall_state,omitempty"`
+	RecoveryObserved         bool              `json:"recovery_observed"`
+	MotionTier               string            `json:"motion_tier,omitempty"`
+	InteractionState         string            `json:"interaction_state,omitempty"`
+	FaceStatus               string            `json:"face_status,omitempty"`
+	FaceQualification        string            `json:"face_qualification,omitempty"`
+	CameraHealthStatus       string            `json:"camera_health_status,omitempty"`
+	CommunicationStatus      string            `json:"communication_status,omitempty"`
+	CommunicationReasons     []string          `json:"communication_reasons,omitempty"`
+	MLPHeads                 []string          `json:"mlp_heads,omitempty"`
+	MLPObservations          []mlpObservation  `json:"mlp_observations,omitempty"`
+	SafetyGateStatuses       []string          `json:"safety_gate_statuses,omitempty"`
+	SafetyGateReasons        []string          `json:"safety_gate_reasons,omitempty"`
+	StoreRevision            uint64            `json:"store_revision"`
+	OutboxCount              int               `json:"outbox_count"`
+	BusTrace                 []traceRecord     `json:"bus_trace,omitempty"`
+	ForbiddenLeak            []string          `json:"forbidden_leak,omitempty"`
+	RawVisionForwarded       bool              `json:"raw_vision_forwarded"`
+	DurationMS               float64           `json:"duration_ms"`
+	NetworkAccess            bool              `json:"network_access"`
+	AudioRendered            bool              `json:"audio_rendered"`
+	PhysicalAction           bool              `json:"physical_action_executed"`
+	AudioFalse               bool              `json:"audio_rendered_false"`
+	PhysicalFalse            bool              `json:"physical_action_executed_false"`
+	NetworkFalse             bool              `json:"network_access_false"`
+	RawFalse                 bool              `json:"raw_vision_forwarded_false"`
+	ExpectedActualDiffs      []expectationDiff `json:"expected_actual_differences"`
+	Expected                 expectedReport    `json:"expected"`
+	Journey                  []journeyEvent    `json:"journey,omitempty"`
+	PipelineComplete         *bool             `json:"pipeline_complete,omitempty"`
+	PipelineIncompleteReason string            `json:"pipeline_incomplete_reason,omitempty"`
+	MissingStages            *[]string         `json:"missing_stages,omitempty"`
+	LastObservedStage        *string           `json:"last_observed_stage,omitempty"`
+	ActionLifecycleStatus    string            `json:"action_lifecycle_status,omitempty"`
+	IdempotenceChecks        idempotenceChecks `json:"idempotence_checks"`
+	RejectedActionResults    int               `json:"rejected_action_results"`
+	DataResetStatus          string            `json:"data_reset_status,omitempty"`
 }
 
 type journeyEvent struct {
@@ -236,44 +240,47 @@ type backendReport struct {
 }
 
 type suiteReport struct {
-	SchemaVersion               string                    `json:"schema_version"`
-	Error                       string                    `json:"error,omitempty"`
-	Seed                        int64                     `json:"seed"`
-	LogicalDate                 string                    `json:"logical_date"`
-	ManifestSHA256              string                    `json:"manifest_sha256"`
-	GeneratorVersion            string                    `json:"generator_version"`
-	StaticCaseCount             int                       `json:"static_case_count"`
-	GeneratedCaseCount          int                       `json:"generated_case_count"`
-	ScenarioCount               int                       `json:"scenario_count"`
-	PassedCount                 int                       `json:"passed_count"`
-	FailedCount                 int                       `json:"failed_count"`
-	Passed                      bool                      `json:"passed"`
-	DurationMS                  float64                   `json:"duration_ms"`
-	NetworkAccess               bool                      `json:"network_access"`
-	AudioRendered               bool                      `json:"audio_rendered"`
-	PhysicalAction              bool                      `json:"physical_action_executed"`
-	RawVisionForwarded          bool                      `json:"raw_vision_forwarded"`
-	SuiteCounts                 map[string]int            `json:"suite_counts"`
-	FamilyCounts                map[string]int            `json:"family_counts"`
-	Coverage                    map[string]int            `json:"coverage"`
-	ModelBackends               map[string]backendReport  `json:"model_backends"`
-	VisionMedia                 *mediaSuiteReport         `json:"vision_media,omitempty"`
-	MediaCaseCount              int                       `json:"media_case_count"`
-	NotRunCount                 int                       `json:"not_run_count"`
-	BlockedModelMissingCount    int                       `json:"blocked_model_missing_count"`
-	PoseBackendStatus           string                    `json:"pose_backend_status"`
-	MediaManifestSHA256         string                    `json:"media_manifest_sha256"`
-	MediaHashVerificationPassed bool                      `json:"media_hash_verification_passed"`
-	PoseLatencyMS               map[string]float64        `json:"pose_latency_ms"`
-	PostureByCategory           map[string]map[string]int `json:"posture_by_category"`
-	FallStateByCategory         map[string]map[string]int `json:"fall_state_by_category"`
-	MediaByCategory             map[string]map[string]int `json:"media_by_category"`
-	PipelineCompletedCount      int                       `json:"pipeline_completed_count"`
-	PipelineIncompleteCount     int                       `json:"pipeline_incomplete_count"`
-	ActionLifecycleByStatus     map[string]int            `json:"action_lifecycle_by_status"`
-	IdempotenceChecks           map[string]int            `json:"idempotence_checks"`
-	RejectedActionResults       int                       `json:"rejected_action_results"`
-	Cases                       []caseReport              `json:"cases"`
+	SchemaVersion                string                    `json:"schema_version"`
+	Error                        string                    `json:"error,omitempty"`
+	Seed                         int64                     `json:"seed"`
+	LogicalDate                  string                    `json:"logical_date"`
+	ManifestSHA256               string                    `json:"manifest_sha256"`
+	GeneratorVersion             string                    `json:"generator_version"`
+	StaticCaseCount              int                       `json:"static_case_count"`
+	GeneratedCaseCount           int                       `json:"generated_case_count"`
+	ScenarioCount                int                       `json:"scenario_count"`
+	OverallCaseCount             int                       `json:"overall_case_count"`
+	PassedCount                  int                       `json:"passed_count"`
+	FailedCount                  int                       `json:"failed_count"`
+	Passed                       bool                      `json:"passed"`
+	DurationMS                   float64                   `json:"duration_ms"`
+	NetworkAccess                bool                      `json:"network_access"`
+	AudioRendered                bool                      `json:"audio_rendered"`
+	PhysicalAction               bool                      `json:"physical_action_executed"`
+	RawVisionForwarded           bool                      `json:"raw_vision_forwarded"`
+	SuiteCounts                  map[string]int            `json:"suite_counts"`
+	FamilyCounts                 map[string]int            `json:"family_counts"`
+	Coverage                     map[string]int            `json:"coverage"`
+	ModelBackends                map[string]backendReport  `json:"model_backends"`
+	VisionMedia                  *mediaSuiteReport         `json:"vision_media,omitempty"`
+	MediaCaseCount               int                       `json:"media_case_count"`
+	NotRunCount                  int                       `json:"not_run_count"`
+	BlockedModelMissingCount     int                       `json:"blocked_model_missing_count"`
+	PoseBackendStatus            string                    `json:"pose_backend_status"`
+	MediaManifestSHA256          string                    `json:"media_manifest_sha256"`
+	MediaHashVerificationPassed  bool                      `json:"media_hash_verification_passed"`
+	PoseLatencyMS                map[string]float64        `json:"pose_latency_ms"`
+	PostureByCategory            map[string]map[string]int `json:"posture_by_category"`
+	FallStateByCategory          map[string]map[string]int `json:"fall_state_by_category"`
+	MediaByCategory              map[string]map[string]int `json:"media_by_category"`
+	PipelineCompletedCount       int                       `json:"pipeline_completed_count"`
+	PipelineIncompleteCount      int                       `json:"pipeline_incomplete_count"`
+	PipelineTerminalStatusCounts map[string]int            `json:"pipeline_terminal_status_counts"`
+	PipelineAccountingValid      bool                      `json:"pipeline_accounting_valid"`
+	ActionLifecycleByStatus      map[string]int            `json:"action_lifecycle_by_status"`
+	IdempotenceChecks            map[string]int            `json:"idempotence_checks"`
+	RejectedActionResults        int                       `json:"rejected_action_results"`
+	Cases                        []caseReport              `json:"cases"`
 }
 
 type testActionExecutor struct {
@@ -442,8 +449,6 @@ func main() {
 		report.PostureByCategory = mediaReport.PostureByCategory
 		report.FallStateByCategory = mediaReport.FallStateByCategory
 		report.MediaByCategory = mediaReport.MediaByCategory
-		report.PipelineCompletedCount += mediaReport.PipelineCompletedCount
-		report.PipelineIncompleteCount += mediaReport.PipelineIncompleteCount
 		for status, count := range mediaReport.ActionLifecycleByStatus {
 			report.ActionLifecycleByStatus[status] += count
 		}
@@ -453,19 +458,24 @@ func main() {
 		report.RejectedActionResults += mediaReport.RejectedActionResults
 		overallPassed = overallPassed && mediaReport.Passed
 	}
+	refreshPipelineAccounting(&report)
+	if !report.PipelineAccountingValid {
+		overallPassed = false
+		report.Error = "pipeline journey accounting does not match included case count"
+	}
 	report.Passed = overallPassed
 	if err := writeJSON(*outPath, report); err != nil {
 		fatalReport(*outPath, err)
 	}
 	if report.VisionMedia != nil {
-		fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_incomplete=%d families=%s manifest_sha256=%s vision_media_total=%d vision_media_status=%s action_lifecycle=%s\n", *outPath, report.ScenarioCount, report.PassedCount, report.FailedCount, report.PipelineCompletedCount, report.PipelineIncompleteCount, formatCounts(report.FamilyCounts), report.ManifestSHA256, report.VisionMedia.ScenarioCount, formatCounts(report.VisionMedia.StatusCounts), formatCounts(report.ActionLifecycleByStatus))
+		fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_incomplete=%d terminal_statuses=%s families=%s manifest_sha256=%s vision_media_total=%d vision_media_status=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount+report.VisionMedia.PassedCount, report.FailedCount+report.VisionMedia.FailedCount, report.PipelineCompletedCount, report.PipelineIncompleteCount, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, report.VisionMedia.ScenarioCount, formatCounts(report.VisionMedia.StatusCounts), formatCounts(report.ActionLifecycleByStatus))
 		if !overallPassed {
 			fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
 			os.Exit(1)
 		}
 		return
 	}
-	fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_incomplete=%d families=%s manifest_sha256=%s action_lifecycle=%s\n", *outPath, report.ScenarioCount, report.PassedCount, report.FailedCount, report.PipelineCompletedCount, report.PipelineIncompleteCount, formatCounts(report.FamilyCounts), report.ManifestSHA256, formatCounts(report.ActionLifecycleByStatus))
+	fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_incomplete=%d terminal_statuses=%s families=%s manifest_sha256=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount, report.FailedCount, report.PipelineCompletedCount, report.PipelineIncompleteCount, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, formatCounts(report.ActionLifecycleByStatus))
 	if !overallPassed {
 		fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
 		os.Exit(1)
@@ -610,16 +620,137 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 }
 
 func journeyComplete(journey []journeyEvent) bool {
-	if len(journey) == 0 {
-		return false
-	}
+	complete, _, _ := assessJourney(journey)
+	return complete
+}
+
+var requiredJourneyStages = []string{
+	"ingress_received", "discovery_validated", "core_processed", "store_revision_written",
+	"snapshot_encoded", "mlp_executed", "safety_gate_evaluated", "action_dispatched_to_discovery",
+	"test_action_executor_result", "action_result_recorded", "scenario_completed",
+}
+
+func assessJourney(journey []journeyEvent) (bool, string, []string) {
+	missing := make([]string, 0)
+	matched := 0
+	orderMismatch := false
 	for _, event := range journey {
-		switch event.Status {
-		case "not_run", "rejected", "unavailable", "incomplete":
-			return false
+		if matched < len(requiredJourneyStages) && event.Stage == requiredJourneyStages[matched] {
+			matched++
+		} else {
+			orderMismatch = true
 		}
 	}
-	return true
+	if matched < len(requiredJourneyStages) {
+		missing = append(missing, requiredJourneyStages[matched:]...)
+		return false, "required_journey_stages_missing_or_out_of_order", missing
+	}
+	if len(journey) != len(requiredJourneyStages) || orderMismatch {
+		return false, "journey_contains_unexpected_or_out_of_order_stages", missing
+	}
+	if journey[7].Status != "allowed_dry_run" && journey[7].Status != "blocked_by_safety_gate" && journey[7].Status != "suppressed_no_action" {
+		return false, "invalid_action_termination", missing
+	}
+	if journey[7].Status == "allowed_dry_run" {
+		if journey[8].Status != "dry_run_result_received" || journey[9].Status != "dry_run_result_received" {
+			return false, "structured_action_result_not_recorded", missing
+		}
+	} else if journey[7].Status == "blocked_by_safety_gate" {
+		if journey[8].Status != "suppressed_no_action" || journey[8].Reason != "executor_not_called" || journey[9].Status != "blocked_by_safety_gate" || journey[9].Reason != "core_store" {
+			return false, "structured_action_result_not_recorded", missing
+		}
+	} else {
+		if journey[8].Status != "suppressed_no_action" || journey[8].Reason != "executor_not_called" || journey[9].Status != "suppressed_no_action" || journey[9].Reason != "no_action_result" {
+			return false, "structured_action_result_not_recorded", missing
+		}
+	}
+	last := journey[len(journey)-1]
+	if last.Stage != "scenario_completed" || last.Status != "completed" {
+		return false, "terminal_status_not_completed", missing
+	}
+	return true, "", nil
+}
+
+func refreshPipelineAccounting(report *suiteReport) {
+	report.OverallCaseCount = report.ScenarioCount + report.MediaCaseCount
+	report.PipelineCompletedCount = 0
+	report.PipelineIncompleteCount = 0
+	report.PipelineTerminalStatusCounts = make(map[string]int)
+	for index := range report.Cases {
+		item := &report.Cases[index]
+		complete, reason, missing := assessJourney(item.Journey)
+		if complete {
+			item.PipelineComplete = nil
+			item.PipelineIncompleteReason = ""
+			item.MissingStages = nil
+			item.LastObservedStage = nil
+			report.PipelineCompletedCount++
+		} else {
+			falseValue := false
+			item.PipelineComplete = &falseValue
+			item.PipelineIncompleteReason = reason
+			item.MissingStages = &missing
+			item.LastObservedStage = lastObservedStage(item.Journey)
+			if len(item.Journey) > 0 {
+				report.PipelineIncompleteCount++
+			}
+		}
+		if len(item.Journey) > 0 {
+			report.PipelineTerminalStatusCounts[item.Journey[len(item.Journey)-1].Status]++
+		}
+	}
+	if report.VisionMedia != nil {
+		for index := range report.VisionMedia.Cases {
+			item := &report.VisionMedia.Cases[index]
+			complete, reason, missing := assessJourney(item.Journey)
+			if complete {
+				item.PipelineComplete = nil
+				item.PipelineIncompleteReason = ""
+				item.MissingStages = nil
+				item.LastObservedStage = nil
+				report.PipelineCompletedCount++
+			} else {
+				falseValue := false
+				item.PipelineComplete = &falseValue
+				item.PipelineIncompleteReason = reason
+				item.MissingStages = &missing
+				item.LastObservedStage = lastObservedStage(item.Journey)
+				if len(item.Journey) > 0 {
+					report.PipelineIncompleteCount++
+				}
+			}
+			if len(item.Journey) > 0 {
+				report.PipelineTerminalStatusCounts[item.Journey[len(item.Journey)-1].Status]++
+			}
+		}
+	}
+	// Empty/missing journeys are counted incomplete too; the reporting loop above
+	// counts each included case exactly once, including cases without a journey.
+	journeyCount := 0
+	for _, item := range report.Cases {
+		if len(item.Journey) > 0 {
+			journeyCount++
+		}
+	}
+	if report.VisionMedia != nil {
+		for _, item := range report.VisionMedia.Cases {
+			if len(item.Journey) > 0 {
+				journeyCount++
+			}
+		}
+	}
+	report.PipelineAccountingValid = report.PipelineCompletedCount+report.PipelineIncompleteCount == report.OverallCaseCount && journeyCount == report.OverallCaseCount && len(report.Cases) == report.ScenarioCount
+	if report.VisionMedia != nil {
+		report.PipelineAccountingValid = report.PipelineAccountingValid && len(report.VisionMedia.Cases) == report.MediaCaseCount
+	}
+}
+
+func lastObservedStage(journey []journeyEvent) *string {
+	value := ""
+	if len(journey) > 0 {
+		value = journey[len(journey)-1].Stage
+	}
+	return &value
 }
 
 func formatCounts(counts map[string]int) string {
@@ -1435,7 +1566,15 @@ func attachActionLifecycle(report caseReport, value fixture, clock time.Time, re
 		}
 		stage("action_dispatched_to_discovery", report.ActionLifecycleStatus, "no_physical_action")
 		stage("test_action_executor_result", "suppressed_no_action", "executor_not_called")
-		stage("action_result_recorded", "suppressed_no_action", "no_action_result")
+		if report.ActionLifecycleStatus == "blocked_by_safety_gate" {
+			if has("core.action_result") || len(snapshot.ActionResults) > 0 {
+				stage("action_result_recorded", "blocked_by_safety_gate", "core_store")
+			} else {
+				stage("action_result_recorded", "incomplete", "result_not_observed")
+			}
+		} else {
+			stage("action_result_recorded", "suppressed_no_action", "no_action_result")
+		}
 	}
 	checks := idempotenceChecks{
 		CameraDuplicateNoSecondAction: callCount <= 1,

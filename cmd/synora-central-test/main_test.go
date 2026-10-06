@@ -104,6 +104,110 @@ func TestCentralExpansionIsTheCLIExecutionSet(t *testing.T) {
 	}
 }
 
+func TestPipelineAccountingUsesEveryStaticAndLe2iJourney(t *testing.T) {
+	manifestPath := "../../testdata/central-e2e-v1/manifest.json"
+	manifest, err := loadManifest(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	static := expandManifest(manifest, filepath.Clean(filepath.Join("..", "..")))
+	staticReports := make([]caseReport, len(static))
+	for index, scenario := range static {
+		staticReports[index] = caseReport{ID: scenario.Value.ID, Journey: completedJourney()}
+	}
+	mediaManifest, err := loadLe2iManifest("../../testdata/central-e2e-v1/media/le2i-v1-regression.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mediaManifest.Cases) != 48 {
+		t.Fatalf("Le2i regression manifest cases=%d want=48", len(mediaManifest.Cases))
+	}
+	mediaCases := make([]mediaCaseReport, len(mediaManifest.Cases))
+	for index, scenario := range mediaManifest.Cases {
+		mediaCases[index] = mediaCaseReport{ID: scenario.ID, Journey: completedJourney()}
+	}
+	report := suiteReport{
+		ScenarioCount: len(staticReports), MediaCaseCount: len(mediaCases), Cases: staticReports,
+		VisionMedia: &mediaSuiteReport{ScenarioCount: len(mediaCases), Cases: mediaCases},
+	}
+	refreshPipelineAccounting(&report)
+	want := len(staticReports) + len(mediaCases)
+	if report.OverallCaseCount != want || report.PipelineCompletedCount != want || report.PipelineIncompleteCount != 0 || !report.PipelineAccountingValid {
+		t.Fatalf("pipeline counters do not match actual journeys: overall=%d completed=%d incomplete=%d valid=%t want=%d", report.OverallCaseCount, report.PipelineCompletedCount, report.PipelineIncompleteCount, report.PipelineAccountingValid, want)
+	}
+	if report.PipelineTerminalStatusCounts["completed"] != want {
+		t.Fatalf("terminal status counts=%v want completed=%d", report.PipelineTerminalStatusCounts, want)
+	}
+	if report.OverallCaseCount != report.ScenarioCount+report.MediaCaseCount {
+		t.Fatalf("overall count does not include media journeys: %+v", report)
+	}
+
+	// A selected count that disagrees with the actual case arrays must fail.
+	report.MediaCaseCount++
+	refreshPipelineAccounting(&report)
+	if report.PipelineAccountingValid {
+		t.Fatal("pipeline accounting accepted a mismatch between report totals and actual journeys")
+	}
+}
+
+func TestPipelineIncompleteDiagnosticsOnlyAppearForIncompleteJourney(t *testing.T) {
+	complete := caseReport{Journey: completedJourney()}
+	incomplete := caseReport{Journey: completedJourney()[:10]}
+	report := suiteReport{ScenarioCount: 2, Cases: []caseReport{complete, incomplete}}
+	refreshPipelineAccounting(&report)
+	if report.PipelineCompletedCount != 1 || report.PipelineIncompleteCount != 1 || !report.PipelineAccountingValid {
+		t.Fatalf("unexpected pipeline counts: %+v", report)
+	}
+	if report.Cases[0].PipelineComplete != nil || report.Cases[0].PipelineIncompleteReason != "" || report.Cases[0].MissingStages != nil || report.Cases[0].LastObservedStage != nil {
+		t.Fatalf("complete case contains incomplete diagnostics: %+v", report.Cases[0])
+	}
+	bad := report.Cases[1]
+	if bad.PipelineComplete == nil || *bad.PipelineComplete || bad.PipelineIncompleteReason == "" || bad.MissingStages == nil || len(*bad.MissingStages) != 1 || (*bad.MissingStages)[0] != "scenario_completed" || bad.LastObservedStage == nil || *bad.LastObservedStage != "action_result_recorded" {
+		t.Fatalf("incomplete case diagnostics are missing or incorrect: %+v", bad)
+	}
+}
+
+func TestPipelineAccountingFailsWhenAReportHasNoJourney(t *testing.T) {
+	report := suiteReport{
+		ScenarioCount: 2,
+		Cases:         []caseReport{{Journey: completedJourney()}, {ID: "missing-journey"}},
+	}
+	refreshPipelineAccounting(&report)
+	if report.PipelineCompletedCount != 1 || report.PipelineIncompleteCount != 0 || report.OverallCaseCount != 2 || report.PipelineAccountingValid {
+		t.Fatalf("missing journey was silently counted as an executed pipeline: %+v", report)
+	}
+	missing := report.Cases[1]
+	if missing.PipelineComplete == nil || *missing.PipelineComplete || missing.PipelineIncompleteReason == "" || missing.MissingStages == nil || missing.LastObservedStage == nil {
+		t.Fatalf("missing journey has no incomplete diagnostics: %+v", missing)
+	}
+}
+
+func TestSafetyGateBlockedJourneyCompletesWithoutExecutorCall(t *testing.T) {
+	value := generatedFixture(generatedSuite{IDPrefix: "blocked", Suite: "safety", Family: "safety", Count: 1, Seed: 1, Bundle: "v3"}, 0)
+	executor := newTestActionExecutor(func() time.Time { return time.Unix(100, 0).UTC() })
+	report := caseReport{ID: value.ID, SafetyGateStatuses: []string{"blocked_by_safety_gate"}}
+	report = attachActionLifecycle(report, value, time.Unix(100, 0).UTC(), []busRecord{{Message: contract.Message{Type: "core.action_result"}}}, executor, cognitivecore.CognitiveSnapshot{})
+	calls, results := executor.snapshot()
+	if calls != 0 || results != 0 {
+		t.Fatalf("Safety Gate block called action executor: calls=%d results=%d", calls, results)
+	}
+	if report.ActionLifecycleStatus != "blocked_by_safety_gate" || !journeyComplete(report.Journey) {
+		t.Fatalf("Safety Gate blocked journey should be complete: status=%s journey=%+v", report.ActionLifecycleStatus, report.Journey)
+	}
+}
+
+func completedJourney() []journeyEvent {
+	stages := []string{"ingress_received", "discovery_validated", "core_processed", "store_revision_written", "snapshot_encoded", "mlp_executed", "safety_gate_evaluated", "action_dispatched_to_discovery", "test_action_executor_result", "action_result_recorded", "scenario_completed"}
+	statuses := []string{"received", "accepted", "completed", "completed", "completed", "completed", "completed", "suppressed_no_action", "suppressed_no_action", "suppressed_no_action", "completed"}
+	journey := make([]journeyEvent, len(stages))
+	for index, stage := range stages {
+		journey[index] = journeyEvent{Stage: stage, Status: statuses[index]}
+	}
+	journey[8].Reason = "executor_not_called"
+	journey[9].Reason = "no_action_result"
+	return journey
+}
+
 func TestCentralReportWriteIsAtomicAndLeavesNoTemporaryFile(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "report.json")

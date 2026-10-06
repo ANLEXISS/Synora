@@ -88,41 +88,47 @@ type mediaCaseReport struct {
 	PoseRequestCount             int               `json:"pose_request_count,omitempty"`
 	PoseRequestReason            string            `json:"pose_request_reason,omitempty"`
 	Journey                      []journeyEvent    `json:"journey,omitempty"`
+	PipelineComplete             *bool             `json:"pipeline_complete,omitempty"`
+	PipelineIncompleteReason     string            `json:"pipeline_incomplete_reason,omitempty"`
+	MissingStages                *[]string         `json:"missing_stages,omitempty"`
+	LastObservedStage            *string           `json:"last_observed_stage,omitempty"`
 	ActionLifecycleStatus        string            `json:"action_lifecycle_status,omitempty"`
 	IdempotenceChecks            idempotenceChecks `json:"idempotence_checks"`
 	RejectedActionResults        int               `json:"rejected_action_results"`
 }
 
 type mediaSuiteReport struct {
-	SchemaVersion               string                    `json:"schema_version"`
-	ManifestSHA256              string                    `json:"manifest_sha256"`
-	SourceManifestSHA256        string                    `json:"source_manifest_sha256,omitempty"`
-	Mode                        string                    `json:"mode"`
-	MediaRootSet                bool                      `json:"media_root_set"`
-	ModelStatus                 string                    `json:"model_status"`
-	ModelReason                 string                    `json:"model_reason,omitempty"`
-	ScenarioCount               int                       `json:"scenario_count"`
-	PassedCount                 int                       `json:"passed_count"`
-	FailedCount                 int                       `json:"failed_count"`
-	StatusCounts                map[string]int            `json:"status_counts"`
-	FamilyCounts                map[string]int            `json:"family_counts"`
-	Passed                      bool                      `json:"passed"`
-	NotRunCount                 int                       `json:"not_run_count"`
-	BlockedModelMissingCount    int                       `json:"blocked_model_missing_count"`
-	PoseBackendStatus           string                    `json:"pose_backend_status"`
-	MediaHashVerificationPassed bool                      `json:"media_hash_verification_passed"`
-	MediaByCategory             map[string]map[string]int `json:"media_by_category"`
-	PoseLatencyMS               map[string]float64        `json:"pose_latency_ms"`
-	PostureByCategory           map[string]map[string]int `json:"posture_by_category"`
-	FallStateByCategory         map[string]map[string]int `json:"fall_state_by_category"`
-	SemanticQualification       string                    `json:"semantic_qualification"`
-	SemanticDebtByCategory      map[string]int            `json:"semantic_debt_by_category"`
-	PipelineCompletedCount      int                       `json:"pipeline_completed_count"`
-	PipelineIncompleteCount     int                       `json:"pipeline_incomplete_count"`
-	ActionLifecycleByStatus     map[string]int            `json:"action_lifecycle_by_status"`
-	IdempotenceChecks           map[string]int            `json:"idempotence_checks"`
-	RejectedActionResults       int                       `json:"rejected_action_results"`
-	Cases                       []mediaCaseReport         `json:"cases"`
+	SchemaVersion                string                    `json:"schema_version"`
+	ManifestSHA256               string                    `json:"manifest_sha256"`
+	SourceManifestSHA256         string                    `json:"source_manifest_sha256,omitempty"`
+	Mode                         string                    `json:"mode"`
+	MediaRootSet                 bool                      `json:"media_root_set"`
+	ModelStatus                  string                    `json:"model_status"`
+	ModelReason                  string                    `json:"model_reason,omitempty"`
+	ScenarioCount                int                       `json:"scenario_count"`
+	PassedCount                  int                       `json:"passed_count"`
+	FailedCount                  int                       `json:"failed_count"`
+	StatusCounts                 map[string]int            `json:"status_counts"`
+	FamilyCounts                 map[string]int            `json:"family_counts"`
+	Passed                       bool                      `json:"passed"`
+	NotRunCount                  int                       `json:"not_run_count"`
+	BlockedModelMissingCount     int                       `json:"blocked_model_missing_count"`
+	PoseBackendStatus            string                    `json:"pose_backend_status"`
+	MediaHashVerificationPassed  bool                      `json:"media_hash_verification_passed"`
+	MediaByCategory              map[string]map[string]int `json:"media_by_category"`
+	PoseLatencyMS                map[string]float64        `json:"pose_latency_ms"`
+	PostureByCategory            map[string]map[string]int `json:"posture_by_category"`
+	FallStateByCategory          map[string]map[string]int `json:"fall_state_by_category"`
+	SemanticQualification        string                    `json:"semantic_qualification"`
+	SemanticDebtByCategory       map[string]int            `json:"semantic_debt_by_category"`
+	PipelineCompletedCount       int                       `json:"pipeline_completed_count"`
+	PipelineIncompleteCount      int                       `json:"pipeline_incomplete_count"`
+	PipelineTerminalStatusCounts map[string]int            `json:"pipeline_terminal_status_counts"`
+	PipelineAccountingValid      bool                      `json:"pipeline_accounting_valid"`
+	ActionLifecycleByStatus      map[string]int            `json:"action_lifecycle_by_status"`
+	IdempotenceChecks            map[string]int            `json:"idempotence_checks"`
+	RejectedActionResults        int                       `json:"rejected_action_results"`
+	Cases                        []mediaCaseReport         `json:"cases"`
 }
 
 type le2iManifest struct {
@@ -368,13 +374,9 @@ func runLe2iSuite(repoRoot, manifestPath, mediaRoot, modelPath string) mediaSuit
 		if !item.IdempotenceChecks.DirectExecutorCalls {
 			report.IdempotenceChecks["no_direct_executor_calls"]++
 		}
-		if journeyComplete(item.Journey) {
-			report.PipelineCompletedCount++
-		} else {
-			report.PipelineIncompleteCount++
-		}
 		report.RejectedActionResults += item.RejectedActionResults
 	}
+	finalizeMediaPipelineAccounting(&report)
 	report.ScenarioCount = len(report.Cases)
 	report.FailedCount = report.ScenarioCount - report.PassedCount
 	report.Passed = report.ScenarioCount > 0 && report.FailedCount == 0 && report.MediaHashVerificationPassed
@@ -387,6 +389,42 @@ func runLe2iSuite(repoRoot, manifestPath, mediaRoot, modelPath string) mediaSuit
 	// Hash verification is an integrity gate; calculate Passed after its final value.
 	report.Passed = report.ScenarioCount == 48 && report.FailedCount == 0 && report.MediaHashVerificationPassed
 	return report
+}
+
+func finalizeMediaPipelineAccounting(report *mediaSuiteReport) {
+	report.PipelineCompletedCount = 0
+	report.PipelineIncompleteCount = 0
+	report.PipelineTerminalStatusCounts = make(map[string]int)
+	for index := range report.Cases {
+		item := &report.Cases[index]
+		complete, reason, missing := assessJourney(item.Journey)
+		if complete {
+			item.PipelineComplete = nil
+			item.PipelineIncompleteReason = ""
+			item.MissingStages = nil
+			item.LastObservedStage = nil
+			report.PipelineCompletedCount++
+		} else {
+			falseValue := false
+			item.PipelineComplete = &falseValue
+			item.PipelineIncompleteReason = reason
+			item.MissingStages = &missing
+			item.LastObservedStage = lastObservedStage(item.Journey)
+			if len(item.Journey) > 0 {
+				report.PipelineIncompleteCount++
+			}
+		}
+		if len(item.Journey) > 0 {
+			report.PipelineTerminalStatusCounts[item.Journey[len(item.Journey)-1].Status]++
+		}
+	}
+	journeyCount := 0
+	for _, item := range report.Cases {
+		if len(item.Journey) > 0 {
+			journeyCount++
+		}
+	}
+	report.PipelineAccountingValid = journeyCount == report.ScenarioCount && report.PipelineCompletedCount+report.PipelineIncompleteCount == report.ScenarioCount
 }
 
 func le2iModelStatus(modelPath string, diagnostic poseModelDiagnostic) string {
