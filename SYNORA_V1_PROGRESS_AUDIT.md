@@ -1599,3 +1599,12 @@ Le commit `ccd0469` complète la preuve d’intégration : les requêtes et rép
 explicitement par l’ACL du Bus et couvertes par test. Sans cette correction,
 le nouvel endpoint aurait correctement échoué fermé mais n’aurait jamais pu
 obtenir une preuve runtime en production.
+
+Le commit `0b6aae0` ajoute `make qualify-camera`, un contrôle read-only qui
+assemble configuration caméra, confiance réseau, identité active, endpoints,
+chemins MediaMTX et santé Discovery dans un rapport redacted. Exécuté le
+2026-10-06, il confirme `decision=not_qualified`, deux caméras déclarées,
+zéro identité active, zéro endpoint, zéro chemin MediaMTX et Discovery
+`503 degraded`. Le rapport détaillé est archivé dans
+`docs/j2-camera-qualification.md`; aucune simulation ou entrée HDMI n’est
+créditée comme caméra réelle.
