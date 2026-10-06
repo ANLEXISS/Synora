@@ -42,6 +42,7 @@ type websocketHub struct {
 	intelligenceTopology map[string]any
 	intelligenceTraces   []map[string]any
 	intelligenceEvents   []map[string]any
+	pilotState           map[string]any
 }
 
 type websocketClient struct {
@@ -69,10 +70,24 @@ func (h *websocketHub) observeBus(bus websocketBus) {
 		return
 	}
 	for msg := range bus.SubscribeChannel("api") {
-		if msg.Type == "core.decision" {
+		switch msg.Type {
+		case "core.decision", "core.decision.v3":
 			h.handleIntelligenceDecisionAt(msg.Payload, msg.Timestamp)
+		case "core.snapshot", "core.snapshot.v3":
+			h.handlePilotState(msg.Payload, msg.Type)
 		}
 	}
+}
+
+func (h *websocketHub) handlePilotState(payload []byte, messageType string) {
+	state := sanitizePilotState(payload, messageType)
+	if state == nil {
+		return
+	}
+	h.intelligenceMu.Lock()
+	h.pilotState = state
+	h.intelligenceMu.Unlock()
+	h.Publish("system.state", map[string]any{"state": state})
 }
 
 func (h *websocketHub) handleIntelligenceDecision(payload []byte) {
@@ -134,6 +149,12 @@ func (h *websocketHub) recentEventsSnapshot() []map[string]any {
 	return events
 }
 
+func (h *websocketHub) pilotStateSnapshot() map[string]any {
+	h.intelligenceMu.RLock()
+	defer h.intelligenceMu.RUnlock()
+	return cloneMap(h.pilotState)
+}
+
 func intelligenceEvent(trace map[string]any, timestamp time.Time) map[string]any {
 	event := map[string]any{
 		"schema_version": "synora.recent-event/v1",
@@ -149,6 +170,80 @@ func intelligenceEvent(trace map[string]any, timestamp time.Time) map[string]any
 		}
 	}
 	return event
+}
+
+func sanitizePilotState(payload []byte, messageType string) map[string]any {
+	var envelope struct {
+		SchemaVersion string         `json:"schema_version"`
+		Revision      uint64         `json:"revision"`
+		Snapshot      map[string]any `json:"snapshot"`
+	}
+	if json.Unmarshal(payload, &envelope) != nil || envelope.Snapshot == nil {
+		return nil
+	}
+	if (messageType == "core.snapshot" && envelope.SchemaVersion != "core-snapshot/v1") || (messageType == "core.snapshot.v3" && envelope.SchemaVersion != "core-snapshot/v3") {
+		return nil
+	}
+	state := map[string]any{
+		"schema_version": "synora.pilot-state/v1",
+		"source_schema":  envelope.SchemaVersion,
+		"revision":       envelope.Revision,
+	}
+	if capturedAt := safeTimestamp(stringValue(envelope.Snapshot["captured_at"])); capturedAt != "" {
+		state["captured_at"] = capturedAt
+	}
+	base := envelope.Snapshot
+	if messageType == "core.snapshot.v3" {
+		if value, ok := envelope.Snapshot["base_v2"].(map[string]any); ok {
+			base = value
+		}
+		if vision, ok := envelope.Snapshot["vision"].(map[string]any); ok {
+			state["vision"] = pickPilotFields(vision, []string{"pose_status", "posture", "fall_state", "risk_status", "camera_health_status", "camera_integrity_status", "camera_uncertainty", "real_detection", "replay_simulation", "aggregate_confidence"})
+		}
+	}
+	state["security"] = pickPilotFields(mapValue(base["security"]), []string{"armed", "degraded", "known"})
+	state["presence"] = pickPilotFields(mapValue(base["presence"]), []string{"human_present", "known_residents_present", "known_resident_count", "track_count", "track_confirmed"})
+	state["topology"] = safeToken(stringValue(base["topology"]))
+	state["sensors"] = pickPilotFields(mapValue(base["sensors"]), []string{"movement", "access_state", "sensor_evidence", "alarm_state", "observation_count", "confidence"})
+	state["episode"] = pickPilotFields(mapValue(base["episode"]), []string{"phase", "segment_count", "gap_count", "seconds_since_first", "seconds_since_last", "calm_seconds"})
+	state["action_results"] = sanitizePilotActionResults(base["action_results"])
+	return state
+}
+
+func sanitizePilotActionResults(value any) []any {
+	values, _ := value.([]any)
+	clean := make([]any, 0, min(len(values), 8))
+	for _, value := range values {
+		item, ok := value.(map[string]any)
+		if !ok || len(clean) >= 8 {
+			break
+		}
+		clean = append(clean, pickPilotFields(item, []string{"status", "successful", "failed", "unavailable"}))
+	}
+	return clean
+}
+
+func pickPilotFields(source map[string]any, fields []string) map[string]any {
+	result := make(map[string]any, len(fields))
+	for _, field := range fields {
+		if value, ok := source[field]; ok {
+			result[field] = value
+		}
+	}
+	return result
+}
+
+func mapValue(value any) map[string]any {
+	result, _ := value.(map[string]any)
+	return result
+}
+
+func safeTimestamp(value string) string {
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
+	if err != nil {
+		return ""
+	}
+	return parsed.UTC().Format(time.RFC3339Nano)
 }
 
 func emptyIntelligenceTopology() map[string]any {
@@ -397,7 +492,7 @@ func (h *websocketHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.register(client)
 	topology, traces := h.intelligenceSnapshot()
 	events := h.recentEventsSnapshot()
-	initial, _ := json.Marshal(wsEnvelope{Type: "snapshot.initial", Timestamp: time.Now().UTC(), Data: map[string]any{"topology": topology, "traces": traces, "events": events}})
+	initial, _ := json.Marshal(wsEnvelope{Type: "snapshot.initial", Timestamp: time.Now().UTC(), Data: map[string]any{"topology": topology, "traces": traces, "events": events, "state": h.pilotStateSnapshot()}})
 	client.send <- initial
 	go client.writePump()
 	go client.readPump()

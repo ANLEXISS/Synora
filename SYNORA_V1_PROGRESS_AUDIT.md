@@ -1735,3 +1735,19 @@ avec `pipeline_completed=374`, `pipeline_incomplete=29`, famille
 Cette séquence est une compression logicielle reproductible ; elle ne remplace
 pas un burn-in multi-jours sur matériel cible, qui reste requis avant validation
 critique J4.
+
+## Progression J4 — état agrégé Core en lecture contrôlée
+
+Le Core V1 envoie désormais son snapshot normalisé au consommateur API en
+lecture seule, en plus de Discovery ; V3 utilisait déjà cette direction. La
+nouvelle ressource authentifiée `GET /api/system/state` expose uniquement une
+projection allow-listée de présence, zone, capteurs, épisode, sécurité et
+états Vision agrégés. Les champs identifiants, médias, embeddings et
+identifiants de requêtes sont exclus par test. Sans snapshot reçu, la réponse
+est `503` avec `status=unknown`, et l’interface affiche « Aucun état Core
+observé ».
+
+Tests ciblés Go, build web et cas central `pilot-burn-in-compressed` restent
+verts. Cette ressource complète l’API minimale de J4 côté logiciel ; elle ne
+prouve toujours pas le flux d’une caméra réelle ni l’alignement du binaire
+déployé.

@@ -5,6 +5,7 @@ import { Intelligence } from "./pages/Intelligence";
 import { Sidebar } from "./components/Sidebar";
 import { RuntimeHealthCard } from "./components/RuntimeHealth";
 import { DataReset } from "./components/DataReset";
+import { PilotStateCard } from "./components/PilotState";
 
 type Session = { role?: string; csrf?: string };
 
@@ -39,6 +40,7 @@ export default function App() {
           <span className="dry-run-badge"><ShieldCheck size={15} /> Aucune action physique</span>
         </header>
         <RuntimeHealthCard />
+        <PilotStateCard />
         {session.role === "admin" && <DataReset csrfToken={csrfToken} />}
         <Intelligence />
       </main>

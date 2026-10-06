@@ -110,6 +110,9 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 	if err := s.Bus.Send(contract.Message{ID: event.ID + ":snapshot", Type: "core.snapshot", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "discovery", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: s.now(), Payload: snapshotPayload}); err != nil {
 		return err
 	}
+	if err := s.Bus.Send(contract.Message{ID: event.ID + ":snapshot:api", Type: "core.snapshot", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "api", CorrelationID: event.ID, Revision: result.Result.Revision, Timestamp: s.now(), Payload: snapshotPayload}); err != nil {
+		return err
+	}
 	if result.Result.Action != nil {
 		body, err := json.Marshal(struct {
 			SchemaVersion string `json:"schema_version"`

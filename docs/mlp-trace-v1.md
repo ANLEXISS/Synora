@@ -28,6 +28,11 @@ inputs, weights, embeddings, media, identities, secrets, or hardware paths.
 When no redacted trace has been observed, the endpoint and the interface
 return an empty list and display `Aucun événement récent`.
 
+The pilot state is a separate aggregate read model. V1 Core snapshots are now
+targeted to the API as a read-only event, and V3 snapshots use the same
+projection path. The API never treats an absent snapshot as a healthy or empty
+state: it returns `503` with `status=unknown` until one is observed.
+
 The API projection is independently allow-listed and capped. The frontend
 keeps only the last 24 traces and presents proposed outputs as consultative
 responses; it cannot dispatch hardware commands.

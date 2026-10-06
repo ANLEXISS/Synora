@@ -27,9 +27,13 @@ l’absence d’inférence live.
 - `GET /api/intelligence/traces` retourne au plus 24 traces redacted.
 - `GET /api/intelligence/events` retourne au plus 64 événements récents
   `synora.recent-event/v1`, dérivés exclusivement des traces redacted.
+- `GET /api/system/state` retourne l’état agrégé observé du Core, ou `503`
+  `unknown` tant qu’aucun snapshot n’a été reçu. La projection conserve
+  présence, zone, capteurs, épisode et états Vision agrégés, sans identités,
+  médias, embeddings ou identifiants de requêtes.
 - `GET /api/ws` diffuse `intelligence.inference` avec la trace MLP et son
   résumé d’événement borné ; le snapshot initial contient aussi les événements
-  conservés.
+  conservés et l’état Core courant.
 
 La page affiche une section « Événements récents ». Elle rend un état vide
 explicite lorsqu’aucun flux n’a été observé et ne fabrique aucune entrée.

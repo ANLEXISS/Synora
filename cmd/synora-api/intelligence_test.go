@@ -134,3 +134,48 @@ func TestIntelligenceDecisionWithoutRedactedTraceCreatesNoRecentEvent(t *testing
 		t.Fatalf("unredacted decision created events: %#v", events)
 	}
 }
+
+func TestSanitizePilotStateKeepsOnlyAggregateEvidence(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{
+		"schema_version": "core-snapshot/v1", "revision": 7,
+		"snapshot": map[string]any{
+			"captured_at": "2026-10-06T12:00:00.123Z", "topology": "protected_interior",
+			"security":       map[string]any{"armed": true, "degraded": false, "known": true, "identity": "resident-1"},
+			"presence":       map[string]any{"human_present": true, "track_count": 1, "track_confirmed": true},
+			"sensors":        map[string]any{"movement": true, "confidence": .91},
+			"episode":        map[string]any{"phase": "confirmed", "segment_count": 2},
+			"action_results": []any{map[string]any{"status": "dry_run", "request_id": "secret-request"}},
+			"embedding":      []any{1, 2}, "media": "local://private",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := sanitizePilotState(payload, "core.snapshot")
+	if state == nil || state["revision"] != uint64(7) || state["topology"] != "protected_interior" {
+		t.Fatalf("state was not projected: %#v", state)
+	}
+	presence := state["presence"].(map[string]any)
+	if presence["human_present"] != true || presence["track_count"] != float64(1) {
+		t.Fatalf("presence projection failed: %#v", presence)
+	}
+	body, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ToLower(string(body))
+	for _, forbidden := range []string{"identity", "embedding", "media", "request_id", "secret-request"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("forbidden state field leaked: %s", text)
+		}
+	}
+}
+
+func TestPilotStateReturnsUnknownUntilCoreSnapshotObserved(t *testing.T) {
+	hub := newWebSocketHub(&security.Config{AllowedOrigins: []string{"https://synora.example"}})
+	recorder := httptest.NewRecorder()
+	handlePilotState(hub)(recorder, httptest.NewRequest(http.MethodGet, "/api/system/state", nil))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unexpected empty state status: %d", recorder.Code)
+	}
+}

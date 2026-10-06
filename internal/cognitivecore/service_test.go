@@ -28,16 +28,19 @@ func TestServiceCommitsBeforeEmittingDiscoveryMessages(t *testing.T) {
 	if err := service.Handle(context.Background(), contract.Message{ID: "sensor-1", Type: "sensor.normal", Kind: contract.KindEvent, Source: "discovery", Timestamp: time.Unix(50, 0).UTC(), Payload: json.RawMessage(`{"movement":true}`)}); err != nil {
 		t.Fatal(err)
 	}
-	if len(core.Store.Journal()) != 1 || len(bus.sent) != 4 {
+	if len(core.Store.Journal()) != 1 || len(bus.sent) != 5 {
 		t.Fatalf("commit/dispatch order incomplete: journal=%d sent=%d", len(core.Store.Journal()), len(bus.sent))
 	}
-	if bus.sent[0].Type != "core.decision" || bus.sent[1].Type != "core.decision" || bus.sent[2].Type != "core.snapshot" || bus.sent[3].Type != "action.request" {
+	if bus.sent[0].Type != "core.decision" || bus.sent[1].Type != "core.decision" || bus.sent[2].Type != "core.snapshot" || bus.sent[3].Type != "core.snapshot" || bus.sent[4].Type != "action.request" {
 		t.Fatalf("unexpected service messages: %#v", bus.sent)
 	}
 	if bus.sent[1].Target != "api" {
 		t.Fatalf("decision trace was not targeted to API: %#v", bus.sent[1])
 	}
-	if string(bus.sent[3].Payload) == "" || string(bus.sent[3].Payload) == "null" {
+	if bus.sent[3].Target != "api" {
+		t.Fatalf("snapshot state was not targeted to API: %#v", bus.sent[3])
+	}
+	if string(bus.sent[4].Payload) == "" || string(bus.sent[4].Payload) == "null" {
 		t.Fatal("empty action request")
 	}
 }
