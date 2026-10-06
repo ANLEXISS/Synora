@@ -1483,3 +1483,40 @@ La qualification caméra n’est pas acquise sur l’état matériel observé :
 Conclusion : J2 reste non qualifié matériellement. Les clips synthétiques,
 Le2i et l’entrée HDMI ne reçoivent aucun crédit de caméra réelle ou de
 parcours Discovery → Vision → Core.
+
+## Addendum d’exécution — J1, revalidation de l’autorité des comptes
+
+Le commit `1ba7450` ajoute la lecture stricte de `auth.yaml` pour les sessions
+web dont le sujet est un compte utilisateur : le compte doit exister, être
+activé et conserver exactement le rôle signé dans la session. Un fichier
+absent, invalide, un alias ambigu, une désactivation ou un changement de rôle
+provoque un refus `401`. Le sujet technique `api-token` reste contrôlé par la
+validation du bearer et la rotation du secret, sans être assimilé à un compte
+humain.
+
+Preuves ajoutées : chargement/validation des comptes, refus des alias
+ambigus, et refus d’une session après changement de rôle ou désactivation.
+
+## Vérification de non-régression — session courante
+
+- Harnais central officiel : **401/401**, `failed=0`,
+  `pipeline_completed=399`, `pipeline_incomplete=2` ; manifeste
+  `e827e22dbe4b99a96f86325eb32ed7c3098962c5fe796f67b3cd54bbded75a7e`.
+- Suites Go : vert après revalidation des comptes.
+- Suites Python Vision : **89 tests**, vertes.
+- Build web : vert.
+- `make doctor` reste non vert pour des raisons d’exploitation indépendantes
+  du code de session : unité `synora-connect.service` absente, modèles
+  `arcface_w600k_r50.rknn` et `det_10g.rknn` absents. Le modèle YOLO est
+  présent, mais cela ne qualifie ni une caméra réelle ni une sémantique
+  produit.
+
+## État de validation
+
+J0 n’est pas validé : l’alignement du binaire installé, des configurations et
+du commit courant reste à effectuer avec autorité de déploiement. J1 progresse
+sur la vérification serveur, mais reste ouvert tant que la politique complète
+de rétention/suppression et la validation critique ne sont pas formellement
+acceptées. J2 reste bloqué par l’absence de matériel caméra qualifiable ; J3
+et J4 restent explicitement non démarrés en validation terrain. J5 à J9 ne
+doivent pas être ouverts.
