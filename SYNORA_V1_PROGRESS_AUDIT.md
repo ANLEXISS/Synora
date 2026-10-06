@@ -1608,3 +1608,6 @@ zéro identité active, zéro endpoint, zéro chemin MediaMTX et Discovery
 `503 degraded`. Le rapport détaillé est archivé dans
 `docs/j2-camera-qualification.md`; aucune simulation ou entrée HDMI n’est
 créditée comme caméra réelle.
+
+Après `0b6aae0`, `go test ./...` reste entièrement vert, y compris la
+commande de qualification J2 et les nouveaux contrôles ACL/runtime.
