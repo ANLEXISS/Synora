@@ -1593,3 +1593,9 @@ tranche.
 Cette progression ne clôt pas J4 : l’API des événements/suppression et le
 burn-in restent à exercer, et le binaire déployé n’intègre pas encore ces
 commits.
+
+Le commit `ccd0469` complète la preuve d’intégration : les requêtes et réponses
+`runtime.health` entre `api` et `runtime-manager` sont maintenant autorisées
+explicitement par l’ACL du Bus et couvertes par test. Sans cette correction,
+le nouvel endpoint aurait correctement échoué fermé mais n’aurait jamais pu
+obtenir une preuve runtime en production.
