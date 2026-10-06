@@ -1539,3 +1539,20 @@ en parallèle d’un second harnais a obtenu `397/401` avec quatre timeouts de
 décision ; il est classé non validant et non archivé comme preuve de sortie.
 Le dernier run complet isolé précédemment validé reste `401/401` avec le même
 manifeste ; un nouveau `401/401` isolé est requis avant validation critique.
+
+## Vérification J0 — état courant après l’audit
+
+Un run isolé depuis l’état courant a produit le 2026-10-06 :
+
+- harnais central : **401/401**, `failed=0`, manifeste
+  `e827e22dbe4b99a96f86325eb32ed7c3098962c5fe796f67b3cd54bbded75a7e` ;
+- commit source courant : `c8a30fe9305321ac7c7fb0018e346256b0283206` ;
+- build propre depuis ce commit réalisé dans un worktree temporaire ;
+- les six hash de binaires comparés au contenu de `/opt/synora/bin` sont tous
+  différents, et `/opt/synora/version.json` déclare encore
+  `c510e5a45aa691c571a75248bc0437bff44680e1`.
+
+La preuve confirme donc la non-régression source, mais contredit toujours le
+critère J0 d’alignement déployé. L’installation appartient à `root` et
+`sudo -n` ne permet pas l’actualisation non interactive ; aucune écriture ou
+redémarrage privilégié n’a été tenté.
