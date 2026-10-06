@@ -1692,7 +1692,8 @@ annuler une purge déjà effectuée.
 
 ## Relevé matériel et déployé courant
 
-Le dépôt est sur `f91c8a8`, tandis que `/opt/synora/version.json` déclare
+La tranche logicielle est portée par `d2aa07d`, tandis que
+`/opt/synora/version.json` déclare
 toujours `c510e5a45aa691c571a75248bc0437bff44680e1`. `sudo -n` reste
 indisponible, donc aucun alignement ou redémarrage privilégié n’a été tenté.
 MediaMTX répond mais expose `itemCount=0`; `/dev/video0` est identifié comme
