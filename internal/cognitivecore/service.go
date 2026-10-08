@@ -36,6 +36,9 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 	if message.Kind == contract.KindRPC && message.Type == contract.RPCSystemResetState {
 		return s.handleSystemStateReset(message)
 	}
+	if isLegacyVisionContract(message.Type) {
+		return s.rejectLegacyVision(message)
+	}
 	event := EventFromMessage(message)
 	if message.Type == contract.EventValidationTestInference {
 		if event.Source != "api" || payloadString(event.Payload, "provenance") != "test-harness" || !payloadBoolDefault(event.Payload, "test", false) {
@@ -133,6 +136,18 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 	return nil
 }
 
+func isLegacyVisionContract(eventType string) bool {
+	return (contract.IsVisionEvent(eventType) || strings.HasPrefix(eventType, "vision")) && eventType != contract.EventVisionEvidenceV1 || strings.HasPrefix(eventType, "clip.")
+}
+
+func (s *Service) rejectLegacyVision(message contract.Message) error {
+	body, err := json.Marshal(map[string]any{"schema_version": "core.vision-ingress-result/v1", "status": "rejected", "reason": "legacy_vision_contract_not_admitted", "legacy_to_core_attempts": 1})
+	if err != nil {
+		return err
+	}
+	return s.Bus.Send(contract.Message{ID: message.ID + ":legacy-rejected", Type: "core.vision_rejected", Kind: contract.KindEvent, Source: serviceName(s.Name), Target: "discovery", CorrelationID: message.ID, Timestamp: s.now(), Payload: body})
+}
+
 func (s *Service) handleSystemStateReset(message contract.Message) error {
 	var request contract.SystemStateResetRequest
 	if err := json.Unmarshal(message.Payload, &request); err != nil {
@@ -188,12 +203,7 @@ func (s *Service) sendSystemStateResetError(message contract.Message, reason str
 }
 
 func cataloguedTestEventType(eventType string) bool {
-	for _, item := range contract.TestInferenceCatalog() {
-		if item.EventType == eventType {
-			return true
-		}
-	}
-	return false
+	return eventType == contract.EventVisionEvidenceV1
 }
 
 func (s *Service) sendTestDecision(event contract.Event, result ProcessResult) error {

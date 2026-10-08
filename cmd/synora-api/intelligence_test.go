@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -168,6 +169,52 @@ func TestSanitizePilotStateKeepsOnlyAggregateEvidence(t *testing.T) {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("forbidden state field leaked: %s", text)
 		}
+	}
+}
+
+func TestSanitizePilotStateIncludesOnlyValidatedVisionEvidenceV1(t *testing.T) {
+	fixture, err := os.ReadFile("../../pkg/contract/testdata/v1/vision-evidence-v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evidence any
+	if err := json.Unmarshal(fixture, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"schema_version": "core-snapshot/v3", "revision": 9,
+		"snapshot": map[string]any{
+			"captured_at": "2026-10-06T12:00:00Z", "base_v2": map[string]any{"topology": "protected_interior"},
+			"vision":          map[string]any{"posture": "ground", "fall_state": "candidate", "risk_status": "confirmed"},
+			"vision_evidence": evidence, "media_path": "/private/clip.mp4", "local_track_id": "track-secret",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := sanitizePilotState(payload, "core.snapshot.v3")
+	if state == nil || state["vision_evidence"] == nil {
+		t.Fatalf("validated aggregate contract missing: %#v", state)
+	}
+	if _, ok := state["vision"]; ok {
+		t.Fatalf("legacy parallel Vision object was projected: %#v", state["vision"])
+	}
+	body, _ := json.Marshal(state)
+	for _, forbidden := range []string{"media_path", "local_track_id", "private/clip", "bbox", "keypoints", "embedding"} {
+		if strings.Contains(strings.ToLower(string(body)), forbidden) {
+			t.Fatalf("raw field leaked: %s", body)
+		}
+	}
+	var invalid map[string]any
+	_ = json.Unmarshal(fixture, &invalid)
+	invalid["bbox"] = []int{1, 2, 3, 4}
+	badPayload, _ := json.Marshal(map[string]any{"schema_version": "core-snapshot/v3", "revision": 10, "snapshot": map[string]any{"vision_evidence": invalid}})
+	badState := sanitizePilotState(badPayload, "core.snapshot.v3")
+	if badState == nil {
+		t.Fatal("invalid state envelope should still be safely projected")
+	}
+	if badState["vision_evidence"] != nil {
+		t.Fatal("invalid Vision Evidence V1 was exposed")
 	}
 }
 

@@ -1,0 +1,27 @@
+{
+  "schema_version": "synora.vision.evidence/v1",
+  "event_id": "ev_0123456789abcdef01234567",
+  "episode_id": "ep_0123456789abcdef01234567",
+  "window_start": "2026-01-01T00:00:00Z",
+  "window_end": "2026-01-01T00:00:01Z",
+  "window_seconds": 1,
+  "topology": "protected_interior",
+  "provenance": "real",
+  "simulated_camera": false,
+  "camera_health": {"availability": "evaluated", "state": "healthy", "confidence": 0.99, "quality": 0.98, "support": {"valid_evaluations": 1, "continuity": "continuous", "supported_seconds": 1, "gap_count": 0}},
+  "trigger": {"availability": "evaluated", "state": "motion", "confidence": 0.8, "quality": 0.9, "support": {"valid_evaluations": 1, "continuity": "continuous", "supported_seconds": 1, "gap_count": 0}},
+  "presence": {
+    "human": {"availability": "evaluated", "state": "present", "confidence": 0.9, "quality": 0.9, "support": {"valid_evaluations": 1, "continuity": "continuous", "supported_seconds": 1, "gap_count": 0}},
+    "vehicle": {"availability": "not_requested", "state": "unknown", "confidence": 0, "quality": 0, "support": {"valid_evaluations": 0, "continuity": "unknown", "supported_seconds": 0, "gap_count": 0}},
+    "animal": {"availability": "unavailable", "state": "unknown", "confidence": 0, "quality": 0, "support": {"valid_evaluations": 0, "continuity": "unknown", "supported_seconds": 0, "gap_count": 0}}
+  },
+  "activity": {"availability": "evaluated", "state": "normal", "confidence": 0.8, "quality": 0.85, "support": {"valid_evaluations": 1, "continuity": "continuous", "supported_seconds": 1, "gap_count": 0}},
+  "pose": {"availability": "unavailable", "posture": "unknown", "posture_confidence": 0, "transition_to_ground_confidence": 0, "quality": 0, "support": {"valid_evaluations": 0, "continuity": "unknown", "supported_seconds": 0, "gap_count": 0}, "immobility_seconds": 0},
+  "face": {"availability": "not_requested", "result": "unknown", "confidence": 0, "quality": 0, "support": {"valid_evaluations": 0, "continuity": "unknown", "supported_seconds": 0, "gap_count": 0}},
+  "plate": {"availability": "unavailable", "result": "unknown", "confidence": 0, "quality": 0, "support": {"valid_evaluations": 0, "continuity": "unknown", "supported_seconds": 0, "gap_count": 0}},
+  "sensitive_object": {"availability": "not_requested", "category": "none", "confidence": 0, "quality": 0, "support": {"valid_evaluations": 0, "continuity": "unknown", "supported_seconds": 0, "gap_count": 0}},
+  "media": {"availability": "evaluated", "episode_state": "continuous", "support": {"valid_evaluations": 1, "continuity": "continuous", "supported_seconds": 1, "gap_count": 0}},
+  "runtime_aggregate": {"fall_state": "none", "recovery_observed": false, "ground_duration_seconds": 0, "risk_status": "not_available", "risk_kind": "none", "risk_confidence": 0, "risk_persistence": "none", "risk_persistence_seconds": 0, "risk_observation_count": 0, "risk_quality_sufficient": false, "motion_tier": "normal", "interaction_state": "none", "physical_interaction_candidate": false, "face_status": "not_requested", "face_consensus_frames": 0, "face_quality": 0, "face_confidence": 0, "face_qualification_provenance": "none", "camera_integrity_status": "unknown", "camera_uncertainty": false, "aggregate_confidence": 0.8, "edge_tracking_ok": true, "real_detection": true, "replay_simulation": false},
+  "producer_health": "healthy",
+  "processing_status": "complete"
+}

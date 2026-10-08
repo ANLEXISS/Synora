@@ -265,6 +265,7 @@ func EventCategory(eventType string) string {
 	case EventManualRisk, EventSecurityModeChanged:
 		return EventCategorySecurity
 	case EventVisionIdentity,
+		EventVisionEvidenceV1,
 		EventVisionEnd,
 		EventVisionMotion,
 		EventVisionClipSummaryV1,
@@ -320,6 +321,7 @@ func NormalizeEventType(raw string) string {
 
 	case
 		EventVisionIdentity,
+		EventVisionEvidenceV1,
 		EventVisionUnknown,
 		EventVisionUncertain,
 		EventVisionEnd,

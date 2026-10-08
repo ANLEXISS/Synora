@@ -2,6 +2,8 @@ package discovery
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log"
@@ -65,6 +67,14 @@ type Manager struct {
 	stateResetting   bool
 	clipRoot         string
 	testVisionWorker bool
+	migrationMu      sync.Mutex
+	migrationMetrics VisionMigrationMetrics
+}
+
+type VisionMigrationMetrics struct {
+	LegacyConverted   uint64 `json:"legacy_converted"`
+	LegacyRejected    uint64 `json:"legacy_rejected"`
+	LegacyQuarantined uint64 `json:"legacy_quarantined"`
 }
 
 func NewManager(
@@ -368,6 +378,8 @@ func (m *Manager) listenFaceMutations(ctx context.Context) {
 				m.handleEdgeTrackManifest(msg)
 			case contract.EventVisionEnrichmentV3:
 				m.handleVisionEnrichmentV3(msg)
+			case contract.EventVisionEvidenceV1:
+				m.handleVisionEvidenceV1(msg)
 			case "core.snapshot":
 				if m.snapshotCache != nil {
 					if err := m.snapshotCache.Apply(msg); err != nil {
@@ -436,32 +448,22 @@ func (m *Manager) handleEdgeTrackManifest(message contract.Message) {
 	}
 	manifest, err := AcceptEdgeTrackManifestAt(message.Payload, m.clock())
 	if err != nil {
-		body, _ := json.Marshal(map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "rejected", "reason": err.Error()})
-		_ = m.bus.Send(contract.Message{ID: message.ID + ":rejected", Type: "discovery.ingress.rejected", Kind: contract.KindEvent, Source: "discovery", Target: message.Source, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
+		m.recordMigration(func(c *VisionMigrationMetrics) { c.LegacyRejected++ })
+		m.sendVisionIngressResult(message, "rejected", "edge_manifest_invalid")
 		return
 	}
-	human := manifest.TriggerClass == "human" && manifest.ConfirmedTrackCount > 0
-	payload := map[string]any{
-		"schema_version":    contract.EventVisionSegmentReadyV1,
-		"camera_id":         manifest.CameraID,
-		"episode_id":        manifest.EpisodeID,
-		"topology":          manifest.TopologyClass,
-		"topology_class":    manifest.TopologyClass,
-		"trigger_class":     manifest.TriggerClass,
-		"human_present":     human,
-		"track_count":       manifest.TrackCount,
-		"track_confirmed":   human,
-		"priority":          edgePriority(manifest.TopologyClass, human),
-		"observation_count": manifest.ObservationCount,
-		"segment_count":     manifest.SegmentCount,
-		"gap_count":         manifest.GapCount,
-		"real_detection":    false,
-		"replay_simulation": true,
+	evidence, err := edgeManifestEvidence(message.ID, manifest)
+	if err != nil {
+		m.quarantineVision(message, "edge_manifest_unrepresentable")
+		return
 	}
-	body, _ := json.Marshal(map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "accepted", "camera_id": manifest.CameraID, "episode_id": manifest.EpisodeID})
+	if err := m.PublishValidatedVisionEvidenceV1(evidence); err != nil {
+		m.quarantineVision(message, "edge_evidence_rejected")
+		return
+	}
+	m.recordMigration(func(c *VisionMigrationMetrics) { c.LegacyConverted++ })
+	body, _ := json.Marshal(map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "accepted", "vision_evidence_v1": true})
 	_ = m.bus.Send(contract.Message{ID: message.ID + ":accepted", Type: "discovery.ingress.accepted", Kind: contract.KindEvent, Source: "discovery", Target: message.Source, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
-	coreBody, _ := json.Marshal(payload)
-	_ = m.bus.Send(contract.Message{ID: message.ID + ":vision", Type: contract.EventVisionSegmentReadyV1, Kind: contract.KindEvent, Source: "discovery", Target: "core", CorrelationID: message.ID, Timestamp: parseManifestTime(manifest.StartedAt, m.clock), Payload: coreBody})
 }
 
 func (m *Manager) handleVisionEnrichmentV3(message contract.Message) {
@@ -469,8 +471,39 @@ func (m *Manager) handleVisionEnrichmentV3(message contract.Message) {
 		return
 	}
 	if err := ValidatePayload(message.Payload); err != nil {
-		body, _ := json.Marshal(map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "rejected", "reason": err.Error()})
-		_ = m.bus.Send(contract.Message{ID: message.ID + ":rejected", Type: "discovery.ingress.rejected", Kind: contract.KindEvent, Source: "discovery", Target: message.Source, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
+		m.recordMigration(func(c *VisionMigrationMetrics) { c.LegacyRejected++ })
+		m.sendVisionIngressResult(message, "rejected", "vision_payload_invalid")
+		return
+	}
+	var outer map[string]json.RawMessage
+	if err := json.Unmarshal(message.Payload, &outer); err != nil {
+		m.quarantineVision(message, "legacy_enrichment_invalid")
+		return
+	}
+	var evidenceRaw json.RawMessage
+	if rawSchema := outer["schema_version"]; len(rawSchema) > 0 {
+		var schema string
+		_ = json.Unmarshal(rawSchema, &schema)
+		if schema == contract.EventVisionEvidenceV1 {
+			evidenceRaw = message.Payload
+		}
+	}
+	if len(evidenceRaw) == 0 {
+		for key := range outer {
+			if key != "schema_version" && key != "vision_evidence" {
+				m.quarantineVision(message, "legacy_enrichment_unmapped_fields")
+				return
+			}
+		}
+		evidenceRaw = outer["vision_evidence"]
+	}
+	if len(evidenceRaw) == 0 {
+		m.quarantineVision(message, "legacy_enrichment_without_evidence")
+		return
+	}
+	evidence, err := contract.DecodeVisionEvidenceV1(evidenceRaw)
+	if err != nil {
+		m.quarantineVision(message, "legacy_enrichment_evidence_invalid")
 		return
 	}
 	if m.testVisionWorker {
@@ -489,7 +522,7 @@ func (m *Manager) handleVisionEnrichmentV3(message contract.Message) {
 			return
 		}
 	}
-	accepted := map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "accepted", "event_type": contract.EventVisionEnrichmentV3}
+	accepted := map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "accepted", "vision_evidence_v1": true}
 	acceptedTarget := message.Source
 	if m.testVisionWorker {
 		accepted["simulated_camera"] = true
@@ -499,7 +532,173 @@ func (m *Manager) handleVisionEnrichmentV3(message contract.Message) {
 	}
 	body, _ := json.Marshal(accepted)
 	_ = m.bus.Send(contract.Message{ID: message.ID + ":accepted", Type: "discovery.ingress.accepted", Kind: contract.KindEvent, Source: "discovery", Target: acceptedTarget, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
-	_ = m.bus.Send(contract.Message{ID: message.ID + ":v3", Type: contract.EventVisionEnrichmentV3, Kind: contract.KindEvent, Source: "discovery", Target: "core", CorrelationID: message.ID, Timestamp: message.Timestamp, Payload: message.Payload})
+	if err := m.PublishValidatedVisionEvidenceV1(evidence); err != nil {
+		m.quarantineVision(message, "legacy_enrichment_evidence_rejected")
+		return
+	}
+	m.recordMigration(func(c *VisionMigrationMetrics) { c.LegacyConverted++ })
+}
+
+// PublishValidatedVisionEvidenceV1 is the only Discovery-to-Core semantic
+// publisher. The event body is the contract itself, never a legacy wrapper.
+func (m *Manager) PublishValidatedVisionEvidenceV1(evidence contract.VisionEvidenceV1) error {
+	if m == nil || m.bus == nil {
+		return errors.New("Discovery bus unavailable")
+	}
+	if err := evidence.Validate(); err != nil {
+		return err
+	}
+	body, err := json.Marshal(evidence)
+	if err != nil {
+		return err
+	}
+	if err := ValidatePayload(body); err != nil {
+		return err
+	}
+	return m.bus.Send(contract.Message{ID: evidence.EventID, Type: contract.EventVisionEvidenceV1, Kind: contract.KindEvent, Source: "discovery", Target: "core", Timestamp: evidence.WindowEnd.UTC(), Payload: body})
+}
+
+func (m *Manager) handleVisionEvidenceV1(message contract.Message) {
+	evidence, err := contract.DecodeVisionEvidenceV1(message.Payload)
+	if err != nil {
+		m.recordMigration(func(c *VisionMigrationMetrics) { c.LegacyRejected++ })
+		m.quarantineVision(message, "evidence_v1_invalid")
+		return
+	}
+	if m.testVisionWorker && (!evidence.SimulatedCamera || evidence.Provenance != "simulated_test" || evidence.ProducerHealth != "unavailable" || evidence.Processing != "unavailable" || evidence.ErrorCode == "") {
+		m.recordMigration(func(c *VisionMigrationMetrics) { c.LegacyRejected++ })
+		m.quarantineVision(message, "test_worker_evidence_invalid")
+		return
+	}
+	if evidence.ErrorCode == "legacy_worker_output_quarantined" {
+		m.recordMigration(func(c *VisionMigrationMetrics) { c.LegacyQuarantined++ })
+	}
+	if err := m.PublishValidatedVisionEvidenceV1(evidence); err != nil {
+		m.recordMigration(func(c *VisionMigrationMetrics) { c.LegacyRejected++ })
+		m.quarantineVision(message, "evidence_v1_rejected")
+	}
+}
+
+func (m *Manager) quarantineVision(message contract.Message, reason string) {
+	m.recordMigration(func(c *VisionMigrationMetrics) { c.LegacyQuarantined++ })
+	if m == nil || m.bus == nil || message.Source == "" {
+		return
+	}
+	m.sendVisionIngressResult(message, "quarantined", reason)
+}
+
+func (m *Manager) sendVisionIngressResult(message contract.Message, status, reason string) {
+	if m == nil || m.bus == nil || message.Source == "" {
+		return
+	}
+	body, _ := json.Marshal(map[string]any{"schema_version": "discovery.ingress.result/v1", "status": status, "reason": reason, "vision_evidence_v1": false})
+	_ = m.bus.Send(contract.Message{ID: message.ID + ":" + status, Type: "discovery.ingress.rejected", Kind: contract.KindEvent, Source: "discovery", Target: message.Source, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
+}
+
+func (m *Manager) recordMigration(update func(*VisionMigrationMetrics)) {
+	if m == nil || update == nil {
+		return
+	}
+	m.migrationMu.Lock()
+	defer m.migrationMu.Unlock()
+	update(&m.migrationMetrics)
+}
+
+func (m *Manager) VisionMigrationMetrics() VisionMigrationMetrics {
+	if m == nil {
+		return VisionMigrationMetrics{}
+	}
+	m.migrationMu.Lock()
+	defer m.migrationMu.Unlock()
+	return m.migrationMetrics
+}
+
+func edgeManifestEvidence(messageID string, manifest EdgeTrackManifestV1) (contract.VisionEvidenceV1, error) {
+	if (manifest.TrackingStatus != "ok" && manifest.TrackingStatus != "unavailable") || len(manifest.EvidenceRefs) != 0 {
+		return contract.VisionEvidenceV1{}, errors.New("edge semantic facts require quarantine")
+	}
+	for key := range manifest.Metrics {
+		if key != "confidence" && key != "quality" && key != "supported_seconds" {
+			return contract.VisionEvidenceV1{}, errors.New("unknown edge metric")
+		}
+	}
+	start, err := time.Parse(time.RFC3339, manifest.StartedAt)
+	if err != nil {
+		return contract.VisionEvidenceV1{}, err
+	}
+	end, err := time.Parse(time.RFC3339, manifest.EndedAt)
+	if err != nil || !end.After(start) {
+		return contract.VisionEvidenceV1{}, errors.New("invalid edge window")
+	}
+	seconds := end.Sub(start).Seconds()
+	supportedSeconds := seconds
+	confidence := manifest.TriggerConfidence
+	quality := confidence
+	if value, ok := manifest.Metrics["confidence"].(float64); ok {
+		confidence = value
+	}
+	if value, ok := manifest.Metrics["quality"].(float64); ok {
+		quality = value
+	}
+	if value, ok := manifest.Metrics["supported_seconds"].(float64); ok {
+		supportedSeconds = value
+	}
+	if confidence < 0 || confidence > 1 || quality < 0 || quality > 1 || supportedSeconds < 0 || supportedSeconds > seconds || manifest.ConfirmedTrackCount > manifest.TrackCount || manifest.ObservationCount < 1 || manifest.SegmentCount < 1 || manifest.GapCount > manifest.ObservationCount {
+		return contract.VisionEvidenceV1{}, errors.New("invalid edge support values")
+	}
+	support := contract.VisionSupportV1{ValidEvaluations: manifest.ObservationCount, Continuity: "continuous", SupportedSeconds: supportedSeconds, GapCount: manifest.GapCount}
+	if manifest.GapCount > 0 {
+		support.Continuity = "gapped"
+	}
+	state := "absent"
+	availability := contract.VisionEvaluated
+	if manifest.TrackCount > 0 {
+		state = "present"
+	}
+	if manifest.TrackingStatus == "unavailable" {
+		state, availability = "unknown", contract.VisionUnavailable
+	}
+	if manifest.EdgeEmulated { /* marker is represented by provenance below */
+	}
+	sha := sha256.Sum256([]byte(messageID + "\x00" + manifest.EpisodeID))
+	provenance, simulated := "real", false
+	if manifest.EdgeEmulated {
+		provenance, simulated = "simulated_test", true
+	}
+	triggerState := map[string]string{"human": "human_probable", "vehicle": "vehicle_probable", "animal": "animal_probable"}[manifest.TriggerClass]
+	if triggerState == "" {
+		triggerState = "unknown"
+	}
+	unknown := contract.VisionMeasureV1{Availability: contract.VisionNotRequested, State: "unknown", Support: contract.VisionSupportV1{Continuity: "unknown"}}
+	selected := contract.VisionMeasureV1{Availability: availability, State: state, Confidence: confidence, Quality: quality, Support: support}
+	if availability != contract.VisionEvaluated {
+		selected = contract.VisionMeasureV1{Availability: availability, State: "unknown", Support: contract.VisionSupportV1{Continuity: "unknown"}}
+	}
+	human, vehicle, animal := unknown, unknown, unknown
+	switch manifest.TriggerClass {
+	case "human":
+		human = selected
+	case "vehicle":
+		vehicle = selected
+	case "animal":
+		animal = selected
+	}
+	mediaState := "continuous"
+	if manifest.GapCount > 0 {
+		mediaState = "gapped"
+	}
+	evidence := contract.VisionEvidenceV1{SchemaVersion: contract.EventVisionEvidenceV1, EventID: "ev_" + hex.EncodeToString(sha[:12]), EpisodeID: "ep_" + hex.EncodeToString(sha[12:24]), WindowStart: start.UTC(), WindowEnd: end.UTC(), WindowSeconds: seconds, Topology: manifest.TopologyClass, Provenance: provenance, SimulatedCamera: simulated,
+		CameraHealth: contract.VisionMeasureV1{Availability: contract.VisionEvaluated, State: "healthy", Confidence: confidence, Quality: quality, Support: support},
+		Trigger:      contract.VisionMeasureV1{Availability: contract.VisionEvaluated, State: triggerState, Confidence: confidence, Quality: quality, Support: support},
+		Presence:     contract.VisionPresenceV1{Human: human, HumanTrackCount: map[bool]int{true: manifest.TrackCount}[manifest.TriggerClass == "human"], ConfirmedHumanTracks: map[bool]int{true: manifest.ConfirmedTrackCount}[manifest.TriggerClass == "human"], Vehicle: vehicle, VehicleTrackCount: map[bool]int{true: manifest.TrackCount}[manifest.TriggerClass == "vehicle"], Animal: animal, AnimalTrackCount: map[bool]int{true: manifest.TrackCount}[manifest.TriggerClass == "animal"]},
+		Activity:     contract.VisionMeasureV1{Availability: contract.VisionUnavailable, State: "unknown", Support: contract.VisionSupportV1{Continuity: "unknown"}},
+		Pose:         contract.VisionPoseV1{Availability: contract.VisionNotRequested, Posture: contract.VisionPostureUnknown, Support: contract.VisionSupportV1{Continuity: "unknown"}},
+		Face:         contract.VisionSemanticResultV1{Availability: contract.VisionNotRequested, Result: "unknown", Support: contract.VisionSupportV1{Continuity: "unknown"}}, Plate: contract.VisionSemanticResultV1{Availability: contract.VisionNotRequested, Result: "unknown", Support: contract.VisionSupportV1{Continuity: "unknown"}},
+		Sensitive: contract.VisionSensitiveV1{Availability: contract.VisionNotRequested, Category: "none", Support: contract.VisionSupportV1{Continuity: "unknown"}}, Media: contract.VisionMediaContinuityV1{Availability: contract.VisionEvaluated, EpisodeState: mediaState, Support: contract.VisionSupportV1{ValidEvaluations: manifest.SegmentCount, Continuity: support.Continuity, SupportedSeconds: supportedSeconds, GapCount: manifest.GapCount}}, ProducerHealth: "healthy", Processing: "complete"}
+	if len(manifest.PriorityReason) > 0 {
+		evidence.PriorityReasons = append([]string(nil), manifest.PriorityReason...)
+	}
+	return evidence, evidence.Validate()
 }
 
 func edgePriority(topology string, human bool) string {

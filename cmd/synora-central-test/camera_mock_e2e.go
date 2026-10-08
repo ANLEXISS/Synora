@@ -42,6 +42,7 @@ type cameraMockE2EReport struct {
 	SimulatedCamera        bool                   `json:"simulated_camera"`
 	VisionEvidenceSource   string                 `json:"vision_evidence_source"`
 	VisionStatus           string                 `json:"vision_status"`
+	VisionEvidenceV1Status string                 `json:"vision_evidence_v1_status"`
 	PoseStatus             string                 `json:"pose_status"`
 	ModelLoads             int                    `json:"model_loads"`
 	InferenceExecutions    int                    `json:"inference_executions"`
@@ -57,6 +58,7 @@ type cameraMockCaseReport struct {
 	ActualHTTP               []int          `json:"actual_http"`
 	TerminationReason        string         `json:"termination_reason"`
 	WorkerStatus             string         `json:"worker_status"`
+	VisionEvidenceV1Status   string         `json:"vision_evidence_v1_status"`
 	ActionStatus             string         `json:"action_status"`
 	ExecutorCalls            int            `json:"executor_calls"`
 	StoreRevisionBefore      uint64         `json:"store_revision_before"`
@@ -118,6 +120,13 @@ func (s *mockState) setSnapshot(payload []byte) error {
 		"revision": envelope.Revision, "simulated_camera": true, "vision_status": "unavailable",
 		"vision_evidence_source": "simulated_test_worker", "inference_executed": false,
 		"vision": visionFields, "physical_action_executed": false, "audio_rendered": false,
+	}
+	if raw, ok := envelope.Snapshot["vision_evidence"]; ok {
+		if body, err := json.Marshal(raw); err == nil {
+			if evidence, err := contract.DecodeVisionEvidenceV1(body); err == nil {
+				state["vision_evidence"] = evidence
+			}
+		}
 	}
 	s.mu.Lock()
 	s.pending = false
@@ -283,8 +292,18 @@ func (w *mockVisionWorker) respond(job *vision.ClipJob, mode string) {
 	// Structured failure metadata is emitted for all outcomes and never derived
 	// from decoded or analyzed media.
 	envelope["worker_result"] = map[string]any{"status": "unavailable", "reason": reason}
-	body, _ = json.Marshal(envelope)
-	_ = w.discovery.Send(contract.Message{ID: job.ID + ":worker-result", Type: contract.EventVisionEnrichmentV3, Kind: contract.KindEvent, Source: "vision", Target: "discovery", CorrelationID: job.ID, Timestamp: time.Now().UTC(), Payload: body})
+	if encoded, marshalErr := json.Marshal(envelope); marshalErr == nil {
+		if augmented, convertErr := attachFixtureVisionEvidenceV1(encoded, job.ID, time.Now().UTC(), true); convertErr == nil && len(augmented) > 0 {
+			var evidence contract.VisionEvidenceV1
+			if json.Unmarshal(augmented, &evidence) == nil {
+				evidence.ErrorCode = strings.ReplaceAll(reason, "-", "_")
+				if evidence.Validate() == nil {
+					body, _ = json.Marshal(evidence)
+				}
+			}
+		}
+	}
+	_ = w.discovery.Send(contract.Message{ID: job.ID + ":worker-result", Type: contract.EventVisionEvidenceV1, Kind: contract.KindEvent, Source: "vision", Target: "discovery", CorrelationID: job.ID, Timestamp: time.Now().UTC(), Payload: body})
 }
 
 type mockIngressPublisher interface {
@@ -527,6 +546,9 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 		}
 		item.StoreRevisionAfter = store.Revision()
 		item.StoreSimulatedCamera = latestMockStoreSimulationMarker(store)
+		if latestMockStoreEvidenceV1(store) {
+			item.VisionEvidenceV1Status = "validated_and_stored"
+		}
 		item.WorkerStatus = "unavailable"
 		if id == "mock-timeout" {
 			item.TerminationReason = "test_worker_timeout_returned_unavailable"
@@ -545,7 +567,7 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 		item.ExecutorCalls = calls
 		item.ActionStatus = latestMockActionStatus(store)
 		item.Journey = mockCompleteJourney(id, item.ActualHTTP[0], item.ActionStatus)
-		item.Passed = len(item.DataLeak) == 0 && containsTrue(item.StateDuring, "simulated_camera") && containsTrue(item.StateAfter, "simulated_camera") && item.StoreSimulatedCamera && item.StoreRevisionAfter > item.StoreRevisionBefore
+		item.Passed = len(item.DataLeak) == 0 && containsTrue(item.StateDuring, "simulated_camera") && containsTrue(item.StateAfter, "simulated_camera") && item.StateAfter["vision_evidence"] != nil && item.StoreSimulatedCamera && item.VisionEvidenceV1Status == "validated_and_stored" && item.StoreRevisionAfter > item.StoreRevisionBefore
 		if id == "mock-duplicate" {
 			item.Passed = item.Passed && len(item.ActualHTTP) == 2 && item.ActualHTTP[1] == http.StatusAccepted
 		}
@@ -560,6 +582,9 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 	report.InferenceExecutions = worker.inferences
 	workerLeaks := worker.dataLeaks
 	worker.mu.Unlock()
+	if latestMockStoreEvidenceV1(store) {
+		report.VisionEvidenceV1Status = "validated_and_stored"
+	}
 	if workerLeaks > 0 {
 		report.RawVisionForwarded = true
 	}
@@ -723,6 +748,14 @@ func latestMockStoreSimulationMarker(store *cognitivecore.UniversalStore) bool {
 		}
 	}
 	return false
+}
+
+func latestMockStoreEvidenceV1(store *cognitivecore.UniversalStore) bool {
+	if store == nil {
+		return false
+	}
+	snapshot, ok := store.SnapshotV3()
+	return ok && snapshot.VisionEvidence != nil && snapshot.VisionEvidence.Validate() == nil
 }
 
 func containsTrue(source map[string]any, key string) bool {

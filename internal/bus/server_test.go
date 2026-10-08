@@ -10,24 +10,24 @@ import (
 	"synora/pkg/contract"
 )
 
-func TestServerRoutesVisionEventToCore(t *testing.T) {
+func TestServerRoutesOnlyVisionEvidenceV1ToCore(t *testing.T) {
 	server := NewServer("net-pipe-test")
 	server.debug = true
 
 	coreConn, coreDecoder := registeredPipe(t, server, "core")
 	defer coreConn.Close()
-	labConn, _ := registeredPipe(t, server, "vision")
-	defer labConn.Close()
+	discoveryConn, _ := registeredPipe(t, server, "discovery")
+	defer discoveryConn.Close()
 
 	msg := contract.Message{
-		Type:       contract.EventVisionUnknown,
+		Type:       contract.EventVisionEvidenceV1,
 		Kind:       contract.KindEvent,
-		Source:     "vision",
+		Source:     "discovery",
 		SourceType: contract.SourceSystem,
 		Target:     "core",
 	}
-	if err := json.NewEncoder(labConn).Encode(msg); err != nil {
-		t.Fatalf("send vision event: %v", err)
+	if err := json.NewEncoder(discoveryConn).Encode(msg); err != nil {
+		t.Fatalf("send evidence event: %v", err)
 	}
 
 	gotCh := make(chan contract.Message, 1)
@@ -39,11 +39,29 @@ func TestServerRoutesVisionEventToCore(t *testing.T) {
 	}()
 	select {
 	case got := <-gotCh:
-		if got.Type != contract.EventVisionUnknown || got.Source != "vision" || got.Target != "core" {
+		if got.Type != contract.EventVisionEvidenceV1 || got.Source != "discovery" || got.Target != "core" {
 			t.Fatalf("unexpected routed message: %#v", got)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("core did not receive vision event")
+		t.Fatal("core did not receive Evidence V1")
+	}
+}
+
+func TestACLRejectsLegacyVisionAndClipContractsAtCoreBoundary(t *testing.T) {
+	legacy := []string{
+		contract.EventVisionSegmentReadyV1,
+		contract.EventVisionClipObservationV1,
+		contract.EventVisionClipSummaryV1,
+		contract.EventVisionEnrichmentV3,
+		contract.EventClipReady,
+		contract.EventClipFailed,
+	}
+	for _, eventType := range legacy {
+		t.Run(eventType, func(t *testing.T) {
+			if err := authorizeACL(contract.Message{Type: eventType, Kind: contract.KindEvent, Source: "discovery", Target: "core"}, "discovery", map[string]struct{}{"core": {}}); err == nil {
+				t.Fatalf("legacy contract %q was authorized to Core", eventType)
+			}
+		})
 	}
 }
 

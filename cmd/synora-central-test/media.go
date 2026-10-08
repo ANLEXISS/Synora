@@ -66,6 +66,7 @@ type mediaCaseReport struct {
 	IngressHTTPStatus            int               `json:"ingress_http_status,omitempty"`
 	IngressLifecycleEvents       int               `json:"ingress_lifecycle_events,omitempty"`
 	PoseStatus                   string            `json:"pose_status,omitempty"`
+	VisionEvidenceV1Status       string            `json:"vision_evidence_v1_status,omitempty"`
 	Posture                      string            `json:"posture,omitempty"`
 	ImmobilitySeconds            float64           `json:"immobility_seconds,omitempty"`
 	FallState                    string            `json:"fall_state,omitempty"`
@@ -651,6 +652,7 @@ func evaluateLe2iCase(repoRoot string, entry le2iCase, mediaRoot string, model p
 	item.InferenceLatencySamplesMS = append([]float64(nil), result.InferenceLatencySamplesMS...)
 	coreReport := runLe2iAggregateThroughCore(repoRoot, entry, result)
 	item.CorePassed = coreReport.Passed
+	item.VisionEvidenceV1Status = coreReport.VisionEvidenceV1Status
 	item.StoreRevision = coreReport.StoreRevision
 	item.APISnapshotObserved = observedAPISnapshot(coreReport.BusTrace)
 	item.SnapshotVersion, item.SnapshotDimension = coreReport.SnapshotVersion, coreReport.SnapshotDimension
@@ -693,6 +695,7 @@ func completeUnavailableMediaCase(repoRoot string, entry le2iCase, item mediaCas
 	}
 	coreReport := runLe2iAggregateThroughCore(repoRoot, entry, result)
 	item.CorePassed = coreReport.Passed
+	item.VisionEvidenceV1Status = coreReport.VisionEvidenceV1Status
 	item.StoreRevision = coreReport.StoreRevision
 	item.APISnapshotObserved = observedAPISnapshot(coreReport.BusTrace)
 	item.SnapshotVersion, item.SnapshotDimension = coreReport.SnapshotVersion, coreReport.SnapshotDimension
@@ -793,9 +796,17 @@ func le2iSemanticMatch(category string, result poseAggregateResult) bool {
 func runLe2iAggregateThroughCore(repoRoot string, entry le2iCase, result poseAggregateResult) caseReport {
 	value := generatedFixture(generatedSuite{IDPrefix: "le2i", Suite: "le2i_media", Family: "le2i_media", Count: 1, Seed: 997, Bundle: "v3"}, 0)
 	value.ID, value.Suite = entry.ID, "le2i_media"
+	value, err := le2iAggregateEvidenceFixture(value, result)
+	if err != nil {
+		return caseReport{ID: entry.ID, Suite: value.Suite, Bundle: "v3", Passed: false, Error: "media Evidence V1 conversion failed"}
+	}
+	return runFixture(repoRoot, value)
+}
+
+func le2iAggregateEvidenceFixture(value fixture, result poseAggregateResult) (fixture, error) {
 	var envelope map[string]any
 	if err := json.Unmarshal(value.Messages[0].Payload, &envelope); err != nil {
-		return caseReport{ID: entry.ID, Suite: value.Suite, Bundle: "v3", Passed: false, Error: err.Error()}
+		return fixture{}, err
 	}
 	snapshot := envelope["snapshot"].(map[string]any)
 	vision := snapshot["vision"].(map[string]any)
@@ -820,7 +831,9 @@ func runLe2iAggregateThroughCore(repoRoot string, entry le2iCase, result poseAgg
 	vision["replay_simulation"] = false
 	envelope["provenance"] = "vision-media-harness/le2i-v1"
 	value.Messages[0].Payload, _ = json.Marshal(envelope)
-	return runFixture(repoRoot, value)
+	// Keep this only as a harness fixture until runFixture's normal Discovery
+	// ingress adapter converts it to Evidence V1 immediately before transport.
+	return value, nil
 }
 
 func diagnosePoseModel(repoRoot, modelPath string) poseModelDiagnostic {

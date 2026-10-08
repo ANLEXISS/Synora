@@ -19,17 +19,17 @@ func loadedTestCore(t *testing.T) (*Core, *UniversalStore) {
 	return &Core{Store: store, MLP: bundle, Gate: SafetyGate{DryRun: true}, Now: func() time.Time { return time.Unix(600, 0).UTC() }}, store
 }
 
-func testHarnessEvent(eventType string, inference bool) contract.Event {
-	return contract.Event{ID: "test-event-1", Type: eventType, Source: "api", Timestamp: time.Unix(600, 0).UTC(), Payload: map[string]any{
-		"provenance": "test-harness", "test": true, "test_inference": inference,
-		"topology": contract.VisionTopologyProtectedInterior, "human_present": true, "track_count": 1, "track_confirmed": true,
-		"episode_phase": "confirmed", "priority": contract.VisionPriorityP1, "real_detection": true, "observation_count": 1,
+func testHarnessEvent(t *testing.T, inference bool) contract.Event {
+	t.Helper()
+	evidence := evidenceEventForTest(t, "test-event-1")
+	return contract.Event{ID: "test-event-1", Type: contract.EventVisionEvidenceV1, Source: "api", Timestamp: evidence.Timestamp, Payload: map[string]any{
+		"provenance": "test-harness", "test": true, "test_inference": inference, "vision_evidence": evidence.Payload,
 	}}
 }
 
 func TestProcessTestUsesRealBundleWithoutPersistenceOrAction(t *testing.T) {
 	core, store := loadedTestCore(t)
-	result, err := core.ProcessTest(context.Background(), testHarnessEvent(contract.EventVisionSegmentReadyV1, true))
+	result, err := core.ProcessTest(context.Background(), testHarnessEvent(t, true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestProcessTestUsesRealBundleWithoutPersistenceOrAction(t *testing.T) {
 
 func TestProcessTestWithoutInferenceReturnsNoCalculation(t *testing.T) {
 	core, store := loadedTestCore(t)
-	event := testHarnessEvent(contract.EventWebCommand, false)
+	event := testHarnessEvent(t, false)
 	result, err := core.ProcessTest(context.Background(), event)
 	if err != nil {
 		t.Fatal(err)
@@ -56,29 +56,17 @@ func TestProcessTestWithoutInferenceReturnsNoCalculation(t *testing.T) {
 	}
 }
 
-func TestEveryInferenceCatalogCaseProducesBoundedRedactedTrace(t *testing.T) {
+func TestLegacyVisionCatalogTypesAreRejectedByTestCore(t *testing.T) {
 	for _, catalogCase := range contract.TestInferenceCatalog() {
 		if !catalogCase.TriggersInference {
 			continue
 		}
 		t.Run(catalogCase.ID, func(t *testing.T) {
-			core, _ := loadedTestCore(t)
-			payload := map[string]any{"provenance": "test-harness", "test": true, "test_inference": true}
-			for key, value := range catalogCase.Payload {
-				payload[key] = value
-			}
-			result, err := core.ProcessTest(context.Background(), contract.Event{ID: "catalog-" + catalogCase.ID, Type: catalogCase.EventType, Source: "api", Timestamp: time.Unix(600, 0).UTC(), Payload: payload})
-			if err != nil {
-				t.Fatal(err)
-			}
-			trace := result.Commit.Decision.Trace
-			if trace == nil || trace.SchemaVersion != MLPTraceSchemaVersion || !trace.Redacted || len(trace.ActivePaths) > 64 {
-				t.Fatalf("catalog case did not produce a bounded redacted trace: %#v", trace)
-			}
-			for _, activation := range trace.Activations {
-				if len(activation.ActiveNodes) > 5 {
-					t.Fatalf("catalog case exceeded active node bound: %#v", activation)
-				}
+			core := &Core{Store: NewUniversalStore(), MLP: UnavailableMLP{}, Gate: SafetyGate{DryRun: true}}
+			event := testHarnessEvent(t, true)
+			event.Type = catalogCase.EventType
+			if _, err := core.ProcessTest(context.Background(), event); err == nil {
+				t.Fatalf("legacy event %q reached Core", catalogCase.EventType)
 			}
 		})
 	}
@@ -88,11 +76,8 @@ func TestServiceTestEnvelopePublishesOnlyRedactedDecisionToAPI(t *testing.T) {
 	core, store := loadedTestCore(t)
 	bus := &serviceBus{}
 	service := &Service{Bus: bus, Core: core, Name: "core"}
-	payload, err := json.Marshal(map[string]any{
-		"event_type": contract.EventVisionSegmentReadyV1, "provenance": "test-harness", "test": true, "test_inference": true,
-		"topology": contract.VisionTopologyProtectedInterior, "human_present": true, "track_count": 1, "track_confirmed": true,
-		"priority": contract.VisionPriorityP1, "real_detection": true, "observation_count": 1,
-	})
+	evidence := evidenceEventForTest(t, "test-envelope")
+	payload, err := json.Marshal(map[string]any{"event_type": contract.EventVisionEvidenceV1, "provenance": "test-harness", "test": true, "test_inference": true, "vision_evidence": evidence.Payload})
 	if err != nil {
 		t.Fatal(err)
 	}

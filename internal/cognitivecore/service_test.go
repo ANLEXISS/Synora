@@ -52,6 +52,45 @@ func TestEventFromMessageDoesNotInventPayloadFacts(t *testing.T) {
 	}
 }
 
+func TestServicesStructurallyRejectLegacyVisionWithoutStoreMutation(t *testing.T) {
+	legacyTypes := []string{
+		contract.EventVisionSegmentReadyV1,
+		contract.EventVisionClipObservationV1,
+		contract.EventVisionClipSummaryV1,
+		contract.EventVisionEnrichmentV3,
+		contract.EventClipReady,
+		contract.EventClipFailed,
+	}
+	for _, eventType := range legacyTypes {
+		t.Run(eventType+"/v1", func(t *testing.T) {
+			store := NewUniversalStore()
+			before := store.Revision()
+			bus := &serviceBus{}
+			service := &Service{Bus: bus, Core: &Core{Store: store}, Name: "core"}
+			message := contract.Message{ID: "legacy", Type: eventType, Kind: contract.KindEvent, Source: "discovery", Target: "core"}
+			if err := service.Handle(context.Background(), message); err != nil {
+				t.Fatal(err)
+			}
+			if store.Revision() != before || len(bus.sent) != 1 || bus.sent[0].Type != "core.vision_rejected" {
+				t.Fatalf("legacy input mutated Store or lacked structured rejection: revision=%d sent=%+v", store.Revision(), bus.sent)
+			}
+		})
+		t.Run(eventType+"/v3", func(t *testing.T) {
+			store := NewUniversalStore()
+			before := store.Revision()
+			bus := &serviceBus{}
+			service := &ServiceV3{Bus: bus, Core: &CoreV3{Store: store, ActiveDryRun: true}, Name: "core"}
+			message := contract.Message{ID: "legacy", Type: eventType, Kind: contract.KindEvent, Source: "discovery", Target: "core"}
+			if err := service.Handle(context.Background(), message); err != nil {
+				t.Fatal(err)
+			}
+			if store.Revision() != before || len(bus.sent) != 1 || bus.sent[0].Type != "core.vision_rejected" || !strings.Contains(string(bus.sent[0].Payload), `"status":"rejected"`) {
+				t.Fatalf("legacy input mutated Store or lacked structured rejection: revision=%d sent=%+v", store.Revision(), bus.sent)
+			}
+		})
+	}
+}
+
 func TestServiceSystemStateResetErasesDurableStateAndIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	store, err := OpenUniversalStore(dir)

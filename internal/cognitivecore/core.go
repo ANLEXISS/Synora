@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -38,7 +39,41 @@ func (c *Core) ProcessTest(ctx context.Context, event contract.Event) (ProcessRe
 	if inference, ok := payloadBool(event.Payload, "test_inference"); ok && !inference {
 		return c.processWithoutInference(event)
 	}
-	return c.process(ctx, event, false)
+	if event.Type != contract.EventVisionEvidenceV1 {
+		return ProcessResult{}, errors.New("test harness accepts only Vision Evidence V1")
+	}
+	raw, ok := event.Payload["vision_evidence"]
+	if !ok {
+		return ProcessResult{}, errors.New("test harness requires Vision Evidence V1")
+	}
+	body, err := json.Marshal(raw)
+	if err != nil {
+		return ProcessResult{}, err
+	}
+	evidence, err := contract.DecodeVisionEvidenceV1(body)
+	if err != nil {
+		return ProcessResult{}, err
+	}
+	event.Payload, err = decodeEvidenceMap(evidence)
+	if err != nil {
+		return ProcessResult{}, err
+	}
+	result, err := c.process(ctx, event, false)
+	if err == nil && result.Commit.Decision.Trace != nil {
+		result.Commit.Decision.Trace.Provenance = "test-harness"
+		result.Commit.Decision.Trace.Test = true
+	}
+	return result, err
+}
+
+func decodeEvidenceMap(evidence contract.VisionEvidenceV1) (map[string]any, error) {
+	body, err := json.Marshal(evidence)
+	if err != nil {
+		return nil, err
+	}
+	var value map[string]any
+	err = json.Unmarshal(body, &value)
+	return value, err
 }
 
 func (c *Core) now() time.Time {
@@ -58,6 +93,18 @@ func (c *Core) process(ctx context.Context, event contract.Event, persist bool) 
 	}
 	if event.ID == "" || event.Type == "" || event.Source == "" {
 		return ProcessResult{}, errors.New("event id, type and source are required")
+	}
+	if (contract.IsVisionEvent(event.Type) || strings.HasPrefix(event.Type, "vision")) && event.Type != contract.EventVisionEvidenceV1 {
+		return ProcessResult{}, fmt.Errorf("Core rejects legacy Vision event type %q", event.Type)
+	}
+	if event.Type == contract.EventVisionEvidenceV1 {
+		body, marshalErr := json.Marshal(event.Payload)
+		if marshalErr != nil {
+			return ProcessResult{}, marshalErr
+		}
+		if _, decodeErr := contract.DecodeVisionEvidenceV1(body); decodeErr != nil {
+			return ProcessResult{}, fmt.Errorf("invalid Vision Evidence V1: %w", decodeErr)
+		}
 	}
 	if event.Timestamp.IsZero() {
 		event.Timestamp = c.now()
@@ -184,16 +231,24 @@ func (c *Core) composeSnapshot(previous CognitiveSnapshot, event contract.Event)
 	if event.Type == contract.EventActionResult || event.Type == "discovery.action.result" {
 		snapshot.ActionResults = append(snapshot.ActionResults, actionResultFromPayload(payload))
 	}
-	if contract.IsVisionEvent(event.Type) || strings.HasPrefix(event.Type, "vision") || strings.HasPrefix(event.Type, "synora.vision") {
-		frame, err := frameFromVisionEvent(snapshot, event)
+	if event.Type == contract.EventVisionEvidenceV1 {
+		body, err := json.Marshal(event.Payload)
 		if err != nil {
 			return CognitiveSnapshot{}, err
 		}
-		evidence, err := VisionEvidenceFromFrame(context.Background(), frame)
+		evidence, err := contract.DecodeVisionEvidenceV1(body)
 		if err != nil {
 			return CognitiveSnapshot{}, err
 		}
-		snapshot.VisionEvidence = evidence
+		frame, err := frameFromVisionEvidence(snapshot, evidence)
+		if err != nil {
+			return CognitiveSnapshot{}, err
+		}
+		visionVector, err := VisionEvidenceFromFrame(context.Background(), frame)
+		if err != nil {
+			return CognitiveSnapshot{}, err
+		}
+		snapshot.VisionEvidence = visionVector
 		snapshot.Topology = frame.TopologyClass
 		snapshot.Presence.HumanPresent = frame.Presence.HumanPresent
 		snapshot.Presence.TrackCount = frame.Presence.TrackCount
@@ -223,6 +278,39 @@ func (c *Core) composeSnapshot(previous CognitiveSnapshot, event contract.Event)
 		snapshot.Topology = "unknown"
 	}
 	return snapshot.Normalized(), nil
+}
+
+func frameFromVisionEvidence(previous CognitiveSnapshot, e contract.VisionEvidenceV1) (VisionEvidenceFrame, error) {
+	phase := VisionPhaseCandidate
+	if e.Presence.ConfirmedHumanTracks > 0 {
+		phase = VisionPhaseConfirmed
+	}
+	priority := contract.VisionPriorityP4
+	if e.Presence.Human.State == "present" {
+		switch e.Topology {
+		case contract.VisionTopologyProtectedInterior:
+			priority = contract.VisionPriorityP1
+		case contract.VisionTopologyRestrictedThreshold, contract.VisionTopologyPrivatePerimeter:
+			priority = contract.VisionPriorityP2
+		}
+	}
+	if e.Presence.Human.State != "present" && e.Presence.Human.State != "absent" {
+		phase = VisionPhaseCandidate
+	}
+	enrichment := VisionEnrichmentUnavailable
+	if e.Face.Availability == contract.VisionNotRequested && e.Plate.Availability == contract.VisionNotRequested {
+		enrichment = VisionEnrichmentNotRequested
+	}
+	continuity := VisionEvidenceFrameContinuity{SecondsSinceFirstObservation: float32(e.Media.Support.SupportedSeconds), SecondsSinceLastObservation: float32(e.WindowSeconds), SegmentCount: e.Media.Support.ValidEvaluations, GapCount: e.Media.Support.GapCount}
+	if e.Media.EpisodeState == "continuous" && e.Media.Support.GapCount == 0 {
+		continuity.CalmSeconds = 0
+	}
+	frame := VisionEvidenceFrame{SchemaVersion: VisionEvidenceSchemaVersion, CapturedAt: e.WindowEnd.UTC(), Security: VisionEvidenceFrameSecurity{Armed: previous.Security.Armed, Degraded: previous.Security.Degraded, Known: previous.Security.Known},
+		Presence: VisionEvidenceFramePresence{HumanPresent: e.Presence.Human.State == "present", TrackCount: e.Presence.HumanTrackCount, TrackConfirmed: e.Presence.ConfirmedHumanTracks > 0}, TopologyClass: e.Topology, Priority: priority, PriorityOrigin: VisionPriorityOriginVision,
+		EpisodePhase: phase, Enrichment: enrichment, Continuity: continuity,
+		Quality:    VisionEvidenceFrameQuality{RealDetection: e.Provenance == "real", ReplaySimulation: e.Provenance != "real", ObservationCount: e.Presence.Human.Support.ValidEvaluations, AggregateConfidence: float32(e.Presence.Human.Confidence)},
+		CoEvidence: VisionEvidenceFrameCoEvidence{AccessState: previous.Sensors.AccessState, Movement: e.Activity.State == "normal" || e.Activity.State == "rapid", SensorEvidence: false, AlarmState: previous.Sensors.AlarmState}}
+	return frame, frame.Validate()
 }
 
 func frameFromVisionEvent(previous CognitiveSnapshot, event contract.Event) (VisionEvidenceFrame, error) {

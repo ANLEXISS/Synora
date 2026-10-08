@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synora.vision.evidence/v1",
+  "title": "Synora aggregate camera evidence V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "episode_id", "window_start", "window_end", "window_seconds", "topology", "provenance", "simulated_camera", "camera_health", "trigger", "presence", "activity", "pose", "face", "plate", "sensitive_object", "media", "producer_health", "processing_status"],
+  "properties": {
+    "schema_version": {"const": "synora.vision.evidence/v1"},
+    "event_id": {"type": "string", "pattern": "^ev_[a-f0-9]{24,64}$"},
+    "episode_id": {"type": "string", "pattern": "^ep_[a-f0-9]{24,64}$"},
+    "window_start": {"type": "string", "format": "date-time", "pattern": "(Z|\\+00:00)$"},
+    "window_end": {"type": "string", "format": "date-time", "pattern": "(Z|\\+00:00)$"},
+    "window_seconds": {"type": "number", "minimum": 0, "maximum": 86400},
+    "topology": {"enum": ["public_outdoor", "private_perimeter", "restricted_threshold", "protected_interior", "unknown"]},
+    "provenance": {"enum": ["real", "replay", "simulated_test"]},
+    "simulated_camera": {"type": "boolean"},
+    "camera_health": {"$ref": "#/$defs/health"},
+    "trigger": {"$ref": "#/$defs/measure", "properties": {"state": {"enum": ["motion", "human_probable", "vehicle_probable", "animal_probable", "tamper", "unknown"]}}},
+    "presence": {"type": "object", "additionalProperties": false, "required": ["human", "vehicle", "animal"], "properties": {"human": {"$ref": "#/$defs/presence"}, "human_track_count": {"type": "integer", "minimum": 0, "maximum": 1000000}, "confirmed_human_tracks": {"type": "integer", "minimum": 0, "maximum": 1000000}, "vehicle_track_count": {"type": "integer", "minimum": 0, "maximum": 1000000}, "animal_track_count": {"type": "integer", "minimum": 0, "maximum": 1000000}, "vehicle": {"$ref": "#/$defs/presence"}, "animal": {"$ref": "#/$defs/presence"}}},
+    "activity": {"$ref": "#/$defs/measure", "properties": {"state": {"enum": ["still", "normal", "rapid", "very_rapid", "unknown"]}}},
+    "pose": {"type": "object", "additionalProperties": false, "required": ["availability", "posture", "posture_confidence", "transition_to_ground_confidence", "quality", "support", "immobility_seconds"], "properties": {"availability": {"$ref": "#/$defs/availability"}, "posture": {"enum": ["upright", "seated", "reclined", "ground", "ambiguous", "unknown"]}, "posture_confidence": {"$ref": "#/$defs/unit"}, "transition_to_ground_confidence": {"$ref": "#/$defs/unit"}, "quality": {"$ref": "#/$defs/unit"}, "support": {"$ref": "#/$defs/support"}, "immobility_seconds": {"type": "number", "minimum": 0, "maximum": 86400}}},
+    "face": {"$ref": "#/$defs/semantic_result"},
+    "plate": {"$ref": "#/$defs/semantic_result"},
+    "sensitive_object": {"type": "object", "additionalProperties": false, "required": ["availability", "category", "confidence", "quality", "support"], "properties": {"availability": {"$ref": "#/$defs/availability"}, "category": {"enum": ["none", "generic", "unknown"]}, "confidence": {"$ref": "#/$defs/unit"}, "quality": {"$ref": "#/$defs/unit"}, "support": {"$ref": "#/$defs/support"}}},
+    "media": {"type": "object", "additionalProperties": false, "required": ["availability", "episode_state", "support"], "properties": {"availability": {"$ref": "#/$defs/availability"}, "episode_state": {"enum": ["continuous", "gapped", "recovered", "unknown"]}, "support": {"$ref": "#/$defs/support"}}},
+    "runtime_aggregate": {"type": "object", "additionalProperties": false, "required": ["fall_state", "recovery_observed", "ground_duration_seconds", "risk_status", "risk_kind", "risk_confidence", "risk_persistence", "risk_persistence_seconds", "risk_observation_count", "risk_quality_sufficient", "motion_tier", "interaction_state", "physical_interaction_candidate", "face_status", "face_consensus_frames", "face_quality", "face_confidence", "face_qualification_provenance", "camera_integrity_status", "camera_uncertainty", "aggregate_confidence", "edge_tracking_ok", "real_detection", "replay_simulation"], "properties": {"fall_state": {"enum": ["none", "candidate", "unknown"]}, "recovery_observed": {"type": "boolean"}, "ground_duration_seconds": {"type": "number", "minimum": 0, "maximum": 86400}, "risk_status": {"enum": ["not_available", "not_requested", "uncertain", "suspected", "confirmed"]}, "risk_kind": {"enum": ["none", "firearm", "other", "unknown"]}, "risk_confidence": {"$ref": "#/$defs/unit"}, "risk_persistence": {"enum": ["none", "isolated", "repeated", "persistent", "confirmed"]}, "risk_persistence_seconds": {"type": "number", "minimum": 0, "maximum": 86400}, "risk_observation_count": {"type": "integer", "minimum": 0, "maximum": 1000000}, "risk_quality_sufficient": {"type": "boolean"}, "motion_tier": {"enum": ["unknown", "still", "normal", "rapid", "very_rapid"]}, "interaction_state": {"enum": ["none", "candidate", "unavailable"]}, "physical_interaction_candidate": {"type": "boolean"}, "face_status": {"enum": ["not_requested", "unavailable", "low_quality", "uncertain", "recognized", "unknown"]}, "face_consensus_frames": {"type": "integer", "minimum": 0, "maximum": 1000000}, "face_quality": {"$ref": "#/$defs/unit"}, "face_confidence": {"$ref": "#/$defs/unit"}, "face_qualification_provenance": {"enum": ["none", "unknown", "validated_dataset", "test_only"]}, "camera_integrity_status": {"enum": ["unknown", "healthy", "degraded", "offline", "uncertain"]}, "camera_uncertainty": {"type": "boolean"}, "aggregate_confidence": {"$ref": "#/$defs/unit"}, "edge_tracking_ok": {"type": "boolean"}, "real_detection": {"type": "boolean"}, "replay_simulation": {"type": "boolean"}}},
+    "producer_health": {"enum": ["healthy", "degraded", "unavailable", "tamper_suspected"]},
+    "processing_status": {"enum": ["complete", "partial", "unavailable", "rejected"]},
+    "error_code": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+    "priority_reasons": {"type": "array", "maxItems": 32, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$"}}
+  },
+  "$defs": {
+    "unit": {"type": "number", "minimum": 0, "maximum": 1},
+    "availability": {"enum": ["not_requested", "unavailable", "evaluated"]},
+    "support": {"type": "object", "additionalProperties": false, "required": ["valid_evaluations", "continuity", "supported_seconds", "gap_count"], "properties": {"valid_evaluations": {"type": "integer", "minimum": 0, "maximum": 1000000}, "continuity": {"enum": ["continuous", "intermittent", "gapped", "unknown"]}, "supported_seconds": {"type": "number", "minimum": 0, "maximum": 86400}, "gap_count": {"type": "integer", "minimum": 0, "maximum": 1000000}}},
+    "measure": {"type": "object", "additionalProperties": false, "required": ["availability", "state", "confidence", "quality", "support"], "properties": {"availability": {"$ref": "#/$defs/availability"}, "state": {"type": "string"}, "confidence": {"$ref": "#/$defs/unit"}, "quality": {"$ref": "#/$defs/unit"}, "support": {"$ref": "#/$defs/support"}}},
+    "presence": {"allOf": [{"$ref": "#/$defs/measure"}, {"properties": {"state": {"enum": ["absent", "present", "ambiguous", "unknown"]}}}]},
+    "health": {"allOf": [{"$ref": "#/$defs/measure"}, {"properties": {"state": {"enum": ["healthy", "degraded", "unavailable", "tamper_suspected"]}}}]},
+    "semantic_result": {"type": "object", "additionalProperties": false, "required": ["availability", "result", "confidence", "quality", "support"], "properties": {"availability": {"$ref": "#/$defs/availability"}, "result": {"enum": ["recognized", "unknown", "ambiguous"]}, "confidence": {"$ref": "#/$defs/unit"}, "quality": {"$ref": "#/$defs/unit"}, "support": {"$ref": "#/$defs/support"}}}
+  }
+}

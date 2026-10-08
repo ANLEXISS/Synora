@@ -202,8 +202,12 @@ func sanitizePilotState(payload []byte, messageType string) map[string]any {
 		if value, ok := envelope.Snapshot["base_v2"].(map[string]any); ok {
 			base = value
 		}
-		if vision, ok := envelope.Snapshot["vision"].(map[string]any); ok {
-			state["vision"] = pickPilotFields(vision, []string{"pose_status", "posture", "fall_state", "risk_status", "camera_health_status", "camera_integrity_status", "camera_uncertainty", "real_detection", "replay_simulation", "aggregate_confidence"})
+		if raw, ok := envelope.Snapshot["vision_evidence"]; ok {
+			if body, err := json.Marshal(raw); err == nil {
+				if evidence, err := contract.DecodeVisionEvidenceV1(body); err == nil {
+					state["vision_evidence"] = evidence
+				}
+			}
 		}
 	}
 	state["security"] = pickPilotFields(mapValue(base["security"]), []string{"armed", "degraded", "known"})

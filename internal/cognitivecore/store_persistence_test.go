@@ -27,7 +27,7 @@ func TestUniversalStoreRestartReplayAndDuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 	core := durableTestCore(store)
-	event := contract.Event{ID: "durable-1", Type: contract.EventVisionSegmentReadyV1, Source: "discovery", Timestamp: time.Unix(100, 0).UTC(), Payload: map[string]any{"topology": contract.VisionTopologyProtectedInterior, "human_present": true, "track_count": 1, "confidence": .9}}
+	event := evidenceEventForTest(t, "durable-1")
 	first, err := core.Process(context.Background(), event)
 	if err != nil {
 		t.Fatal(err)

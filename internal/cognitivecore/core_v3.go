@@ -53,7 +53,17 @@ func (c *CoreV3) Process(ctx context.Context, event contract.Event, snapshot Cog
 	if event.ID == "" || event.Type == "" || event.Source == "" {
 		return ProcessResultV3{}, errors.New("V3 event id, type and source are required")
 	}
+	if event.Type != contract.EventVisionEvidenceV1 {
+		return ProcessResultV3{}, fmt.Errorf("Core V3 rejects non-Evidence Vision event type %q", event.Type)
+	}
 	snapshot = snapshot.Normalized()
+	if snapshot.VisionEvidence != nil {
+		mapped, mapErr := snapshot.ApplyVisionEvidenceV1(*snapshot.VisionEvidence)
+		if mapErr != nil {
+			return ProcessResultV3{}, mapErr
+		}
+		snapshot = mapped.Normalized()
+	}
 	if snapshot.CapturedAt.IsZero() || snapshot.CapturedAt.Equal(time.Unix(0, 0).UTC()) {
 		snapshot.CapturedAt = event.Timestamp.UTC()
 		if snapshot.CapturedAt.IsZero() {

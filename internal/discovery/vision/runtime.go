@@ -83,9 +83,10 @@ type Event struct {
 }
 
 type WorkerResponse struct {
-	RequestID       string  `json:"request_id"`
-	Events          []Event `json:"events"`
-	ContinuityReset bool    `json:"continuity_reset,omitempty"`
+	RequestID       string                     `json:"request_id"`
+	Events          []Event                    `json:"events"`
+	VisionEvidence  *contract.VisionEvidenceV1 `json:"vision_evidence,omitempty"`
+	ContinuityReset bool                       `json:"continuity_reset,omitempty"`
 
 	Error string `json:"error,omitempty"`
 }

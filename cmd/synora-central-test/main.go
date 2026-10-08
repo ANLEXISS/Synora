@@ -123,6 +123,11 @@ type caseReport struct {
 	SnapshotDimension        int               `json:"snapshot_dimension,omitempty"`
 	SnapshotSHA256           string            `json:"snapshot_sha256,omitempty"`
 	PoseStatus               string            `json:"pose_status,omitempty"`
+	VisionEvidenceV1Status   string            `json:"vision_evidence_v1_status,omitempty"`
+	VisionLegacyConverted    uint64            `json:"vision_legacy_converted"`
+	VisionLegacyRejected     uint64            `json:"vision_legacy_rejected"`
+	VisionLegacyQuarantined  uint64            `json:"vision_legacy_quarantined"`
+	LegacyToCoreAttempts     uint64            `json:"legacy_to_core_attempts"`
 	PoseBackendStatus        string            `json:"pose_backend_status,omitempty"`
 	PoseBackendMode          string            `json:"pose_backend_mode,omitempty"`
 	PoseQuality              float64           `json:"pose_quality,omitempty"`
@@ -267,6 +272,7 @@ type suiteReport struct {
 	Coverage                     map[string]int            `json:"coverage"`
 	ModelBackends                map[string]backendReport  `json:"model_backends"`
 	VisionMedia                  *mediaSuiteReport         `json:"vision_media,omitempty"`
+	VisionMigration              visionMigrationReport     `json:"vision_migration"`
 	MediaCaseCount               int                       `json:"media_case_count"`
 	NotRunCount                  int                       `json:"not_run_count"`
 	BlockedModelMissingCount     int                       `json:"blocked_model_missing_count"`
@@ -286,6 +292,13 @@ type suiteReport struct {
 	IdempotenceChecks            map[string]int            `json:"idempotence_checks"`
 	RejectedActionResults        int                       `json:"rejected_action_results"`
 	Cases                        []caseReport              `json:"cases"`
+}
+
+type visionMigrationReport struct {
+	LegacyConverted      uint64 `json:"legacy_converted"`
+	LegacyRejected       uint64 `json:"legacy_rejected"`
+	LegacyQuarantined    uint64 `json:"legacy_quarantined"`
+	LegacyToCoreAttempts uint64 `json:"legacy_to_core_attempts"`
 }
 
 type testActionExecutor struct {
@@ -564,6 +577,7 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 	coverage := make(map[string]int)
 	actionLifecycle := make(map[string]int)
 	idempotence := make(map[string]int)
+	visionMigration := visionMigrationReport{}
 	for _, generated := range manifest.Generated {
 		familyCounts[generated.Family] = 0
 	}
@@ -576,6 +590,10 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 		}
 	}
 	for _, item := range reports {
+		visionMigration.LegacyConverted += item.VisionLegacyConverted
+		visionMigration.LegacyRejected += item.VisionLegacyRejected
+		visionMigration.LegacyQuarantined += item.VisionLegacyQuarantined
+		visionMigration.LegacyToCoreAttempts += item.LegacyToCoreAttempts
 		suiteCounts[item.Suite]++
 		family := item.Family
 		if family == "" {
@@ -648,7 +666,8 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 		SuiteCounts: suiteCounts, FamilyCounts: familyCounts, Coverage: coverage, ModelBackends: backends,
 		PipelineCompletedCount: pipelineCompleted, PipelineIncompleteCount: pipelineIncomplete,
 		ActionLifecycleByStatus: actionLifecycle, IdempotenceChecks: idempotence, RejectedActionResults: rejectedActionResults,
-		Cases: reports,
+		VisionMigration: visionMigration,
+		Cases:           reports,
 	}
 }
 
@@ -999,7 +1018,7 @@ func runFixture(repo string, value fixture) caseReport {
 			}
 			capture = &mlpCapture{observation: mlpObservation{Backend: "test-only-forced-announce", Forced: true, BundleSHA256: fileSHA256(filepath.Join(bundlePath, "MANIFEST.v3.json")), ModelVersion: "test-only-forced-announce", SnapshotDimension: cognitivecore.CognitiveVectorSizeV3, LatencyMS: zeroV3Latency(), Heads: make(map[string]headObservation)}}
 			core := &cognitivecore.CoreV3{Store: store, MLP: forcedAnnounceMLPV3{capture: capture, danger: value.ForcedDanger}, ActiveDryRun: true, Now: func() time.Time { return clock }}
-			service := &cognitivecore.ServiceV3{Bus: coreClient, Core: core, Name: "core", Now: func() time.Time { return clock }}
+			service := &cognitivecore.ServiceV3{Bus: coreClient, Core: core, Name: "core", Now: func() time.Time { return clock }, InitialState: fixtureNonVisionV3State(value)}
 			go func() { _ = service.Run(ctx) }()
 		} else {
 			capture, captureErr = newMLPCapture(bundlePath, true)
@@ -1009,13 +1028,14 @@ func runFixture(repo string, value fixture) caseReport {
 				return finishEarlyCase(report, value, clock, actionExecutor, started)
 			}
 			core := &cognitivecore.CoreV3{Store: store, MLP: deterministicMLPV3{bundle: mlp, capture: capture}, ActiveDryRun: true, Now: func() time.Time { return clock }}
-			service := &cognitivecore.ServiceV3{Bus: coreClient, Core: core, Name: "core", Now: func() time.Time { return clock }}
+			service := &cognitivecore.ServiceV3{Bus: coreClient, Core: core, Name: "core", Now: func() time.Time { return clock }, InitialState: fixtureNonVisionV3State(value)}
 			go func() { _ = service.Run(ctx) }()
 		}
 	}
 
 	transportRejected := false
 	duplicateCameraSent := false
+	var firstWireMessage *contract.Message
 	for _, message := range value.Messages {
 		timestamp := clock
 		if message.Timestamp != "" {
@@ -1027,7 +1047,23 @@ func runFixture(repo string, value fixture) caseReport {
 			report.Error = "fixture message id is required"
 			break
 		}
-		if err := camera.Send(contract.Message{ID: message.ID, Type: message.Type, Kind: contract.KindEvent, Source: "camera-simulator", Target: "discovery", Timestamp: timestamp, Payload: append([]byte(nil), message.Payload...)}); err != nil {
+		payload := append([]byte(nil), message.Payload...)
+		wireType := message.Type
+		if message.Type == contract.EventVisionEnrichmentV3 || message.Type == contract.EventValidationTestInference {
+			var conversionErr error
+			payload, conversionErr = attachFixtureVisionEvidenceV1(payload, message.ID, timestamp, false)
+			if conversionErr != nil {
+				report.Error = "fixture Vision Evidence V1 conversion failed: " + conversionErr.Error()
+				break
+			}
+			wireType = contract.EventVisionEnrichmentV3
+		}
+		wire := contract.Message{ID: message.ID, Type: wireType, Kind: contract.KindEvent, Source: "camera-simulator", Target: "discovery", Timestamp: timestamp, Payload: payload}
+		if firstWireMessage == nil {
+			copy := wire
+			firstWireMessage = &copy
+		}
+		if err := camera.Send(wire); err != nil {
 			// The bus rejects an oversized frame before Discovery can emit its
 			// normal ingress rejection. Treat that transport-level refusal as
 			// the expected rejection for the dedicated red-team fixture.
@@ -1041,6 +1077,10 @@ func runFixture(repo string, value fixture) caseReport {
 			break
 		}
 	}
+	if report.Error != "" {
+		cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)
+		return finishEarlyCase(report, value, clock, actionExecutor, started)
+	}
 
 	wantAccepted := 0
 	if expectString(value.Expected.Discovery, "status", "accepted") {
@@ -1051,14 +1091,8 @@ func runFixture(repo string, value fixture) caseReport {
 		wantRejected = 1
 	}
 	if wantAccepted > 0 && len(value.Messages) > 0 {
-		first := value.Messages[0]
-		timestamp := clock
-		if first.Timestamp != "" {
-			if parsed, parseErr := time.Parse(time.RFC3339, first.Timestamp); parseErr == nil {
-				timestamp = parsed.UTC()
-			}
-		}
-		duplicateErr := camera.Send(contract.Message{ID: first.ID, Type: first.Type, Kind: contract.KindEvent, Source: "camera-simulator", Target: "discovery", Timestamp: timestamp, Payload: append([]byte(nil), first.Payload...)})
+		first := *firstWireMessage
+		duplicateErr := camera.Send(first)
 		// A transport-level replay rejection is itself a valid duplicate
 		// outcome; a successful send is checked downstream by the Store/action
 		// count. Any other error is still safe here because the original case
@@ -1099,7 +1133,18 @@ func runFixture(repo string, value fixture) caseReport {
 	trace := make([]traceRecord, 0, len(records))
 	for _, record := range records {
 		trace = append(trace, record.Trace)
+		if record.Message.Type == "core.vision_rejected" {
+			var rejection struct {
+				LegacyToCoreAttempts uint64 `json:"legacy_to_core_attempts"`
+			}
+			_ = json.Unmarshal(record.Message.Payload, &rejection)
+			report.LegacyToCoreAttempts += rejection.LegacyToCoreAttempts
+		}
 	}
+	migration := manager.VisionMigrationMetrics()
+	report.VisionLegacyConverted = migration.LegacyConverted
+	report.VisionLegacyRejected = migration.LegacyRejected
+	report.VisionLegacyQuarantined = migration.LegacyQuarantined
 	report.BusTrace = trace
 	for _, event := range trace {
 		switch event.Type {
@@ -1705,7 +1750,8 @@ func enrichFromMessages(report caseReport, records []busRecord) caseReport {
 			report.SnapshotDimension = cognitivecore.CognitiveVectorSizeV3
 			var envelope struct {
 				Snapshot struct {
-					Vision struct {
+					VisionEvidence *contract.VisionEvidenceV1 `json:"vision_evidence"`
+					Vision         struct {
 						PoseStatus         string  `json:"pose_status"`
 						PoseQuality        float64 `json:"pose_quality"`
 						Posture            string  `json:"posture"`
@@ -1720,6 +1766,9 @@ func enrichFromMessages(report caseReport, records []busRecord) caseReport {
 				} `json:"snapshot"`
 			}
 			if json.Unmarshal(event.Payload, &envelope) == nil {
+				if envelope.Snapshot.VisionEvidence != nil && envelope.Snapshot.VisionEvidence.Validate() == nil {
+					report.VisionEvidenceV1Status = "validated_and_stored"
+				}
 				report.PoseStatus = envelope.Snapshot.Vision.PoseStatus
 				report.PoseQuality = envelope.Snapshot.Vision.PoseQuality
 				report.Posture = envelope.Snapshot.Vision.Posture
@@ -1811,6 +1860,10 @@ func validateExpected(report caseReport, expected fixtureExpected) caseReport {
 			errorsFound = append(errorsFound, "discovery was not rejected")
 			addDiff("discovery.status", status, "not_rejected", "rejected ingress was expected")
 		}
+	}
+	if report.LegacyToCoreAttempts != 0 {
+		errorsFound = append(errorsFound, "legacy Vision contract reached Core")
+		addDiff("vision.legacy_to_core_attempts", uint64(0), report.LegacyToCoreAttempts, "Core must receive Evidence V1 only")
 	}
 	if value, ok := expected.Snapshot["schema_version"].(string); ok && report.SnapshotVersion != value {
 		errorsFound = append(errorsFound, "snapshot schema mismatch")
@@ -2020,6 +2073,45 @@ func resolveBundle(repo string, value fixture) string {
 	return filepath.Join(repo, "build", "cognitive-mlp-v1")
 }
 
+// fixtureNonVisionV3State seeds only Core-owned, non-Vision base context from
+// hermetic fixtures. The nested Vision object is never decoded or forwarded;
+// all Vision semantics arrive separately as validated Evidence V1.
+func fixtureNonVisionV3State(value fixture) *cognitivecore.CognitiveSnapshotV3 {
+	if len(value.Messages) == 0 {
+		return nil
+	}
+	var envelope struct {
+		Snapshot struct {
+			CapturedAt string          `json:"captured_at"`
+			BaseV2     json.RawMessage `json:"base_v2"`
+		} `json:"snapshot"`
+	}
+	if json.Unmarshal(value.Messages[0].Payload, &envelope) != nil || len(envelope.Snapshot.BaseV2) == 0 {
+		return nil
+	}
+	var rawBase map[string]json.RawMessage
+	if json.Unmarshal(envelope.Snapshot.BaseV2, &rawBase) != nil {
+		return nil
+	}
+	allowed := map[string]bool{"schema_version": true, "captured_at": true, "revision": true, "security": true, "presence": true, "topology": true, "episode": true, "sensors": true, "previous_danger": true, "previous_danger_known": true, "communication": true}
+	filtered := make(map[string]json.RawMessage)
+	for key, raw := range rawBase {
+		if allowed[key] {
+			filtered[key] = raw
+		}
+	}
+	encoded, err := json.Marshal(filtered)
+	if err != nil {
+		return nil
+	}
+	var base cognitivecore.CognitiveSnapshotV2
+	if json.Unmarshal(encoded, &base) != nil {
+		return nil
+	}
+	capturedAt, _ := time.Parse(time.RFC3339Nano, envelope.Snapshot.CapturedAt)
+	return &cognitivecore.CognitiveSnapshotV3{CapturedAt: capturedAt.UTC(), BaseV2: base}
+}
+
 func waitForPath(path string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -2108,7 +2200,21 @@ func forbiddenJSONValue(value any) bool {
 	forbidden := map[string]bool{"frame": true, "frames": true, "image": true, "images": true, "media": true, "raw_media": true, "media_ref": true, "media_path": true, "bbox": true, "bboxes": true, "crop": true, "crops": true, "keypoints": true, "raw_keypoints": true, "embedding": true, "embeddings": true, "identity": true, "local_track_id": true, "hardware_id": true}
 	switch current := value.(type) {
 	case map[string]any:
+		if current["schema_version"] == contract.EventVisionEvidenceV1 {
+			body, err := json.Marshal(current)
+			if err != nil {
+				return true
+			}
+			_, err = contract.DecodeVisionEvidenceV1(body)
+			return err != nil
+		}
 		for key, child := range current {
+			if strings.EqualFold(strings.TrimSpace(key), "vision_evidence") {
+				if forbiddenEvidenceRawValue(child) {
+					return true
+				}
+				continue
+			}
 			if forbidden[strings.ToLower(strings.TrimSpace(key))] || forbiddenJSONValue(child) {
 				return true
 			}
@@ -2116,6 +2222,25 @@ func forbiddenJSONValue(value any) bool {
 	case []any:
 		for _, child := range current {
 			if forbiddenJSONValue(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func forbiddenEvidenceRawValue(value any) bool {
+	forbidden := map[string]bool{"frame": true, "frames": true, "image": true, "images": true, "raw_media": true, "media_ref": true, "media_path": true, "clip_path": true, "url": true, "bbox": true, "bboxes": true, "crop": true, "crops": true, "keypoints": true, "raw_keypoints": true, "embedding": true, "embeddings": true, "identity": true, "name": true, "plate_text": true, "local_track_id": true}
+	switch current := value.(type) {
+	case map[string]any:
+		for key, child := range current {
+			if forbidden[strings.ToLower(strings.TrimSpace(key))] || forbiddenEvidenceRawValue(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range current {
+			if forbiddenEvidenceRawValue(child) {
 				return true
 			}
 		}

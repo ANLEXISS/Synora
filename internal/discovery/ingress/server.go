@@ -343,35 +343,18 @@ func NewHandler(cfg Config) http.Handler {
 			return
 		}
 
-		clip := contract.Clip{
-			ID: clipID, ActivationID: activationID, ClipIndex: clipIndex,
-			SequenceKey: sequenceKey, TrackID: trackID,
-			CameraID: deviceID, NodeID: nodeID, CreatedAt: now, ReceivedAt: now,
-			EpisodeID: episodeID, Zone: zone, TriggerReason: triggerReason, StartedAt: startedAt, EndsAt: endsAt, Pipeline: pipeline,
-			ReadyAt: now, Status: contract.ClipStatusReady, SizeBytes: size,
-			Checksum: checksum, MediaType: upload.mediaType, Container: "mp4", Duration: duration,
-			SimulatedCamera: simulatedCamera,
-			UpdatedAt:       now, Revision: 1,
-		}
 		if cfg.Devices != nil {
 			cfg.Devices.TouchCameraClip(deviceID, now)
 		}
-		if err := publishLifecycle(cfg.Publisher, contract.EventClipReady, clip, "", clipID+":ready"); err != nil {
-			if finalizedHere {
-				_ = os.Remove(finalPath)
-			}
-			log.Printf("clip ready publication failed clip=%s err=%v", clipID, err)
-			http.Error(w, "core unavailable", http.StatusServiceUnavailable)
-			return
-		}
+		job := &vision.ClipJob{ID: clipID, CameraID: deviceID, SimulatedCamera: simulatedCamera, Path: finalPath, CreatedAt: now, ActivationID: activationID, ClipIndex: clipIndex, NodeID: nodeID, SequenceKey: sequenceKey, TrackID: trackID, EpisodeID: episodeID, Zone: zone, TopologyClass: zone, TriggerReason: triggerReason, StartedAt: startedAt, EndsAt: endsAt, Pipeline: pipeline}
 		if cfg.Queue == nil {
-			_ = publishLifecycle(cfg.Publisher, contract.EventClipFailed, clip, "analysis_queue_unavailable", clipID+":failed")
+			_ = vision.PublishClipFailure(cfg.Publisher, job, "worker_unavailable")
 			http.Error(w, "analysis queue unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		if err := cfg.Queue.Enqueue(&vision.ClipJob{ID: clipID, CameraID: deviceID, SimulatedCamera: simulatedCamera, Path: finalPath, CreatedAt: now, ActivationID: activationID, ClipIndex: clipIndex, NodeID: nodeID, SequenceKey: sequenceKey, TrackID: trackID, EpisodeID: episodeID, Zone: zone, TopologyClass: zone, TriggerReason: triggerReason, StartedAt: startedAt, EndsAt: endsAt, Pipeline: pipeline}); err != nil {
+		if err := cfg.Queue.Enqueue(job); err != nil {
 			log.Printf("analysis queue unavailable clip=%s err=%v", clipID, err)
-			_ = publishLifecycle(cfg.Publisher, contract.EventClipFailed, clip, "analysis_queue_full", clipID+":failed")
+			_ = vision.PublishClipFailure(cfg.Publisher, job, "worker_unavailable")
 			http.Error(w, "analysis queue full", http.StatusServiceUnavailable)
 			return
 		}
@@ -559,18 +542,9 @@ func isSHA256Hex(raw string) bool {
 }
 
 func publishLifecycle(publisher Publisher, eventType string, clip contract.Clip, failureCode, eventID string) error {
-	if publisher == nil {
-		return nil
-	}
-	if failureCode != "" {
-		clip.FailureCode = failureCode
-		clip.Status = contract.ClipStatusFailed
-	}
-	body, err := json.Marshal(contract.ClipLifecyclePayload{Clip: clip, ClipID: clip.ID, CameraID: clip.CameraID, FailureCode: failureCode})
-	if err != nil {
-		return err
-	}
-	return publisher.Send(contract.Message{ID: eventID, Type: eventType, Kind: contract.KindEvent, Source: "discovery", Target: "core", Timestamp: time.Now().UTC(), Payload: body})
+	// Clip lifecycle is transport-private and must never be published on the
+	// semantic bus. Failures are represented separately by redacted Evidence V1.
+	return nil
 }
 
 func fileDigest(path string) (int64, string, error) {

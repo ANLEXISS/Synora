@@ -30,6 +30,151 @@ func TestCentralFixtureManifestHasRequiredMinimum(t *testing.T) {
 	}
 }
 
+func TestFixtureVisionEvidenceAdapterProducesStrictV1(t *testing.T) {
+	body, err := os.ReadFile("../../testdata/central-e2e-v1/cases/v3-pose-not-requested.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value fixture
+	if err := json.Unmarshal(body, &value); err != nil {
+		t.Fatal(err)
+	}
+	if len(value.Messages) == 0 {
+		t.Fatal("fixture has no message")
+	}
+	if containsForbiddenJSON(value.Messages[0].Payload) {
+		t.Fatalf("fixture template unexpectedly contains forbidden data: %s", value.Messages[0].Payload)
+	}
+	encoded, err := attachFixtureVisionEvidenceV1(value.Messages[0].Payload, value.Messages[0].ID, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := contract.DecodeVisionEvidenceV1(encoded); err != nil {
+		t.Fatalf("adapter emitted invalid evidence: %v", err)
+	}
+	if containsForbiddenJSON(encoded) {
+		t.Fatal("validated aggregate contract misclassified as raw Vision data")
+	}
+	var simulated map[string]any
+	_ = json.Unmarshal(value.Messages[0].Payload, &simulated)
+	simulated["provenance"] = "simulated_test_worker"
+	simulated["simulated_camera"] = true
+	simulated["vision_status"] = "unavailable"
+	simulated["vision_evidence_source"] = "simulated_test_worker"
+	simulated["inference_executed"] = false
+	if snapshot, ok := simulated["snapshot"].(map[string]any); ok {
+		snapshot["simulated_camera"] = true
+		snapshot["vision_status"] = "unavailable"
+		snapshot["vision_evidence_source"] = "simulated_test_worker"
+		snapshot["inference_executed"] = false
+		if vision, ok := snapshot["vision"].(map[string]any); ok {
+			vision["pose_status"] = "unavailable"
+			vision["pose_quality"] = 0
+			vision["posture"] = "unknown"
+			vision["fall_state"] = "unknown"
+			vision["real_detection"] = false
+			vision["replay_simulation"] = true
+		}
+		if base, ok := snapshot["base_v2"].(map[string]any); ok {
+			if vision, ok := base["vision"].(map[string]any); ok {
+				vision["pose_status"] = "unavailable"
+				vision["pose_quality"] = 0
+				vision["posture"] = "unknown"
+				vision["fall_state"] = "unknown"
+			}
+		}
+	}
+	simulatedBody, _ := json.Marshal(simulated)
+	if containsForbiddenJSON(simulatedBody) {
+		t.Fatalf("mock worker marker projection misclassified as raw: %s", simulatedBody)
+	}
+	workerEncoded, err := attachFixtureVisionEvidenceV1(value.Messages[0].Payload, value.Messages[0].ID, time.Now().UTC(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := contract.DecodeVisionEvidenceV1(workerEncoded); err != nil {
+		t.Fatalf("simulated adapter emitted invalid evidence: %v", err)
+	}
+	if containsForbiddenJSON(workerEncoded) {
+		t.Fatal("simulated aggregate contract misclassified as raw Vision data")
+	}
+}
+
+func TestLe2iEvidenceUsesLogicalIngressTimestamp(t *testing.T) {
+	value := generatedFixture(generatedSuite{IDPrefix: "le2i", Suite: "le2i_media", Family: "le2i_media", Count: 1, Seed: 997, Bundle: "v3"}, 0)
+	logicalTime, err := time.Parse(time.RFC3339, value.Clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err = le2iAggregateEvidenceFixture(value, poseAggregateResult{
+		PoseStatus: "available", Posture: "upright", FallState: "none", RapidMotionState: "none",
+		Confidence: 0.8, PoseFrameCount: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value.Messages[0].Type != contract.EventVisionEnrichmentV3 {
+		t.Fatalf("Le2i fixture should reach the Discovery ingress adapter as an external fixture, got %q", value.Messages[0].Type)
+	}
+	encoded, err := attachFixtureVisionEvidenceV1(value.Messages[0].Payload, value.Messages[0].ID, logicalTime, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := contract.DecodeVisionEvidenceV1(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !evidence.WindowEnd.Equal(logicalTime) || evidence.WindowStart.After(evidence.WindowEnd) || evidence.WindowSeconds != 1 {
+		t.Fatalf("Evidence V1 timestamps do not match ingress logical time: start=%s end=%s ingress=%s", evidence.WindowStart, evidence.WindowEnd, logicalTime)
+	}
+}
+
+func TestLe2iAggregateEvidenceTraversesCore(t *testing.T) {
+	report := runLe2iAggregateThroughCore("../..", le2iCase{ID: "le2i-evidence-regression"}, poseAggregateResult{
+		PoseStatus: "available", Posture: "upright", FallState: "none", RapidMotionState: "none",
+		Confidence: 0.8, PoseFrameCount: 3,
+	})
+	if !report.Passed || report.DiscoveryAccepted < 1 || report.DiscoveryRejected != 0 || report.CoreDecisions != 1 || report.StoreRevision <= 1 || report.VisionEvidenceV1Status != "validated_and_stored" {
+		t.Fatalf("Le2i Evidence V1 did not traverse Discovery/Core/Store: passed=%t error=%q accepted=%d rejected=%d core=%d store_revision=%d evidence=%s", report.Passed, report.Error, report.DiscoveryAccepted, report.DiscoveryRejected, report.CoreDecisions, report.StoreRevision, report.VisionEvidenceV1Status)
+	}
+}
+
+func TestAllStaticLegacyVisionInputsBecomeEvidenceV1(t *testing.T) {
+	manifest, err := loadManifest("../../testdata/central-e2e-v1/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range expandManifest(manifest, filepath.Clean(filepath.Join("..", ".."))) {
+		for _, message := range scenario.Value.Messages {
+			if message.Type != contract.EventVisionEnrichmentV3 && message.Type != contract.EventValidationTestInference {
+				continue
+			}
+			encoded, conversionErr := attachFixtureVisionEvidenceV1(message.Payload, message.ID, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), false)
+			if conversionErr != nil {
+				t.Errorf("fixture %s: %v", scenario.Value.ID, conversionErr)
+				continue
+			}
+			if _, err := contract.DecodeVisionEvidenceV1(encoded); err != nil {
+				t.Errorf("fixture %s did not convert to Evidence V1: %v", scenario.Value.ID, err)
+			}
+		}
+	}
+}
+
+func TestFixtureNonVisionSeedExcludesLegacyVisionObject(t *testing.T) {
+	value, err := loadFixture("../../testdata/central-e2e-v1/cases/gate-announce-safe.json")
+	if err != nil || len(value.Messages) == 0 {
+		t.Fatalf("load fixture: %v", err)
+	}
+	seed := fixtureNonVisionV3State(value)
+	if seed == nil || seed.BaseV2.Communication.TTSStatus != cognitivecore.TTSAvailable || !seed.BaseV2.Communication.AnnounceAvailable {
+		t.Fatalf("non-Vision Core context was not preserved: %+v", seed)
+	}
+	if seed.VisionEvidence != nil || seed.Vision.PoseStatus != "" || seed.BaseV2.Vision.PoseStatus != "" {
+		t.Fatalf("legacy Vision object leaked into the Core seed: %+v", seed)
+	}
+}
+
 func TestCentralGeneratedSuitesAreFixedAndSeparated(t *testing.T) {
 	manifest, err := loadManifest("../../testdata/central-e2e-v1/manifest.json")
 	if err != nil {
@@ -83,6 +228,9 @@ func TestCentralExpansionIsTheCLIExecutionSet(t *testing.T) {
 	}
 	if report.ScenarioCount != len(all) || report.ScenarioCount != report.StaticCaseCount+report.GeneratedCaseCount {
 		t.Fatalf("report count mismatch: %+v", report)
+	}
+	if report.VisionMigration.LegacyToCoreAttempts != 0 {
+		t.Fatalf("legacy Vision contracts reached Core: %+v", report.VisionMigration)
 	}
 	for _, suite := range manifest.Generated {
 		if generatedByFamily[suite.Family] != suite.Count || report.FamilyCounts[suite.Family] != suite.Count {
@@ -379,7 +527,7 @@ func TestLe2iMissingMediaAndBadHashReturnStructuredCoreJourneys(t *testing.T) {
 	}
 }
 
-func TestLe2iMediaUsesDiscoveryHTTPIngressBeforeWorker(t *testing.T) {
+func TestLe2iMediaUsesPrivateDiscoveryHTTPQueueBeforeWorker(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "source.mp4")
 	if err := os.WriteFile(source, []byte("bounded-test-video-bytes"), 0600); err != nil {
 		t.Fatal(err)
@@ -388,8 +536,8 @@ func TestLe2iMediaUsesDiscoveryHTTPIngressBeforeWorker(t *testing.T) {
 	if cleanup != nil {
 		defer cleanup()
 	}
-	if err != nil || status != http.StatusAccepted || lifecycleEvents != 1 {
-		t.Fatalf("Discovery HTTP ingress did not accept and publish the redacted clip lifecycle: status=%d events=%d err=%v", status, lifecycleEvents, err)
+	if err != nil || status != http.StatusAccepted || lifecycleEvents != 0 {
+		t.Fatalf("Discovery ingress did not accept privately or leaked clip lifecycle: status=%d events=%d err=%v", status, lifecycleEvents, err)
 	}
 	if storedPath == "" || !strings.HasSuffix(storedPath, "le2i-test-clip.mp4") {
 		t.Fatalf("worker queue did not receive the temporary stored media path: %q", storedPath)

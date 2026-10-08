@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"time"
+
+	"synora/pkg/contract"
 )
 
 // V3 is a candidate contract. Its first 64 values are produced by the
@@ -22,10 +24,11 @@ const (
 	PoseV3LowQuality   = "low_quality"
 	PoseV3Available    = "available"
 
-	PostureV3Unknown = "unknown"
-	PostureV3Upright = "upright"
-	PostureV3Seated  = "seated"
-	PostureV3Ground  = "ground"
+	PostureV3Unknown  = "unknown"
+	PostureV3Upright  = "upright"
+	PostureV3Seated   = "seated"
+	PostureV3Reclined = "reclined"
+	PostureV3Ground   = "ground"
 
 	FallV3None      = "none"
 	FallV3Candidate = "candidate"
@@ -110,15 +113,134 @@ type VisionSignalsV3 struct {
 // CognitiveSnapshotV3 keeps V2 as a nested, immutable base and adds only the
 // signals that proved impossible to represent without changing V2 semantics.
 type CognitiveSnapshotV3 struct {
-	SchemaVersion        string              `json:"schema_version"`
-	Revision             uint64              `json:"revision"`
-	CapturedAt           time.Time           `json:"captured_at"`
-	BaseV2               CognitiveSnapshotV2 `json:"base_v2"`
-	Vision               VisionSignalsV3     `json:"vision"`
-	SimulatedCamera      bool                `json:"simulated_camera"`
-	VisionStatus         string              `json:"vision_status,omitempty"`
-	VisionEvidenceSource string              `json:"vision_evidence_source,omitempty"`
-	InferenceExecuted    bool                `json:"inference_executed"`
+	SchemaVersion            string                     `json:"schema_version"`
+	Revision                 uint64                     `json:"revision"`
+	CapturedAt               time.Time                  `json:"captured_at"`
+	BaseV2                   CognitiveSnapshotV2        `json:"base_v2"`
+	Vision                   VisionSignalsV3            `json:"vision"`
+	SimulatedCamera          bool                       `json:"simulated_camera"`
+	VisionStatus             string                     `json:"vision_status,omitempty"`
+	VisionEvidenceSource     string                     `json:"vision_evidence_source,omitempty"`
+	InferenceExecuted        bool                       `json:"inference_executed"`
+	VisionEvidence           *contract.VisionEvidenceV1 `json:"vision_evidence,omitempty"`
+	VisionEvidenceProjection VisionEvidenceProjectionV3 `json:"vision_evidence_projection"`
+}
+
+// VisionEvidenceProjectionV3 makes lossless-store versus frozen-vector
+// projection explicit. Evidence remains authoritative even when V3 has no
+// semantically equivalent learned offset for a fact.
+type VisionEvidenceProjectionV3 struct {
+	NotEncodedInSnapshotV3 bool     `json:"not_encoded_in_snapshot_v3"`
+	Facts                  []string `json:"facts,omitempty"`
+}
+
+// ApplyVisionEvidenceV1 maps only semantics with a documented, existing V3
+// feature slot. The full validated aggregate remains attached for Store/API
+// observability; unmapped families are never squeezed into unrelated offsets.
+func (s CognitiveSnapshotV3) ApplyVisionEvidenceV1(e contract.VisionEvidenceV1) (CognitiveSnapshotV3, error) {
+	if err := e.Validate(); err != nil {
+		return CognitiveSnapshotV3{}, err
+	}
+	if s.SimulatedCamera != e.SimulatedCamera && (s.SimulatedCamera || e.SimulatedCamera) {
+		return CognitiveSnapshotV3{}, fmt.Errorf("snapshot and Vision Evidence V1 simulation markers disagree")
+	}
+	s.VisionEvidence = &e
+	s.VisionEvidenceProjection = visionEvidenceProjectionV3(e)
+	pose := e.Pose
+	switch pose.Availability {
+	case contract.VisionNotRequested:
+		s.Vision.PoseStatus = PoseV3NotRequested
+	case contract.VisionUnavailable:
+		s.Vision.PoseStatus = PoseV3Unavailable
+	case contract.VisionEvaluated:
+		if pose.Quality == 0 {
+			s.Vision.PoseStatus = PoseV3LowQuality
+		} else {
+			s.Vision.PoseStatus = PoseV3Available
+		}
+	}
+	switch pose.Posture {
+	case contract.VisionPostureUpright:
+		s.Vision.Posture, s.BaseV2.Vision.Posture = PostureV3Upright, PostureStanding
+	case contract.VisionPostureSeated:
+		s.Vision.Posture, s.BaseV2.Vision.Posture = PostureV3Seated, PostureSitting
+	case contract.VisionPostureReclined:
+		s.Vision.Posture, s.BaseV2.Vision.Posture = PostureV3Reclined, PostureUnknown
+	case contract.VisionPostureGround:
+		s.Vision.Posture, s.BaseV2.Vision.Posture = PostureV3Ground, PostureLying
+	case contract.VisionPostureAmbiguous:
+		s.Vision.Posture, s.BaseV2.Vision.Posture = PostureV3Unknown, PostureUnknown
+	default:
+		s.Vision.Posture, s.BaseV2.Vision.Posture = PostureV3Unknown, PostureUnknown
+	}
+	quality := float32(pose.Quality)
+	s.Vision.PoseQuality, s.BaseV2.Vision.PoseQuality = quality, quality
+	s.Vision.PoseObservationCount = pose.Support.ValidEvaluations
+	s.Vision.PoseSampled = pose.Availability == contract.VisionEvaluated && pose.Support.ValidEvaluations > 0
+	immobility := float32(pose.ImmobilitySeconds)
+	s.Vision.ImmobilitySeconds, s.BaseV2.Vision.ImmobilitySeconds = immobility, immobility
+	if a := e.RuntimeAggregate; a != nil {
+		s.Vision.FallState = a.FallState
+		s.Vision.RecoveryObserved = a.RecoveryObserved
+		s.Vision.GroundDurationSeconds = float32(a.GroundDurationSeconds)
+		s.Vision.RiskStatus, s.BaseV2.Vision.RiskStatus = a.RiskStatus, a.RiskStatus
+		s.Vision.RiskKind, s.BaseV2.Vision.RiskKind = a.RiskKind, a.RiskKind
+		s.Vision.RiskConfidence, s.BaseV2.Vision.RiskConfidence = float32(a.RiskConfidence), float32(a.RiskConfidence)
+		s.Vision.RiskPersistence = a.RiskPersistence
+		s.Vision.RiskPersistenceSeconds = float32(a.RiskPersistenceSeconds)
+		s.Vision.RiskObservationCount = a.RiskObservationCount
+		s.Vision.RiskQualitySufficient = a.RiskQualitySufficient
+		s.Vision.MotionTier = a.MotionTier
+		s.Vision.InteractionState = a.InteractionState
+		s.Vision.PhysicalInteractionCandidate = a.PhysicalInteractionCandidate
+		s.Vision.FaceStatus = a.FaceStatus
+		s.Vision.FaceConsensusFrames = a.FaceConsensusFrames
+		s.Vision.FaceQuality = float32(a.FaceQuality)
+		s.Vision.FaceConfidence = float32(a.FaceConfidence)
+		switch a.FaceQualificationProvenance {
+		case "validated_dataset":
+			s.Vision.FaceQualificationProvenance = "labeled_consent_manifest"
+		case "test_only":
+			s.Vision.FaceQualificationProvenance = "controlled_test"
+		case "not_qualified":
+			s.Vision.FaceQualificationProvenance = "not_qualified"
+		default:
+			s.Vision.FaceQualificationProvenance = ""
+		}
+		s.Vision.CameraIntegrityStatus = a.CameraIntegrityStatus
+		s.Vision.CameraUncertainty = a.CameraUncertainty
+		s.Vision.AggregateConfidence = float32(a.AggregateConfidence)
+		s.Vision.EdgeTrackingOK = a.EdgeTrackingOK
+		s.Vision.RealDetection = a.RealDetection
+		s.Vision.ReplaySimulation = a.ReplaySimulation
+		s.BaseV2.Vision.FallState = a.FallState
+		s.BaseV2.Vision.RecoveryObserved = a.RecoveryObserved
+		s.BaseV2.Vision.RealDetection = a.RealDetection
+		s.BaseV2.Vision.ReplaySimulation = a.ReplaySimulation
+		s.BaseV2.Vision.AggregateConfidence = float32(a.AggregateConfidence)
+		s.BaseV2.Vision.EdgeTrackingOK = a.EdgeTrackingOK
+	}
+	if e.SimulatedCamera {
+		s.SimulatedCamera = true
+		s.VisionStatus, s.VisionEvidenceSource, s.InferenceExecuted = "unavailable", "simulated_test_worker", false
+	}
+	return s, nil
+}
+
+func visionEvidenceProjectionV3(e contract.VisionEvidenceV1) VisionEvidenceProjectionV3 {
+	facts := []string{
+		"camera_health", "trigger", "presence.vehicle", "presence.animal", "activity",
+		"pose.posture_confidence", "pose.transition_to_ground_confidence", "pose.temporal_support",
+		"face", "plate", "sensitive_object", "media", "producer_health", "processing_status",
+		"provenance", "window_start", "window_end", "window_seconds",
+	}
+	if e.RuntimeAggregate != nil {
+		facts = append(facts, "runtime_aggregate.face", "runtime_aggregate.camera_integrity", "runtime_aggregate.interaction", "runtime_aggregate.motion", "runtime_aggregate.risk")
+	}
+	if e.Pose.Posture == contract.VisionPostureReclined {
+		facts = append(facts, "pose.posture.reclined")
+	}
+	return VisionEvidenceProjectionV3{NotEncodedInSnapshotV3: len(facts) > 0, Facts: facts}
 }
 
 func (s CognitiveSnapshotV3) Normalized() CognitiveSnapshotV3 {
@@ -154,7 +276,7 @@ func (s CognitiveSnapshotV3) Normalized() CognitiveSnapshotV3 {
 		s.Vision.ImmobilitySeconds = s.BaseV2.Vision.ImmobilitySeconds
 	}
 	s.Vision.PoseStatus = normalizeV3(s.Vision.PoseStatus, []string{PoseV3Unavailable, PoseV3NotRequested, PoseV3LowQuality, PoseV3Available}, PoseV3Unavailable)
-	s.Vision.Posture = normalizeV3(s.Vision.Posture, []string{PostureV3Unknown, PostureV3Upright, PostureV3Seated, PostureV3Ground}, PostureV3Unknown)
+	s.Vision.Posture = normalizeV3(s.Vision.Posture, []string{PostureV3Unknown, PostureV3Upright, PostureV3Seated, PostureV3Reclined, PostureV3Ground}, PostureV3Unknown)
 	s.Vision.FallState = normalizeV3(s.Vision.FallState, []string{FallV3None, FallV3Candidate, FallV3Confirmed, FallV3Unknown}, FallV3Unknown)
 	s.Vision.MotionTier = normalizeV3(s.Vision.MotionTier, []string{MotionV3Unknown, MotionV3Still, MotionV3Normal, MotionV3Rapid, MotionV3VeryRapid}, MotionV3Unknown)
 	s.Vision.InteractionState = normalizeV3(s.Vision.InteractionState, []string{InteractionV3None, InteractionV3Candidate, InteractionV3Unavailable}, InteractionV3None)
@@ -183,6 +305,14 @@ func (s CognitiveSnapshotV3) Validate() error {
 	}
 	if err := s.BaseV2.Validate(); err != nil {
 		return fmt.Errorf("invalid V2 base in V3 snapshot: %w", err)
+	}
+	if s.VisionEvidence != nil {
+		if err := s.VisionEvidence.Validate(); err != nil {
+			return fmt.Errorf("invalid attached Vision Evidence V1: %w", err)
+		}
+		if s.VisionEvidence.SimulatedCamera != s.SimulatedCamera {
+			return fmt.Errorf("snapshot simulation marker disagrees with Vision Evidence V1")
+		}
 	}
 	if s.Vision.CentralRetracking != 0 {
 		return fmt.Errorf("central visual retracking is forbidden in V3")
@@ -243,7 +373,14 @@ func (SnapshotEncoderV3) Encode(ctx context.Context, snapshot CognitiveSnapshotV
 	copy(encoded.Values[:CognitiveVectorSizeV2], base.Values[:])
 	v := &encoded.Values
 	setOneHot(v[64:68], snapshot.Vision.PoseStatus, []string{PoseV3Unavailable, PoseV3NotRequested, PoseV3LowQuality, PoseV3Available})
-	setOneHot(v[68:72], snapshot.Vision.Posture, []string{PostureV3Unknown, PostureV3Upright, PostureV3Seated, PostureV3Ground})
+	postureForFrozenVector := snapshot.Vision.Posture
+	if postureForFrozenVector == PostureV3Reclined {
+		// Preserve reclined in Evidence V1 and the cognitive snapshot. The frozen
+		// 86D candidate has no reclined feature; encode only its conservative
+		// unknown slot rather than conflating it with seated or ground.
+		postureForFrozenVector = PostureV3Unknown
+	}
+	setOneHot(v[68:72], postureForFrozenVector, []string{PostureV3Unknown, PostureV3Upright, PostureV3Seated, PostureV3Ground})
 	setOneHot(v[72:76], snapshot.Vision.FallState, []string{FallV3None, FallV3Candidate, FallV3Confirmed, FallV3Unknown})
 	setOneHot(v[76:81], snapshot.Vision.RiskPersistence, []string{RiskPersistenceNone, RiskPersistenceIsolated, RiskPersistenceRepeated, RiskPersistencePersistent, RiskPersistenceConfirmed})
 	v[81] = normalizeSeconds(snapshot.Vision.RiskPersistenceSeconds, 300)

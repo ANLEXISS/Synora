@@ -87,8 +87,26 @@ func ValidatePayload(payload []byte) error {
 func hasForbiddenValue(value any) bool {
 	switch current := value.(type) {
 	case map[string]any:
+		if current["schema_version"] == contract.EventVisionEvidenceV1 {
+			body, err := json.Marshal(current)
+			if err != nil {
+				return true
+			}
+			_, err = contract.DecodeVisionEvidenceV1(body)
+			return err != nil
+		}
 		for key, child := range current {
 			key = strings.ToLower(strings.TrimSpace(key))
+			if key == "vision_evidence" {
+				body, err := json.Marshal(child)
+				if err != nil {
+					return true
+				}
+				if _, err := contract.DecodeVisionEvidenceV1(body); err != nil {
+					return true
+				}
+				continue
+			}
 			switch key {
 			case "frame", "frames", "image", "images", "media", "media_ref", "media_path", "clip_path", "raw_media", "bbox", "bboxes", "crop", "crops", "keypoints", "raw_keypoints", "embedding", "embeddings", "biometric_embedding", "hardware_id", "mac", "serial_number", "device_serial", "local_track_id":
 				return true

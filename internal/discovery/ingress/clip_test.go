@@ -46,7 +46,7 @@ func (p *clipTestPublisher) Send(message contract.Message) error {
 	return nil
 }
 
-func TestClipIngressFinalizesBeforeReadyAndQueuesMetadata(t *testing.T) {
+func TestClipIngressKeepsClipLifecyclePrivateAndQueuesMetadata(t *testing.T) {
 	root := t.TempDir()
 	queue := &clipTestQueue{}
 	publisher := &clipTestPublisher{root: root}
@@ -75,8 +75,8 @@ func TestClipIngressFinalizesBeforeReadyAndQueuesMetadata(t *testing.T) {
 	if len(queue.jobs) != 1 || queue.jobs[0].Path != finalPath {
 		t.Fatalf("unexpected queued job: %#v", queue.jobs)
 	}
-	if len(publisher.messages) != 1 || publisher.messages[0].Type != contract.EventClipReady {
-		t.Fatalf("ready must be published once after finalization: %#v", publisher.messages)
+	if len(publisher.messages) != 0 {
+		t.Fatalf("clip lifecycle escaped private ingress queue: %#v", publisher.messages)
 	}
 }
 
@@ -97,11 +97,11 @@ func TestClipIngressRetryIsIdempotentAndCollisionRejected(t *testing.T) {
 			t.Fatalf("retry status=%d body=%s", response.Code, response.Body.String())
 		}
 	}
-	if len(queue.jobs) != 2 || len(publisher.messages) != 2 {
-		t.Fatalf("same retry must remain at-least-once with stable identity: jobs=%d messages=%d", len(queue.jobs), len(publisher.messages))
+	if len(queue.jobs) != 2 || len(publisher.messages) != 0 {
+		t.Fatalf("same retry must remain private with stable identity: jobs=%d messages=%d", len(queue.jobs), len(publisher.messages))
 	}
-	if queue.jobs[0].ID != queue.jobs[1].ID || publisher.messages[0].ID != publisher.messages[1].ID {
-		t.Fatalf("same retry changed stable identity: jobs=%#v messages=%#v", queue.jobs, publisher.messages)
+	if queue.jobs[0].ID != queue.jobs[1].ID {
+		t.Fatalf("same retry changed stable identity: jobs=%#v", queue.jobs)
 	}
 
 	recorder, contentType := multipartRequest(t, "cam-1", "clip-1", []byte("different"))
@@ -341,7 +341,7 @@ func TestReconcileStorageKeepsValidatedClip(t *testing.T) {
 	}
 }
 
-func TestClipIngressRemovesNewFinalWhenCorePublicationFails(t *testing.T) {
+func TestClipIngressDoesNotDependOnCoreForPrivateQueueing(t *testing.T) {
 	root := t.TempDir()
 	handler := NewHandler(Config{
 		ClipDir:   root,
@@ -354,11 +354,11 @@ func TestClipIngressRemovesNewFinalWhenCorePublicationFails(t *testing.T) {
 	recorder.Header.Set("Content-Type", contentType)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, recorder)
-	if response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("publication failure status=%d body=%s", response.Code, response.Body.String())
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("private queue status=%d body=%s", response.Code, response.Body.String())
 	}
-	if _, err := os.Stat(filepath.Join(root, "cam-1", "publish-failure.mp4")); !os.IsNotExist(err) {
-		t.Fatalf("failed publication left final file: %v", err)
+	if _, err := os.Stat(filepath.Join(root, "cam-1", "publish-failure.mp4")); err != nil {
+		t.Fatalf("private ingress clip missing: %v", err)
 	}
 }
 

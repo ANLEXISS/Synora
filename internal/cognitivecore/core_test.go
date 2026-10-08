@@ -2,6 +2,8 @@ package cognitivecore
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -52,7 +54,7 @@ func TestCoreUnavailableModelIsFailClosedAndIdempotent(t *testing.T) {
 func TestCoreUsesAbstractActionAndKeepsPhysicalExecutionFalse(t *testing.T) {
 	store := NewUniversalStore()
 	core := &Core{Store: store, MLP: fakeMLP{output: MLPOutput{DangerLabel: "high", DangerScore: 0.9, Task: "respond", Action: ActionIntent{Action: "lock", Capability: "lock", Topology: contract.VisionTopologyProtectedInterior}}}, Gate: SafetyGate{DryRun: true}, Now: func() time.Time { return time.Unix(30, 0).UTC() }}
-	event := contract.Event{ID: "vision-1", Type: contract.EventVisionSegmentReadyV1, Source: "discovery", Timestamp: time.Unix(30, 0).UTC(), Payload: map[string]any{"topology": contract.VisionTopologyProtectedInterior, "human_present": true, "track_count": 1, "track_confirmed": true, "priority": contract.VisionPriorityP1, "segment_count": 1, "confidence": 0.9}}
+	event := evidenceEventForTest(t, "vision-1")
 	result, err := core.Process(context.Background(), event)
 	if err != nil {
 		t.Fatal(err)
@@ -75,11 +77,30 @@ func TestSafetyGateBlocksCapabilityWithoutChoosingAnotherAction(t *testing.T) {
 func TestVisionCannotCreateP0(t *testing.T) {
 	store := NewUniversalStore()
 	core := &Core{Store: store, MLP: UnavailableMLP{}, Gate: SafetyGate{DryRun: true}}
-	_, err := core.Process(context.Background(), contract.Event{ID: "p0", Type: contract.EventVisionSegmentReadyV1, Source: "discovery", Timestamp: time.Now().UTC(), Payload: map[string]any{"priority": contract.VisionPriorityP0}})
+	before := store.Revision()
+	_, err := core.Process(context.Background(), contract.Event{ID: "p0", Type: contract.EventVisionSegmentReadyV1, Source: "discovery", Timestamp: time.Now().UTC()})
+	if err == nil || store.Revision() != before {
+		t.Fatalf("legacy Vision input was not rejected before Store: err=%v revision=%d before=%d", err, store.Revision(), before)
+	}
+}
+
+func evidenceEventForTest(t *testing.T, id string) contract.Event {
+	t.Helper()
+	data, err := os.ReadFile("../../pkg/contract/testdata/v1/vision-evidence-v1.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := store.Snapshot().VisionEvidence[11]; got != 0 || store.Snapshot().VisionEvidence[15] != 1 {
-		t.Fatalf("Vision P0 was not demoted to P4: %#v", store.Snapshot().VisionEvidence)
+	evidence, err := contract.DecodeVisionEvidenceV1(data)
+	if err != nil {
+		t.Fatal(err)
 	}
+	body, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	return contract.Event{ID: id, Type: contract.EventVisionEvidenceV1, Source: "discovery", Timestamp: evidence.WindowEnd, Payload: payload}
 }

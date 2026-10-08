@@ -1,10 +1,11 @@
 package vision
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"synora/pkg/contract"
@@ -53,121 +54,81 @@ func runClipWorker(
 	if publisher == nil {
 		return errors.New("clip publisher unavailable")
 	}
-	if err := publishClipLifecycle(publisher, contract.EventClipProcessing, job, "", job.ID+":processing"); err != nil {
-		return err
-	}
-
 	result, err := processor.Process(job)
 
 	if err != nil {
 		if publishFailure {
-			_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_processing_failed", job.ID+":failed")
+			return publishUnavailableEvidence(publisher, job, "worker_unavailable")
 		}
 		return err
 	}
 	if result == nil {
-		if publishFailure {
-			_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_empty_result", job.ID+":failed")
-		}
-		return errors.New("vision worker returned no result")
+		return publishUnavailableEvidence(publisher, job, "worker_empty_result")
 	}
-	if job.Pipeline == "clip-v1" && len(result.Events) == 0 {
-		err := errors.New("vision contract invalid: no clip-v1 summary")
-		_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_contract_invalid", job.ID+":failed")
+	if result.VisionEvidence != nil {
+		evidence := *result.VisionEvidence
+		if err := evidence.Validate(); err != nil {
+			return publishUnavailableEvidence(publisher, job, "worker_evidence_invalid")
+		}
+		if evidence.SimulatedCamera != job.SimulatedCamera {
+			return publishUnavailableEvidence(publisher, job, "worker_provenance_mismatch")
+		}
+		return publishEvidenceToDiscovery(publisher, evidence)
+	}
+	// Historical worker outputs are never republished. Until the worker emits
+	// a complete Evidence V1 aggregate, retain only a redacted unavailable
+	// result and account for the legacy payload as quarantined.
+	return publishUnavailableEvidence(publisher, job, "legacy_worker_output_quarantined")
+}
+
+func publishEvidenceToDiscovery(publisher Publisher, evidence contract.VisionEvidenceV1) error {
+	if err := evidence.Validate(); err != nil {
 		return err
 	}
-	prepared := make([]map[string]any, len(result.Events))
-	lastObservationSequence := 0
-	lastObservationPayload := ""
-	for index, evt := range result.Events {
-		payloadMap, prepareErr := prepareVisionEvent(evt, job, index)
-		if prepareErr != nil {
-			_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_contract_invalid", job.ID+":failed")
-			return prepareErr
-		}
-		prepared[index] = payloadMap
-		if evt.Type == contract.EventVisionClipObservationV1 {
-			observation, observationErr := contract.DecodeVisionClipObservation(mustJSON(payloadMap))
-			if observationErr != nil {
-				_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_contract_invalid", job.ID+":failed")
-				return observationErr
-			}
-			encoded, _ := json.Marshal(payloadMap)
-			if observation.Sequence <= lastObservationSequence || string(encoded) == lastObservationPayload {
-				_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_contract_invalid", job.ID+":failed")
-				return errors.New("vision contract invalid: observation sequence is not strictly increasing or is duplicated")
-			}
-			lastObservationSequence = observation.Sequence
-			lastObservationPayload = string(encoded)
-		}
-	}
-
-	for index, evt := range result.Events {
-		payloadMap := prepared[index]
-		stableEventID := fmt.Sprintf("%s:event:%d:%s", job.ID, index, evt.Type)
-
-		payload, err := json.Marshal(
-			payloadMap,
-		)
-
-		if err != nil {
-
-			log.Printf(
-				"event marshal failed type=%s err=%v",
-				evt.Type,
-				err,
-			)
-
-			_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_event_marshal_failed", job.ID+":failed")
-			return err
-		}
-
-		err = publisher.Send(
-			contract.Message{
-				ID: stableEventID,
-
-				Type: evt.Type,
-
-				Kind: contract.KindEvent,
-
-				Source: "discovery",
-
-				Target: "core",
-
-				Timestamp: time.Now().UTC(),
-				Priority:  visionEventPriority(evt.Type, payloadMap),
-
-				Payload: payload,
-			},
-		)
-
-		if err != nil {
-
-			log.Printf(
-				"failed to publish event=%s err=%v",
-				evt.Type,
-				err,
-			)
-
-			_ = publishClipLifecycle(publisher, contract.EventClipFailed, job, "vision_event_publish_failed", job.ID+":failed")
-			return err
-		}
-
-		log.Printf(
-			"event published type=%s clip=%s",
-			evt.Type,
-			job.ID,
-		)
-	}
-	if err := publishClipLifecycle(publisher, contract.EventClipProcessed, job, "", job.ID+":processed"); err != nil {
+	body, err := json.Marshal(evidence)
+	if err != nil {
 		return err
 	}
-	if job.ActivationID != "" {
-		if err := publishVisionEnd(publisher, job); err != nil {
-			return err
-		}
+	return publisher.Send(contract.Message{ID: evidence.EventID, Type: contract.EventVisionEvidenceV1, Kind: contract.KindEvent, Source: "discovery", Target: "discovery", Timestamp: evidence.WindowEnd.UTC(), Payload: body})
+}
+
+func publishUnavailableEvidence(publisher Publisher, job *ClipJob, code string) error {
+	if publisher == nil || job == nil {
+		return errors.New("Vision Evidence publisher unavailable")
 	}
-	return nil
+	start := job.StartedAt.UTC()
+	if start.IsZero() {
+		start = time.Now().UTC().Add(-time.Second)
+	}
+	end := time.Now().UTC()
+	if !end.After(start) {
+		end = start.Add(time.Second)
+	}
+	if end.Sub(start) > 24*time.Hour {
+		start = end.Add(-time.Second)
+	}
+	digest := sha256.Sum256([]byte(job.ID + "\x00" + code))
+	availability := contract.VisionUnavailable
+	unknownMeasure := func() contract.VisionMeasureV1 {
+		return contract.VisionMeasureV1{Availability: availability, State: "unknown", Support: contract.VisionSupportV1{Continuity: "unknown"}}
+	}
+	unknownSemantic := func() contract.VisionSemanticResultV1 {
+		return contract.VisionSemanticResultV1{Availability: availability, Result: "unknown", Support: contract.VisionSupportV1{Continuity: "unknown"}}
+	}
+	provenance, simulated := "real", false
+	if job.SimulatedCamera {
+		provenance, simulated = "simulated_test", true
+	}
+	topology := authoritativeTopologyClass(job)
+	if !contract.ValidVisionTopologyClass(topology) {
+		topology = contract.VisionTopologyUnknown
+	}
+	evidence := contract.VisionEvidenceV1{SchemaVersion: contract.EventVisionEvidenceV1, EventID: "ev_" + hex.EncodeToString(digest[:12]), EpisodeID: "ep_" + hex.EncodeToString(digest[12:24]), WindowStart: start, WindowEnd: end, WindowSeconds: end.Sub(start).Seconds(), Topology: topology, Provenance: provenance, SimulatedCamera: simulated,
+		CameraHealth: contract.VisionMeasureV1{Availability: availability, State: "unavailable", Support: contract.VisionSupportV1{Continuity: "unknown"}}, Trigger: unknownMeasure(), Presence: contract.VisionPresenceV1{Human: unknownMeasure(), Vehicle: unknownMeasure(), Animal: unknownMeasure()}, Activity: unknownMeasure(),
+		Pose: contract.VisionPoseV1{Availability: availability, Posture: contract.VisionPostureUnknown, Support: contract.VisionSupportV1{Continuity: "unknown"}}, Face: unknownSemantic(), Plate: unknownSemantic(),
+		Sensitive: contract.VisionSensitiveV1{Availability: availability, Category: "unknown", Support: contract.VisionSupportV1{Continuity: "unknown"}}, Media: contract.VisionMediaContinuityV1{Availability: availability, EpisodeState: "unknown", Support: contract.VisionSupportV1{Continuity: "unknown"}},
+		ProducerHealth: "unavailable", Processing: "unavailable", ErrorCode: code}
+	return publishEvidenceToDiscovery(publisher, evidence)
 }
 
 func visionEventPriority(eventType string, payload map[string]any) int {
@@ -327,55 +288,22 @@ func mustJSON(value map[string]any) []byte {
 	return encoded
 }
 
-func publishVisionEnd(publisher Publisher, job *ClipJob) error {
-	payload, err := json.Marshal(map[string]any{
-		"event_id":      job.ID + ":end",
-		"activation_id": job.ActivationID,
-		"sequence_key":  job.SequenceKey,
-		"clip_id":       job.ID,
-		"clip_index":    job.ClipIndex,
-		"camera_id":     job.CameraID,
-		"device_id":     job.CameraID,
-		"node_id":       job.NodeID,
-		"track_id":      job.TrackID,
-	})
-	if err != nil {
-		return err
-	}
-	return publisher.Send(contract.Message{
-		ID: job.ID + ":end", Type: contract.EventVisionEnd, Kind: contract.KindEvent,
-		Source: "discovery", Target: "core", Timestamp: time.Now().UTC(), Payload: payload,
-	})
-}
-
-func publishClipLifecycle(publisher Publisher, eventType string, job *ClipJob, failureCode, id string) error {
-	if publisher == nil {
-		return nil
-	}
-	payload, err := json.Marshal(contract.ClipLifecyclePayload{
-		Clip:   contract.Clip{ID: job.ID, CameraID: job.CameraID, ActivationID: job.ActivationID, ClipIndex: job.ClipIndex, SequenceKey: job.SequenceKey, TrackID: job.TrackID, NodeID: job.NodeID},
-		ClipID: job.ID, CameraID: job.CameraID, FailureCode: failureCode,
-	})
-	if err != nil {
-		return err
-	}
-	return publisher.Send(contract.Message{ID: id, Type: eventType, Kind: contract.KindEvent, Source: "discovery", Target: "core", Timestamp: time.Now().UTC(), Payload: payload})
-}
-
 // PublishClipFailure lets the queue report a terminal timeout or delivery
-// failure when the normal worker callback could not produce the lifecycle
-// event itself.
+// failure as a redacted Evidence V1 result. Clip transport remains private.
 func PublishClipFailure(publisher Publisher, job *ClipJob, failureCode string) error {
 	if job == nil {
 		return errors.New("invalid clip job")
 	}
-	if err := publishClipLifecycle(publisher, contract.EventClipFailed, job, failureCode, job.ID+":failed"); err != nil {
-		return err
+	return publishUnavailableEvidence(publisher, job, safeEvidenceErrorCode(failureCode))
+}
+
+func safeEvidenceErrorCode(value string) string {
+	for _, code := range []string{"worker_unavailable", "worker_timeout", "worker_empty_result", "worker_evidence_invalid", "worker_provenance_mismatch", "legacy_worker_output_quarantined"} {
+		if value == code {
+			return code
+		}
 	}
-	if job.ActivationID != "" {
-		return publishVisionEnd(publisher, job)
-	}
-	return nil
+	return "worker_unavailable"
 }
 
 func clonePayload(source map[string]any) map[string]any {

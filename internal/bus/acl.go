@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -91,28 +90,11 @@ func authorizeACL(msg contract.Message, service string, allowed map[string]struc
 			}
 		}
 	case contract.KindEvent:
-		if service == "vision" && msg.Type == contract.EventVisionEnrichmentV3 && msg.Target == "discovery" &&
-			os.Getenv("SYNORA_TEST_VISION_WORKER") == "1" && simulatedTestWorkerMessage(msg.Payload) {
-			return nil
-		}
 		if eventACLAllowed(service, msg.Type, msg.Target) {
 			return nil
 		}
 	}
 	return fmt.Errorf("message not authorized for %s: %s -> %s (%s)", service, msg.Type, msg.Target, msg.Kind)
-}
-
-func simulatedTestWorkerMessage(payload []byte) bool {
-	var envelope struct {
-		Provenance           string `json:"provenance"`
-		SimulatedCamera      bool   `json:"simulated_camera"`
-		VisionStatus         string `json:"vision_status"`
-		VisionEvidenceSource string `json:"vision_evidence_source"`
-		InferenceExecuted    bool   `json:"inference_executed"`
-	}
-	return json.Unmarshal(payload, &envelope) == nil && envelope.Provenance == "simulated_test_worker" &&
-		envelope.SimulatedCamera && envelope.VisionStatus == "unavailable" &&
-		envelope.VisionEvidenceSource == "simulated_test_worker" && !envelope.InferenceExecuted
 }
 
 func eventACLAllowed(service, eventType, target string) bool {
@@ -143,10 +125,20 @@ func eventACLAllowed(service, eventType, target string) bool {
 	case "actions":
 		return (eventType == contract.EventActionResult || eventType == contract.EventActionServiceStarted) && targetOK("", "core")
 	case "discovery":
-		return (hasPrefix("discovery.") || hasPrefix("clip.") || hasPrefix("residents.") || eventType == contract.EventDeviceOffline ||
-			eventType == contract.EventVisionClipSummaryV1 || eventType == contract.EventVisionPreliminaryAlertV1 || eventType == contract.EventVisionClipObservationV1 || eventType == contract.EventVisionSegmentReadyV1 || eventType == contract.EventVisionSegmentGapV1 || eventType == contract.EventVisionContinuityResetV1 || eventType == contract.EventVisionEnrichmentV3 || eventType == contract.EventVisionEnd) && targetOK("", "core", "camera-simulator")
+		if target == "discovery" && eventType == contract.EventVisionEvidenceV1 {
+			return true
+		}
+		if target == "core" {
+			// Vision semantics cross the Discovery/Core boundary only as a
+			// validated aggregate Evidence V1 event. Clip lifecycle and legacy
+			// Vision contracts are private to Discovery or rejected at ingress.
+			return eventType == contract.EventVisionEvidenceV1 || hasPrefix("discovery.") || hasPrefix("residents.") || eventType == contract.EventDeviceOffline
+		}
+		return (hasPrefix("discovery.") || hasPrefix("residents.") || eventType == contract.EventDeviceOffline) && targetOK("", "camera-simulator", "discovery")
 	case "vision":
-		return (hasPrefix("vision.") || eventType == contract.EventVisionEnrichmentV3 || eventType == "delivery.ack") && target == "core"
+		// Workers return their aggregate to Discovery; Core never accepts a
+		// worker-originated Vision event directly.
+		return eventType == contract.EventVisionEvidenceV1 && target == "discovery"
 	case "core", "core-2":
 		if eventType == "state.snapshot" {
 			return targetOK("discovery")

@@ -48,16 +48,9 @@ type le2iLifecycleCollector struct {
 func (p *le2iLifecycleCollector) Send(message contract.Message) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if message.Target != "core" || message.Type != contract.EventClipReady {
-		p.err = errors.New("Le2i ingress emitted an unexpected lifecycle event")
-		return p.err
-	}
-	if containsForbiddenJSON(message.Payload) || strings.Contains(string(message.Payload), p.root) {
-		p.err = errors.New("Le2i lifecycle event contained forbidden media data")
-		return p.err
-	}
-	p.messages = append(p.messages, message)
-	return nil
+	_ = message
+	p.err = errors.New("clip lifecycle must remain private to Discovery")
+	return p.err
 }
 
 func ingressLe2iClip(sourcePath, clipID string) (storedPath string, status, lifecycleCount int, cleanup func(), err error) {
@@ -140,9 +133,9 @@ func ingressLe2iClip(sourcePath, clipID string) (storedPath string, status, life
 	lifecycleCount = len(publisher.messages)
 	publicationErr := publisher.err
 	publisher.mu.Unlock()
-	if job == nil || publicationErr != nil || lifecycleCount != 1 || !strings.HasPrefix(job.Path, root+string(filepath.Separator)) {
+	if job == nil || publicationErr != nil || lifecycleCount != 0 || !strings.HasPrefix(job.Path, root+string(filepath.Separator)) {
 		cleanup()
-		return "", status, lifecycleCount, func() {}, errors.New("Le2i ingress queue or lifecycle contract was incomplete")
+		return "", status, lifecycleCount, func() {}, errors.New("Le2i ingress queue was incomplete or clip lifecycle escaped Discovery")
 	}
 	storedPath = job.Path
 	return storedPath, status, lifecycleCount, cleanup, nil

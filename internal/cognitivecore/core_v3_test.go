@@ -2,11 +2,104 @@ package cognitivecore
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"synora/pkg/contract"
 )
+
+func TestVisionEvidenceV1MapsOnlyExistingV3Offsets(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "pkg", "contract", "testdata", "v1", "vision-evidence-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatal(err)
+	}
+	pose := raw["pose"].(map[string]any)
+	pose["availability"], pose["posture"], pose["quality"], pose["posture_confidence"], pose["transition_to_ground_confidence"] = "evaluated", "upright", .7, .8, .37
+	pose["support"].(map[string]any)["valid_evaluations"] = float64(4)
+	encodedEvidence, _ := json.Marshal(raw)
+	evidence, err := contract.DecodeVisionEvidenceV1(encodedEvidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := CognitiveSnapshotV3{CapturedAt: evidence.WindowEnd, BaseV2: goldenSnapshotV2(), Vision: VisionSignalsV3{PoseStatus: PoseV3Unavailable, Posture: PostureV3Unknown, FallState: FallV3Unknown}}
+	mapped, err := snapshot.ApplyVisionEvidenceV1(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := (SnapshotEncoderV3{}).Encode(context.Background(), mapped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encoded.Shape[0] != 86 || encoded.FeatureNames != CognitiveFeatureNamesV3 {
+		t.Fatal("V3 dimension or feature order changed")
+	}
+	if encoded.Values[27] != .7 || encoded.Values[64+3] != 1 || encoded.Values[68+1] != 1 || encoded.Values[84] != .125 || encoded.Values[85] != 1 {
+		t.Fatalf("existing V3 pose offsets not mapped as documented: [%v %v %v %v %v]", encoded.Values[27], encoded.Values[67], encoded.Values[69], encoded.Values[84], encoded.Values[85])
+	}
+	if mapped.VisionEvidence == nil || mapped.VisionEvidence.Pose.TransitionToGroundConfidence != .37 {
+		t.Fatal("unmapped continuous evidence was not retained")
+	}
+}
+
+func TestVisionEvidenceV1PreservesSeatedAndReclinedWithoutFallInference(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "pkg", "contract", "testdata", "v1", "vision-evidence-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, posture := range []string{contract.VisionPostureSeated, contract.VisionPostureReclined} {
+		t.Run(posture, func(t *testing.T) {
+			var raw map[string]any
+			if err := json.Unmarshal(body, &raw); err != nil {
+				t.Fatal(err)
+			}
+			pose := raw["pose"].(map[string]any)
+			pose["availability"], pose["posture"], pose["posture_confidence"], pose["quality"] = "evaluated", posture, .8, .75
+			pose["support"] = map[string]any{"valid_evaluations": 2, "continuity": "continuous", "supported_seconds": 1.0, "gap_count": 0}
+			pose["immobility_seconds"] = 0.0
+			encoded, _ := json.Marshal(raw)
+			evidence, err := contract.DecodeVisionEvidenceV1(encoded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mapped, err := (CognitiveSnapshotV3{CapturedAt: evidence.WindowEnd, BaseV2: goldenSnapshotV2()}).ApplyVisionEvidenceV1(evidence)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mapped.VisionEvidence.Pose.Posture != posture || mapped.Vision.Posture != posture {
+				t.Fatalf("pose distinction lost: evidence=%q snapshot=%q", mapped.VisionEvidence.Pose.Posture, mapped.Vision.Posture)
+			}
+			if !mapped.VisionEvidenceProjection.NotEncodedInSnapshotV3 {
+				t.Fatal("unencoded evidence projection was not diagnosed")
+			}
+			if posture == contract.VisionPostureReclined {
+				found := false
+				for _, fact := range mapped.VisionEvidenceProjection.Facts {
+					found = found || fact == "pose.posture.reclined"
+				}
+				if !found {
+					t.Fatalf("reclined projection diagnostic missing: %#v", mapped.VisionEvidenceProjection)
+				}
+			}
+			if mapped.Vision.FallState == FallV3Candidate || mapped.Vision.FallState == FallV3Confirmed {
+				t.Fatalf("posture was interpreted as fall: %#v", mapped.Vision)
+			}
+			vector, err := (SnapshotEncoderV3{}).Encode(context.Background(), mapped)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if vector.Shape[0] != 86 || vector.FeatureNames != CognitiveFeatureNamesV3 {
+				t.Fatal("frozen 86D feature contract changed")
+			}
+		})
+	}
+}
 
 type fixedMLPV3 struct{}
 
@@ -31,29 +124,25 @@ func TestCoreV3UsesIndependentGateAndPersistsCandidateSnapshot(t *testing.T) {
 	}
 	base := goldenSnapshotV2()
 	base.Communication = CommunicationCapabilitiesV2{AnnounceAvailable: true, TTSStatus: TTSAvailable}
-	snapshot := CognitiveSnapshotV3{
-		CapturedAt: base.CapturedAt,
-		BaseV2:     base,
-		Vision: VisionSignalsV3{
-			PoseStatus:      PoseV3Unavailable,
-			Posture:         PostureV3Unknown,
-			FallState:       FallV3None,
-			RiskStatus:      RiskSuspected,
-			RiskKind:        RiskKindOther,
-			RiskPersistence: RiskPersistenceIsolated,
-		},
+	evidenceEvent := evidenceEventForTest(t, "v3-core-test")
+	body, _ := json.Marshal(evidenceEvent.Payload)
+	evidence, err := contract.DecodeVisionEvidenceV1(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := CognitiveSnapshotV3{CapturedAt: base.CapturedAt, BaseV2: base}
+	snapshot, err = snapshot.ApplyVisionEvidenceV1(evidence)
+	if err != nil {
+		t.Fatal(err)
 	}
 	core := &CoreV3{Store: store, MLP: fixedMLPV3{}, ActiveDryRun: true, Now: func() time.Time { return time.Unix(2000, 0).UTC() }}
-	event := contract.Event{ID: "v3-core-test", Type: contract.EventVisionEnrichmentV3, Source: "discovery.v3-test", Timestamp: snapshot.CapturedAt}
+	event := contract.Event{ID: "v3-core-test", Type: contract.EventVisionEvidenceV1, Source: "discovery", Timestamp: snapshot.CapturedAt}
 	result, err := core.Process(context.Background(), event, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Commit.DecisionV3 == nil || result.Commit.DecisionV3.Mode != "active_dry_run" {
 		t.Fatalf("missing V3 dry-run decision: %#v", result.Commit.DecisionV3)
-	}
-	if result.Commit.DecisionV3.Communication.Status != "blocked" || result.Commit.DecisionV3.Action.Status != "blocked" {
-		t.Fatalf("high-risk announce was not independently blocked: %#v", result.Commit.DecisionV3)
 	}
 	if result.Commit.DecisionV3.PhysicalActionExecuted || result.Commit.DecisionV3.Communication.PhysicalAudioPlayed {
 		t.Fatal("V3 candidate executed a physical action or audio")

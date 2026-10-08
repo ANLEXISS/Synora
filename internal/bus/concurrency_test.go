@@ -18,21 +18,21 @@ func TestServerAcceptsFragmentedAndConcatenatedFrames(t *testing.T) {
 	server := NewServer("net-pipe-framing")
 	coreConn, coreDecoder := registeredPipe(t, server, "core")
 	defer coreConn.Close()
-	labConn, _ := registeredPipe(t, server, "vision")
-	defer labConn.Close()
+	discoveryConn, _ := registeredPipe(t, server, "discovery")
+	defer discoveryConn.Close()
 
-	first, err := json.Marshal(contract.Message{ID: "event-1", Type: contract.EventVisionMotion, Kind: contract.KindEvent, Source: "vision", Target: "core"})
+	first, err := json.Marshal(contract.Message{ID: "event-1", Type: contract.EventVisionEvidenceV1, Kind: contract.KindEvent, Source: "discovery", Target: "core"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := json.Marshal(contract.Message{ID: "event-2", Type: contract.EventVisionUnknown, Kind: contract.KindEvent, Source: "vision", Target: "core"})
+	second, err := json.Marshal(contract.Message{ID: "event-2", Type: contract.EventVisionEvidenceV1, Kind: contract.KindEvent, Source: "discovery", Target: "core"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	frames := append(append(append([]byte{}, first[:7]...), first[7:]...), '\n')
 	frames = append(frames, second...)
 	frames = append(frames, '\n')
-	writeFragments(t, labConn, frames, []int{1, 3, 11, len(frames)})
+	writeFragments(t, discoveryConn, frames, []int{1, 3, 11, len(frames)})
 
 	for _, want := range []string{"event-1", "event-2"} {
 		var got contract.Message
@@ -85,13 +85,13 @@ func TestClientSerializesConcurrentWrites(t *testing.T) {
 	server, path := startUnixServer(t)
 	coreConn, coreDecoder := registeredPipe(t, server, "core")
 	defer coreConn.Close()
-	client, err := NewClient(path, "vision")
+	client, err := NewClient(path, "discovery")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close()
 	waitFor(t, time.Second, func() bool {
-		_, ok := server.getClient("vision")
+		_, ok := server.getClient("discovery")
 		return ok
 	})
 
@@ -102,7 +102,7 @@ func TestClientSerializesConcurrentWrites(t *testing.T) {
 		group.Add(1)
 		go func(i int) {
 			defer group.Done()
-			errs <- client.Send(contract.Message{ID: "concurrent-" + strconv.Itoa(i), Type: contract.EventVisionMotion, Kind: contract.KindEvent, Target: "core"})
+			errs <- client.Send(contract.Message{ID: "concurrent-" + strconv.Itoa(i), Type: contract.EventVisionEvidenceV1, Kind: contract.KindEvent, Target: "core"})
 		}(i)
 	}
 	group.Wait()
