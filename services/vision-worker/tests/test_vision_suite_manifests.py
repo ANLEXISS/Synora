@@ -20,9 +20,9 @@ MODULE_BY_SUITE = {
     "face_known": "face_recognition",
     "face_unknown": "face_recognition",
     "face_ambiguous": "face_recognition",
-    "vehicle_presence": "vehicle_classification",
+    "vehicle_presence": "vehicle_presence",
     "plate_reading": "plate_reading",
-    "animal_presence": "animal_classification",
+    "animal_presence": "animal_presence",
     "camera_health": "camera_health",
 }
 FORBIDDEN_KEYS = re.compile(
@@ -33,6 +33,7 @@ SLOT_KEYS = {
     "suite", "case_id", "clip_relative_path", "clip_sha256", "technical_metadata",
     "condition_tags", "module", "expected", "provenance", "license", "asset_status", "not_run_reason",
 }
+TECHNICAL_KEYS = {"container", "codec", "width", "height", "frame_count", "duration"}
 EXPECTED_KEYS = {"state", "presence", "confidence_minimum_percent", "subject_ref"}
 CONDITION_TAGS = {
     "indoor", "outdoor", "day", "night", "low_light", "frontal", "profile", "occluded", "distant",
@@ -57,6 +58,9 @@ def validate_manifest(data):
             raise ValueError("sensitive value in media path")
         if set(slot["expected"]) - EXPECTED_KEYS:
             raise ValueError("raw or unknown semantic expectation key")
+        technical = slot["technical_metadata"]
+        if set(technical) != TECHNICAL_KEYS or any(not isinstance(technical[k], int) or technical[k] < 0 for k in ("width", "height", "frame_count")):
+            raise ValueError("technical metadata is incomplete or invalid")
         tags = slot.get("condition_tags")
         if not isinstance(tags, list) or not tags or len(tags) != len(set(tags)) or set(tags) - CONDITION_TAGS:
             raise ValueError("condition_tags are missing, duplicated, or outside the closed taxonomy")
@@ -68,6 +72,14 @@ def validate_manifest(data):
             raise ValueError("subject reference is not opaque")
         if slot["asset_status"] == "placeholder" and slot["clip_sha256"] != "0" * 64:
             raise ValueError("placeholder hash must remain pending")
+        if slot["asset_status"] == "placeholder" and technical["frame_count"] != 0:
+            raise ValueError("placeholder cannot claim frames")
+        if slot["asset_status"] == "available" and (slot["clip_sha256"] == "0" * 64 or not technical["codec"] or technical["codec"] == "pending" or min(technical["width"], technical["height"], technical["frame_count"]) <= 0):
+            raise ValueError("available media requires real hash, codec, dimensions and frame count")
+        if slot["asset_status"] == "available":
+            duration = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)(ms|s|m)", technical["duration"])
+            if not duration or float(duration.group(1)) <= 0:
+                raise ValueError("available media requires a positive duration")
         key = (slot["suite"], slot["case_id"])
         if key in seen:
             raise ValueError("duplicate case id")
@@ -132,11 +144,44 @@ class VisionSuiteManifestTests(unittest.TestCase):
         data = json.loads(MODULES.read_text(encoding="utf-8"))
         self.assertEqual(data["schema_version"], "synora.vision.module-registry/v1")
         modules = {item["name"]: item for item in data["modules"]}
-        self.assertEqual(set(modules), set(MODULE_BY_SUITE.values()))
+        expected_modules = {"face_recognition", "vehicle_presence", "plate_reading", "animal_presence", "camera_health", "human_pose"}
+        self.assertEqual(set(modules), expected_modules)
         for item in modules.values():
-            self.assertEqual(item["state"], "not_configured")
+            self.assertIn(item["initial_status"], {"not_configured", "unavailable"})
+            self.assertIn(item["model_state"], {"not_configured", "unavailable"})
+            self.assertEqual(item["input_contract"], "external_media_slot/v1")
+            self.assertEqual(item["output_contract"], "synora.vision.evidence/v1")
+            self.assertTrue(item["preconditions"])
+            self.assertTrue(item["forbidden_data"])
+            self.assertTrue(item["quality_metrics"])
+            self.assertIsNone(item["latency_p95_target_ms"])
+            self.assertTrue(item["qualification_criteria"])
+            self.assertIn(item["missing_media_state"], {"not_run", "unavailable"})
+            self.assertIn(item["missing_model_state"], {"not_configured", "unavailable"})
+            self.assertEqual(set(item["snapshot_v3"]), {"encoded", "not_encoded"})
             self.assertIsNone(item["model_version"])
             self.assertIsNone(item["model_sha256"])
+            self.assertRegex(item["model_path_env"], r"^[A-Z][A-Z0-9_]{1,63}$")
+            self.assertRegex(item["media_root_env"], r"^[A-Z][A-Z0-9_]{1,63}$")
+            self.assertFalse(Path(item["manifest_path"]).is_absolute())
+            self.assertNotIn("..", Path(item["manifest_path"]).parts)
+        pose = modules["human_pose"]
+        self.assertEqual(pose["initial_status"], "unavailable")
+        self.assertEqual(pose["manifest_path"], "testdata/central-e2e-v1/media/le2i-v1-regression.json")
+
+    def test_available_asset_requires_complete_metadata_and_positive_duration(self):
+        source = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        for duration in ("pending", "0s", "not-a-duration"):
+            candidate = json.loads(json.dumps(source))
+            slot = candidate["slots"][0]
+            slot["asset_status"] = "available"
+            slot["clip_sha256"] = "a" * 64
+            slot["technical_metadata"] = {
+                "container": "mp4", "codec": "h264", "width": 640,
+                "height": 480, "frame_count": 30, "duration": duration,
+            }
+            with self.assertRaises(ValueError):
+                validate_manifest(candidate)
 
     def test_manifest_rejects_urls_paths_and_raw_vision_fields(self):
         source = json.loads(MANIFEST.read_text(encoding="utf-8"))

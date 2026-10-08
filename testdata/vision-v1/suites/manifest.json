@@ -13,7 +13,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -44,7 +45,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -75,7 +77,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -106,7 +109,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -137,7 +141,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -168,7 +173,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -199,7 +205,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -230,7 +237,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -261,7 +269,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -292,7 +301,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -323,7 +333,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -353,7 +364,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -383,7 +395,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -413,7 +426,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -443,7 +457,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -473,7 +488,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -503,7 +519,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -533,7 +550,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -563,7 +581,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -593,7 +612,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -623,7 +643,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -653,7 +674,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -684,7 +706,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -715,7 +738,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -746,7 +770,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "face_recognition",
       "expected": {
@@ -776,9 +801,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "vehicle_classification",
+      "module": "vehicle_presence",
       "expected": {
         "state": "present",
         "presence": "present",
@@ -808,9 +834,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "vehicle_classification",
+      "module": "vehicle_presence",
       "expected": {
         "state": "absent",
         "presence": "absent",
@@ -840,9 +867,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "vehicle_classification",
+      "module": "vehicle_presence",
       "expected": {
         "state": "ambiguous",
         "presence": "ambiguous",
@@ -872,9 +900,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "vehicle_classification",
+      "module": "vehicle_presence",
       "expected": {
         "state": "present",
         "presence": "present",
@@ -904,9 +933,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "vehicle_classification",
+      "module": "vehicle_presence",
       "expected": {
         "state": "absent",
         "presence": "absent",
@@ -936,9 +966,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "vehicle_classification",
+      "module": "vehicle_presence",
       "expected": {
         "state": "ambiguous",
         "presence": "ambiguous",
@@ -968,9 +999,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "vehicle_classification",
+      "module": "vehicle_presence",
       "expected": {
         "state": "present",
         "presence": "present",
@@ -1000,9 +1032,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "vehicle_classification",
+      "module": "vehicle_presence",
       "expected": {
         "state": "absent",
         "presence": "absent",
@@ -1032,9 +1065,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "vehicle_classification",
+      "module": "vehicle_presence",
       "expected": {
         "state": "ambiguous",
         "presence": "ambiguous",
@@ -1064,9 +1098,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "vehicle_classification",
+      "module": "vehicle_presence",
       "expected": {
         "state": "present",
         "presence": "present",
@@ -1096,7 +1131,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "plate_reading",
       "expected": {
@@ -1126,7 +1162,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "plate_reading",
       "expected": {
@@ -1156,7 +1193,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "plate_reading",
       "expected": {
@@ -1186,7 +1224,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "plate_reading",
       "expected": {
@@ -1216,7 +1255,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "plate_reading",
       "expected": {
@@ -1246,7 +1286,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "plate_reading",
       "expected": {
@@ -1276,7 +1317,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "plate_reading",
       "expected": {
@@ -1306,7 +1348,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "plate_reading",
       "expected": {
@@ -1336,7 +1379,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "plate_reading",
       "expected": {
@@ -1366,7 +1410,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "plate_reading",
       "expected": {
@@ -1396,9 +1441,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "animal_classification",
+      "module": "animal_presence",
       "expected": {
         "state": "present",
         "presence": "present",
@@ -1428,9 +1474,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "animal_classification",
+      "module": "animal_presence",
       "expected": {
         "state": "absent",
         "presence": "absent",
@@ -1460,9 +1507,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "animal_classification",
+      "module": "animal_presence",
       "expected": {
         "state": "ambiguous",
         "presence": "ambiguous",
@@ -1492,9 +1540,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "animal_classification",
+      "module": "animal_presence",
       "expected": {
         "state": "present",
         "presence": "present",
@@ -1524,9 +1573,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "animal_classification",
+      "module": "animal_presence",
       "expected": {
         "state": "absent",
         "presence": "absent",
@@ -1556,9 +1606,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "animal_classification",
+      "module": "animal_presence",
       "expected": {
         "state": "present",
         "presence": "present",
@@ -1588,9 +1639,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "animal_classification",
+      "module": "animal_presence",
       "expected": {
         "state": "absent",
         "presence": "absent",
@@ -1620,9 +1672,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "animal_classification",
+      "module": "animal_presence",
       "expected": {
         "state": "ambiguous",
         "presence": "ambiguous",
@@ -1652,9 +1705,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "animal_classification",
+      "module": "animal_presence",
       "expected": {
         "state": "present",
         "presence": "present",
@@ -1684,9 +1738,10 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
-      "module": "animal_classification",
+      "module": "animal_presence",
       "expected": {
         "state": "absent",
         "presence": "absent",
@@ -1716,7 +1771,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "camera_health",
       "expected": {
@@ -1746,7 +1802,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "camera_health",
       "expected": {
@@ -1776,7 +1833,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "camera_health",
       "expected": {
@@ -1806,7 +1864,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "camera_health",
       "expected": {
@@ -1836,7 +1895,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "camera_health",
       "expected": {
@@ -1866,7 +1926,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "camera_health",
       "expected": {
@@ -1896,7 +1957,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "camera_health",
       "expected": {
@@ -1926,7 +1988,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "camera_health",
       "expected": {
@@ -1956,7 +2019,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "camera_health",
       "expected": {
@@ -1986,7 +2050,8 @@
         "codec": "pending",
         "width": 0,
         "height": 0,
-        "duration": "pending"
+        "duration": "pending",
+        "frame_count": 0
       },
       "module": "camera_health",
       "expected": {

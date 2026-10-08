@@ -394,11 +394,13 @@ func main() {
 	mediaManifestPath := flag.String("media-manifest", defaultVisionMediaManifest, "versioned local vision-media manifest")
 	visionSuites := flag.String("vision-suites", "", "run generic Vision V1 suites: list, verify, or run")
 	visionSuite := flag.String("vision-suite", "", "filter generic Vision V1 suite")
+	visionCase := flag.String("vision-case", "", "filter generic Vision V1 case id")
 	visionSuiteManifest := flag.String("vision-suite-manifest", defaultVisionSuiteManifest, "generic Vision V1 suite slot manifest")
 	visionModuleRegistry := flag.String("vision-module-registry", defaultVisionModuleRegistry, "generic Vision V1 module registry")
 	visionSuiteRoot := flag.String("vision-suite-root", os.Getenv("SYNORA_VISION_MEDIA_ROOT"), "external media root for generic Vision V1 suites")
 	visionSuiteOut := flag.String("vision-suites-out", "/tmp/synora-vision-v1-suites.json", "independent generic Vision V1 suite report path")
 	visionFaceModel := flag.String("vision-model-face", os.Getenv("SYNORA_VISION_FACE_MODEL"), "external face-module model path; inactive until a plugin is registered")
+	visionPoseModel := flag.String("vision-model-pose", os.Getenv("SYNORA_POSE_RKNN_MODEL"), "external pose-module model path; inactive until a plugin is registered")
 	visionVehicleModel := flag.String("vision-model-vehicle", os.Getenv("SYNORA_VISION_VEHICLE_MODEL"), "external vehicle-module model path; inactive until a plugin is registered")
 	visionPlateModel := flag.String("vision-model-plate", os.Getenv("SYNORA_VISION_PLATE_MODEL"), "external plate-module model path; inactive until a plugin is registered")
 	visionAnimalModel := flag.String("vision-model-animal", os.Getenv("SYNORA_VISION_ANIMAL_MODEL"), "external animal-module model path; inactive until a plugin is registered")
@@ -411,9 +413,9 @@ func main() {
 		modelPaths := map[string]string{
 			visionsuite.ModuleFace: *visionFaceModel, visionsuite.ModuleVehicle: *visionVehicleModel,
 			visionsuite.ModulePlate: *visionPlateModel, visionsuite.ModuleAnimal: *visionAnimalModel,
-			visionsuite.ModuleCamera: *visionCameraModel,
+			visionsuite.ModuleCamera: *visionCameraModel, visionsuite.ModulePose: *visionPoseModel,
 		}
-		if err := runVisionSuiteCommand(*visionSuites, *visionSuite, *visionSuiteManifest, *visionModuleRegistry, *visionSuiteRoot, *visionSuiteOut, modelPaths); err != nil {
+		if err := runVisionSuiteCommand(*visionSuites, *visionSuite, *visionCase, *visionSuiteManifest, *visionModuleRegistry, *visionSuiteRoot, *visionSuiteOut, modelPaths); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

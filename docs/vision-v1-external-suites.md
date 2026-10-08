@@ -1,84 +1,117 @@
-# Vision V1 external-suite foundation
+# Vision V1 external-suite readiness
 
-This is an inventory and plugin foundation only. It does not include media,
-biometric data, a gallery, model weights, model installation or inference.
-All five declared modules currently report `not_configured`; every committed
-media slot is a placeholder and cannot be counted as passed or qualified.
+This repository contains preparation metadata only: no new media, model,
+gallery, plugin, or inference implementation is included. The six canonical
+module records live in `testdata/vision-v1/modules.json`; every model is
+`not_configured` except `human_pose`, which is explicitly `unavailable` until
+its RKNN runtime/model and labeled data are independently demonstrated.
+All 65 committed media slots are placeholders. A placeholder is `not_run`,
+never a passing example, and cannot invoke a plugin.
 
-Every slot has non-empty `condition_tags` from the closed vocabulary:
-`indoor`, `outdoor`, `day`, `night`, `low_light`, `frontal`, `profile`,
-`occluded`, `distant`, `single_subject`, `multi_subject`, `empty_scene`,
-`stationary`, `moving`, `clear`, `degraded`, `resident_known`,
-`identity_unknown`, `identity_ambiguous`, `vehicle_present`, `animal_present`,
-`no_target`, `healthy_camera`, `stream_missing`, `frozen_frame`, and
-`tamper_suspected`. The validator checks suite relevance and rejects unknown,
-duplicate, or missing tags. Tags are test-selection/segmentation metadata only;
-they are not expected outputs and are never supplied to a Vision module.
+## Modules and V3 scope
 
-The slot manifest is `testdata/vision-v1/suites/manifest.json`. Its schema is
-`pkg/contract/vision-media-suite-manifest-v1.schema.json`; the inactive module
-registry is `testdata/vision-v1/modules.json`. Manifests contain only opaque
-test references, pending hashes, expected redacted semantics and relative
-paths. The expected values are not passed to a module: the plugin input
-contains only its media/model paths and opaque case metadata. Reports omit
-both media paths and `subject_ref`.
+| Canonical module | Input → output | V3 projection | Current readiness |
+| --- | --- | --- | --- |
+| `face_recognition` | external media slot → `synora.vision.evidence/v1` aggregate; no identity | No face fields encoded | `not_configured`; separate consented gallery required |
+| `vehicle_presence` | external media slot → Evidence V1 aggregate | Vehicle presence not encoded | `not_configured` |
+| `plate_reading` | external media slot → readability/result aggregate, never plate text | Plate result/quality not encoded | `not_configured` |
+| `animal_presence` | external media slot → Evidence V1 aggregate | Animal presence not encoded | `not_configured` |
+| `camera_health` | stream/health metadata → Evidence V1 aggregate | Camera health not encoded | `not_configured` |
+| `human_pose` | existing Le2i media manifest → Evidence V1 pose aggregate | Existing pose availability/posture/support mappings only; no change to 86D order | `unavailable`; existing separate Le2i runner, no generic duplicate slots |
 
-## External asset layout
+Each registry record declares the role, Evidence V1 contracts, preconditions,
+forbidden data, model and missing-input status, external environment-variable
+names (never resolved paths), quality measures, latency target when known,
+qualification criteria, and V3 encoded/not-encoded scope. V3 projection is
+descriptive only; this work does not change the snapshot, labels, weights, or
+dimension. The common suite executor accepts suite and case filters, checks
+path containment and SHA-256, and probes container/codec/dimensions/frame count
+and duration with local `ffprobe` before any future plugin could run. Probe
+failure or mismatch quarantines the slot. Reports contain only opaque case
+references and technical metadata, not media paths or subject references.
 
-The default external root is `/home/rock/Synora-test-media/vision-v1/`,
-selected with `SYNORA_VISION_MEDIA_ROOT` or `--vision-suite-root`. Place
-consented, licensed material only outside Git, under these directories:
+## Slot inventory and media layout
 
-| Suite | Slots | External directory | Expected semantic outcomes |
-| --- | ---: | --- | --- |
-| `face_known` | 10 | `face_known/` | `recognized`; opaque `resident_test_01` reference exists only in the external fixture expectation. |
-| `face_unknown` | 10 | `face_unknown/` | `unknown`, with no forced identity. |
-| `face_ambiguous` | 5 | `face_ambiguous/` | `ambiguous` or `unavailable`. |
-| `vehicle_presence` | 10 | `vehicle_presence/` | present, absent or ambiguous with confidence; no plate text. |
-| `plate_reading` | 10 | `plate_reading/` | recognized, unknown, ambiguous or unavailable; plate text is never part of Evidence V1. |
-| `animal_presence` | 10 | `animal_presence/` | present, absent or ambiguous with confidence. |
-| `camera_health` | 10 | `camera_health/` | healthy, unavailable, frozen, obscured, degraded or invalid timestamp. |
+The manifest is `testdata/vision-v1/suites/manifest.json`, validated against
+`pkg/contract/vision-media-suite-manifest-v1.schema.json`:
 
-Each slot currently names a planned relative `.mp4` location, uses a zero
-SHA-256, has `asset_status=placeholder`, and includes a reason it is not run.
-Replacing a placeholder requires a reviewed source, consent/licence, technical
-metadata and the actual file hash. The harness never downloads or decrypts an
-asset. Path traversal, symlinks, URLs and unknown/raw Vision fields are
-rejected.
+| Suite | Slots | External subdirectory |
+| --- | ---: | --- |
+| `face_known` | 10 | `face_known/` |
+| `face_unknown` | 10 | `face_unknown/` |
+| `face_ambiguous` | 5 | `face_ambiguous/` |
+| `vehicle_presence` | 10 | `vehicle_presence/` |
+| `plate_reading` | 10 | `plate_reading/` |
+| `animal_presence` | 10 | `animal_presence/` |
+| `camera_health` | 10 | `camera_health/` |
 
-## Plugin contract and execution
+The Le2i pose suite remains separate and is referenced by the `human_pose`
+registry entry; it is not silently folded into the 65 generic slots. No media
+or model has been copied into Git. The configured media root is
+`SYNORA_VISION_MEDIA_ROOT`; files must be obtained and kept externally with
+documented provenance, license, consent/privacy review, and independent labels.
+Known-face test clips and any enrollment gallery must be disjoint and stored
+separately. Plate clips require a privacy/legal review; the contract and report
+must never retain plate text. Do not use a test clip to enroll a gallery.
 
-`internal/visionsuite.Module` is the module extension point. A module reports
-state (`not_configured`, `unavailable`, `available` or `failed`), model version
-and hash, input/output compatibility, a structured error, latency, an
-Evidence V1 aggregate and whether inference executed. Results must pass the
-Evidence V1 validator before the injected pipeline callback may traverse
-Discovery → Core → Store → CognitiveSnapshot V3 → MLP → Safety Gate → dry-run
-result. The callback must attest that the whole path completed with no audio
-rendering or physical action. Semantic mismatches are distinct from
-infrastructure failures. Qualification remains a separate future process.
+The closed `condition_tags` vocabulary is:
+`indoor | outdoor`, `day | night | low_light`, `frontal | profile | occluded |
+distant`, `single_subject | multi_subject | empty_scene`, `stationary | moving`,
+`clear | degraded`, `resident_known | identity_unknown | identity_ambiguous`,
+`vehicle_present | animal_present | no_target`, and
+`healthy_camera | stream_missing | frozen_frame | tamper_suspected`. Tags are
+selection/segmentation metadata, not model outputs. Every placeholder has
+relevant tags; unknown, duplicate, missing, or suite-irrelevant tags fail
+validation.
 
-No module plugin is registered today. Supplying a path or filling a manifest
-does not activate a model or turn a placeholder into an output. Add a reviewed
-module implementation and register it through the `visionsuite.Execute`
-extension point before a populated suite can run. Until then `run` reports
-`media_absent` or `model_absent` and exits unsuccessfully; it never calls a
-fallback model. Le2i continues to use its existing, separate report.
+## Readiness gates and future commands
 
-Commands from the repository root:
+Before a suite can run, all of the following must exist outside Git: enough
+consented/licensed, independently labeled clips for every declared slot;
+verified media hashes and technical metadata; a reviewed module implementation
+that accepts only the declared inputs and emits validated Evidence V1; an
+independently hashed model whose version/hash/path agree with the registry;
+and an audited dry-run Discovery → Core → Store → CognitiveSnapshot → MLP →
+Safety Gate callback. No plugin is currently registered, so setting an
+environment variable or filling a slot does not activate inference. Model
+absence, absent media, metadata mismatch, and unavailable runtimes remain
+explicit non-success states. No fallback model exists.
+
+After those gates have been implemented and reviewed, the generic CLI is:
 
 ```bash
-go run ./cmd/synora-central-test --vision-suites list
+SYNORA_VISION_MEDIA_ROOT=/external/vision-v1 \
+SYNORA_VISION_FACE_MODEL=/external/models/face-model \
 go run ./cmd/synora-central-test --vision-suites verify \
-  --vision-suite-root /home/rock/Synora-test-media/vision-v1 \
-  --vision-suites-out /tmp/synora-vision-v1-verify.json
+  --vision-suite-root "$SYNORA_VISION_MEDIA_ROOT" \
+  --vision-suites-out /tmp/vision-verify.json
+
 go run ./cmd/synora-central-test --vision-suites run \
-  --vision-suite face_known \
-  --vision-suite-root /home/rock/Synora-test-media/vision-v1 \
-  --vision-suites-out /tmp/synora-vision-v1-face-known.json
+  --vision-suite face_known --vision-case face_known_01 \
+  --vision-suite-root "$SYNORA_VISION_MEDIA_ROOT" \
+  --vision-model-face "$SYNORA_VISION_FACE_MODEL" \
+  --vision-suites-out /tmp/vision-face-known.json
 ```
 
-The generic report is written independently from `/tmp/synora-central-e2e-v1.json`
-and contains slot status, module state, latency, redacted semantic match,
-pipeline dry-run facts and qualification status. `qualified_count` remains
-zero unless a future, independently reviewed qualification flow is added.
+These are instructions for a future reviewed plugin, not a claim that the
+commands currently perform inference. At present `verify` reports media
+absence/quarantine and `run` fails closed when slots, a model, or a plugin are
+missing. `list` is safe with placeholders. Reports are separate from the
+central E2E report and retain `qualification_status=not_qualified`; execution
+counts are not qualification. The existing Le2i command remains the central
+media harness and must be run only when its external corpus/runtime is
+available. No result from an unlabelled clip may be used to claim pose or fall
+performance.
+
+## Qualification requirements
+
+No module is qualified. Future acceptance needs module-specific labeled
+positive/negative and stress slices, independent holdout sets, condition-wise
+precision/recall and false-accept/false-reject analysis as appropriate,
+confidence calibration, temporal stability where applicable, device p95
+latency, privacy/redaction review, and Safety Gate dry-run evidence. Face
+recognition additionally requires explicit consent and identity-disjoint
+holdouts; plate reading requires a separate legal/privacy decision and tests
+that prove text is not retained. Human-pose/fall claims require genuinely
+labeled data and independent metrics. J2/J3/J4 or other system qualification
+status is not changed by these preparation artifacts.

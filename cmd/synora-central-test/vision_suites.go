@@ -13,7 +13,7 @@ import (
 const defaultVisionSuiteManifest = "testdata/vision-v1/suites/manifest.json"
 const defaultVisionModuleRegistry = "testdata/vision-v1/modules.json"
 
-func runVisionSuiteCommand(action, suite, manifestPath, registryPath, mediaRoot, outPath string, modelPaths map[string]string) error {
+func runVisionSuiteCommand(action, suite, caseID, manifestPath, registryPath, mediaRoot, outPath string, modelPaths map[string]string) error {
 	if action != "list" && action != "verify" && action != "run" {
 		return errors.New("--vision-suites must be list, verify, or run")
 	}
@@ -29,6 +29,10 @@ func runVisionSuiteCommand(action, suite, manifestPath, registryPath, mediaRoot,
 	if err != nil {
 		return err
 	}
+	manifest, err = visionsuite.FilterCase(manifest, caseID)
+	if err != nil {
+		return err
+	}
 	var report visionsuite.Report
 	switch action {
 	case "list":
@@ -39,8 +43,7 @@ func runVisionSuiteCommand(action, suite, manifestPath, registryPath, mediaRoot,
 	case "run":
 		// Plugins are injected here when a module implementation is separately
 		// reviewed and qualified. No inactive module is implicitly activated.
-		report = visionsuite.Execute(context.Background(), manifest, digest, mediaRoot, modelPaths, nil, nil)
-		report.Modules = moduleStates
+		report = visionsuite.ExecuteWithStates(context.Background(), manifest, digest, mediaRoot, moduleStates, modelPaths, nil, nil)
 	}
 	if err := writeJSON(outPath, report); err != nil {
 		return err

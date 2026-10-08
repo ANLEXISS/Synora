@@ -1,10 +1,321 @@
 {
   "schema_version": "synora.vision.module-registry/v1",
   "modules": [
-    {"name": "face_recognition", "state": "not_configured", "model_version": null, "model_sha256": null},
-    {"name": "vehicle_classification", "state": "not_configured", "model_version": null, "model_sha256": null},
-    {"name": "plate_reading", "state": "not_configured", "model_version": null, "model_sha256": null},
-    {"name": "animal_classification", "state": "not_configured", "model_version": null, "model_sha256": null},
-    {"name": "camera_health", "state": "not_configured", "model_version": null, "model_sha256": null}
+    {
+      "name": "face_recognition",
+      "role": "aggregate_face_outcome_without_identity",
+      "initial_status": "not_configured",
+      "input_contract": "external_media_slot/v1",
+      "output_contract": "synora.vision.evidence/v1",
+      "preconditions": [
+        "human_trigger",
+        "consented_gallery_available",
+        "consented_test_clip_available",
+        "minimum_face_quality"
+      ],
+      "forbidden_data": [
+        "identity",
+        "biometric_template",
+        "embedding",
+        "face_crop",
+        "raw_media_in_evidence",
+        "gallery_enrollment_from_test_clip"
+      ],
+      "model_state": "not_configured",
+      "state_reason": "no_model_or_plugin_configured",
+      "model_version": null,
+      "model_sha256": null,
+      "model_path_env": "SYNORA_VISION_FACE_MODEL",
+      "media_root_env": "SYNORA_VISION_MEDIA_ROOT",
+      "manifest_path": "testdata/vision-v1/suites/manifest.json",
+      "gallery_path_env": "SYNORA_VISION_FACE_GALLERY",
+      "quality_metrics": [
+        "false_accept_rate",
+        "false_reject_rate",
+        "unknown_rejection_rate",
+        "coverage",
+        "calibration_error",
+        "p95_latency"
+      ],
+      "latency_p95_target_ms": null,
+      "qualification_criteria": [
+        "independent_enrollment_and_test_sets",
+        "identity_disjoint_holdout",
+        "consent_and_license_review",
+        "false_acceptance_threshold_review",
+        "redacted_evidence_audit"
+      ],
+      "missing_media_state": "not_run",
+      "missing_model_state": "unavailable",
+      "snapshot_v3": {
+        "encoded": [],
+        "not_encoded": [
+          "face.result",
+          "face.confidence",
+          "face.quality"
+        ]
+      }
+    },
+    {
+      "name": "vehicle_presence",
+      "role": "aggregate_vehicle_presence",
+      "initial_status": "not_configured",
+      "input_contract": "external_media_slot/v1",
+      "output_contract": "synora.vision.evidence/v1",
+      "preconditions": [
+        "vehicle_trigger_or_motion",
+        "valid_media_window",
+        "privacy_reviewed_clip"
+      ],
+      "forbidden_data": [
+        "raw_media_in_evidence",
+        "bbox",
+        "crop",
+        "local_track_id",
+        "plate_text",
+        "vehicle_identity"
+      ],
+      "model_state": "not_configured",
+      "state_reason": "no_model_or_plugin_configured",
+      "model_version": null,
+      "model_sha256": null,
+      "model_path_env": "SYNORA_VISION_VEHICLE_MODEL",
+      "media_root_env": "SYNORA_VISION_MEDIA_ROOT",
+      "manifest_path": "testdata/vision-v1/suites/manifest.json",
+      "gallery_path_env": "",
+      "quality_metrics": [
+        "precision",
+        "recall",
+        "false_positive_rate",
+        "coverage_by_lighting",
+        "p95_latency"
+      ],
+      "latency_p95_target_ms": null,
+      "qualification_criteria": [
+        "labeled_positive_and_negative_clips",
+        "day_night_and_partial_vehicle_slices",
+        "independent_holdout",
+        "redacted_evidence_audit"
+      ],
+      "missing_media_state": "not_run",
+      "missing_model_state": "unavailable",
+      "snapshot_v3": {
+        "encoded": [],
+        "not_encoded": [
+          "presence.vehicle"
+        ]
+      }
+    },
+    {
+      "name": "plate_reading",
+      "role": "aggregate_plate_readability_without_text",
+      "initial_status": "not_configured",
+      "input_contract": "external_media_slot/v1",
+      "output_contract": "synora.vision.evidence/v1",
+      "preconditions": [
+        "vehicle_presence_evaluated",
+        "explicit_plate_module_request",
+        "valid_media_window",
+        "privacy_reviewed_clip"
+      ],
+      "forbidden_data": [
+        "plate_text",
+        "plate_crop",
+        "raw_media_in_evidence",
+        "bbox",
+        "embedding",
+        "local_track_id"
+      ],
+      "model_state": "not_configured",
+      "state_reason": "no_model_or_plugin_configured",
+      "model_version": null,
+      "model_sha256": null,
+      "model_path_env": "SYNORA_VISION_PLATE_MODEL",
+      "media_root_env": "SYNORA_VISION_MEDIA_ROOT",
+      "manifest_path": "testdata/vision-v1/suites/manifest.json",
+      "gallery_path_env": "",
+      "quality_metrics": [
+        "readability_coverage",
+        "recognized_unknown_ambiguous_rates",
+        "false_read_rate",
+        "p95_latency"
+      ],
+      "latency_p95_target_ms": null,
+      "qualification_criteria": [
+        "separate_labeled_plate_clips",
+        "day_night_partial_and_multiple_vehicle_slices",
+        "independent_holdout",
+        "plate_text_nonretention_audit"
+      ],
+      "missing_media_state": "not_run",
+      "missing_model_state": "unavailable",
+      "snapshot_v3": {
+        "encoded": [],
+        "not_encoded": [
+          "plate.result",
+          "plate.confidence",
+          "plate.quality"
+        ]
+      }
+    },
+    {
+      "name": "animal_presence",
+      "role": "aggregate_animal_presence",
+      "initial_status": "not_configured",
+      "input_contract": "external_media_slot/v1",
+      "output_contract": "synora.vision.evidence/v1",
+      "preconditions": [
+        "animal_trigger_or_explicit_request",
+        "valid_media_window",
+        "privacy_reviewed_clip"
+      ],
+      "forbidden_data": [
+        "raw_media_in_evidence",
+        "bbox",
+        "crop",
+        "keypoints",
+        "local_track_id",
+        "identity"
+      ],
+      "model_state": "not_configured",
+      "state_reason": "no_model_or_plugin_configured",
+      "model_version": null,
+      "model_sha256": null,
+      "model_path_env": "SYNORA_VISION_ANIMAL_MODEL",
+      "media_root_env": "SYNORA_VISION_MEDIA_ROOT",
+      "manifest_path": "testdata/vision-v1/suites/manifest.json",
+      "gallery_path_env": "",
+      "quality_metrics": [
+        "precision",
+        "recall",
+        "human_only_false_positive_rate",
+        "scene_empty_false_positive_rate",
+        "p95_latency"
+      ],
+      "latency_p95_target_ms": null,
+      "qualification_criteria": [
+        "labeled_animal_and_negative_clips",
+        "human_only_and_empty_scene_slices",
+        "occlusion_and_low_light_slices",
+        "independent_holdout"
+      ],
+      "missing_media_state": "not_run",
+      "missing_model_state": "unavailable",
+      "snapshot_v3": {
+        "encoded": [],
+        "not_encoded": [
+          "presence.animal"
+        ]
+      }
+    },
+    {
+      "name": "camera_health",
+      "role": "aggregate_stream_health",
+      "initial_status": "not_configured",
+      "input_contract": "external_media_slot/v1",
+      "output_contract": "synora.vision.evidence/v1",
+      "preconditions": [
+        "camera_stream_metadata_or_health_suite",
+        "valid_timestamp_window"
+      ],
+      "forbidden_data": [
+        "raw_media_in_evidence",
+        "frame_contents",
+        "local_path",
+        "camera_secret",
+        "hardware_identity"
+      ],
+      "model_state": "not_configured",
+      "state_reason": "no_model_or_plugin_configured",
+      "model_version": null,
+      "model_sha256": null,
+      "model_path_env": "SYNORA_VISION_CAMERA_MODEL",
+      "media_root_env": "SYNORA_VISION_MEDIA_ROOT",
+      "manifest_path": "testdata/vision-v1/suites/manifest.json",
+      "gallery_path_env": "",
+      "quality_metrics": [
+        "outage_detection_recall",
+        "frozen_frame_detection_recall",
+        "tamper_false_positive_rate",
+        "recovery_latency",
+        "p95_latency"
+      ],
+      "latency_p95_target_ms": null,
+      "qualification_criteria": [
+        "healthy_missing_frozen_invalid_timestamp_occlusion_tamper_cases",
+        "controlled_fault_injection",
+        "false_alarm_review",
+        "redacted_evidence_audit"
+      ],
+      "missing_media_state": "not_run",
+      "missing_model_state": "unavailable",
+      "snapshot_v3": {
+        "encoded": [],
+        "not_encoded": [
+          "camera_health.state",
+          "camera_health.confidence",
+          "producer_health"
+        ]
+      }
+    },
+    {
+      "name": "human_pose",
+      "role": "aggregate_human_pose_and_posture",
+      "initial_status": "unavailable",
+      "input_contract": "external_media_slot/v1",
+      "output_contract": "synora.vision.evidence/v1",
+      "preconditions": [
+        "human_roi_selected_by_edge",
+        "pose_explicitly_requested",
+        "valid_media_window",
+        "runtime_backend_available"
+      ],
+      "forbidden_data": [
+        "raw_media_in_evidence",
+        "bbox",
+        "crop",
+        "keypoints",
+        "embedding",
+        "identity",
+        "local_track_id"
+      ],
+      "model_state": "unavailable",
+      "state_reason": "runtime_or_model_not_proven_available_no_inference_run",
+      "model_version": null,
+      "model_sha256": null,
+      "model_path_env": "SYNORA_POSE_RKNN_MODEL",
+      "media_root_env": "SYNORA_VISION_MEDIA_ROOT",
+      "manifest_path": "testdata/central-e2e-v1/media/le2i-v1-regression.json",
+      "gallery_path_env": "",
+      "quality_metrics": [
+        "keypoint_coverage",
+        "posture_agreement",
+        "temporal_stability",
+        "low_quality_rejection_rate",
+        "p95_latency"
+      ],
+      "latency_p95_target_ms": null,
+      "qualification_criteria": [
+        "consented_labeled_control_and_stress_clips",
+        "independent_pose_metrics",
+        "device_latency_baseline",
+        "no_fall_claim_without_labeled_fall_corpus"
+      ],
+      "missing_media_state": "not_run",
+      "missing_model_state": "unavailable",
+      "snapshot_v3": {
+        "encoded": [
+          "pose.availability->vision_v3.pose_status",
+          "pose.posture->vision_v3.posture",
+          "runtime_aggregate.fall_state->vision_v3.fall_state",
+          "pose.support->vision_v3.pose_sampled_and_observation_count"
+        ],
+        "not_encoded": [
+          "raw_keypoints",
+          "joint_coordinates",
+          "reclined_feature_absent_from_86d"
+        ]
+      }
+    }
   ]
 }

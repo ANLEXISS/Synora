@@ -1,25 +1,55 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://synora.invalid/schemas/vision-module-registry-v1.schema.json",
+  "title": "Synora Vision V1 module readiness registry",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "modules"],
   "properties": {
     "schema_version": {"const": "synora.vision.module-registry/v1"},
-    "modules": {
-      "type": "array",
-      "minItems": 5,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["name", "state", "model_version", "model_sha256"],
-        "properties": {
-          "name": {"enum": ["face_recognition", "vehicle_classification", "plate_reading", "animal_classification", "camera_health"]},
-          "state": {"enum": ["not_configured", "unavailable", "available", "failed"]},
-          "model_version": {"type": ["string", "null"]},
-          "model_sha256": {"type": ["string", "null"]}
+    "modules": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"$ref": "#/$defs/module"}}
+  },
+  "$defs": {
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role", "initial_status", "input_contract", "output_contract", "preconditions", "forbidden_data", "model_state", "state_reason", "model_version", "model_sha256", "model_path_env", "media_root_env", "manifest_path", "gallery_path_env", "quality_metrics", "latency_p95_target_ms", "qualification_criteria", "missing_media_state", "missing_model_state", "snapshot_v3"],
+      "properties": {
+        "name": {"enum": ["face_recognition", "vehicle_presence", "plate_reading", "animal_presence", "camera_health", "human_pose"]},
+        "role": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,80}$"},
+        "initial_status": {"enum": ["not_configured", "unavailable", "simulated_test", "dry_run", "available", "failed"]},
+        "input_contract": {"const": "external_media_slot/v1"},
+        "output_contract": {"const": "synora.vision.evidence/v1"},
+        "preconditions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/token"}},
+        "forbidden_data": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/token"}},
+        "model_state": {"enum": ["not_configured", "unavailable", "available", "failed"]},
+        "state_reason": {"$ref": "#/$defs/token"},
+        "model_version": {"type": ["string", "null"]},
+        "model_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "model_path_env": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$"},
+        "media_root_env": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$"},
+        "manifest_path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[a-zA-Z0-9_./-]+$"},
+        "gallery_path_env": {"type": "string"},
+        "quality_metrics": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/token"}},
+        "latency_p95_target_ms": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "qualification_criteria": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/token"}},
+        "missing_media_state": {"enum": ["not_run", "unavailable"]},
+        "missing_model_state": {"enum": ["not_configured", "unavailable"]},
+        "snapshot_v3": {
+          "type": "object", "additionalProperties": false,
+          "required": ["encoded", "not_encoded"],
+          "properties": {
+            "encoded": {"type": "array", "items": {"$ref": "#/$defs/token"}},
+            "not_encoded": {"type": "array", "items": {"$ref": "#/$defs/token"}}
+          }
         }
-      }
-    }
+      },
+      "allOf": [
+        {"if": {"properties": {"model_state": {"const": "available"}}, "required": ["model_state"]}, "then": {"properties": {"model_version": {"type": "string", "minLength": 1}, "model_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}}},
+        {"if": {"properties": {"name": {"const": "face_recognition"}}, "required": ["name"]}, "then": {"properties": {"gallery_path_env": {"pattern": "^[A-Z][A-Z0-9_]{1,63}$"}}}},
+        {"if": {"properties": {"name": {"const": "human_pose"}}, "required": ["name"]}, "then": {"properties": {"manifest_path": {"const": "testdata/central-e2e-v1/media/le2i-v1-regression.json"}}}}
+      ]
+    },
+    "token": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{1,63}$"}
   }
 }

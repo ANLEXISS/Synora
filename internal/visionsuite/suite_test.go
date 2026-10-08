@@ -77,11 +77,15 @@ func TestInactiveModulesAreExplicitAndPlaceholdersNeverInvokePlugins(t *testing.
 		t.Fatal(err)
 	}
 	states := InactiveModules()
-	if len(states) != 5 {
-		t.Fatalf("expected five declared inactive modules, got %d", len(states))
+	if len(states) != 6 {
+		t.Fatalf("expected six declared modules, got %d", len(states))
 	}
-	for _, state := range states {
-		if state.State != "not_configured" {
+	for name, state := range states {
+		if name == ModulePose {
+			if state.State != "unavailable" {
+				t.Fatalf("pose backend must remain explicitly unavailable without a model: %+v", state)
+			}
+		} else if state.State != "not_configured" {
 			t.Fatalf("module was implicitly activated: %+v", state)
 		}
 	}
@@ -102,13 +106,51 @@ func TestCommittedModuleRegistryIsStrictAndInactive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(digest) != 64 || registry.SchemaVersion != "synora.vision.module-registry/v1" || len(states) != 5 {
+	if len(digest) != 64 || registry.SchemaVersion != "synora.vision.module-registry/v1" || len(states) != 6 {
 		t.Fatalf("invalid module registry: %+v", registry)
 	}
 	for name, state := range states {
-		if state.State != "not_configured" || state.ModelVersion != "" || state.ModelSHA256 != "" {
+		want := "not_configured"
+		if name == ModulePose {
+			want = "unavailable"
+		}
+		if state.State != want || state.ModelVersion != "" || state.ModelSHA256 != "" {
 			t.Fatalf("module %s has an implicit model configuration: %+v", name, state)
 		}
+	}
+	if len(registry.Modules) != 6 || registry.Modules[0].OutputContract != contract.EventVisionEvidenceV1 {
+		t.Fatalf("canonical module registry lacks the Evidence V1 output contract: %+v", registry)
+	}
+}
+
+func TestFilterCaseRunsOnlyDeclaredCase(t *testing.T) {
+	manifest, _, err := LoadManifest("../../testdata/vision-v1/suites/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered, err := FilterCase(manifest, "face_known_03")
+	if err != nil || len(filtered.Suites) != 1 || filtered.Suites[0].CaseID != "face_known_03" {
+		t.Fatalf("case filter did not select the declared case: len=%d err=%v", len(filtered.Suites), err)
+	}
+	if _, err := FilterCase(manifest, "face_known_missing"); err == nil {
+		t.Fatal("case filter accepted an undeclared case")
+	}
+}
+
+func TestAvailableMediaRequiresVerifiedTechnicalMetadata(t *testing.T) {
+	manifest, _, err := LoadManifest("../../testdata/vision-v1/suites/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Suites[0].AssetStatus = "available"
+	manifest.Suites[0].ClipSHA256 = strings.Repeat("a", 64)
+	manifest.Suites[0].Technical = TechnicalMetadata{Container: "mp4", Codec: "h264", Width: 640, Height: 480, Frames: 30, Duration: "1s"}
+	if err := ValidateManifest(manifest); err != nil {
+		t.Fatalf("complete technical metadata rejected: %v", err)
+	}
+	manifest.Suites[0].Technical.Duration = "pending"
+	if err := ValidateManifest(manifest); err == nil {
+		t.Fatal("available media with unparseable duration was accepted")
 	}
 }
 
@@ -213,7 +255,7 @@ func TestPluginResultMustBeEvidenceV1AndPipelineMustRemainDryRun(t *testing.T) {
 	modelDigest := sha256.Sum256(modelBytes)
 	modelHash := hex.EncodeToString(modelDigest[:])
 	mediaDigest := sha256.Sum256([]byte("non-media unit fixture"))
-	slot := Slot{Suite: "face_known", CaseID: "face_known_01", ClipRelativePath: "face_known/slot.mp4", ClipSHA256: hex.EncodeToString(mediaDigest[:]), Module: ModuleFace, AssetStatus: "available", Expected: Expectation{State: "recognized", ConfidenceMinimum: intPointer(80)}}
+	slot := Slot{Suite: "face_known", CaseID: "face_known_01", ClipRelativePath: "face_known/slot.mp4", ClipSHA256: hex.EncodeToString(mediaDigest[:]), Module: ModuleFace, AssetStatus: "available", Technical: TechnicalMetadata{Container: "mp4", Codec: "h264", Width: 640, Height: 480, Frames: 30, Duration: "1s"}, Expected: Expectation{State: "recognized", ConfidenceMinimum: intPointer(80)}}
 	manifest := Manifest{SchemaVersion: ManifestSchema, Version: "unit", MediaRootEnv: "SYNORA_VISION_MEDIA_ROOT", Suites: []Slot{slot}}
 	evidenceBytes, err := os.ReadFile("../../pkg/contract/testdata/v1/vision-evidence-v1.json")
 	if err != nil {
@@ -237,12 +279,26 @@ func TestPluginResultMustBeEvidenceV1AndPipelineMustRemainDryRun(t *testing.T) {
 		}
 		return PipelineResult{CoreReached: true, StoreWritten: true, SnapshotEncoded: true, MLPExecuted: true, SafetyGateChecked: true, DryRunResult: true}, nil
 	}
-	report := Execute(context.Background(), manifest, "digest", mediaRoot, map[string]string{ModuleFace: modelPath}, map[string]Module{ModuleFace: plugin}, pipeline)
+	states := InactiveModules()
+	states[ModuleFace] = ModuleDescriptor{Name: ModuleFace, State: "available", ModelVersion: "test-plugin-v1", ModelSHA256: modelHash, InputCompatible: true, OutputCompatible: true, Reason: "unit_fixture"}
+	probe := func(context.Context, string) (MediaProbe, error) {
+		return MediaProbe{Container: "mp4", Codec: "h264", Width: 640, Height: 480, Frames: 30, Duration: 1}, nil
+	}
+	report := ExecuteWithStatesAndProbe(context.Background(), manifest, "digest", mediaRoot, states, map[string]string{ModuleFace: modelPath}, map[string]Module{ModuleFace: plugin}, pipeline, probe)
 	if !called || report.Executed != 1 || report.Qualified != 0 || !report.InferenceRun || report.Cases[0].Status != "executed" || report.Cases[0].SemanticResult != "recognized" || report.Cases[0].ConfidencePercent != 93 {
 		t.Fatalf("expected a redacted, unqualified Evidence V1 execution: %+v", report)
 	}
 	if report.Cases[0].Pipeline.PhysicalAction || report.Cases[0].Pipeline.AudioRendered || report.Cases[0].Pipeline.NetworkAccess || report.Cases[0].Pipeline.RawVisionForwarded {
 		t.Fatalf("unsafe pipeline flags were present: %+v", report.Cases[0].Pipeline)
+	}
+	reportJSON, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{mediaPath, modelPath, "MediaPath", "ModelPath", "clip_relative_path"} {
+		if strings.Contains(string(reportJSON), forbidden) {
+			t.Fatalf("execution report leaked a sensitive path/field %q", forbidden)
+		}
 	}
 }
 
