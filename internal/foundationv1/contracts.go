@@ -77,12 +77,18 @@ type RedactedEvidence struct {
 }
 
 type Peripheral struct {
-	ID           string            `json:"id"`
-	Type         string            `json:"type"`
-	Zone         string            `json:"zone"`
-	Status       FunctionStatus    `json:"status"`
-	State        string            `json:"state"` // known, unknown
-	Capabilities []CapabilityState `json:"capabilities"`
+	ID               string            `json:"id"`
+	Type             string            `json:"type"`
+	Zone             string            `json:"zone"`
+	Status           FunctionStatus    `json:"status"`
+	State            string            `json:"state"` // known, unknown
+	DesiredState     string            `json:"desired_state"`
+	ObservedState    string            `json:"observed_state"`
+	Health           string            `json:"health"` // healthy, degraded, unavailable, unknown
+	LastConfirmation time.Time         `json:"last_confirmation,omitempty"`
+	Provenance       string            `json:"provenance"` // user_configured, inferred, device_feedback, unknown
+	Permissions      []string          `json:"permissions"`
+	Capabilities     []CapabilityState `json:"capabilities"`
 }
 
 type CapabilityState struct {
@@ -92,42 +98,59 @@ type CapabilityState struct {
 }
 
 type ActionProposal struct {
-	RequestID  string `json:"request_id"`
-	EpisodeID  string `json:"episode_id,omitempty"`
-	Action     string `json:"action"`
-	Capability string `json:"capability"`
-	Zone       string `json:"zone"`
+	RequestID  string    `json:"request_id"`
+	EpisodeID  string    `json:"episode_id,omitempty"`
+	Action     string    `json:"action"`
+	Capability string    `json:"capability"`
+	Zone       string    `json:"zone"`
+	Priority   string    `json:"priority,omitempty"`
+	CooldownNS int64     `json:"cooldown_ns,omitempty"`
+	ExpiresAt  time.Time `json:"expires_at,omitempty"`
 }
 
 type ActionResult struct {
-	RequestID              string         `json:"request_id"`
-	Status                 string         `json:"status"` // blocked, dry_run, duplicate, unavailable
-	Reason                 string         `json:"reason,omitempty"`
-	PeripheralState        string         `json:"peripheral_state"` // unknown unless feedback exists
-	PhysicalActionExecuted bool           `json:"physical_action_executed"`
-	FunctionStatus         FunctionStatus `json:"function_status"`
+	RequestID              string          `json:"request_id"`
+	Status                 string          `json:"status"` // allowed_dry_run, blocked, suppressed, unknown_result, failed
+	Reason                 string          `json:"reason,omitempty"`
+	Proposal               *ActionProposal `json:"proposal,omitempty"`
+	PeripheralState        string          `json:"peripheral_state"` // unknown unless feedback exists
+	IdempotentReplay       bool            `json:"idempotent_replay"`
+	PhysicalActionExecuted bool            `json:"physical_action_executed"`
+	FunctionStatus         FunctionStatus  `json:"function_status"`
 }
 
+const (
+	ActionAllowedDryRun = "allowed_dry_run"
+	ActionBlocked       = "blocked"
+	ActionSuppressed    = "suppressed"
+	ActionUnknownResult = "unknown_result"
+	ActionFailed        = "failed"
+)
+
 type CommunicationIntent struct {
-	ID        string        `json:"id"`
-	Zones     []string      `json:"zones"`
-	Priority  string        `json:"priority"`
-	Cooldown  time.Duration `json:"cooldown_ns"`
-	Recipient string        `json:"recipient"` // abstract role, not a person identity
-	TextKey   string        `json:"text_key"`  // symbolic key; no rendered speech or free-form sensitive text
+	ID                string        `json:"id"`
+	Zones             []string      `json:"zones"`
+	Priority          string        `json:"priority"`
+	Cooldown          time.Duration `json:"cooldown_ns"`
+	Recipient         string        `json:"recipient"` // abstract role, not a person identity
+	TextKey           string        `json:"text_key"`  // symbolic key; no rendered speech or free-form sensitive text
+	PermissionGranted bool          `json:"permission_granted"`
 }
 
 type CommunicationRequest struct {
-	IntentID      string         `json:"intent_id"`
-	Zones         []string       `json:"zones"`
-	Priority      string         `json:"priority"`
-	Cooldown      time.Duration  `json:"cooldown_ns"`
-	Recipient     string         `json:"recipient"`
-	TextKey       string         `json:"text_key"`
-	Status        string         `json:"status"` // queued_dry_run, suppressed
-	Reason        string         `json:"reason,omitempty"`
-	TTSStatus     FunctionStatus `json:"tts_status"`
-	AudioRendered bool           `json:"audio_rendered"`
+	IntentID          string         `json:"intent_id"`
+	Zones             []string       `json:"zones"`
+	Priority          string         `json:"priority"`
+	Cooldown          time.Duration  `json:"cooldown_ns"`
+	Recipient         string         `json:"recipient"`
+	TextKey           string         `json:"text_key"`
+	PermissionGranted bool           `json:"permission_granted"`
+	Status            string         `json:"status"` // queued_dry_run, suppressed
+	Reason            string         `json:"reason,omitempty"`
+	ScheduledAt       time.Time      `json:"scheduled_at"`
+	IdempotentReplay  bool           `json:"idempotent_replay"`
+	TTSStatus         FunctionStatus `json:"tts_status"`
+	AudioRendered     bool           `json:"audio_rendered"`
 }
 
 type SearchQuery struct {
@@ -140,9 +163,12 @@ type SearchQuery struct {
 type SearchState struct {
 	Status              FunctionStatus       `json:"status"`
 	QueryID             string               `json:"query_id"`
+	Result              string               `json:"result"`      // found, not_found, ambiguous, coverage_unknown, expired
 	Occupancy           string               `json:"occupancy"`   // unknown, occupied, unoccupied
 	Coverage            string               `json:"coverage"`    // unknown, partial, complete
 	Association         string               `json:"association"` // none, ambiguous, single_observation
+	Confidence          string               `json:"confidence"`  // coarse bucket only
+	Provenance          string               `json:"provenance"`  // observed, inferred, user_provided, unknown
 	LastObservation     *RedactedObservation `json:"last_observation,omitempty"`
 	ExpiresAt           time.Time            `json:"expires_at,omitempty"`
 	CrossCameraIdentity bool                 `json:"cross_camera_identity"`
@@ -159,7 +185,13 @@ type RedactedObservation struct {
 }
 
 type Zone struct {
-	ID string `json:"id"`
+	ID          string    `json:"id"`
+	Type        string    `json:"type"`        // public, protected, service, unknown
+	Coverage    string    `json:"coverage"`    // covered, partial, uncovered, unknown
+	Uncertainty string    `json:"uncertainty"` // low, medium, high, unknown
+	Provenance  string    `json:"provenance"`  // observed, inferred, user_provided, unknown
+	ExpiresAt   time.Time `json:"expires_at,omitempty"`
+	DeviceIDs   []string  `json:"device_ids,omitempty"`
 }
 
 type Transition struct {
@@ -169,18 +201,26 @@ type Transition struct {
 
 type Topology struct {
 	Status      FunctionStatus `json:"status"`
+	Integrity   string         `json:"integrity"` // valid, incomplete, contradictory, unknown
+	RootZone    string         `json:"root_zone,omitempty"`
+	Provenance  string         `json:"provenance"` // observed, inferred, user_provided, unknown
+	ObservedAt  time.Time      `json:"observed_at,omitempty"`
+	ExpiresAt   time.Time      `json:"expires_at,omitempty"`
 	Zones       []Zone         `json:"zones"`
 	Connections []Transition   `json:"allowed_transitions"`
 }
 
 type Correlation struct {
-	ID             string   `json:"id"`
-	EpisodeID      string   `json:"episode_id"`
-	ObservationIDs []string `json:"observation_ids"`
-	Confidence     string   `json:"confidence"`
-	Classification string   `json:"classification"` // hypothesis, observed, ambiguous
-	EvidenceRef    string   `json:"evidence_ref,omitempty"`
-	Biometric      bool     `json:"biometric_association"`
+	ID             string    `json:"id"`
+	EpisodeID      string    `json:"episode_id"`
+	ObservationIDs []string  `json:"observation_ids"`
+	Confidence     string    `json:"confidence"`
+	Classification string    `json:"classification"` // hypothesis, observed, ambiguous
+	Status         string    `json:"status"`         // active, expired, conflict
+	Provenance     string    `json:"provenance"`     // inferred, observed, user_provided, unknown
+	ExpiresAt      time.Time `json:"expires_at,omitempty"`
+	EvidenceRef    string    `json:"evidence_ref,omitempty"`
+	Biometric      bool      `json:"biometric_association"`
 }
 
 type Record struct {

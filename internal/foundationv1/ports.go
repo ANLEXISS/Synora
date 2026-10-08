@@ -200,6 +200,8 @@ type Pipeline struct {
 	MLP            MLPPort
 	Gate           GatePort
 	Executor       ExecutorPort
+	ActionPolicy   *ActionPolicy
+	Arbitrator     *ActionArbitrator
 	Communications *CommunicationScheduler
 	Now            func() time.Time
 }
@@ -254,6 +256,9 @@ func (p Pipeline) Run(ctx context.Context, input PipelineInput) (PipelineResult,
 	}
 	journey = append(journey, "core_processed", "mlp_proposed", "safety_gate_evaluated")
 	proposal, allowed := coreOutput.Proposal, coreOutput.Allowed
+	if !validActionProposal(proposal) {
+		return PipelineResult{}, errors.New("Core returned an invalid abstract action proposal")
+	}
 	reason := coreOutput.Decision
 	if !allowed && input.GateReason != "" {
 		reason = input.GateReason
@@ -266,6 +271,13 @@ func (p Pipeline) Run(ctx context.Context, input PipelineInput) (PipelineResult,
 		if !ok {
 			return PipelineResult{}, errors.New("invalid abstract communication intent")
 		}
+		stored, _, err := p.Store.FoundationSnapshot(ctx)
+		if err != nil {
+			return PipelineResult{}, err
+		}
+		if err := p.Communications.RestoreFromRecords(stored); err != nil {
+			return PipelineResult{}, err
+		}
 		request, err := p.Communications.Schedule(intent, allowed, now)
 		if err != nil {
 			return PipelineResult{}, err
@@ -277,23 +289,66 @@ func (p Pipeline) Run(ctx context.Context, input PipelineInput) (PipelineResult,
 	}
 	var result ActionResult
 	executorInvoked := false
+	storedRecords, _, err := p.Store.FoundationSnapshot(ctx)
+	if err != nil {
+		return PipelineResult{}, err
+	}
+	if p.Arbitrator != nil {
+		if err := p.Arbitrator.RestoreFromRecords(storedRecords); err != nil {
+			return PipelineResult{}, err
+		}
+	}
 	priorResult, duplicate, err := findActionResult(ctx, p.Store, proposal.RequestID)
 	if err != nil {
 		return PipelineResult{}, err
 	}
 	if duplicate {
-		result = priorResult
-		result.Status = "duplicate"
+		if priorResult.Proposal == nil || !sameActionProposal(*priorResult.Proposal, proposal) {
+			result = ActionResult{RequestID: proposal.RequestID, Status: ActionFailed, Reason: "idempotency_key_conflict", PeripheralState: "unknown", PhysicalActionExecuted: false, FunctionStatus: StatusFailed}
+		} else {
+			result = priorResult
+			result.IdempotentReplay = true
+		}
 	} else if !allowed {
-		result = ActionResult{RequestID: proposal.RequestID, Status: "blocked", Reason: reason, PeripheralState: "unknown", PhysicalActionExecuted: false, FunctionStatus: StatusDryRun}
+		result = ActionResult{RequestID: proposal.RequestID, Status: ActionBlocked, Reason: reason, PeripheralState: "unknown", PhysicalActionExecuted: false, FunctionStatus: StatusDryRun}
+	} else if proposal.Action == "no_action" {
+		result = ActionResult{RequestID: proposal.RequestID, Status: ActionSuppressed, Reason: "no_action_proposed", PeripheralState: "unknown", PhysicalActionExecuted: false, FunctionStatus: StatusDryRun}
 	} else {
-		executorInvoked = true
-		result, err = p.Executor.ExecuteDryRun(ctx, proposal)
-		if err != nil {
-			return PipelineResult{}, err
+		peripheralState := "unknown"
+		policyAllowed, policyReason := false, "action_policy_not_configured"
+		if p.ActionPolicy != nil {
+			policyAllowed, policyReason, peripheralState = p.ActionPolicy.Authorize(proposal, now)
+		}
+		if !policyAllowed {
+			result = ActionResult{RequestID: proposal.RequestID, Status: ActionSuppressed, Reason: policyReason, PeripheralState: peripheralState, PhysicalActionExecuted: false, FunctionStatus: StatusUnavailable}
+		} else {
+			arbitration := ArbitrationDecision{Outcome: "eligible"}
+			if p.Arbitrator != nil {
+				arbitration = p.Arbitrator.ResolveBatch([]ActionProposal{proposal}, now)[0]
+			}
+			if arbitration.Outcome != "eligible" {
+				result = ActionResult{RequestID: proposal.RequestID, Status: ActionSuppressed, Reason: arbitration.Reason, PeripheralState: peripheralState, PhysicalActionExecuted: false, FunctionStatus: StatusDryRun}
+			} else {
+				executorInvoked = true
+				result, err = p.Executor.ExecuteDryRun(ctx, proposal)
+				if err != nil {
+					result = ActionResult{RequestID: proposal.RequestID, PeripheralState: "unknown", PhysicalActionExecuted: false, FunctionStatus: StatusFailed}
+					if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+						result.Status, result.Reason, result.FunctionStatus = ActionUnknownResult, "executor_timeout", StatusUnavailable
+					} else {
+						result.Status, result.Reason = ActionFailed, "executor_failed"
+					}
+				} else if result.RequestID == "" {
+					result = ActionResult{RequestID: proposal.RequestID, Status: ActionUnknownResult, Reason: "executor_result_missing", PeripheralState: "unknown", PhysicalActionExecuted: false, FunctionStatus: StatusUnavailable}
+				} else if !validActionResult(result, proposal.RequestID) {
+					result = ActionResult{RequestID: proposal.RequestID, Status: ActionFailed, Reason: "invalid_executor_result", PeripheralState: "unknown", PhysicalActionExecuted: false, FunctionStatus: StatusFailed}
+				}
+			}
 		}
 	}
-	journey = append(journey, "dry_run_executor", "result_store_written")
+	journey = append(journey, "action_resolved", "result_store_written")
+	proposalCopy := proposal
+	result.Proposal = &proposalCopy
 	resultRecord := Record{ID: "action-result-" + proposal.RequestID + "-" + input.ScenarioID, Kind: "action_result", Status: result.FunctionStatus, Payload: result, CreatedAt: now}
 	revision, err = p.Store.PutFoundation(ctx, resultRecord)
 	if err != nil {
@@ -306,9 +361,30 @@ func (p Pipeline) Run(ctx context.Context, input PipelineInput) (PipelineResult,
 	journey = append(journey, "api_projected")
 	snapshot := project(records, revision, result, now)
 	if err := ValidatePublicState(snapshot); err != nil {
-		return PipelineResult{}, err
+		return PipelineResult{}, fmt.Errorf("validate projected foundation state: %w", err)
 	}
 	return PipelineResult{ScenarioID: input.ScenarioID, Status: "completed", Journey: journey, Revision: revision, CoreRevision: coreOutput.StoreRevision, Action: result, API: snapshot, PhysicalActionExecuted: false, AudioRendered: false, ModelLoaded: false, ExecutorInvoked: executorInvoked}, nil
+}
+
+func sameActionProposal(a, b ActionProposal) bool {
+	left, leftErr := json.Marshal(a)
+	right, rightErr := json.Marshal(b)
+	return leftErr == nil && rightErr == nil && string(left) == string(right)
+}
+
+func validActionResult(result ActionResult, requestID string) bool {
+	if result.RequestID != requestID || result.PhysicalActionExecuted || !result.FunctionStatus.Valid() {
+		return false
+	}
+	if result.Proposal != nil && (!validActionProposal(*result.Proposal) || result.Proposal.RequestID != requestID) {
+		return false
+	}
+	switch result.Status {
+	case ActionAllowedDryRun, ActionBlocked, ActionSuppressed, ActionUnknownResult, ActionFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func findActionResult(ctx context.Context, store StorePort, requestID string) (ActionResult, bool, error) {
@@ -370,12 +446,12 @@ func project(records []Record, revision uint64, action ActionResult, now time.Ti
 			}
 		case "topology":
 			if topology, ok := asTopology(record.Payload); ok {
-				state.Topology = topology
-				state.Functions.Topology = topology.Status
+				state.Topology = topology.EffectiveAt(now)
+				state.Functions.Topology = state.Topology.Status
 			}
 		case "correlation":
 			if correlation, ok := asCorrelation(record.Payload); ok {
-				state.Correlations = append(state.Correlations, correlation)
+				state.Correlations = append(state.Correlations, ExpireCorrelation(correlation, now))
 				state.Functions.Topology = record.Status
 			}
 		}

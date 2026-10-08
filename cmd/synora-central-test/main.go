@@ -845,17 +845,26 @@ func refreshPipelineAccounting(report *suiteReport) {
 	}
 	if report.FoundationV1E2E != nil {
 		completed, rejected, incomplete := 0, 0, 0
+		terminalCounts := map[string]int{
+			"completed": 0, "expected_rejection": 0, "blocked": 0,
+			"suppressed": 0, "unknown_result": 0, "failed_expected": 0,
+		}
 		for _, item := range report.FoundationV1E2E.Cases {
 			switch item.TerminalStatus {
 			case "completed":
 				completed++
-				report.PipelineTerminalStatusCounts["completed"]++
+				terminalCounts["completed"]++
 			case "rejected_expected":
 				rejected++
-				report.PipelineTerminalStatusCounts["expected_rejection"]++
+				terminalCounts["expected_rejection"]++
+			case "blocked", "suppressed", "unknown_result", "failed_expected":
+				// These are complete, structured terminal outcomes. They are not
+				// successful action executions, but the journey itself completed.
+				completed++
+				terminalCounts[item.TerminalStatus]++
 			default:
 				incomplete++
-				report.PipelineTerminalStatusCounts["incomplete"]++
+				terminalCounts["incomplete"]++
 			}
 			if len(item.Journey) > 0 {
 				journeyCount++
@@ -864,7 +873,17 @@ func refreshPipelineAccounting(report *suiteReport) {
 		report.PipelineCompletedCount += completed
 		report.PipelineRejectedExpectedCount += rejected
 		report.PipelineIncompleteCount += incomplete
-		foundationAccountingValid = completed == report.FoundationV1E2E.JourneysTerminalCompleted && rejected == report.FoundationV1E2E.JourneysTerminalRejectedExpected && incomplete == report.FoundationV1E2E.JourneysIncomplete
+		for status, count := range terminalCounts {
+			report.PipelineTerminalStatusCounts[status] += count
+		}
+		foundationAccountingValid =
+			terminalCounts["completed"] == report.FoundationV1E2E.JourneysTerminalCompleted &&
+				terminalCounts["expected_rejection"] == report.FoundationV1E2E.JourneysTerminalRejectedExpected &&
+				terminalCounts["blocked"] == report.FoundationV1E2E.JourneysTerminalBlocked &&
+				terminalCounts["suppressed"] == report.FoundationV1E2E.JourneysTerminalSuppressed &&
+				terminalCounts["unknown_result"] == report.FoundationV1E2E.JourneysTerminalUnknownResult &&
+				terminalCounts["failed_expected"] == report.FoundationV1E2E.JourneysTerminalFailedExpected &&
+				incomplete == report.FoundationV1E2E.JourneysIncomplete
 	}
 	// Empty/missing journeys are counted incomplete too; the reporting loop above
 	// counts each included case exactly once, including cases without a journey.

@@ -372,6 +372,29 @@ func TestFoundationExpectedRejectionIsTerminalNotIncomplete(t *testing.T) {
 	}
 }
 
+func TestFoundationValidTerminalOutcomesAreNotIncomplete(t *testing.T) {
+	statuses := []string{"completed", "rejected_expected", "blocked", "suppressed", "unknown_result", "failed_expected", "incomplete"}
+	cases := make([]foundationv1.E2ECase, 0, len(statuses))
+	for _, status := range statuses {
+		cases = append(cases, foundationv1.E2ECase{TerminalStatus: status, Journey: []string{"terminal"}, Passed: true})
+	}
+	report := suiteReport{FoundationV1E2E: &foundationv1.E2ESuite{
+		Cases: cases, JourneysTerminalCompleted: 1, JourneysTerminalRejectedExpected: 1,
+		JourneysTerminalBlocked: 1, JourneysTerminalSuppressed: 1, JourneysTerminalUnknownResult: 1,
+		JourneysTerminalFailedExpected: 1, JourneysIncomplete: 1,
+	}, FoundationV1CaseCount: len(cases)}
+	refreshPipelineAccounting(&report)
+	if !report.PipelineAccountingValid || report.OverallCaseCount != len(statuses) ||
+		report.PipelineCompletedCount != 5 || report.PipelineRejectedExpectedCount != 1 || report.PipelineIncompleteCount != 1 {
+		t.Fatalf("valid Foundation terminal outcomes were misclassified: %+v", report)
+	}
+	for _, status := range []string{"completed", "expected_rejection", "blocked", "suppressed", "unknown_result", "failed_expected", "incomplete"} {
+		if report.PipelineTerminalStatusCounts[status] != 1 {
+			t.Fatalf("terminal status %q count=%d, want 1", status, report.PipelineTerminalStatusCounts[status])
+		}
+	}
+}
+
 func TestPipelineIncompleteDiagnosticsOnlyAppearForIncompleteJourney(t *testing.T) {
 	complete := caseReport{Journey: completedJourney()}
 	incomplete := caseReport{Journey: completedJourney()[:10]}
