@@ -69,7 +69,14 @@
               }
             }
           }
-        }
+        },
+        {"if": {"properties": {"suite": {"const": "face_known"}}, "required": ["suite"]}, "then": {"properties": {"expected": {"properties": {"state": {"const": "recognized"}}}}}},
+        {"if": {"properties": {"suite": {"const": "face_unknown"}}, "required": ["suite"]}, "then": {"properties": {"expected": {"properties": {"state": {"const": "unknown"}}}}}},
+        {"if": {"properties": {"suite": {"const": "face_ambiguous"}}, "required": ["suite"]}, "then": {"properties": {"expected": {"properties": {"state": {"const": "ambiguous_or_unavailable"}}}}}},
+        {"if": {"properties": {"suite": {"const": "vehicle_presence"}}, "required": ["suite"]}, "then": {"properties": {"expected": {"properties": {"state": {"enum": ["present", "absent", "ambiguous"]}}}}}},
+        {"if": {"properties": {"suite": {"const": "plate_reading"}}, "required": ["suite"]}, "then": {"properties": {"expected": {"properties": {"state": {"enum": ["recognized", "unknown", "ambiguous", "unavailable"]}}}}}},
+        {"if": {"properties": {"suite": {"const": "animal_presence"}}, "required": ["suite"]}, "then": {"properties": {"expected": {"properties": {"state": {"enum": ["present", "absent", "ambiguous"]}}}}}},
+        {"if": {"properties": {"suite": {"const": "camera_health"}}, "required": ["suite"]}, "then": {"properties": {"expected": {"properties": {"state": {"enum": ["healthy", "unavailable", "degraded", "tamper_suspected"]}}}}}}
       ]
     }
   }

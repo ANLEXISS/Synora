@@ -121,6 +121,17 @@ func TestCommittedModuleRegistryIsStrictAndInactive(t *testing.T) {
 	if len(registry.Modules) != 6 || registry.Modules[0].OutputContract != contract.EventVisionEvidenceV1 {
 		t.Fatalf("canonical module registry lacks the Evidence V1 output contract: %+v", registry)
 	}
+	manifest, manifestDigest, err := LoadManifest("../../testdata/vision-v1/suites/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateManifestPin(manifest, manifestDigest, registry); err != nil {
+		t.Fatalf("committed suite manifest did not match its pin: %v", err)
+	}
+	registry.Modules[0].ManifestSHA256 = strings.Repeat("0", 64)
+	if err := ValidateManifestPin(manifest, manifestDigest, registry); err == nil {
+		t.Fatal("altered manifest pin was accepted")
+	}
 }
 
 func TestFilterCaseRunsOnlyDeclaredCase(t *testing.T) {
@@ -134,6 +145,25 @@ func TestFilterCaseRunsOnlyDeclaredCase(t *testing.T) {
 	}
 	if _, err := FilterCase(manifest, "face_known_missing"); err == nil {
 		t.Fatal("case filter accepted an undeclared case")
+	}
+}
+
+func TestFaceLowQualityRemainsDistinctFromEvaluatedUnknown(t *testing.T) {
+	lowQuality := contract.VisionEvidenceV1{
+		Face:             contract.VisionSemanticResultV1{Availability: contract.VisionUnavailable, Result: "unknown"},
+		RuntimeAggregate: &contract.VisionRuntimeAggregateV1{FaceStatus: "low_quality"},
+	}
+	unknown := contract.VisionEvidenceV1{
+		Face: contract.VisionSemanticResultV1{Availability: contract.VisionEvaluated, Result: "unknown"},
+	}
+	if got := semanticState(lowQuality, ModuleFace); got != "low_quality" {
+		t.Fatalf("insufficient face quality collapsed into %q", got)
+	}
+	if got := semanticState(unknown, ModuleFace); got != "unknown" {
+		t.Fatalf("evaluated unknown face changed to %q", got)
+	}
+	if !matchesExpected("ambiguous_or_unavailable", semanticState(lowQuality, ModuleFace)) {
+		t.Fatal("ambiguous/degraded face fixture did not accept an explicit low-quality outcome")
 	}
 }
 
@@ -151,6 +181,43 @@ func TestAvailableMediaRequiresVerifiedTechnicalMetadata(t *testing.T) {
 	manifest.Suites[0].Technical.Duration = "pending"
 	if err := ValidateManifest(manifest); err == nil {
 		t.Fatal("available media with unparseable duration was accepted")
+	}
+}
+
+func TestUnconfiguredModuleNeverInvokesPluginEvenWithValidMedia(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "face_known"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	mediaBytes := []byte("synthetic unit bytes; not a video")
+	mediaPath := filepath.Join(root, "face_known", "slot.mp4")
+	if err := os.WriteFile(mediaPath, mediaBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	mediaHash := sha256.Sum256(mediaBytes)
+	slot := Slot{Suite: "face_known", CaseID: "face_known_01", ClipRelativePath: "face_known/slot.mp4", ClipSHA256: hex.EncodeToString(mediaHash[:]), Module: ModuleFace, AssetStatus: "available", Technical: TechnicalMetadata{Container: "mp4", Codec: "h264", Width: 640, Height: 480, Frames: 1, Duration: "1s"}, Expected: Expectation{State: "recognized"}}
+	manifest := Manifest{SchemaVersion: ManifestSchema, Version: "test", MediaRootEnv: "SYNORA_VISION_MEDIA_ROOT", Suites: []Slot{slot}}
+	probeCalls := 0
+	probe := func(context.Context, string) (MediaProbe, error) {
+		probeCalls++
+		return MediaProbe{Container: "mp4", Codec: "h264", Width: 640, Height: 480, Frames: 1, Duration: 1}, nil
+	}
+	plugin := &countingPlugin{}
+	states := InactiveModules()
+	report := ExecuteWithStatesAndProbe(context.Background(), manifest, "test-digest", root, states, map[string]string{ModuleFace: "/no/model"}, map[string]Module{ModuleFace: plugin}, nil, probe)
+	if plugin.calls != 0 || report.InferenceRun || report.Executed != 0 || report.Qualified != 0 || probeCalls != 1 || report.Cases[0].Status != "model_absent" {
+		t.Fatalf("unconfigured module was not fail-closed: plugin=%d probe=%d report=%+v", plugin.calls, probeCalls, report)
+	}
+	probeCalls = 0
+	manifest.Suites[0].ClipSHA256 = strings.Repeat("b", 64)
+	blocked := ExecuteWithStatesAndProbe(context.Background(), manifest, "test-digest", root, states, map[string]string{ModuleFace: "/no/model"}, map[string]Module{ModuleFace: plugin}, nil, probe)
+	if plugin.calls != 0 || probeCalls != 0 || blocked.Cases[0].Status != "media_quarantined" || blocked.Executed != 0 {
+		t.Fatalf("media without a matching declared hash was not rejected: plugin=%d probe=%d report=%+v", plugin.calls, probeCalls, blocked)
+	}
+	probeCalls = 0
+	unsupported := ExecuteWithModeAndProbe(context.Background(), manifest, "test-digest", root, states, nil, nil, map[string]Module{ModuleFace: plugin}, nil, "real", probe)
+	if plugin.calls != 0 || probeCalls != 0 || unsupported.ExecutionMode != "blocked" || unsupported.Cases[0].Reason != "execution_mode_not_supported" {
+		t.Fatalf("live real mode was accepted by the offline suite runner: %+v", unsupported)
 	}
 }
 
@@ -214,7 +281,7 @@ func TestReportsNeverExposeMediaPathsOrOpaqueSubjectReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"clip_relative_path", "face_known/face_known_01.mp4", "resident_test_01", "Alice", "plate_text", "bbox", "embedding"} {
+	for _, forbidden := range []string{"clip_relative_path", "face_known/face_known_01.mp4", "resident_test_01", "Alice", "plate_text", "bbox", "crop", "keypoint", "embedding", "identity", "local_track_id", "https://", "raw_media_blob"} {
 		if strings.Contains(string(body), forbidden) {
 			t.Fatalf("suite report leaked %q", forbidden)
 		}
@@ -265,6 +332,12 @@ func TestPluginResultMustBeEvidenceV1AndPipelineMustRemainDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	evidence.Provenance = "simulated_test"
+	evidence.SimulatedCamera = true
+	if evidence.RuntimeAggregate != nil {
+		evidence.RuntimeAggregate.RealDetection = false
+		evidence.RuntimeAggregate.ReplaySimulation = true
+	}
 	evidence.Face.Availability = contract.VisionEvaluated
 	evidence.Face.Result = "recognized"
 	evidence.Face.Confidence = .93
@@ -281,12 +354,25 @@ func TestPluginResultMustBeEvidenceV1AndPipelineMustRemainDryRun(t *testing.T) {
 	}
 	states := InactiveModules()
 	states[ModuleFace] = ModuleDescriptor{Name: ModuleFace, State: "available", ModelVersion: "test-plugin-v1", ModelSHA256: modelHash, InputCompatible: true, OutputCompatible: true, Reason: "unit_fixture"}
+	galleryPath := t.TempDir()
 	probe := func(context.Context, string) (MediaProbe, error) {
 		return MediaProbe{Container: "mp4", Codec: "h264", Width: 640, Height: 480, Frames: 30, Duration: 1}, nil
 	}
-	report := ExecuteWithStatesAndProbe(context.Background(), manifest, "digest", mediaRoot, states, map[string]string{ModuleFace: modelPath}, map[string]Module{ModuleFace: plugin}, pipeline, probe)
+	inputs := map[string]string{ModuleFace: galleryPath}
+	report := ExecuteWithModeAndProbe(context.Background(), manifest, "digest", mediaRoot, states, map[string]string{ModuleFace: modelPath}, inputs, map[string]Module{ModuleFace: plugin}, pipeline, ExecutionSimulatedTest, probe)
 	if !called || report.Executed != 1 || report.Qualified != 0 || !report.InferenceRun || report.Cases[0].Status != "executed" || report.Cases[0].SemanticResult != "recognized" || report.Cases[0].ConfidencePercent != 93 {
 		t.Fatalf("expected a redacted, unqualified Evidence V1 execution: %+v", report)
+	}
+	if plugin.calls != 1 {
+		t.Fatalf("expected exactly one synthetic plugin invocation, got %d", plugin.calls)
+	}
+	if plugin.galleryPath != galleryPath {
+		t.Fatalf("consented external gallery path was not passed to face plugin: %q", plugin.galleryPath)
+	}
+	called = false
+	noGallery := ExecuteWithStatesAndProbe(context.Background(), manifest, "digest", mediaRoot, states, map[string]string{ModuleFace: modelPath}, map[string]Module{ModuleFace: plugin}, pipeline, probe)
+	if called || plugin.calls != 1 || noGallery.Cases[0].Status != "model_unavailable" || noGallery.InferenceRun {
+		t.Fatalf("face module ran without a configured external gallery: calls=%d report=%+v", plugin.calls, noGallery)
 	}
 	if report.Cases[0].Pipeline.PhysicalAction || report.Cases[0].Pipeline.AudioRendered || report.Cases[0].Pipeline.NetworkAccess || report.Cases[0].Pipeline.RawVisionForwarded {
 		t.Fatalf("unsafe pipeline flags were present: %+v", report.Cases[0].Pipeline)
@@ -295,21 +381,70 @@ func TestPluginResultMustBeEvidenceV1AndPipelineMustRemainDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{mediaPath, modelPath, "MediaPath", "ModelPath", "clip_relative_path"} {
+	for _, forbidden := range []string{mediaPath, modelPath, galleryPath, "MediaPath", "ModelPath", "GalleryPath", "clip_relative_path"} {
 		if strings.Contains(string(reportJSON), forbidden) {
 			t.Fatalf("execution report leaked a sensitive path/field %q", forbidden)
 		}
 	}
+	badModelPath := filepath.Join(t.TempDir(), "different-model.placeholder")
+	if err := os.WriteFile(badModelPath, []byte("different synthetic model bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	called = false
+	badModelReport := ExecuteWithInputsAndProbe(context.Background(), manifest, "digest", mediaRoot, states, map[string]string{ModuleFace: badModelPath}, inputs, map[string]Module{ModuleFace: plugin}, pipeline, probe)
+	if called || plugin.calls != 1 || badModelReport.Cases[0].Status != "model_unavailable" || badModelReport.InferenceRun {
+		t.Fatalf("model hash mismatch was not rejected before plugin execution: calls=%d report=%+v", plugin.calls, badModelReport)
+	}
+	unsafePipelineCases := []struct {
+		name   string
+		mutate func(*PipelineResult)
+	}{
+		{"safety_gate_skipped", func(result *PipelineResult) { result.SafetyGateChecked = false }},
+		{"physical_action", func(result *PipelineResult) { result.PhysicalAction = true }},
+		{"audio_rendered", func(result *PipelineResult) { result.AudioRendered = true }},
+		{"external_network", func(result *PipelineResult) { result.NetworkAccess = true }},
+		{"raw_vision_forwarded", func(result *PipelineResult) { result.RawVisionForwarded = true }},
+	}
+	for _, testCase := range unsafePipelineCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			pipelineCalled := false
+			unsafePipeline := func(context.Context, contract.VisionEvidenceV1) (PipelineResult, error) {
+				pipelineCalled = true
+				result := PipelineResult{CoreReached: true, StoreWritten: true, SnapshotEncoded: true, MLPExecuted: true, SafetyGateChecked: true, DryRunResult: true}
+				testCase.mutate(&result)
+				return result, nil
+			}
+			unsafeReport := ExecuteWithModeAndProbe(context.Background(), manifest, "digest", mediaRoot, states, map[string]string{ModuleFace: modelPath}, inputs, map[string]Module{ModuleFace: plugin}, unsafePipeline, ExecutionSimulatedTest, probe)
+			if !pipelineCalled || unsafeReport.Cases[0].Status != "failed" || unsafeReport.Qualified != 0 {
+				t.Fatalf("unsafe pipeline result was accepted: %+v", unsafeReport.Cases[0])
+			}
+		})
+	}
+	evidence.Provenance, evidence.SimulatedCamera = "real", false
+	if evidence.RuntimeAggregate != nil {
+		evidence.RuntimeAggregate.RealDetection = true
+		evidence.RuntimeAggregate.ReplaySimulation = false
+	}
+	plugin.evidence = evidence
+	called = false
+	provenanceMismatch := ExecuteWithModeAndProbe(context.Background(), manifest, "digest", mediaRoot, states, map[string]string{ModuleFace: modelPath}, inputs, map[string]Module{ModuleFace: plugin}, pipeline, ExecutionSimulatedTest, probe)
+	if called || provenanceMismatch.Cases[0].Status != "failed" || provenanceMismatch.Cases[0].Reason != "evidence_provenance_does_not_match_execution_mode" {
+		t.Fatalf("real provenance was confused with simulated_test mode: %+v", provenanceMismatch.Cases[0])
+	}
 }
 
 type resultPlugin struct {
-	descriptor ModuleDescriptor
-	evidence   contract.VisionEvidenceV1
+	descriptor  ModuleDescriptor
+	evidence    contract.VisionEvidenceV1
+	calls       int
+	galleryPath string
 }
 
 func (p *resultPlugin) Descriptor() ModuleDescriptor { return p.descriptor }
 func (p *resultPlugin) Run(_ context.Context, input ModuleInput) (ModuleResult, error) {
-	if input.CaseID == "" || input.Suite == "" || input.Module != ModuleFace {
+	p.calls++
+	p.galleryPath = input.GalleryPath
+	if input.CaseID == "" || input.Suite == "" || input.Module != ModuleFace || input.ExecutionMode != ExecutionSimulatedTest {
 		return ModuleResult{}, context.Canceled
 	}
 	return ModuleResult{Evidence: &p.evidence, InferenceExecuted: true}, nil

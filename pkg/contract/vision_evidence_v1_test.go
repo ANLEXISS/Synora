@@ -60,6 +60,38 @@ func TestVisionEvidenceV1GoldenAndStrictRejection(t *testing.T) {
 	}
 }
 
+func TestVisionEvidenceV1SeparatesRealReplayAndSimulatedTestProvenance(t *testing.T) {
+	body := visionEvidenceFixture(t)
+	for _, provenance := range []string{"real", "replay", "simulated_test"} {
+		t.Run(provenance, func(t *testing.T) {
+			var value map[string]any
+			if err := json.Unmarshal(body, &value); err != nil {
+				t.Fatal(err)
+			}
+			value["provenance"] = provenance
+			aggregate := value["runtime_aggregate"].(map[string]any)
+			switch provenance {
+			case "real":
+				value["simulated_camera"] = false
+				aggregate["real_detection"], aggregate["replay_simulation"] = true, false
+			case "replay":
+				value["simulated_camera"] = false
+				aggregate["real_detection"], aggregate["replay_simulation"] = false, true
+			case "simulated_test":
+				value["simulated_camera"] = true
+				aggregate["real_detection"], aggregate["replay_simulation"] = false, true
+			}
+			encoded, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeVisionEvidenceV1(encoded); err != nil {
+				t.Fatalf("valid %s provenance rejected: %v", provenance, err)
+			}
+		})
+	}
+}
+
 func TestVisionEvidenceV1ClosedFunctionalVocabularies(t *testing.T) {
 	body := visionEvidenceFixture(t)
 	for family, states := range map[string][]string{

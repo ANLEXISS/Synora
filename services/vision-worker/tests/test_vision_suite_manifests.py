@@ -1,4 +1,5 @@
 import json
+import hashlib
 import re
 import unittest
 from pathlib import Path
@@ -15,6 +16,15 @@ SUITE_MINIMUMS = {
     "plate_reading": 10,
     "animal_presence": 10,
     "camera_health": 10,
+}
+EXPECTED_STATES = {
+    "face_known": {"recognized"},
+    "face_unknown": {"unknown"},
+    "face_ambiguous": {"ambiguous_or_unavailable"},
+    "vehicle_presence": {"present", "absent", "ambiguous"},
+    "plate_reading": {"recognized", "unknown", "ambiguous", "unavailable"},
+    "animal_presence": {"present", "absent", "ambiguous"},
+    "camera_health": {"healthy", "unavailable", "degraded", "tamper_suspected"},
 }
 MODULE_BY_SUITE = {
     "face_known": "face_recognition",
@@ -35,6 +45,13 @@ SLOT_KEYS = {
 }
 TECHNICAL_KEYS = {"container", "codec", "width", "height", "frame_count", "duration"}
 EXPECTED_KEYS = {"state", "presence", "confidence_minimum_percent", "subject_ref"}
+REGISTRY_MODULE_KEYS = {
+    "name", "role", "initial_status", "input_contract", "output_contract", "preconditions",
+    "forbidden_data", "model_state", "state_reason", "model_version", "model_sha256",
+    "model_path_env", "media_root_env", "manifest_path", "manifest_sha256", "gallery_path_env",
+    "quality_metrics", "latency_p95_target_ms", "qualification_criteria", "missing_media_state",
+    "missing_model_state", "snapshot_v3",
+}
 CONDITION_TAGS = {
     "indoor", "outdoor", "day", "night", "low_light", "frontal", "profile", "occluded", "distant",
     "single_subject", "multi_subject", "empty_scene", "stationary", "moving", "clear", "degraded",
@@ -58,6 +75,8 @@ def validate_manifest(data):
             raise ValueError("sensitive value in media path")
         if set(slot["expected"]) - EXPECTED_KEYS:
             raise ValueError("raw or unknown semantic expectation key")
+        if slot["expected"].get("state") not in EXPECTED_STATES.get(slot["suite"], set()):
+            raise ValueError("expected state is not representable by the module's Evidence V1 output")
         technical = slot["technical_metadata"]
         if set(technical) != TECHNICAL_KEYS or any(not isinstance(technical[k], int) or technical[k] < 0 for k in ("width", "height", "frame_count")):
             raise ValueError("technical metadata is incomplete or invalid")
@@ -140,6 +159,15 @@ class VisionSuiteManifestTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_manifest(candidate)
 
+    def test_camera_health_conditions_use_only_evidence_v1_states(self):
+        source = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        for slot in (item for item in source["slots"] if item["suite"] == "camera_health"):
+            self.assertIn(slot["expected"]["state"], EXPECTED_STATES["camera_health"])
+        candidate = json.loads(json.dumps(source))
+        next(item for item in candidate["slots"] if item["suite"] == "camera_health")["expected"]["state"] = "frozen"
+        with self.assertRaises(ValueError):
+            validate_manifest(candidate)
+
     def test_inactive_modules_are_explicit(self):
         data = json.loads(MODULES.read_text(encoding="utf-8"))
         self.assertEqual(data["schema_version"], "synora.vision.module-registry/v1")
@@ -147,10 +175,14 @@ class VisionSuiteManifestTests(unittest.TestCase):
         expected_modules = {"face_recognition", "vehicle_presence", "plate_reading", "animal_presence", "camera_health", "human_pose"}
         self.assertEqual(set(modules), expected_modules)
         for item in modules.values():
+            self.assertEqual(set(item), REGISTRY_MODULE_KEYS)
             self.assertIn(item["initial_status"], {"not_configured", "unavailable"})
             self.assertIn(item["model_state"], {"not_configured", "unavailable"})
             self.assertEqual(item["input_contract"], "external_media_slot/v1")
             self.assertEqual(item["output_contract"], "synora.vision.evidence/v1")
+            self.assertRegex(item["manifest_sha256"], r"^[a-f0-9]{64}$")
+            manifest_path = ROOT / item["manifest_path"]
+            self.assertEqual(hashlib.sha256(manifest_path.read_bytes()).hexdigest(), item["manifest_sha256"])
             self.assertTrue(item["preconditions"])
             self.assertTrue(item["forbidden_data"])
             self.assertTrue(item["quality_metrics"])
@@ -161,7 +193,10 @@ class VisionSuiteManifestTests(unittest.TestCase):
             self.assertEqual(set(item["snapshot_v3"]), {"encoded", "not_encoded"})
             self.assertIsNone(item["model_version"])
             self.assertIsNone(item["model_sha256"])
-            self.assertRegex(item["model_path_env"], r"^[A-Z][A-Z0-9_]{1,63}$")
+            if item["name"] == "camera_health":
+                self.assertEqual(item["model_path_env"], "")
+            else:
+                self.assertRegex(item["model_path_env"], r"^[A-Z][A-Z0-9_]{1,63}$")
             self.assertRegex(item["media_root_env"], r"^[A-Z][A-Z0-9_]{1,63}$")
             self.assertFalse(Path(item["manifest_path"]).is_absolute())
             self.assertNotIn("..", Path(item["manifest_path"]).parts)

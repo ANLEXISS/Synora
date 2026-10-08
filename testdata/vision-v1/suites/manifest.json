@@ -1838,7 +1838,7 @@
       },
       "module": "camera_health",
       "expected": {
-        "state": "frozen"
+        "state": "degraded"
       },
       "provenance": "external_consent_required",
       "license": "pending_consent_or_license",
@@ -1869,7 +1869,7 @@
       },
       "module": "camera_health",
       "expected": {
-        "state": "obscured"
+        "state": "tamper_suspected"
       },
       "provenance": "external_consent_required",
       "license": "pending_consent_or_license",
@@ -1931,7 +1931,7 @@
       },
       "module": "camera_health",
       "expected": {
-        "state": "timestamp_invalid"
+        "state": "unavailable"
       },
       "provenance": "external_consent_required",
       "license": "pending_consent_or_license",
@@ -2024,7 +2024,7 @@
       },
       "module": "camera_health",
       "expected": {
-        "state": "frozen"
+        "state": "degraded"
       },
       "provenance": "external_consent_required",
       "license": "pending_consent_or_license",
@@ -2055,7 +2055,7 @@
       },
       "module": "camera_health",
       "expected": {
-        "state": "obscured"
+        "state": "tamper_suspected"
       },
       "provenance": "external_consent_required",
       "license": "pending_consent_or_license",

@@ -400,6 +400,7 @@ func main() {
 	visionSuiteRoot := flag.String("vision-suite-root", os.Getenv("SYNORA_VISION_MEDIA_ROOT"), "external media root for generic Vision V1 suites")
 	visionSuiteOut := flag.String("vision-suites-out", "/tmp/synora-vision-v1-suites.json", "independent generic Vision V1 suite report path")
 	visionFaceModel := flag.String("vision-model-face", os.Getenv("SYNORA_VISION_FACE_MODEL"), "external face-module model path; inactive until a plugin is registered")
+	visionFaceGallery := flag.String("vision-face-gallery", os.Getenv("SYNORA_VISION_FACE_GALLERY"), "external consented face gallery path; never stored in reports")
 	visionPoseModel := flag.String("vision-model-pose", os.Getenv("SYNORA_POSE_RKNN_MODEL"), "external pose-module model path; inactive until a plugin is registered")
 	visionVehicleModel := flag.String("vision-model-vehicle", os.Getenv("SYNORA_VISION_VEHICLE_MODEL"), "external vehicle-module model path; inactive until a plugin is registered")
 	visionPlateModel := flag.String("vision-model-plate", os.Getenv("SYNORA_VISION_PLATE_MODEL"), "external plate-module model path; inactive until a plugin is registered")
@@ -415,7 +416,8 @@ func main() {
 			visionsuite.ModulePlate: *visionPlateModel, visionsuite.ModuleAnimal: *visionAnimalModel,
 			visionsuite.ModuleCamera: *visionCameraModel, visionsuite.ModulePose: *visionPoseModel,
 		}
-		if err := runVisionSuiteCommand(*visionSuites, *visionSuite, *visionCase, *visionSuiteManifest, *visionModuleRegistry, *visionSuiteRoot, *visionSuiteOut, modelPaths); err != nil {
+		galleryPaths := map[string]string{visionsuite.ModuleFace: *visionFaceGallery}
+		if err := runVisionSuiteCommand(*visionSuites, *visionSuite, *visionCase, *visionSuiteManifest, *visionModuleRegistry, *visionSuiteRoot, *visionSuiteOut, modelPaths, galleryPaths); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

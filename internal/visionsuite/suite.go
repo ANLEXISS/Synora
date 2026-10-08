@@ -22,13 +22,15 @@ import (
 )
 
 const (
-	ManifestSchema = "synora.vision.media-suite-manifest/v1"
-	ModuleFace     = "face_recognition"
-	ModuleVehicle  = "vehicle_presence"
-	ModulePlate    = "plate_reading"
-	ModuleAnimal   = "animal_presence"
-	ModuleCamera   = "camera_health"
-	ModulePose     = "human_pose"
+	ManifestSchema         = "synora.vision.media-suite-manifest/v1"
+	ExecutionReplay        = "replay"
+	ExecutionSimulatedTest = "simulated_test"
+	ModuleFace             = "face_recognition"
+	ModuleVehicle          = "vehicle_presence"
+	ModulePlate            = "plate_reading"
+	ModuleAnimal           = "animal_presence"
+	ModuleCamera           = "camera_health"
+	ModulePose             = "human_pose"
 )
 
 var (
@@ -78,6 +80,7 @@ type RegistryEntry struct {
 	ModelPathEnv          string          `json:"model_path_env"`
 	MediaRootEnv          string          `json:"media_root_env"`
 	ManifestPath          string          `json:"manifest_path"`
+	ManifestSHA256        string          `json:"manifest_sha256"`
 	GalleryPathEnv        string          `json:"gallery_path_env"`
 	QualityMetrics        []string        `json:"quality_metrics"`
 	LatencyP95TargetMS    *float64        `json:"latency_p95_target_ms"`
@@ -143,11 +146,13 @@ type ModuleDescriptor struct {
 }
 
 type ModuleInput struct {
-	MediaPath string
-	ModelPath string
-	Suite     string
-	CaseID    string
-	Module    string
+	MediaPath     string
+	ModelPath     string
+	GalleryPath   string
+	ExecutionMode string
+	Suite         string
+	CaseID        string
+	Module        string
 }
 
 type ModuleResult struct {
@@ -189,6 +194,7 @@ type CaseReport struct {
 	Suite                 string          `json:"suite"`
 	CaseID                string          `json:"case_id"`
 	Module                string          `json:"module"`
+	ExecutionMode         string          `json:"execution_mode"`
 	Status                string          `json:"status"`
 	ReadinessState        string          `json:"readiness_state"`
 	MediaStatus           string          `json:"media_status"`
@@ -208,6 +214,8 @@ type CaseReport struct {
 type Report struct {
 	SchemaVersion       string                      `json:"schema_version"`
 	ManifestSHA256      string                      `json:"manifest_sha256"`
+	RegistrySHA256      string                      `json:"module_registry_sha256,omitempty"`
+	ExecutionMode       string                      `json:"execution_mode"`
 	Action              string                      `json:"action"`
 	SuiteCounts         map[string]int              `json:"suite_counts"`
 	Modules             map[string]ModuleDescriptor `json:"modules"`
@@ -281,7 +289,7 @@ func LoadRegistry(path string) (ModuleRegistry, map[string]ModuleDescriptor, str
 		if entry.Role == "" || !errorCode.MatchString(entry.StateReason) || entry.InputContract != "external_media_slot/v1" || entry.OutputContract != contract.EventVisionEvidenceV1 || len(entry.Preconditions) == 0 || len(entry.ForbiddenData) == 0 || len(entry.QualityMetrics) == 0 || len(entry.QualificationCriteria) == 0 {
 			return ModuleRegistry{}, nil, "", fmt.Errorf("module %q lacks its frozen contract metadata", entry.Name)
 		}
-		if !envName.MatchString(entry.MediaRootEnv) || !safeRelativePath(entry.ManifestPath) || entry.ManifestPath == "" || (entry.ModelPathEnv != "" && !envName.MatchString(entry.ModelPathEnv)) || (entry.GalleryPathEnv != "" && !envName.MatchString(entry.GalleryPathEnv)) {
+		if !envName.MatchString(entry.MediaRootEnv) || !safeRelativePath(entry.ManifestPath) || entry.ManifestPath == "" || !sha256Pattern.MatchString(entry.ManifestSHA256) || (entry.ModelPathEnv != "" && !envName.MatchString(entry.ModelPathEnv)) || (entry.GalleryPathEnv != "" && !envName.MatchString(entry.GalleryPathEnv)) {
 			return ModuleRegistry{}, nil, "", fmt.Errorf("module %q contains invalid external path configuration", entry.Name)
 		}
 		if entry.Name == ModuleFace && entry.GalleryPathEnv == "" || entry.Name != ModuleFace && entry.GalleryPathEnv != "" {
@@ -326,6 +334,25 @@ func LoadRegistry(path string) (ModuleRegistry, map[string]ModuleDescriptor, str
 	}
 	digest := sha256.Sum256(body)
 	return registry, states, hex.EncodeToString(digest[:]), nil
+}
+
+// ValidateManifestPin binds every selected suite to the reviewed manifest
+// digest in the canonical module registry before media paths are inspected.
+func ValidateManifestPin(manifest Manifest, digest string, registry ModuleRegistry) error {
+	if !sha256Pattern.MatchString(digest) {
+		return errors.New("suite manifest SHA-256 is missing or invalid")
+	}
+	entries := make(map[string]RegistryEntry, len(registry.Modules))
+	for _, entry := range registry.Modules {
+		entries[entry.Name] = entry
+	}
+	for _, slot := range manifest.Suites {
+		entry, ok := entries[slot.Module]
+		if !ok || entry.ManifestSHA256 != digest {
+			return fmt.Errorf("module %q manifest is not pinned by the canonical registry", slot.Module)
+		}
+	}
+	return nil
 }
 
 func ValidateManifest(manifest Manifest) error {
@@ -461,7 +488,7 @@ func validExpectedState(suite, state string) bool {
 		"vehicle_presence": {"present": true, "absent": true, "ambiguous": true},
 		"plate_reading":    {"recognized": true, "unknown": true, "ambiguous": true, "unavailable": true},
 		"animal_presence":  {"present": true, "absent": true, "ambiguous": true},
-		"camera_health":    {"healthy": true, "unavailable": true, "frozen": true, "obscured": true, "degraded": true, "timestamp_invalid": true},
+		"camera_health":    {"healthy": true, "unavailable": true, "degraded": true, "tamper_suspected": true},
 	}
 	return allowed[suite][state]
 }
@@ -558,7 +585,7 @@ func InspectWithProbe(ctx context.Context, manifest Manifest, digest, action, me
 	for _, slot := range manifest.Suites {
 		report.SuiteCounts[slot.Suite]++
 		state := moduleStates[slot.Module]
-		caseReport := CaseReport{Suite: slot.Suite, CaseID: slot.CaseID, Module: slot.Module, Status: "media_absent", MediaStatus: "absent", ModelStatus: state.State, Reason: slot.NotRunReason, Qualified: false, InferenceExecuted: false}
+		caseReport := CaseReport{Suite: slot.Suite, CaseID: slot.CaseID, Module: slot.Module, ExecutionMode: "not_run", Status: "media_absent", MediaStatus: "absent", ModelStatus: state.State, Reason: slot.NotRunReason, Qualified: false, InferenceExecuted: false}
 		if slot.AssetStatus == "quarantined" {
 			caseReport.Status, caseReport.MediaStatus, caseReport.Reason = "quarantined", "quarantined", "asset is explicitly quarantined"
 		} else if mediaRoot != "" {
@@ -625,7 +652,23 @@ func ExecuteWithStates(ctx context.Context, manifest Manifest, digest, mediaRoot
 }
 
 func ExecuteWithStatesAndProbe(ctx context.Context, manifest Manifest, digest, mediaRoot string, moduleStates map[string]ModuleDescriptor, modelPaths map[string]string, plugins map[string]Module, pipeline EvidencePipeline, probe func(context.Context, string) (MediaProbe, error)) Report {
+	return ExecuteWithInputsAndProbe(ctx, manifest, digest, mediaRoot, moduleStates, modelPaths, nil, plugins, pipeline, probe)
+}
+
+func ExecuteWithInputsAndProbe(ctx context.Context, manifest Manifest, digest, mediaRoot string, moduleStates map[string]ModuleDescriptor, modelPaths, galleryPaths map[string]string, plugins map[string]Module, pipeline EvidencePipeline, probe func(context.Context, string) (MediaProbe, error)) Report {
+	return ExecuteWithModeAndProbe(ctx, manifest, digest, mediaRoot, moduleStates, modelPaths, galleryPaths, plugins, pipeline, ExecutionReplay, probe)
+}
+
+func ExecuteWithModeAndProbe(ctx context.Context, manifest Manifest, digest, mediaRoot string, moduleStates map[string]ModuleDescriptor, modelPaths, galleryPaths map[string]string, plugins map[string]Module, pipeline EvidencePipeline, executionMode string, probe func(context.Context, string) (MediaProbe, error)) Report {
 	report := baseReport(manifest, digest, "run")
+	if executionMode != ExecutionReplay && executionMode != ExecutionSimulatedTest {
+		report.ExecutionMode = "blocked"
+		for _, slot := range manifest.Suites {
+			report.Cases = append(report.Cases, CaseReport{Suite: slot.Suite, CaseID: slot.CaseID, Module: slot.Module, ExecutionMode: "blocked", Status: "model_unavailable", ReadinessState: "blocked", MediaStatus: "not_run", ModelStatus: "not_configured", Reason: "execution_mode_not_supported"})
+		}
+		return report
+	}
+	report.ExecutionMode = executionMode
 	if moduleStates == nil {
 		moduleStates = InactiveModules()
 	}
@@ -636,7 +679,7 @@ func ExecuteWithStatesAndProbe(ctx context.Context, manifest Manifest, digest, m
 	for _, slot := range manifest.Suites {
 		report.SuiteCounts[slot.Suite]++
 		moduleState := moduleStates[slot.Module]
-		item := CaseReport{Suite: slot.Suite, CaseID: slot.CaseID, Module: slot.Module, Status: "media_absent", MediaStatus: "absent", ModelStatus: moduleState.State, Reason: slot.NotRunReason, Qualified: false}
+		item := CaseReport{Suite: slot.Suite, CaseID: slot.CaseID, Module: slot.Module, ExecutionMode: executionMode, Status: "media_absent", MediaStatus: "absent", ModelStatus: moduleState.State, Reason: slot.NotRunReason, Qualified: false}
 		if slot.AssetStatus == "quarantined" {
 			item.Status, item.MediaStatus, item.Reason = "quarantined", "quarantined", "asset is explicitly quarantined"
 			report.MediaQuarantined++
@@ -705,6 +748,17 @@ func ExecuteWithStatesAndProbe(ctx context.Context, manifest Manifest, digest, m
 			report.Cases = append(report.Cases, item)
 			continue
 		}
+		galleryPath := ""
+		if slot.Module == ModuleFace {
+			galleryPath = galleryPaths[ModuleFace]
+			galleryInfo, galleryErr := os.Stat(galleryPath)
+			if galleryPath == "" || galleryErr != nil || !galleryInfo.IsDir() {
+				item.Status, item.ModelStatus, item.Reason = "model_unavailable", "unavailable", "external_face_gallery_not_configured"
+				report.ModelUnavailable++
+				report.Cases = append(report.Cases, item)
+				continue
+			}
+		}
 		descriptor := plugin.Descriptor()
 		reportedDescriptor := descriptor
 		reportedDescriptor.Name = slot.Module
@@ -748,7 +802,7 @@ func ExecuteWithStatesAndProbe(ctx context.Context, manifest Manifest, digest, m
 			report.Cases = append(report.Cases, item)
 			continue
 		}
-		result, runErr := plugin.Run(ctx, ModuleInput{MediaPath: mediaPath, ModelPath: modelPath, Suite: slot.Suite, CaseID: slot.CaseID, Module: slot.Module})
+		result, runErr := plugin.Run(ctx, ModuleInput{MediaPath: mediaPath, ModelPath: modelPath, GalleryPath: galleryPath, ExecutionMode: executionMode, Suite: slot.Suite, CaseID: slot.CaseID, Module: slot.Module})
 		item.InferenceExecuted = result.InferenceExecuted
 		report.InferenceRun = report.InferenceRun || result.InferenceExecuted
 		item.LatencyMS = float64(result.Latency.Microseconds()) / 1000
@@ -765,6 +819,13 @@ func ExecuteWithStatesAndProbe(ctx context.Context, manifest Manifest, digest, m
 		}
 		if err := result.Evidence.Validate(); err != nil || result.Evidence.SchemaVersion != contract.EventVisionEvidenceV1 {
 			item.Status, item.ModelStatus, item.Reason = "failed", "failed", "module result failed Evidence V1 validation"
+			report.FailedCount++
+			report.ModelFailed++
+			report.Cases = append(report.Cases, item)
+			continue
+		}
+		if result.Evidence.Provenance != executionMode || (executionMode == ExecutionReplay && result.Evidence.SimulatedCamera) || (executionMode == ExecutionSimulatedTest && !result.Evidence.SimulatedCamera) {
+			item.Status, item.ModelStatus, item.Reason = "failed", "failed", "evidence_provenance_does_not_match_execution_mode"
 			report.FailedCount++
 			report.ModelFailed++
 			report.Cases = append(report.Cases, item)
@@ -823,6 +884,9 @@ func semanticState(e contract.VisionEvidenceV1, module string) string {
 	switch module {
 	case ModuleFace:
 		if e.Face.Availability != contract.VisionEvaluated {
+			if e.RuntimeAggregate != nil && e.RuntimeAggregate.FaceStatus == "low_quality" {
+				return "low_quality"
+			}
 			return "unavailable"
 		}
 		return e.Face.Result
@@ -889,7 +953,7 @@ func summarizeLatency(cases []CaseReport) map[string]LatencyStats {
 }
 
 func matchesExpected(expected, actual string) bool {
-	if expected == "ambiguous_or_unavailable" && (actual == "ambiguous" || actual == "unavailable") {
+	if expected == "ambiguous_or_unavailable" && (actual == "ambiguous" || actual == "unavailable" || actual == "low_quality") {
 		return true
 	}
 	for _, allowed := range strings.Split(expected, "|") {
@@ -910,7 +974,7 @@ func firstNonEmpty(values ...string) string {
 }
 
 func baseReport(manifest Manifest, digest, action string) Report {
-	return Report{SchemaVersion: "synora.vision.suite-report/v1", ManifestSHA256: digest, Action: action, QualificationStatus: "not_qualified", SuiteCounts: make(map[string]int), Modules: InactiveModules(), LatencyByModule: make(map[string]LatencyStats), Cases: []CaseReport{}}
+	return Report{SchemaVersion: "synora.vision.suite-report/v1", ManifestSHA256: digest, Action: action, ExecutionMode: "not_run", QualificationStatus: "not_qualified", SuiteCounts: make(map[string]int), Modules: InactiveModules(), LatencyByModule: make(map[string]LatencyStats), Cases: []CaseReport{}}
 }
 
 func containedFile(root, relative string) (string, error) {
