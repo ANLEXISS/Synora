@@ -241,6 +241,8 @@ type backendReport struct {
 
 type suiteReport struct {
 	SchemaVersion                string                    `json:"schema_version"`
+	CameraMockE2EStatus          string                    `json:"camera_mock_e2e_status"`
+	CameraMockE2EReason          string                    `json:"camera_mock_e2e_reason"`
 	Error                        string                    `json:"error,omitempty"`
 	Seed                         int64                     `json:"seed"`
 	LogicalDate                  string                    `json:"logical_date"`
@@ -468,14 +470,14 @@ func main() {
 		fatalReport(*outPath, err)
 	}
 	if report.VisionMedia != nil {
-		fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_incomplete=%d terminal_statuses=%s families=%s manifest_sha256=%s vision_media_total=%d vision_media_status=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount+report.VisionMedia.PassedCount, report.FailedCount+report.VisionMedia.FailedCount, report.PipelineCompletedCount, report.PipelineIncompleteCount, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, report.VisionMedia.ScenarioCount, formatCounts(report.VisionMedia.StatusCounts), formatCounts(report.ActionLifecycleByStatus))
+		fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_incomplete=%d camera_mock_e2e=%s terminal_statuses=%s families=%s manifest_sha256=%s vision_media_total=%d vision_media_status=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount+report.VisionMedia.PassedCount, report.FailedCount+report.VisionMedia.FailedCount, report.PipelineCompletedCount, report.PipelineIncompleteCount, report.CameraMockE2EStatus, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, report.VisionMedia.ScenarioCount, formatCounts(report.VisionMedia.StatusCounts), formatCounts(report.ActionLifecycleByStatus))
 		if !overallPassed {
 			fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
 			os.Exit(1)
 		}
 		return
 	}
-	fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_incomplete=%d terminal_statuses=%s families=%s manifest_sha256=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount, report.FailedCount, report.PipelineCompletedCount, report.PipelineIncompleteCount, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, formatCounts(report.ActionLifecycleByStatus))
+	fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_incomplete=%d camera_mock_e2e=%s terminal_statuses=%s families=%s manifest_sha256=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount, report.FailedCount, report.PipelineCompletedCount, report.PipelineIncompleteCount, report.CameraMockE2EStatus, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, formatCounts(report.ActionLifecycleByStatus))
 	if !overallPassed {
 		fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
 		os.Exit(1)
@@ -606,7 +608,10 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 		rejectedActionResults += item.RejectedActionResults
 	}
 	return suiteReport{
-		SchemaVersion: "synora.central-e2e/v1", Error: errorText, Seed: manifest.Seed, LogicalDate: manifest.LogicalDate,
+		SchemaVersion:       "synora.central-e2e/v1",
+		CameraMockE2EStatus: "not_qualified",
+		CameraMockE2EReason: "the central harness does not yet exercise the real HTTP Discovery ingress through GET /api/system/state; C++ mock transport tests use a local test server",
+		Error:               errorText, Seed: manifest.Seed, LogicalDate: manifest.LogicalDate,
 		ManifestSHA256: fileSHA256(manifestPath), GeneratorVersion: generatorVersion,
 		StaticCaseCount: staticCount, GeneratedCaseCount: generatedCount, ScenarioCount: len(reports),
 		PassedCount: passedCount, FailedCount: len(reports) - passedCount, Passed: len(reports) > 0 && passedCount == len(reports),

@@ -74,6 +74,11 @@ func TestCentralExpansionIsTheCLIExecutionSet(t *testing.T) {
 		}
 	}
 	report := buildSuiteReport(manifestPath, manifest, all, reports, time.Now(), map[string]backendReport{})
+	if report.CameraMockE2EStatus != "not_qualified" ||
+		!strings.Contains(report.CameraMockE2EReason, "real HTTP Discovery ingress") ||
+		!strings.Contains(report.CameraMockE2EReason, "GET /api/system/state") {
+		t.Fatalf("camera mock software tests must not qualify the real central HTTP E2E: status=%q reason=%q", report.CameraMockE2EStatus, report.CameraMockE2EReason)
+	}
 	if report.ScenarioCount != len(all) || report.ScenarioCount != report.StaticCaseCount+report.GeneratedCaseCount {
 		t.Fatalf("report count mismatch: %+v", report)
 	}
