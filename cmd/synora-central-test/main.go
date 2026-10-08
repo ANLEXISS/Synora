@@ -27,6 +27,8 @@ import (
 	"synora/internal/bus"
 	"synora/internal/cognitivecore"
 	"synora/internal/discovery"
+	"synora/internal/foundationv1"
+	"synora/internal/visionsuite"
 	"synora/pkg/contract"
 )
 
@@ -245,53 +247,56 @@ type backendReport struct {
 }
 
 type suiteReport struct {
-	SchemaVersion                string                    `json:"schema_version"`
-	CameraMockE2EStatus          string                    `json:"camera_mock_e2e_status"`
-	CameraMockE2EReason          string                    `json:"camera_mock_e2e_reason"`
-	CameraMockE2E                *cameraMockE2EReport      `json:"camera_mock_e2e,omitempty"`
-	CaseTotals                   map[string]int            `json:"case_totals"`
-	Error                        string                    `json:"error,omitempty"`
-	Seed                         int64                     `json:"seed"`
-	LogicalDate                  string                    `json:"logical_date"`
-	ManifestSHA256               string                    `json:"manifest_sha256"`
-	GeneratorVersion             string                    `json:"generator_version"`
-	StaticCaseCount              int                       `json:"static_case_count"`
-	GeneratedCaseCount           int                       `json:"generated_case_count"`
-	ScenarioCount                int                       `json:"scenario_count"`
-	OverallCaseCount             int                       `json:"overall_case_count"`
-	PassedCount                  int                       `json:"passed_count"`
-	FailedCount                  int                       `json:"failed_count"`
-	Passed                       bool                      `json:"passed"`
-	DurationMS                   float64                   `json:"duration_ms"`
-	NetworkAccess                bool                      `json:"network_access"`
-	AudioRendered                bool                      `json:"audio_rendered"`
-	PhysicalAction               bool                      `json:"physical_action_executed"`
-	RawVisionForwarded           bool                      `json:"raw_vision_forwarded"`
-	SuiteCounts                  map[string]int            `json:"suite_counts"`
-	FamilyCounts                 map[string]int            `json:"family_counts"`
-	Coverage                     map[string]int            `json:"coverage"`
-	ModelBackends                map[string]backendReport  `json:"model_backends"`
-	VisionMedia                  *mediaSuiteReport         `json:"vision_media,omitempty"`
-	VisionMigration              visionMigrationReport     `json:"vision_migration"`
-	MediaCaseCount               int                       `json:"media_case_count"`
-	NotRunCount                  int                       `json:"not_run_count"`
-	BlockedModelMissingCount     int                       `json:"blocked_model_missing_count"`
-	PoseBackendStatus            string                    `json:"pose_backend_status"`
-	MediaManifestSHA256          string                    `json:"media_manifest_sha256"`
-	MediaHashVerificationPassed  bool                      `json:"media_hash_verification_passed"`
-	PoseLatencyMS                map[string]float64        `json:"pose_latency_ms"`
-	PostureByCategory            map[string]map[string]int `json:"posture_by_category"`
-	FallStateByCategory          map[string]map[string]int `json:"fall_state_by_category"`
-	MediaByCategory              map[string]map[string]int `json:"media_by_category"`
-	PipelineCompletedCount       int                       `json:"pipeline_completed_count"`
-	PipelineIncompleteCount      int                       `json:"pipeline_incomplete_count"`
-	PipelineTerminalStatusCounts map[string]int            `json:"pipeline_terminal_status_counts"`
-	PipelineAccountingValid      bool                      `json:"pipeline_accounting_valid"`
-	MockCameraCaseCount          int                       `json:"mock_camera_case_count"`
-	ActionLifecycleByStatus      map[string]int            `json:"action_lifecycle_by_status"`
-	IdempotenceChecks            map[string]int            `json:"idempotence_checks"`
-	RejectedActionResults        int                       `json:"rejected_action_results"`
-	Cases                        []caseReport              `json:"cases"`
+	SchemaVersion                 string                    `json:"schema_version"`
+	CameraMockE2EStatus           string                    `json:"camera_mock_e2e_status"`
+	CameraMockE2EReason           string                    `json:"camera_mock_e2e_reason"`
+	CameraMockE2E                 *cameraMockE2EReport      `json:"camera_mock_e2e,omitempty"`
+	FoundationV1E2E               *foundationv1.E2ESuite    `json:"foundation_v1_e2e,omitempty"`
+	FoundationV1CaseCount         int                       `json:"foundation_v1_case_count"`
+	CaseTotals                    map[string]int            `json:"case_totals"`
+	Error                         string                    `json:"error,omitempty"`
+	Seed                          int64                     `json:"seed"`
+	LogicalDate                   string                    `json:"logical_date"`
+	ManifestSHA256                string                    `json:"manifest_sha256"`
+	GeneratorVersion              string                    `json:"generator_version"`
+	StaticCaseCount               int                       `json:"static_case_count"`
+	GeneratedCaseCount            int                       `json:"generated_case_count"`
+	ScenarioCount                 int                       `json:"scenario_count"`
+	OverallCaseCount              int                       `json:"overall_case_count"`
+	PassedCount                   int                       `json:"passed_count"`
+	FailedCount                   int                       `json:"failed_count"`
+	Passed                        bool                      `json:"passed"`
+	DurationMS                    float64                   `json:"duration_ms"`
+	NetworkAccess                 bool                      `json:"network_access"`
+	AudioRendered                 bool                      `json:"audio_rendered"`
+	PhysicalAction                bool                      `json:"physical_action_executed"`
+	RawVisionForwarded            bool                      `json:"raw_vision_forwarded"`
+	SuiteCounts                   map[string]int            `json:"suite_counts"`
+	FamilyCounts                  map[string]int            `json:"family_counts"`
+	Coverage                      map[string]int            `json:"coverage"`
+	ModelBackends                 map[string]backendReport  `json:"model_backends"`
+	VisionMedia                   *mediaSuiteReport         `json:"vision_media,omitempty"`
+	VisionMigration               visionMigrationReport     `json:"vision_migration"`
+	MediaCaseCount                int                       `json:"media_case_count"`
+	NotRunCount                   int                       `json:"not_run_count"`
+	BlockedModelMissingCount      int                       `json:"blocked_model_missing_count"`
+	PoseBackendStatus             string                    `json:"pose_backend_status"`
+	MediaManifestSHA256           string                    `json:"media_manifest_sha256"`
+	MediaHashVerificationPassed   bool                      `json:"media_hash_verification_passed"`
+	PoseLatencyMS                 map[string]float64        `json:"pose_latency_ms"`
+	PostureByCategory             map[string]map[string]int `json:"posture_by_category"`
+	FallStateByCategory           map[string]map[string]int `json:"fall_state_by_category"`
+	MediaByCategory               map[string]map[string]int `json:"media_by_category"`
+	PipelineCompletedCount        int                       `json:"pipeline_completed_count"`
+	PipelineRejectedExpectedCount int                       `json:"pipeline_rejected_expected_count"`
+	PipelineIncompleteCount       int                       `json:"pipeline_incomplete_count"`
+	PipelineTerminalStatusCounts  map[string]int            `json:"pipeline_terminal_status_counts"`
+	PipelineAccountingValid       bool                      `json:"pipeline_accounting_valid"`
+	MockCameraCaseCount           int                       `json:"mock_camera_case_count"`
+	ActionLifecycleByStatus       map[string]int            `json:"action_lifecycle_by_status"`
+	IdempotenceChecks             map[string]int            `json:"idempotence_checks"`
+	RejectedActionResults         int                       `json:"rejected_action_results"`
+	Cases                         []caseReport              `json:"cases"`
 }
 
 type visionMigrationReport struct {
@@ -387,9 +392,32 @@ func main() {
 	outPath := flag.String("out", defaultOutput, "report path")
 	mediaMode := flag.Bool("media", false, "explicitly run the versioned local vision-media manifest")
 	mediaManifestPath := flag.String("media-manifest", defaultVisionMediaManifest, "versioned local vision-media manifest")
+	visionSuites := flag.String("vision-suites", "", "run generic Vision V1 suites: list, verify, or run")
+	visionSuite := flag.String("vision-suite", "", "filter generic Vision V1 suite")
+	visionSuiteManifest := flag.String("vision-suite-manifest", defaultVisionSuiteManifest, "generic Vision V1 suite slot manifest")
+	visionModuleRegistry := flag.String("vision-module-registry", defaultVisionModuleRegistry, "generic Vision V1 module registry")
+	visionSuiteRoot := flag.String("vision-suite-root", os.Getenv("SYNORA_VISION_MEDIA_ROOT"), "external media root for generic Vision V1 suites")
+	visionSuiteOut := flag.String("vision-suites-out", "/tmp/synora-vision-v1-suites.json", "independent generic Vision V1 suite report path")
+	visionFaceModel := flag.String("vision-model-face", os.Getenv("SYNORA_VISION_FACE_MODEL"), "external face-module model path; inactive until a plugin is registered")
+	visionVehicleModel := flag.String("vision-model-vehicle", os.Getenv("SYNORA_VISION_VEHICLE_MODEL"), "external vehicle-module model path; inactive until a plugin is registered")
+	visionPlateModel := flag.String("vision-model-plate", os.Getenv("SYNORA_VISION_PLATE_MODEL"), "external plate-module model path; inactive until a plugin is registered")
+	visionAnimalModel := flag.String("vision-model-animal", os.Getenv("SYNORA_VISION_ANIMAL_MODEL"), "external animal-module model path; inactive until a plugin is registered")
+	visionCameraModel := flag.String("vision-model-camera", os.Getenv("SYNORA_VISION_CAMERA_MODEL"), "external camera-health model path; inactive until a plugin is registered")
 	flag.Parse()
 	if os.Getenv("VERBOSE") != "1" {
 		log.SetOutput(io.Discard)
+	}
+	if *visionSuites != "" {
+		modelPaths := map[string]string{
+			visionsuite.ModuleFace: *visionFaceModel, visionsuite.ModuleVehicle: *visionVehicleModel,
+			visionsuite.ModulePlate: *visionPlateModel, visionsuite.ModuleAnimal: *visionAnimalModel,
+			visionsuite.ModuleCamera: *visionCameraModel,
+		}
+		if err := runVisionSuiteCommand(*visionSuites, *visionSuite, *visionSuiteManifest, *visionModuleRegistry, *visionSuiteRoot, *visionSuiteOut, modelPaths); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
 	}
 	if err := removeOutput(*outPath); err != nil {
 		fmt.Fprintln(os.Stderr, "cannot remove previous central report:", err)
@@ -494,11 +522,20 @@ func main() {
 			}
 		}
 	}
+	foundationReport := foundationv1.RunE2E(context.Background(), time.Now().UTC())
+	report.FoundationV1E2E = &foundationReport
+	report.FoundationV1CaseCount = len(foundationReport.Cases)
+	report.PassedCount += foundationReport.PassedCount
+	report.FailedCount += foundationReport.FailedCount
+	if foundationReport.FailedCount > 0 {
+		overallPassed = false
+	}
 	report.CaseTotals = map[string]int{
 		"central_static":              report.ScenarioCount,
 		"vision_media_le2i_real_pose": report.MediaCaseCount,
 		"mock_camera_e2e":             report.MockCameraCaseCount,
-		"overall":                     report.ScenarioCount + report.MediaCaseCount + report.MockCameraCaseCount,
+		"foundation_v1_software_e2e":  report.FoundationV1CaseCount,
+		"overall":                     report.ScenarioCount + report.MediaCaseCount + report.MockCameraCaseCount + report.FoundationV1CaseCount,
 	}
 	report.OverallCaseCount = report.CaseTotals["overall"]
 	refreshPipelineAccounting(&report)
@@ -511,14 +548,14 @@ func main() {
 		fatalReport(*outPath, err)
 	}
 	if report.VisionMedia != nil {
-		fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_incomplete=%d camera_mock_e2e=%s terminal_statuses=%s families=%s manifest_sha256=%s vision_media_total=%d vision_media_status=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount+report.VisionMedia.PassedCount, report.FailedCount+report.VisionMedia.FailedCount, report.PipelineCompletedCount, report.PipelineIncompleteCount, report.CameraMockE2EStatus, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, report.VisionMedia.ScenarioCount, formatCounts(report.VisionMedia.StatusCounts), formatCounts(report.ActionLifecycleByStatus))
+		fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_rejected_expected=%d pipeline_incomplete=%d camera_mock_e2e=%s foundation_v1=%s terminal_statuses=%s families=%s manifest_sha256=%s vision_media_total=%d vision_media_status=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount+report.VisionMedia.PassedCount, report.FailedCount+report.VisionMedia.FailedCount, report.PipelineCompletedCount, report.PipelineRejectedExpectedCount, report.PipelineIncompleteCount, report.CameraMockE2EStatus, foundationReport.Status, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, report.VisionMedia.ScenarioCount, formatCounts(report.VisionMedia.StatusCounts), formatCounts(report.ActionLifecycleByStatus))
 		if !overallPassed {
 			fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
 			os.Exit(1)
 		}
 		return
 	}
-	fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_incomplete=%d camera_mock_e2e=%s terminal_statuses=%s families=%s manifest_sha256=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount, report.FailedCount, report.PipelineCompletedCount, report.PipelineIncompleteCount, report.CameraMockE2EStatus, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, formatCounts(report.ActionLifecycleByStatus))
+	fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_rejected_expected=%d pipeline_incomplete=%d camera_mock_e2e=%s foundation_v1=%s terminal_statuses=%s families=%s manifest_sha256=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount, report.FailedCount, report.PipelineCompletedCount, report.PipelineRejectedExpectedCount, report.PipelineIncompleteCount, report.CameraMockE2EStatus, foundationReport.Status, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, formatCounts(report.ActionLifecycleByStatus))
 	if !overallPassed {
 		fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
 		os.Exit(1)
@@ -724,10 +761,13 @@ func assessJourney(journey []journeyEvent) (bool, string, []string) {
 }
 
 func refreshPipelineAccounting(report *suiteReport) {
-	report.OverallCaseCount = report.ScenarioCount + report.MediaCaseCount + report.MockCameraCaseCount
+	report.OverallCaseCount = report.ScenarioCount + report.MediaCaseCount + report.MockCameraCaseCount + report.FoundationV1CaseCount
 	report.PipelineCompletedCount = 0
+	report.PipelineRejectedExpectedCount = 0
 	report.PipelineIncompleteCount = 0
 	report.PipelineTerminalStatusCounts = make(map[string]int)
+	journeyCount := 0
+	foundationAccountingValid := true
 	for index := range report.Cases {
 		item := &report.Cases[index]
 		complete, reason, missing := assessJourney(item.Journey)
@@ -799,9 +839,31 @@ func refreshPipelineAccounting(report *suiteReport) {
 			}
 		}
 	}
+	if report.FoundationV1E2E != nil {
+		completed, rejected, incomplete := 0, 0, 0
+		for _, item := range report.FoundationV1E2E.Cases {
+			switch item.TerminalStatus {
+			case "completed":
+				completed++
+				report.PipelineTerminalStatusCounts["completed"]++
+			case "rejected_expected":
+				rejected++
+				report.PipelineTerminalStatusCounts["expected_rejection"]++
+			default:
+				incomplete++
+				report.PipelineTerminalStatusCounts["incomplete"]++
+			}
+			if len(item.Journey) > 0 {
+				journeyCount++
+			}
+		}
+		report.PipelineCompletedCount += completed
+		report.PipelineRejectedExpectedCount += rejected
+		report.PipelineIncompleteCount += incomplete
+		foundationAccountingValid = completed == report.FoundationV1E2E.JourneysTerminalCompleted && rejected == report.FoundationV1E2E.JourneysTerminalRejectedExpected && incomplete == report.FoundationV1E2E.JourneysIncomplete
+	}
 	// Empty/missing journeys are counted incomplete too; the reporting loop above
 	// counts each included case exactly once, including cases without a journey.
-	journeyCount := 0
 	for _, item := range report.Cases {
 		if len(item.Journey) > 0 {
 			journeyCount++
@@ -821,10 +883,17 @@ func refreshPipelineAccounting(report *suiteReport) {
 			}
 		}
 	}
-	report.PipelineAccountingValid = report.PipelineCompletedCount+report.PipelineIncompleteCount == report.OverallCaseCount && journeyCount == report.OverallCaseCount && len(report.Cases) == report.ScenarioCount && report.MockCameraCaseCount == lenOrZeroMock(report.CameraMockE2E)
+	report.PipelineAccountingValid = foundationAccountingValid && report.PipelineCompletedCount+report.PipelineRejectedExpectedCount+report.PipelineIncompleteCount == report.OverallCaseCount && journeyCount == report.OverallCaseCount && len(report.Cases) == report.ScenarioCount && report.MockCameraCaseCount == lenOrZeroMock(report.CameraMockE2E) && report.FoundationV1CaseCount == lenOrZeroFoundation(report.FoundationV1E2E)
 	if report.VisionMedia != nil {
 		report.PipelineAccountingValid = report.PipelineAccountingValid && len(report.VisionMedia.Cases) == report.MediaCaseCount
 	}
+}
+
+func lenOrZeroFoundation(report *foundationv1.E2ESuite) int {
+	if report == nil {
+		return 0
+	}
+	return len(report.Cases)
 }
 
 func lenOrZeroMock(report *cameraMockE2EReport) int {

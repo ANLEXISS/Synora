@@ -1,0 +1,16 @@
+{
+  "scenario_id": "foundation-golden-safe",
+  "evidence": {
+    "id": "foundation-golden-evidence",
+    "kind": "camera_health",
+    "status": "simulated_test",
+    "payload": {
+      "availability": "offline",
+      "stream": "absent",
+      "scene_safety": "unknown"
+    },
+    "created_at": "2026-10-08T12:00:00Z"
+  },
+  "gate_reason": "safety_gate_denied",
+  "now": "2026-10-08T12:00:00Z"
+}

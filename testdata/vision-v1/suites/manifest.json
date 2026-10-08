@@ -1,0 +1,2010 @@
+{
+  "schema_version": "synora.vision.media-suite-manifest/v1",
+  "version": "vision-v1-foundation-1",
+  "media_root_env": "SYNORA_VISION_MEDIA_ROOT",
+  "slots": [
+    {
+      "suite": "face_known",
+      "case_id": "face_known_01",
+      "clip_relative_path": "face_known/face_known_01.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "recognized",
+        "subject_ref": "resident_test_01"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "frontal",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "resident_known"
+      ]
+    },
+    {
+      "suite": "face_known",
+      "case_id": "face_known_02",
+      "clip_relative_path": "face_known/face_known_02.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "recognized",
+        "subject_ref": "resident_test_01"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "resident_known"
+      ]
+    },
+    {
+      "suite": "face_known",
+      "case_id": "face_known_03",
+      "clip_relative_path": "face_known/face_known_03.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "recognized",
+        "subject_ref": "resident_test_01"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "day",
+        "profile",
+        "single_subject",
+        "stationary",
+        "clear",
+        "resident_known"
+      ]
+    },
+    {
+      "suite": "face_known",
+      "case_id": "face_known_04",
+      "clip_relative_path": "face_known/face_known_04.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "recognized",
+        "subject_ref": "resident_test_01"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "resident_known"
+      ]
+    },
+    {
+      "suite": "face_known",
+      "case_id": "face_known_05",
+      "clip_relative_path": "face_known/face_known_05.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "recognized",
+        "subject_ref": "resident_test_01"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "frontal",
+        "multi_subject",
+        "stationary",
+        "degraded",
+        "resident_known"
+      ]
+    },
+    {
+      "suite": "face_known",
+      "case_id": "face_known_06",
+      "clip_relative_path": "face_known/face_known_06.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "recognized",
+        "subject_ref": "resident_test_01"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "profile",
+        "single_subject",
+        "moving",
+        "clear",
+        "resident_known"
+      ]
+    },
+    {
+      "suite": "face_known",
+      "case_id": "face_known_07",
+      "clip_relative_path": "face_known/face_known_07.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "recognized",
+        "subject_ref": "resident_test_01"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "day",
+        "frontal",
+        "single_subject",
+        "stationary",
+        "clear",
+        "resident_known"
+      ]
+    },
+    {
+      "suite": "face_known",
+      "case_id": "face_known_08",
+      "clip_relative_path": "face_known/face_known_08.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "recognized",
+        "subject_ref": "resident_test_01"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "resident_known"
+      ]
+    },
+    {
+      "suite": "face_known",
+      "case_id": "face_known_09",
+      "clip_relative_path": "face_known/face_known_09.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "recognized",
+        "subject_ref": "resident_test_01"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "profile",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "resident_known"
+      ]
+    },
+    {
+      "suite": "face_known",
+      "case_id": "face_known_10",
+      "clip_relative_path": "face_known/face_known_10.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "recognized",
+        "subject_ref": "resident_test_01"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "multi_subject",
+        "moving",
+        "clear",
+        "resident_known"
+      ]
+    },
+    {
+      "suite": "face_unknown",
+      "case_id": "face_unknown_01",
+      "clip_relative_path": "face_unknown/face_unknown_01.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "frontal",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "identity_unknown"
+      ]
+    },
+    {
+      "suite": "face_unknown",
+      "case_id": "face_unknown_02",
+      "clip_relative_path": "face_unknown/face_unknown_02.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "identity_unknown"
+      ]
+    },
+    {
+      "suite": "face_unknown",
+      "case_id": "face_unknown_03",
+      "clip_relative_path": "face_unknown/face_unknown_03.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "day",
+        "profile",
+        "single_subject",
+        "stationary",
+        "clear",
+        "identity_unknown"
+      ]
+    },
+    {
+      "suite": "face_unknown",
+      "case_id": "face_unknown_04",
+      "clip_relative_path": "face_unknown/face_unknown_04.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "identity_unknown"
+      ]
+    },
+    {
+      "suite": "face_unknown",
+      "case_id": "face_unknown_05",
+      "clip_relative_path": "face_unknown/face_unknown_05.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "frontal",
+        "multi_subject",
+        "stationary",
+        "degraded",
+        "identity_unknown"
+      ]
+    },
+    {
+      "suite": "face_unknown",
+      "case_id": "face_unknown_06",
+      "clip_relative_path": "face_unknown/face_unknown_06.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "profile",
+        "single_subject",
+        "moving",
+        "clear",
+        "identity_unknown"
+      ]
+    },
+    {
+      "suite": "face_unknown",
+      "case_id": "face_unknown_07",
+      "clip_relative_path": "face_unknown/face_unknown_07.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "day",
+        "frontal",
+        "single_subject",
+        "stationary",
+        "clear",
+        "identity_unknown"
+      ]
+    },
+    {
+      "suite": "face_unknown",
+      "case_id": "face_unknown_08",
+      "clip_relative_path": "face_unknown/face_unknown_08.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "identity_unknown"
+      ]
+    },
+    {
+      "suite": "face_unknown",
+      "case_id": "face_unknown_09",
+      "clip_relative_path": "face_unknown/face_unknown_09.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "profile",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "identity_unknown"
+      ]
+    },
+    {
+      "suite": "face_unknown",
+      "case_id": "face_unknown_10",
+      "clip_relative_path": "face_unknown/face_unknown_10.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "multi_subject",
+        "moving",
+        "clear",
+        "identity_unknown"
+      ]
+    },
+    {
+      "suite": "face_ambiguous",
+      "case_id": "face_ambiguous_01",
+      "clip_relative_path": "face_ambiguous/face_ambiguous_01.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "ambiguous_or_unavailable"
+      },
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "frontal",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "identity_ambiguous"
+      ],
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256"
+    },
+    {
+      "suite": "face_ambiguous",
+      "case_id": "face_ambiguous_02",
+      "clip_relative_path": "face_ambiguous/face_ambiguous_02.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "ambiguous_or_unavailable"
+      },
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "identity_ambiguous",
+        "profile"
+      ],
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256"
+    },
+    {
+      "suite": "face_ambiguous",
+      "case_id": "face_ambiguous_03",
+      "clip_relative_path": "face_ambiguous/face_ambiguous_03.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "ambiguous_or_unavailable"
+      },
+      "condition_tags": [
+        "indoor",
+        "day",
+        "profile",
+        "single_subject",
+        "stationary",
+        "clear",
+        "identity_ambiguous",
+        "occluded"
+      ],
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256"
+    },
+    {
+      "suite": "face_ambiguous",
+      "case_id": "face_ambiguous_04",
+      "clip_relative_path": "face_ambiguous/face_ambiguous_04.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "ambiguous_or_unavailable"
+      },
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "identity_ambiguous",
+        "distant"
+      ],
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256"
+    },
+    {
+      "suite": "face_ambiguous",
+      "case_id": "face_ambiguous_05",
+      "clip_relative_path": "face_ambiguous/face_ambiguous_05.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "face_recognition",
+      "expected": {
+        "state": "ambiguous_or_unavailable"
+      },
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "frontal",
+        "multi_subject",
+        "stationary",
+        "degraded",
+        "identity_ambiguous"
+      ],
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256"
+    },
+    {
+      "suite": "vehicle_presence",
+      "case_id": "vehicle_presence_01",
+      "clip_relative_path": "vehicle_presence/vehicle_presence_01.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "vehicle_classification",
+      "expected": {
+        "state": "present",
+        "presence": "present",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "frontal",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "vehicle_present"
+      ]
+    },
+    {
+      "suite": "vehicle_presence",
+      "case_id": "vehicle_presence_02",
+      "clip_relative_path": "vehicle_presence/vehicle_presence_02.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "vehicle_classification",
+      "expected": {
+        "state": "absent",
+        "presence": "absent",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "vehicle_presence",
+      "case_id": "vehicle_presence_03",
+      "clip_relative_path": "vehicle_presence/vehicle_presence_03.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "vehicle_classification",
+      "expected": {
+        "state": "ambiguous",
+        "presence": "ambiguous",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "day",
+        "profile",
+        "single_subject",
+        "stationary",
+        "clear",
+        "vehicle_present"
+      ]
+    },
+    {
+      "suite": "vehicle_presence",
+      "case_id": "vehicle_presence_04",
+      "clip_relative_path": "vehicle_presence/vehicle_presence_04.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "vehicle_classification",
+      "expected": {
+        "state": "present",
+        "presence": "present",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "vehicle_present"
+      ]
+    },
+    {
+      "suite": "vehicle_presence",
+      "case_id": "vehicle_presence_05",
+      "clip_relative_path": "vehicle_presence/vehicle_presence_05.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "vehicle_classification",
+      "expected": {
+        "state": "absent",
+        "presence": "absent",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "frontal",
+        "multi_subject",
+        "stationary",
+        "degraded",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "vehicle_presence",
+      "case_id": "vehicle_presence_06",
+      "clip_relative_path": "vehicle_presence/vehicle_presence_06.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "vehicle_classification",
+      "expected": {
+        "state": "ambiguous",
+        "presence": "ambiguous",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "profile",
+        "single_subject",
+        "moving",
+        "clear",
+        "vehicle_present"
+      ]
+    },
+    {
+      "suite": "vehicle_presence",
+      "case_id": "vehicle_presence_07",
+      "clip_relative_path": "vehicle_presence/vehicle_presence_07.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "vehicle_classification",
+      "expected": {
+        "state": "present",
+        "presence": "present",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "day",
+        "frontal",
+        "single_subject",
+        "stationary",
+        "clear",
+        "vehicle_present"
+      ]
+    },
+    {
+      "suite": "vehicle_presence",
+      "case_id": "vehicle_presence_08",
+      "clip_relative_path": "vehicle_presence/vehicle_presence_08.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "vehicle_classification",
+      "expected": {
+        "state": "absent",
+        "presence": "absent",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "vehicle_presence",
+      "case_id": "vehicle_presence_09",
+      "clip_relative_path": "vehicle_presence/vehicle_presence_09.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "vehicle_classification",
+      "expected": {
+        "state": "ambiguous",
+        "presence": "ambiguous",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "profile",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "vehicle_present"
+      ]
+    },
+    {
+      "suite": "vehicle_presence",
+      "case_id": "vehicle_presence_10",
+      "clip_relative_path": "vehicle_presence/vehicle_presence_10.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "vehicle_classification",
+      "expected": {
+        "state": "present",
+        "presence": "present",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "multi_subject",
+        "moving",
+        "clear",
+        "vehicle_present"
+      ]
+    },
+    {
+      "suite": "plate_reading",
+      "case_id": "plate_reading_01",
+      "clip_relative_path": "plate_reading/plate_reading_01.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "plate_reading",
+      "expected": {
+        "state": "recognized"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "distant",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "vehicle_present"
+      ]
+    },
+    {
+      "suite": "plate_reading",
+      "case_id": "plate_reading_02",
+      "clip_relative_path": "plate_reading/plate_reading_02.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "plate_reading",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "plate_reading",
+      "case_id": "plate_reading_03",
+      "clip_relative_path": "plate_reading/plate_reading_03.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "plate_reading",
+      "expected": {
+        "state": "ambiguous"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "day",
+        "distant",
+        "single_subject",
+        "stationary",
+        "clear",
+        "vehicle_present"
+      ]
+    },
+    {
+      "suite": "plate_reading",
+      "case_id": "plate_reading_04",
+      "clip_relative_path": "plate_reading/plate_reading_04.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "plate_reading",
+      "expected": {
+        "state": "unavailable"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "plate_reading",
+      "case_id": "plate_reading_05",
+      "clip_relative_path": "plate_reading/plate_reading_05.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "plate_reading",
+      "expected": {
+        "state": "recognized"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "distant",
+        "multi_subject",
+        "stationary",
+        "degraded",
+        "vehicle_present"
+      ]
+    },
+    {
+      "suite": "plate_reading",
+      "case_id": "plate_reading_06",
+      "clip_relative_path": "plate_reading/plate_reading_06.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "plate_reading",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "profile",
+        "single_subject",
+        "moving",
+        "clear",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "plate_reading",
+      "case_id": "plate_reading_07",
+      "clip_relative_path": "plate_reading/plate_reading_07.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "plate_reading",
+      "expected": {
+        "state": "ambiguous"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "day",
+        "distant",
+        "single_subject",
+        "stationary",
+        "clear",
+        "vehicle_present"
+      ]
+    },
+    {
+      "suite": "plate_reading",
+      "case_id": "plate_reading_08",
+      "clip_relative_path": "plate_reading/plate_reading_08.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "plate_reading",
+      "expected": {
+        "state": "unavailable"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "plate_reading",
+      "case_id": "plate_reading_09",
+      "clip_relative_path": "plate_reading/plate_reading_09.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "plate_reading",
+      "expected": {
+        "state": "recognized"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "distant",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "vehicle_present"
+      ]
+    },
+    {
+      "suite": "plate_reading",
+      "case_id": "plate_reading_10",
+      "clip_relative_path": "plate_reading/plate_reading_10.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "plate_reading",
+      "expected": {
+        "state": "unknown"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "multi_subject",
+        "moving",
+        "clear",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "animal_presence",
+      "case_id": "animal_presence_01",
+      "clip_relative_path": "animal_presence/animal_presence_01.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "animal_classification",
+      "expected": {
+        "state": "present",
+        "presence": "present",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "frontal",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "animal_present"
+      ]
+    },
+    {
+      "suite": "animal_presence",
+      "case_id": "animal_presence_02",
+      "clip_relative_path": "animal_presence/animal_presence_02.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "animal_classification",
+      "expected": {
+        "state": "absent",
+        "presence": "absent",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "animal_presence",
+      "case_id": "animal_presence_03",
+      "clip_relative_path": "animal_presence/animal_presence_03.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "animal_classification",
+      "expected": {
+        "state": "ambiguous",
+        "presence": "ambiguous",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "day",
+        "profile",
+        "single_subject",
+        "stationary",
+        "clear",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "animal_presence",
+      "case_id": "animal_presence_04",
+      "clip_relative_path": "animal_presence/animal_presence_04.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "animal_classification",
+      "expected": {
+        "state": "present",
+        "presence": "present",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "animal_present"
+      ]
+    },
+    {
+      "suite": "animal_presence",
+      "case_id": "animal_presence_05",
+      "clip_relative_path": "animal_presence/animal_presence_05.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "animal_classification",
+      "expected": {
+        "state": "absent",
+        "presence": "absent",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "frontal",
+        "multi_subject",
+        "stationary",
+        "degraded",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "animal_presence",
+      "case_id": "animal_presence_06",
+      "clip_relative_path": "animal_presence/animal_presence_06.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "animal_classification",
+      "expected": {
+        "state": "present",
+        "presence": "present",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "profile",
+        "single_subject",
+        "moving",
+        "clear",
+        "animal_present"
+      ]
+    },
+    {
+      "suite": "animal_presence",
+      "case_id": "animal_presence_07",
+      "clip_relative_path": "animal_presence/animal_presence_07.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "animal_classification",
+      "expected": {
+        "state": "absent",
+        "presence": "absent",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "day",
+        "frontal",
+        "single_subject",
+        "stationary",
+        "clear",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "animal_presence",
+      "case_id": "animal_presence_08",
+      "clip_relative_path": "animal_presence/animal_presence_08.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "animal_classification",
+      "expected": {
+        "state": "ambiguous",
+        "presence": "ambiguous",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "animal_presence",
+      "case_id": "animal_presence_09",
+      "clip_relative_path": "animal_presence/animal_presence_09.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "animal_classification",
+      "expected": {
+        "state": "present",
+        "presence": "present",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "profile",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "animal_present"
+      ]
+    },
+    {
+      "suite": "animal_presence",
+      "case_id": "animal_presence_10",
+      "clip_relative_path": "animal_presence/animal_presence_10.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "animal_classification",
+      "expected": {
+        "state": "absent",
+        "presence": "absent",
+        "confidence_minimum_percent": 60
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "multi_subject",
+        "moving",
+        "clear",
+        "no_target"
+      ]
+    },
+    {
+      "suite": "camera_health",
+      "case_id": "camera_health_01",
+      "clip_relative_path": "camera_health/camera_health_01.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "camera_health",
+      "expected": {
+        "state": "healthy"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "frontal",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "healthy_camera"
+      ]
+    },
+    {
+      "suite": "camera_health",
+      "case_id": "camera_health_02",
+      "clip_relative_path": "camera_health/camera_health_02.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "camera_health",
+      "expected": {
+        "state": "unavailable"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "stream_missing"
+      ]
+    },
+    {
+      "suite": "camera_health",
+      "case_id": "camera_health_03",
+      "clip_relative_path": "camera_health/camera_health_03.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "camera_health",
+      "expected": {
+        "state": "frozen"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "day",
+        "profile",
+        "single_subject",
+        "stationary",
+        "clear",
+        "frozen_frame"
+      ]
+    },
+    {
+      "suite": "camera_health",
+      "case_id": "camera_health_04",
+      "clip_relative_path": "camera_health/camera_health_04.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "camera_health",
+      "expected": {
+        "state": "obscured"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "tamper_suspected"
+      ]
+    },
+    {
+      "suite": "camera_health",
+      "case_id": "camera_health_05",
+      "clip_relative_path": "camera_health/camera_health_05.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "camera_health",
+      "expected": {
+        "state": "degraded"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "frontal",
+        "multi_subject",
+        "stationary",
+        "degraded",
+        "tamper_suspected"
+      ]
+    },
+    {
+      "suite": "camera_health",
+      "case_id": "camera_health_06",
+      "clip_relative_path": "camera_health/camera_health_06.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "camera_health",
+      "expected": {
+        "state": "timestamp_invalid"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "profile",
+        "single_subject",
+        "moving",
+        "clear",
+        "stream_missing"
+      ]
+    },
+    {
+      "suite": "camera_health",
+      "case_id": "camera_health_07",
+      "clip_relative_path": "camera_health/camera_health_07.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "camera_health",
+      "expected": {
+        "state": "healthy"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "day",
+        "frontal",
+        "single_subject",
+        "stationary",
+        "clear",
+        "healthy_camera"
+      ]
+    },
+    {
+      "suite": "camera_health",
+      "case_id": "camera_health_08",
+      "clip_relative_path": "camera_health/camera_health_08.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "camera_health",
+      "expected": {
+        "state": "unavailable"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "night",
+        "frontal",
+        "single_subject",
+        "moving",
+        "clear",
+        "stream_missing"
+      ]
+    },
+    {
+      "suite": "camera_health",
+      "case_id": "camera_health_09",
+      "clip_relative_path": "camera_health/camera_health_09.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "camera_health",
+      "expected": {
+        "state": "frozen"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "indoor",
+        "low_light",
+        "profile",
+        "single_subject",
+        "stationary",
+        "degraded",
+        "frozen_frame"
+      ]
+    },
+    {
+      "suite": "camera_health",
+      "case_id": "camera_health_10",
+      "clip_relative_path": "camera_health/camera_health_10.mp4",
+      "clip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "technical_metadata": {
+        "container": "mp4",
+        "codec": "pending",
+        "width": 0,
+        "height": 0,
+        "duration": "pending"
+      },
+      "module": "camera_health",
+      "expected": {
+        "state": "obscured"
+      },
+      "provenance": "external_consent_required",
+      "license": "pending_consent_or_license",
+      "asset_status": "placeholder",
+      "not_run_reason": "awaiting_external_media_model_consent_and_sha256",
+      "condition_tags": [
+        "outdoor",
+        "day",
+        "frontal",
+        "multi_subject",
+        "moving",
+        "clear",
+        "tamper_suspected"
+      ]
+    }
+  ]
+}

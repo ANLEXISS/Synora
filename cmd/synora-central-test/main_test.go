@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"synora/internal/cognitivecore"
+	"synora/internal/foundationv1"
 	"synora/pkg/contract"
 )
 
@@ -353,6 +354,21 @@ func TestMediaPipelineAccountingUsesActualJourneyCount(t *testing.T) {
 	finalizeMediaPipelineAccounting(&report)
 	if !report.PipelineAccountingValid || report.PipelineCompletedCount != 48 || report.PipelineIncompleteCount != 0 {
 		t.Fatalf("media accounting does not reflect all journeys: valid=%t completed=%d incomplete=%d", report.PipelineAccountingValid, report.PipelineCompletedCount, report.PipelineIncompleteCount)
+	}
+}
+
+func TestFoundationExpectedRejectionIsTerminalNotIncomplete(t *testing.T) {
+	cases := make([]foundationv1.E2ECase, 10)
+	for index := 0; index < 9; index++ {
+		cases[index] = foundationv1.E2ECase{TerminalStatus: "completed", Journey: []string{"api_projected"}, Passed: true}
+	}
+	cases[9] = foundationv1.E2ECase{TerminalStatus: "rejected_expected", ExpectedIngressRejection: true, Journey: []string{"rejection_result_structured"}, Passed: true}
+	report := suiteReport{FoundationV1E2E: &foundationv1.E2ESuite{
+		Cases: cases, JourneysTerminalCompleted: 9, JourneysTerminalRejectedExpected: 1, JourneysIncomplete: 0,
+	}, FoundationV1CaseCount: 10}
+	refreshPipelineAccounting(&report)
+	if !report.PipelineAccountingValid || report.PipelineCompletedCount != 9 || report.PipelineRejectedExpectedCount != 1 || report.PipelineIncompleteCount != 0 || report.PipelineTerminalStatusCounts["expected_rejection"] != 1 {
+		t.Fatalf("expected rejection was counted as incomplete: %+v", report)
 	}
 }
 

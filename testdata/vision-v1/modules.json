@@ -1,0 +1,10 @@
+{
+  "schema_version": "synora.vision.module-registry/v1",
+  "modules": [
+    {"name": "face_recognition", "state": "not_configured", "model_version": null, "model_sha256": null},
+    {"name": "vehicle_classification", "state": "not_configured", "model_version": null, "model_sha256": null},
+    {"name": "plate_reading", "state": "not_configured", "model_version": null, "model_sha256": null},
+    {"name": "animal_classification", "state": "not_configured", "model_version": null, "model_sha256": null},
+    {"name": "camera_health", "state": "not_configured", "model_version": null, "model_sha256": null}
+  ]
+}

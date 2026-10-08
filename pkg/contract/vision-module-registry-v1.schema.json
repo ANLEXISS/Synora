@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synora.invalid/schemas/vision-module-registry-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "modules"],
+  "properties": {
+    "schema_version": {"const": "synora.vision.module-registry/v1"},
+    "modules": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "state", "model_version", "model_sha256"],
+        "properties": {
+          "name": {"enum": ["face_recognition", "vehicle_classification", "plate_reading", "animal_classification", "camera_health"]},
+          "state": {"enum": ["not_configured", "unavailable", "available", "failed"]},
+          "model_version": {"type": ["string", "null"]},
+          "model_sha256": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}
