@@ -61,6 +61,7 @@ type cameraMockCaseReport struct {
 	ExecutorCalls            int            `json:"executor_calls"`
 	StoreRevisionBefore      uint64         `json:"store_revision_before"`
 	StoreRevisionAfter       uint64         `json:"store_revision_after"`
+	StoreSimulatedCamera     bool           `json:"store_simulated_camera"`
 	StateBefore              map[string]any `json:"state_before,omitempty"`
 	StateDuring              map[string]any `json:"state_during,omitempty"`
 	StateAfter               map[string]any `json:"state_after,omitempty"`
@@ -525,6 +526,7 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 			report.StateHTTPAfter = item.StateHTTPAfter
 		}
 		item.StoreRevisionAfter = store.Revision()
+		item.StoreSimulatedCamera = latestMockStoreSimulationMarker(store)
 		item.WorkerStatus = "unavailable"
 		if id == "mock-timeout" {
 			item.TerminationReason = "test_worker_timeout_returned_unavailable"
@@ -543,7 +545,7 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 		item.ExecutorCalls = calls
 		item.ActionStatus = latestMockActionStatus(store)
 		item.Journey = mockCompleteJourney(id, item.ActualHTTP[0], item.ActionStatus)
-		item.Passed = len(item.DataLeak) == 0 && containsTrue(item.StateDuring, "simulated_camera") && containsTrue(item.StateAfter, "simulated_camera") && item.StoreRevisionAfter > item.StoreRevisionBefore
+		item.Passed = len(item.DataLeak) == 0 && containsTrue(item.StateDuring, "simulated_camera") && containsTrue(item.StateAfter, "simulated_camera") && item.StoreSimulatedCamera && item.StoreRevisionAfter > item.StoreRevisionBefore
 		if id == "mock-duplicate" {
 			item.Passed = item.Passed && len(item.ActualHTTP) == 2 && item.ActualHTTP[1] == http.StatusAccepted
 		}
@@ -706,6 +708,21 @@ func latestMockActionStatus(store *cognitivecore.UniversalStore) string {
 		}
 	}
 	return "unavailable"
+}
+
+func latestMockStoreSimulationMarker(store *cognitivecore.UniversalStore) bool {
+	history, err := store.History()
+	if err != nil {
+		return false
+	}
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].SnapshotV3 != nil {
+			return history[i].SnapshotV3.SimulatedCamera &&
+				history[i].SnapshotV3.VisionEvidenceSource == "simulated_test_worker" &&
+				!history[i].SnapshotV3.InferenceExecuted
+		}
+	}
+	return false
 }
 
 func containsTrue(source map[string]any, key string) bool {

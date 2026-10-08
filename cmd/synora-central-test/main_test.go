@@ -133,9 +133,9 @@ func TestCameraMockE2EIsTransportOnlyAndPreservesProvenance(t *testing.T) {
 		t.Fatalf("mock journeys were not fully included in central accounting: %+v", accounting)
 	}
 	for _, item := range report.Cases {
-		if !journeyComplete(item.Journey) || !item.MockCamera || item.InferenceExecuted || item.ModelLoaded || item.PhysicalActionExecuted || item.AudioRendered || item.ExternalNetworkAccess {
+		if !journeyComplete(item.Journey) || !item.MockCamera || !item.StoreSimulatedCamera || item.InferenceExecuted || item.ModelLoaded || item.PhysicalActionExecuted || item.AudioRendered || item.ExternalNetworkAccess {
 			complete, reason, missing := assessJourney(item.Journey)
-			t.Fatalf("mock case is incomplete or unsafe (journey_complete=%t reason=%s missing=%v marker=%t inference=%t model=%t physical=%t audio=%t network=%t): %+v", complete, reason, missing, item.MockCamera, item.InferenceExecuted, item.ModelLoaded, item.PhysicalActionExecuted, item.AudioRendered, item.ExternalNetworkAccess, item)
+			t.Fatalf("mock case is incomplete or unsafe (journey_complete=%t reason=%s missing=%v marker=%t store_marker=%t inference=%t model=%t physical=%t audio=%t network=%t): %+v", complete, reason, missing, item.MockCamera, item.StoreSimulatedCamera, item.InferenceExecuted, item.ModelLoaded, item.PhysicalActionExecuted, item.AudioRendered, item.ExternalNetworkAccess, item)
 		}
 		for _, stage := range item.Journey {
 			if !strings.Contains(stage.Reason, "simulated_camera=true") {
