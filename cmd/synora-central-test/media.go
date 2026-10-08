@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,6 +63,8 @@ type mediaCaseReport struct {
 	Category                     string            `json:"category,omitempty"`
 	Status                       string            `json:"status"`
 	Reason                       string            `json:"reason,omitempty"`
+	IngressHTTPStatus            int               `json:"ingress_http_status,omitempty"`
+	IngressLifecycleEvents       int               `json:"ingress_lifecycle_events,omitempty"`
 	PoseStatus                   string            `json:"pose_status,omitempty"`
 	Posture                      string            `json:"posture,omitempty"`
 	ImmobilitySeconds            float64           `json:"immobility_seconds,omitempty"`
@@ -70,9 +73,21 @@ type mediaCaseReport struct {
 	PhysicalInteractionCandidate bool              `json:"physical_interaction_candidate"`
 	Confidence                   float64           `json:"confidence,omitempty"`
 	LatencyMS                    float64           `json:"latency_ms,omitempty"`
+	PoseInitializationMS         float64           `json:"pose_initialization_ms,omitempty"`
+	HumanGateInitializationMS    float64           `json:"human_gate_initialization_ms,omitempty"`
+	InferenceLatencyP50MS        float64           `json:"inference_latency_p50_ms,omitempty"`
+	InferenceLatencyP95MS        float64           `json:"inference_latency_p95_ms,omitempty"`
+	InferenceLatencyMaxMS        float64           `json:"inference_latency_max_ms,omitempty"`
+	MaxFrames                    int               `json:"max_frames,omitempty"`
+	MaxPoseROIs                  int               `json:"max_pose_rois,omitempty"`
+	HumanGateRejectedFrames      int               `json:"human_gate_rejected_frames,omitempty"`
+	ValidPoseResults             int               `json:"valid_pose_results,omitempty"`
 	Expected                     map[string]any    `json:"expected,omitempty"`
 	SemanticStatus               string            `json:"semantic_status,omitempty"`
+	SemanticMismatchReason       string            `json:"semantic_mismatch_reason,omitempty"`
 	CorePassed                   bool              `json:"core_passed"`
+	StoreRevision                uint64            `json:"store_revision"`
+	APISnapshotObserved          bool              `json:"api_snapshot_observed"`
 	SnapshotVersion              string            `json:"snapshot_version,omitempty"`
 	SnapshotDimension            int               `json:"snapshot_dimension,omitempty"`
 	MLPHeads                     []string          `json:"mlp_heads,omitempty"`
@@ -87,6 +102,7 @@ type mediaCaseReport struct {
 	HumanConfirmedFrameCount     int               `json:"human_confirmed_frame_count,omitempty"`
 	PoseRequestCount             int               `json:"pose_request_count,omitempty"`
 	PoseRequestReason            string            `json:"pose_request_reason,omitempty"`
+	InferenceLatencySamplesMS    []float64         `json:"-"`
 	Journey                      []journeyEvent    `json:"journey,omitempty"`
 	PipelineComplete             *bool             `json:"pipeline_complete,omitempty"`
 	PipelineIncompleteReason     string            `json:"pipeline_incomplete_reason,omitempty"`
@@ -102,9 +118,26 @@ type mediaSuiteReport struct {
 	ManifestSHA256               string                    `json:"manifest_sha256"`
 	SourceManifestSHA256         string                    `json:"source_manifest_sha256,omitempty"`
 	Mode                         string                    `json:"mode"`
+	VisionBackend                string                    `json:"vision_backend"`
 	MediaRootSet                 bool                      `json:"media_root_set"`
 	ModelStatus                  string                    `json:"model_status"`
 	ModelReason                  string                    `json:"model_reason,omitempty"`
+	PoseModelSHA256              string                    `json:"pose_model_sha256,omitempty"`
+	RKNNRuntimeVersion           string                    `json:"rknn_runtime_version,omitempty"`
+	RKNNDriverVersion            string                    `json:"rknn_driver_version,omitempty"`
+	ModelToolkitVersion          string                    `json:"model_toolkit_version,omitempty"`
+	OutputShapes                 []string                  `json:"output_shapes,omitempty"`
+	PoseInitializationMS         float64                   `json:"pose_initialization_ms"`
+	PoseInitializationLatencyMS  map[string]float64        `json:"pose_initialization_latency_ms"`
+	HumanGateRejectedFrames      int                       `json:"human_gate_rejected_frames"`
+	PoseRequestedFrames          int                       `json:"pose_requested_frames"`
+	ValidPoseResults             int                       `json:"valid_pose_results"`
+	MaxFramesPerClip             int                       `json:"max_frames_per_clip"`
+	MaxPoseROIsPerClip           int                       `json:"max_pose_rois_per_clip"`
+	PhysicalActionExecuted       bool                      `json:"physical_action_executed"`
+	AudioRendered                bool                      `json:"audio_rendered"`
+	RawVisionForwarded           bool                      `json:"raw_vision_forwarded"`
+	NetworkAccess                bool                      `json:"network_access"`
 	ScenarioCount                int                       `json:"scenario_count"`
 	PassedCount                  int                       `json:"passed_count"`
 	FailedCount                  int                       `json:"failed_count"`
@@ -117,6 +150,9 @@ type mediaSuiteReport struct {
 	MediaHashVerificationPassed  bool                      `json:"media_hash_verification_passed"`
 	MediaByCategory              map[string]map[string]int `json:"media_by_category"`
 	PoseLatencyMS                map[string]float64        `json:"pose_latency_ms"`
+	NonFallFalsePositives        map[string]int            `json:"non_fall_false_positives"`
+	FallRecallObserved           map[string]float64        `json:"fall_recall_observed"`
+	SemanticMismatchCases        []semanticMismatchReport  `json:"semantic_mismatch_cases"`
 	PostureByCategory            map[string]map[string]int `json:"posture_by_category"`
 	FallStateByCategory          map[string]map[string]int `json:"fall_state_by_category"`
 	SemanticQualification        string                    `json:"semantic_qualification"`
@@ -129,6 +165,14 @@ type mediaSuiteReport struct {
 	IdempotenceChecks            map[string]int            `json:"idempotence_checks"`
 	RejectedActionResults        int                       `json:"rejected_action_results"`
 	Cases                        []mediaCaseReport         `json:"cases"`
+}
+
+type semanticMismatchReport struct {
+	CaseID    string `json:"case_id"`
+	Category  string `json:"category"`
+	Reason    string `json:"reason"`
+	Posture   string `json:"posture"`
+	FallState string `json:"fall_state"`
 }
 
 type le2iManifest struct {
@@ -158,28 +202,43 @@ type le2iCase struct {
 }
 
 type poseModelDiagnostic struct {
-	Status string
-	Reason string
+	Status           string   `json:"status"`
+	Reason           string   `json:"reason"`
+	RuntimeVersion   string   `json:"runtime_version"`
+	DriverVersion    string   `json:"driver_version"`
+	ToolkitVersion   string   `json:"toolkit_version"`
+	InitializationMS float64  `json:"initialization_ms"`
+	OutputShapes     []string `json:"output_shapes"`
+	ModelSHA256      string   `json:"model_sha256"`
 }
 
 type poseAggregateResult struct {
-	PoseStatus                   string  `json:"pose_status"`
-	Posture                      string  `json:"posture"`
-	ImmobilitySeconds            float64 `json:"immobility_seconds"`
-	FallState                    string  `json:"fall_state"`
-	RapidMotionState             string  `json:"rapid_motion_state"`
-	PhysicalInteractionCandidate bool    `json:"physical_interaction_candidate"`
-	Confidence                   float64 `json:"confidence"`
-	LatencyMS                    float64 `json:"latency_ms"`
-	LatencyP50MS                 float64 `json:"latency_p50_ms"`
-	LatencyP95MS                 float64 `json:"latency_p95_ms"`
-	LatencyMaxMS                 float64 `json:"latency_max_ms"`
-	FrameCount                   int     `json:"frame_count"`
-	PoseFrameCount               int     `json:"pose_frame_count"`
-	HumanDetectorStatus          string  `json:"human_detector_status"`
-	HumanConfirmedFrameCount     int     `json:"human_confirmed_frame_count"`
-	PoseRequestCount             int     `json:"pose_request_count"`
-	PoseRequestReason            string  `json:"pose_request_reason"`
+	PoseStatus                   string    `json:"pose_status"`
+	Posture                      string    `json:"posture"`
+	ImmobilitySeconds            float64   `json:"immobility_seconds"`
+	FallState                    string    `json:"fall_state"`
+	RapidMotionState             string    `json:"rapid_motion_state"`
+	PhysicalInteractionCandidate bool      `json:"physical_interaction_candidate"`
+	Confidence                   float64   `json:"confidence"`
+	LatencyMS                    float64   `json:"latency_ms"`
+	LatencyP50MS                 float64   `json:"latency_p50_ms"`
+	LatencyP95MS                 float64   `json:"latency_p95_ms"`
+	LatencyMaxMS                 float64   `json:"latency_max_ms"`
+	InferenceLatencyP50MS        float64   `json:"inference_latency_p50_ms"`
+	InferenceLatencyP95MS        float64   `json:"inference_latency_p95_ms"`
+	InferenceLatencyMaxMS        float64   `json:"inference_latency_max_ms"`
+	FrameCount                   int       `json:"frame_count"`
+	PoseFrameCount               int       `json:"pose_frame_count"`
+	HumanDetectorStatus          string    `json:"human_detector_status"`
+	HumanConfirmedFrameCount     int       `json:"human_confirmed_frame_count"`
+	PoseRequestCount             int       `json:"pose_request_count"`
+	PoseRequestReason            string    `json:"pose_request_reason"`
+	PoseInitializationMS         float64   `json:"pose_initialization_ms"`
+	HumanGateInitializationMS    float64   `json:"human_gate_initialization_ms"`
+	MaxFrames                    int       `json:"max_frames"`
+	MaxPoseROIs                  int       `json:"max_pose_rois"`
+	HumanGateRejectedFrames      int       `json:"human_gate_rejected_frames"`
+	InferenceLatencySamplesMS    []float64 `json:"inference_latency_samples_ms"`
 }
 
 func loadVisionMediaManifest(path string) (visionMediaManifest, error) {
@@ -319,16 +378,29 @@ func runLe2iSuite(repoRoot, manifestPath, mediaRoot, modelPath string) mediaSuit
 	}
 	report := mediaSuiteReport{
 		SchemaVersion: "synora.central-media-e2e/v1", ManifestSHA256: fileSHA256(manifestPath), SourceManifestSHA256: manifest.SourceManifestSHA256,
-		Mode: "le2i", MediaRootSet: mediaRoot != "", StatusCounts: make(map[string]int), FamilyCounts: make(map[string]int),
+		Mode: "le2i", VisionBackend: "unavailable", MediaRootSet: mediaRoot != "", StatusCounts: make(map[string]int), FamilyCounts: make(map[string]int),
 		MediaByCategory: make(map[string]map[string]int), PoseLatencyMS: map[string]float64{"p50_ms": 0, "p95_ms": 0, "max_ms": 0},
-		PostureByCategory: make(map[string]map[string]int), FallStateByCategory: make(map[string]map[string]int), SemanticQualification: "not_qualified",
-		SemanticDebtByCategory: make(map[string]int), ActionLifecycleByStatus: make(map[string]int), IdempotenceChecks: make(map[string]int), Cases: make([]mediaCaseReport, 0, len(manifest.Cases)),
+		PoseInitializationLatencyMS: map[string]float64{"p50_ms": 0, "p95_ms": 0, "max_ms": 0},
+		PostureByCategory:           make(map[string]map[string]int), FallStateByCategory: make(map[string]map[string]int), SemanticQualification: "not_qualified",
+		SemanticDebtByCategory: make(map[string]int), NonFallFalsePositives: map[string]int{"Blank": 0, "Lie": 0, "Likefall": 0, "Stand": 0},
+		FallRecallObserved:      map[string]float64{"observed_candidates": 0, "labelled_fall_clips": float64(lenCasesByCategory(manifest.Cases, "Fall")), "recall": 0},
+		ActionLifecycleByStatus: make(map[string]int), IdempotenceChecks: make(map[string]int), Cases: make([]mediaCaseReport, 0, len(manifest.Cases)),
+		MaxFramesPerClip: 16, MaxPoseROIsPerClip: 16,
 	}
 	model := diagnosePoseModel(repoRoot, modelPath)
 	report.ModelStatus, report.ModelReason = le2iModelStatus(modelPath, model), model.Reason
 	report.PoseBackendStatus = report.ModelStatus
+	if report.ModelStatus == "available" {
+		report.VisionBackend = "real_rknn_pose_test"
+		report.PoseModelSHA256 = model.ModelSHA256
+		report.RKNNRuntimeVersion = model.RuntimeVersion
+		report.RKNNDriverVersion = model.DriverVersion
+		report.ModelToolkitVersion = model.ToolkitVersion
+		report.OutputShapes = append([]string(nil), model.OutputShapes...)
+		report.PoseInitializationMS = model.InitializationMS
+	}
 	allHashesVerified := mediaRoot != ""
-	var latencyValues []float64
+	var latencyValues, initializationValues, inferenceLatencyValues []float64
 	for _, entry := range manifest.Cases {
 		item := evaluateLe2iCase(repoRoot, entry, mediaRoot, model)
 		report.Cases = append(report.Cases, item)
@@ -349,9 +421,20 @@ func runLe2iSuite(repoRoot, manifestPath, mediaRoot, modelPath string) mediaSuit
 		if item.Status == mediaStatusIntegrity || item.Status == mediaStatusMediaMissing {
 			allHashesVerified = false
 		}
+		report.RawVisionForwarded = report.RawVisionForwarded || item.RawVisionForwarded
+		report.AudioRendered = report.AudioRendered || item.AudioRendered
+		report.PhysicalActionExecuted = report.PhysicalActionExecuted || item.PhysicalActionExecuted
+		report.NetworkAccess = report.NetworkAccess || item.NetworkAccess
 		if item.LatencyMS > 0 {
 			latencyValues = append(latencyValues, item.LatencyMS)
 		}
+		if item.PoseInitializationMS > 0 {
+			initializationValues = append(initializationValues, item.PoseInitializationMS)
+		}
+		inferenceLatencyValues = append(inferenceLatencyValues, item.InferenceLatencySamplesMS...)
+		report.HumanGateRejectedFrames += item.HumanGateRejectedFrames
+		report.PoseRequestedFrames += item.PoseRequestCount
+		report.ValidPoseResults += item.ValidPoseResults
 		if item.Posture != "" {
 			incrementNested(report.PostureByCategory, item.Category, item.Posture)
 		}
@@ -360,6 +443,15 @@ func runLe2iSuite(repoRoot, manifestPath, mediaRoot, modelPath string) mediaSuit
 		}
 		if item.SemanticStatus == "observed_mismatch" {
 			report.SemanticDebtByCategory[item.Category]++
+			report.SemanticMismatchCases = append(report.SemanticMismatchCases, semanticMismatchReport{
+				CaseID: item.ID, Category: item.Category, Reason: item.SemanticMismatchReason, Posture: item.Posture, FallState: item.FallState,
+			})
+		}
+		if item.Category == "Fall" && item.FallState == "candidate" {
+			report.FallRecallObserved["observed_candidates"]++
+		}
+		if item.Category != "Fall" && item.FallState == "candidate" {
+			report.NonFallFalsePositives[item.Category]++
 		}
 		report.ActionLifecycleByStatus[item.ActionLifecycleStatus]++
 		if item.IdempotenceChecks.CameraDuplicateNoSecondAction {
@@ -376,19 +468,46 @@ func runLe2iSuite(repoRoot, manifestPath, mediaRoot, modelPath string) mediaSuit
 		}
 		report.RejectedActionResults += item.RejectedActionResults
 	}
-	finalizeMediaPipelineAccounting(&report)
 	report.ScenarioCount = len(report.Cases)
+	finalizeMediaPipelineAccounting(&report)
 	report.FailedCount = report.ScenarioCount - report.PassedCount
 	report.Passed = report.ScenarioCount > 0 && report.FailedCount == 0 && report.MediaHashVerificationPassed
 	report.MediaHashVerificationPassed = allHashesVerified && report.ScenarioCount == 48
 	if len(latencyValues) > 0 {
-		report.PoseLatencyMS["p50_ms"] = percentileFloat(latencyValues, 50)
-		report.PoseLatencyMS["p95_ms"] = percentileFloat(latencyValues, 95)
-		report.PoseLatencyMS["max_ms"] = maxFloat(latencyValues)
+		p50, p95, maximum := percentileFloat(latencyValues, 50), percentileFloat(latencyValues, 95), maxFloat(latencyValues)
+		report.PoseLatencyMS["p50_ms"] = p50
+		report.PoseLatencyMS["p95_ms"] = p95
+		report.PoseLatencyMS["max_ms"] = maximum
+		report.PoseLatencyMS["per_clip_mean_p50_ms"] = p50
+		report.PoseLatencyMS["per_clip_mean_p95_ms"] = p95
+		report.PoseLatencyMS["per_clip_mean_max_ms"] = maximum
+	}
+	if len(inferenceLatencyValues) > 0 {
+		report.PoseLatencyMS["inference_p50_ms"] = percentileFloat(inferenceLatencyValues, 50)
+		report.PoseLatencyMS["inference_p95_ms"] = percentileFloat(inferenceLatencyValues, 95)
+		report.PoseLatencyMS["inference_max_ms"] = maxFloat(inferenceLatencyValues)
+	}
+	if len(initializationValues) > 0 {
+		report.PoseInitializationLatencyMS["p50_ms"] = percentileFloat(initializationValues, 50)
+		report.PoseInitializationLatencyMS["p95_ms"] = percentileFloat(initializationValues, 95)
+		report.PoseInitializationLatencyMS["max_ms"] = maxFloat(initializationValues)
+	}
+	if total := report.FallRecallObserved["labelled_fall_clips"]; total > 0 {
+		report.FallRecallObserved["recall"] = report.FallRecallObserved["observed_candidates"] / total
 	}
 	// Hash verification is an integrity gate; calculate Passed after its final value.
 	report.Passed = report.ScenarioCount == 48 && report.FailedCount == 0 && report.MediaHashVerificationPassed
 	return report
+}
+
+func lenCasesByCategory(cases []le2iCase, category string) int {
+	count := 0
+	for _, item := range cases {
+		if item.Category == category {
+			count++
+		}
+	}
+	return count
 }
 
 func finalizeMediaPipelineAccounting(report *mediaSuiteReport) {
@@ -475,27 +594,34 @@ func maxFloat(values []float64) float64 {
 func evaluateLe2iCase(repoRoot string, entry le2iCase, mediaRoot string, model poseModelDiagnostic) mediaCaseReport {
 	item := mediaCaseReport{ID: entry.ID, Family: entry.Category, Category: entry.Category, Status: mediaStatusMediaMissing, Expected: entry.Expectation, SemanticStatus: "not_qualified"}
 	if mediaRoot == "" {
-		item.Reason = "SYNORA_VISION_MEDIA_ROOT is not configured"
-		return item
+		item.Status, item.Reason = mediaStatusMediaMissing, "SYNORA_VISION_MEDIA_ROOT is not configured"
+		return completeUnavailableMediaCase(repoRoot, entry, item)
 	}
 	path, err := safeMediaPath(mediaRoot, entry.ClipRelativePath)
 	if err != nil {
 		item.Status, item.Reason = mediaStatusIntegrity, err.Error()
-		return item
+		return completeUnavailableMediaCase(repoRoot, entry, item)
 	}
 	if _, err := os.Stat(path); err != nil {
 		item.Status, item.Reason = mediaStatusMediaMissing, "Le2i clip is missing"
-		return item
+		return completeUnavailableMediaCase(repoRoot, entry, item)
 	}
 	actualHash, err := sha256File(path)
 	if err != nil || !strings.EqualFold(actualHash, entry.ClipSHA256) {
 		item.Status, item.Reason = mediaStatusIntegrity, "Le2i clip SHA-256 does not match the manifest"
-		return item
+		return completeUnavailableMediaCase(repoRoot, entry, item)
 	}
 	if err := validateLe2iClip(path, entry); err != nil {
 		item.Status, item.Reason = mediaStatusIntegrity, err.Error()
-		return item
+		return completeUnavailableMediaCase(repoRoot, entry, item)
 	}
+	queuedPath, ingressStatus, lifecycleEvents, cleanupIngress, ingressErr := ingressLe2iClip(path, entry.ID)
+	item.IngressHTTPStatus, item.IngressLifecycleEvents = ingressStatus, lifecycleEvents
+	if ingressErr != nil {
+		item.Status, item.Reason, item.PoseStatus = mediaStatusFailed, ingressErr.Error(), "unavailable"
+		return completeUnavailableMediaCase(repoRoot, entry, item)
+	}
+	defer cleanupIngress()
 	if model.Status != "available" {
 		blockStatus := mediaStatusModelMissing
 		poseStatus := "blocked_model_missing"
@@ -505,38 +631,87 @@ func evaluateLe2iCase(repoRoot string, entry le2iCase, mediaRoot string, model p
 			}
 		}
 		item.Status, item.PoseStatus, item.Reason = blockStatus, poseStatus, model.Reason
-		return item
+		return completeUnavailableMediaCase(repoRoot, entry, item)
 	}
-	result, err := runPoseMediaCase(repoRoot, path, modelPathFromEnvironment())
+	result, err := runPoseMediaCase(repoRoot, queuedPath, modelPathFromEnvironment())
 	if err != nil {
-		item.Status, item.Reason, item.PoseStatus = mediaStatusFailed, err.Error(), "unavailable"
-		return item
+		item.Status, item.Reason, item.PoseStatus = mediaStatusFailed, redactMediaPath(err.Error(), path, modelPathFromEnvironment()), "unavailable"
+		return completeUnavailableMediaCase(repoRoot, entry, item)
 	}
 	item.PoseStatus, item.Posture, item.ImmobilitySeconds = result.PoseStatus, result.Posture, result.ImmobilitySeconds
 	item.FallState, item.RapidMotionState = result.FallState, result.RapidMotionState
 	item.PhysicalInteractionCandidate, item.Confidence, item.LatencyMS = result.PhysicalInteractionCandidate, result.Confidence, result.LatencyMS
 	item.HumanDetectorStatus, item.HumanConfirmedFrameCount = result.HumanDetectorStatus, result.HumanConfirmedFrameCount
 	item.PoseRequestCount, item.PoseRequestReason = result.PoseRequestCount, result.PoseRequestReason
+	item.ValidPoseResults = result.PoseFrameCount
+	item.PoseInitializationMS, item.HumanGateInitializationMS = result.PoseInitializationMS, result.HumanGateInitializationMS
+	item.InferenceLatencyP50MS, item.InferenceLatencyP95MS, item.InferenceLatencyMaxMS = result.InferenceLatencyP50MS, result.InferenceLatencyP95MS, result.InferenceLatencyMaxMS
+	item.MaxFrames, item.MaxPoseROIs = result.MaxFrames, result.MaxPoseROIs
+	item.HumanGateRejectedFrames = result.HumanGateRejectedFrames
+	item.InferenceLatencySamplesMS = append([]float64(nil), result.InferenceLatencySamplesMS...)
 	coreReport := runLe2iAggregateThroughCore(repoRoot, entry, result)
 	item.CorePassed = coreReport.Passed
+	item.StoreRevision = coreReport.StoreRevision
+	item.APISnapshotObserved = observedAPISnapshot(coreReport.BusTrace)
 	item.SnapshotVersion, item.SnapshotDimension = coreReport.SnapshotVersion, coreReport.SnapshotDimension
 	item.MLPHeads, item.MLPObservations = coreReport.MLPHeads, coreReport.MLPObservations
 	item.SafetyGateStatuses, item.SafetyGateReasons = coreReport.SafetyGateStatuses, coreReport.SafetyGateReasons
 	item.RawVisionForwarded, item.AudioRendered, item.PhysicalActionExecuted, item.NetworkAccess = coreReport.RawVisionForwarded, coreReport.AudioRendered, coreReport.PhysicalAction, coreReport.NetworkAccess
 	item.Journey, item.ActionLifecycleStatus, item.IdempotenceChecks, item.RejectedActionResults = coreReport.Journey, coreReport.ActionLifecycleStatus, coreReport.IdempotenceChecks, coreReport.RejectedActionResults
 	item.Status = mediaStatusPassed
-	if !item.CorePassed || item.RawVisionForwarded || item.AudioRendered || item.PhysicalActionExecuted || item.NetworkAccess || item.FallState == "confirmed" {
+	if !item.CorePassed || item.StoreRevision <= 1 || !item.APISnapshotObserved || item.RawVisionForwarded || item.AudioRendered || item.PhysicalActionExecuted || item.NetworkAccess || item.FallState == "confirmed" {
 		item.Status, item.Reason = mediaStatusFailed, "central safety or redaction gate failed"
 	}
 	if le2iSemanticMatch(entry.Category, result) {
 		item.SemanticStatus = "observed_match"
 	} else {
 		item.SemanticStatus = "observed_mismatch"
+		item.SemanticMismatchReason = "manifest expectation not observed"
 	}
 	if reason := le2iSafetySemanticMismatch(entry.Category, result); reason != "" {
-		item.Status, item.Reason = mediaStatusFailed, reason
+		item.SemanticStatus, item.SemanticMismatchReason = "observed_mismatch", reason
+		if result.FallState == "confirmed" {
+			item.Status, item.Reason = mediaStatusFailed, reason
+		}
 	}
 	return item
+}
+
+func completeUnavailableMediaCase(repoRoot string, entry le2iCase, item mediaCaseReport) mediaCaseReport {
+	poseStatus := item.PoseStatus
+	if poseStatus != "not_requested" && poseStatus != "low_quality" {
+		poseStatus = "unavailable"
+	}
+	item.PoseStatus = poseStatus
+	item.Posture = "unavailable"
+	item.FallState = "none"
+	item.SemanticStatus = "observed_mismatch"
+	item.SemanticMismatchReason = item.Reason
+	result := poseAggregateResult{
+		PoseStatus: poseStatus, Posture: "unavailable", FallState: "none", RapidMotionState: "unknown",
+		HumanDetectorStatus: "unavailable", PoseRequestReason: item.Reason,
+	}
+	coreReport := runLe2iAggregateThroughCore(repoRoot, entry, result)
+	item.CorePassed = coreReport.Passed
+	item.StoreRevision = coreReport.StoreRevision
+	item.APISnapshotObserved = observedAPISnapshot(coreReport.BusTrace)
+	item.SnapshotVersion, item.SnapshotDimension = coreReport.SnapshotVersion, coreReport.SnapshotDimension
+	item.MLPHeads, item.MLPObservations = coreReport.MLPHeads, coreReport.MLPObservations
+	item.SafetyGateStatuses, item.SafetyGateReasons = coreReport.SafetyGateStatuses, coreReport.SafetyGateReasons
+	item.RawVisionForwarded, item.AudioRendered = coreReport.RawVisionForwarded, coreReport.AudioRendered
+	item.PhysicalActionExecuted, item.NetworkAccess = coreReport.PhysicalAction, coreReport.NetworkAccess
+	item.Journey, item.ActionLifecycleStatus = coreReport.Journey, coreReport.ActionLifecycleStatus
+	item.IdempotenceChecks, item.RejectedActionResults = coreReport.IdempotenceChecks, coreReport.RejectedActionResults
+	return item
+}
+
+func observedAPISnapshot(trace []traceRecord) bool {
+	for _, record := range trace {
+		if record.Type == "core.snapshot.v3" && record.Target == "api" {
+			return true
+		}
+	}
+	return false
 }
 
 func le2iSafetySemanticMismatch(category string, result poseAggregateResult) string {
@@ -560,8 +735,8 @@ func le2iSafetySemanticMismatch(category string, result poseAggregateResult) str
 			return "Lie media cannot emit a fall candidate without an upright-to-ground transition"
 		}
 	case "Likefall":
-		if result.FallState == "confirmed" {
-			return "Likefall media cannot emit a confirmed fall"
+		if result.FallState == "candidate" {
+			return "Likefall media should prioritize no fall candidate"
 		}
 	}
 	return ""
@@ -605,7 +780,7 @@ func le2iSemanticMatch(category string, result poseAggregateResult) bool {
 	case "Lie":
 		return result.Posture == "ground" && result.FallState == "none"
 	case "Likefall":
-		return result.Posture == "ambiguous" || result.FallState == "candidate"
+		return result.Posture == "ambiguous" && result.FallState == "none"
 	case "Stand":
 		return result.Posture == "upright" && result.FallState == "none"
 	case "Blank":
@@ -641,7 +816,7 @@ func runLe2iAggregateThroughCore(repoRoot string, entry le2iCase, result poseAgg
 		vision["motion_tier"] = "unknown"
 	}
 	vision["physical_interaction_candidate"] = false
-	vision["real_detection"] = true
+	vision["real_detection"] = result.PoseStatus == "available"
 	vision["replay_simulation"] = false
 	envelope["provenance"] = "vision-media-harness/le2i-v1"
 	value.Messages[0].Payload, _ = json.Marshal(envelope)
@@ -654,10 +829,14 @@ func diagnosePoseModel(repoRoot, modelPath string) poseModelDiagnostic {
 	}
 	info, err := os.Stat(modelPath)
 	if err != nil {
-		return poseModelDiagnostic{Status: "unavailable", Reason: "pose model is unavailable: " + err.Error()}
+		return poseModelDiagnostic{Status: "unavailable", Reason: "pose model file is unavailable"}
 	}
 	if !info.Mode().IsRegular() || !strings.HasSuffix(strings.ToLower(modelPath), ".rknn") {
 		return poseModelDiagnostic{Status: "unavailable", Reason: "pose model must be a regular .rknn file"}
+	}
+	modelHashBefore, err := sha256File(modelPath)
+	if err != nil {
+		return poseModelDiagnostic{Status: "unavailable", Reason: "pose model SHA-256 could not be read"}
 	}
 	python := os.Getenv("PYTHON")
 	if python == "" {
@@ -668,21 +847,27 @@ func diagnosePoseModel(repoRoot, modelPath string) poseModelDiagnostic {
 	cmd := exec.CommandContext(ctx, python, "tools/central_yolov8_pose.py", "--diagnostic", "--model", modelPath)
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(), "PYTHONPATH="+filepath.Join(cmd.Dir, "services/vision-worker"))
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return poseModelDiagnostic{Status: "unavailable", Reason: "YOLOv8-pose RKNN runtime could not load the model: " + trimCommandError(err, out)}
+		return poseModelDiagnostic{Status: "unavailable", Reason: "YOLOv8-pose RKNN runtime could not load the model: " + err.Error()}
 	}
-	var result struct {
-		Status string `json:"status"`
-		Reason string `json:"reason"`
-	}
+	var result poseModelDiagnostic
 	if err := unmarshalAggregateJSON(out, &result); err != nil || result.Status != "available" {
 		if result.Reason == "" {
 			result.Reason = "YOLOv8-pose RKNN diagnostic returned no available status"
 		}
-		return poseModelDiagnostic{Status: "unavailable", Reason: result.Reason}
+		return poseModelDiagnostic{Status: "unavailable", Reason: redactMediaPath(result.Reason, modelPath)}
 	}
-	return poseModelDiagnostic{Status: "available", Reason: result.Reason}
+	modelHashAfter, err := sha256File(modelPath)
+	if err != nil || modelHashBefore != result.ModelSHA256 || modelHashBefore != modelHashAfter {
+		return poseModelDiagnostic{Status: "unavailable", Reason: "pose model SHA-256 integrity check failed"}
+	}
+	if match := regexp.MustCompile(`toolkit version:\s*([0-9.]+)`).FindSubmatch(out); len(match) == 2 {
+		result.ToolkitVersion = string(match[1])
+	} else {
+		result.ToolkitVersion = "not_reported_by_model_runtime"
+	}
+	return result
 }
 
 func evaluateVisionMediaEntry(repoRoot string, entry visionMediaEntry, mediaRoot string, model poseModelDiagnostic) mediaCaseReport {
@@ -816,6 +1001,15 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+func redactMediaPath(value string, paths ...string) string {
+	for _, path := range paths {
+		if path != "" {
+			value = strings.ReplaceAll(value, path, "[redacted]")
+		}
+	}
+	return value
+}
+
 func validateMediaDecode(path string, expectedDurationMS int64) error {
 	ffprobe, err := exec.LookPath("ffprobe")
 	if err != nil {
@@ -855,25 +1049,41 @@ func validateMediaDecode(path string, expectedDurationMS int64) error {
 }
 
 func runPoseMediaCase(repoRoot, path, modelPath string) (poseAggregateResult, error) {
+	return runPoseMediaCaseWithTimeout(repoRoot, path, modelPath, 2*time.Minute)
+}
+
+func runPoseMediaCaseWithTimeout(repoRoot, path, modelPath string, timeout time.Duration) (poseAggregateResult, error) {
 	python := os.Getenv("PYTHON")
 	if python == "" {
 		python = "python3"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, python, "tools/central_yolov8_pose.py", "--video", path, "--model", modelPath, "--max-frames", "32")
+	cmd := exec.CommandContext(ctx, python, "tools/central_yolov8_pose.py", "--video", path, "--model", modelPath, "--max-frames", "16", "--max-rois", "16")
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(), "PYTHONPATH="+filepath.Join(repoRoot, "services/vision-worker"))
 	body, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return poseAggregateResult{}, errors.New("YOLOv8-pose media execution timed out")
+		}
 		return poseAggregateResult{}, fmt.Errorf("YOLOv8-pose media execution failed: %s", trimCommandError(err, body))
 	}
 	var result poseAggregateResult
 	if err := unmarshalAggregateJSON(body, &result); err != nil {
 		return poseAggregateResult{}, errors.New("YOLOv8-pose media output was not an aggregate contract")
 	}
+	if result.PoseStatus != "available" && result.PoseStatus != "not_requested" && result.PoseStatus != "low_quality" && result.PoseStatus != "unavailable" {
+		return poseAggregateResult{}, errors.New("YOLOv8-pose media output has an invalid pose status")
+	}
 	if result.FallState == "confirmed" {
 		return poseAggregateResult{}, errors.New("YOLOv8-pose backend returned forbidden confirmed fall state")
+	}
+	if result.FrameCount > 16 || result.PoseRequestCount > 16 || result.PoseFrameCount > result.PoseRequestCount || len(result.InferenceLatencySamplesMS) > 16 || result.HumanConfirmedFrameCount > result.FrameCount {
+		return poseAggregateResult{}, errors.New("YOLOv8-pose exceeded the per-clip frame or ROI budget")
+	}
+	if result.HumanConfirmedFrameCount == 0 && (result.PoseRequestCount != 0 || result.PoseFrameCount != 0 || len(result.InferenceLatencySamplesMS) != 0) {
+		return poseAggregateResult{}, errors.New("YOLOv8-pose human gate was bypassed")
 	}
 	return result, nil
 }

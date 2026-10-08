@@ -10,8 +10,10 @@ this process and stdout contains only the bounded aggregate contract.
 
 import argparse
 from contextlib import contextmanager
+import hashlib
 import json
 import os
+import re
 import sys
 import time
 
@@ -191,9 +193,25 @@ def percentile(values, fraction):
     return float(np.percentile(np.asarray(values, dtype=np.float64), fraction))
 
 
-def run_video(video_path, model_path, max_frames):
+def rknn_versions(runner):
+    raw = runner.rknn.get_sdk_version() or ""
+    match = re.search(r"API:\s*([^\n]+).*?DRV:\s*([^\n]+)", str(raw), re.S)
+    if not match:
+        return "unreported", "unreported"
+    return match.group(1).strip(), match.group(2).strip()
+
+
+def pose_gate_allows(humans, roi_count, max_rois):
+    return bool(humans) and roi_count < max_rois
+
+
+def run_video(video_path, model_path, max_frames, max_rois):
+    pose_init_started = time.perf_counter()
     runner = load_backend(model_path)
+    pose_initialization_ms = (time.perf_counter() - pose_init_started) * 1000.0
+    human_gate_init_started = time.perf_counter()
     person_detector = PersonDetector()
+    human_gate_initialization_ms = (time.perf_counter() - human_gate_init_started) * 1000.0
     capture = cv2.VideoCapture(video_path)
     if not capture.isOpened():
         runner.close()
@@ -214,6 +232,7 @@ def run_video(video_path, model_path, max_frames):
     postures = []
     confidences = []
     latency_samples = []
+    inference_latency_samples = []
     immobility = 0.0
     rapid = False
     fall_candidate = False
@@ -237,11 +256,16 @@ def run_video(video_path, model_path, max_frames):
             if not humans:
                 continue
             human_confirmed += 1
+            if not pose_gate_allows(humans, pose_requests, max_rois):
+                pose_request_reason = "pose_roi_budget_exhausted"
+                continue
             pose_requests += 1
             pose_request_reason = "confirmed_human"
             started = time.perf_counter()
             tensor, meta = letterbox(frame)
+            inference_started = time.perf_counter()
             outputs = runner.infer(tensor)
+            inference_latency_samples.append((time.perf_counter() - inference_started) * 1000.0)
             pose = decode_best(outputs, meta)
             latency_samples.append((time.perf_counter() - started) * 1000.0)
             if pose is None:
@@ -274,12 +298,22 @@ def run_video(video_path, model_path, max_frames):
         "latency_p50_ms": round(percentile(latency_samples, 50), 3),
         "latency_p95_ms": round(percentile(latency_samples, 95), 3),
         "latency_max_ms": round(max(latency_samples) if latency_samples else 0.0, 3),
+        "inference_latency_p50_ms": round(percentile(inference_latency_samples, 50), 3),
+        "inference_latency_p95_ms": round(percentile(inference_latency_samples, 95), 3),
+        "inference_latency_max_ms": round(max(inference_latency_samples) if inference_latency_samples else 0.0, 3),
+        "inference_latency_samples_ms": [round(value, 3) for value in inference_latency_samples],
+        "pose_initialization_ms": round(pose_initialization_ms, 3),
+        "human_gate_initialization_ms": round(human_gate_initialization_ms, 3),
+        "max_frames": max_frames,
+        "max_pose_rois": max_rois,
+        "human_gate_rejected_frames": max(0, processed - human_confirmed),
         "frame_count": processed,
         "pose_frame_count": len(postures),
         "human_detector_status": "available" if human_detector_available else "unavailable",
         "human_confirmed_frame_count": human_confirmed,
         "pose_request_count": pose_requests,
-        "pose_request_reason": pose_request_reason,
+        "pose_request_reason": pose_request_reason if human_detector_available else "human_detector_unavailable",
+        "valid_pose_results": len(postures),
     }
     if not postures:
         return {
@@ -301,18 +335,28 @@ def main():
     parser.add_argument("--model", required=True)
     parser.add_argument("--video")
     parser.add_argument("--max-frames", type=int, default=32)
+    parser.add_argument("--max-rois", type=int, default=32)
     args = parser.parse_args()
     if args.diagnostic:
         runner = None
         try:
             with silence_native_stdout():
+                initialized_at = time.perf_counter()
                 runner = load_backend(args.model)
+                initialization_ms = (time.perf_counter() - initialized_at) * 1000.0
+                runtime_version, driver_version = rknn_versions(runner)
                 outputs = validate_outputs(runner.infer(np.zeros((1, INPUT_SIZE, INPUT_SIZE, 3), dtype=np.uint8)))
+                output_shapes = [str(tuple(np.asarray(value).shape)) for value in outputs]
                 if sum(int(np.count_nonzero(value)) for value in outputs) == 0:
                     raise RuntimeError("RKNN YOLOv8 pose outputs are entirely null")
                 runner.close()
                 runner = None
-            emit({"status": "available", "reason": "YOLOv8n-pose RKNN model loaded and four-output format verified on RK3588"})
+            with open(args.model, "rb") as model_file:
+                model_sha256 = hashlib.sha256(model_file.read()).hexdigest()
+            emit({"status": "available", "reason": "YOLOv8n-pose RKNN model loaded and four-output format verified on RK3588",
+                  "runtime_version": runtime_version, "driver_version": driver_version,
+                  "initialization_ms": round(initialization_ms, 3), "output_shapes": output_shapes,
+                  "model_sha256": model_sha256})
             return 0
         except Exception as exc:
             emit({"status": "unavailable", "reason": str(exc)})
@@ -326,7 +370,7 @@ def main():
         return 2
     try:
         with silence_native_stdout():
-            result = run_video(args.video, args.model, max(1, min(args.max_frames, 64)))
+            result = run_video(args.video, args.model, max(1, min(args.max_frames, 64)), max(1, min(args.max_rois, 64)))
         emit(result)
         return 0
     except Exception as exc:

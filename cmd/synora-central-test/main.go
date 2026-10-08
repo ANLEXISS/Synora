@@ -454,6 +454,10 @@ func main() {
 		report.PostureByCategory = mediaReport.PostureByCategory
 		report.FallStateByCategory = mediaReport.FallStateByCategory
 		report.MediaByCategory = mediaReport.MediaByCategory
+		report.RawVisionForwarded = report.RawVisionForwarded || mediaReport.RawVisionForwarded
+		report.AudioRendered = report.AudioRendered || mediaReport.AudioRendered
+		report.PhysicalAction = report.PhysicalAction || mediaReport.PhysicalActionExecuted
+		report.NetworkAccess = report.NetworkAccess || mediaReport.NetworkAccess
 		for status, count := range mediaReport.ActionLifecycleByStatus {
 			report.ActionLifecycleByStatus[status] += count
 		}
@@ -478,10 +482,10 @@ func main() {
 		}
 	}
 	report.CaseTotals = map[string]int{
-		"central_static":    report.ScenarioCount,
-		"vision_media_real": report.MediaCaseCount,
-		"mock_camera_e2e":   report.MockCameraCaseCount,
-		"overall":           report.ScenarioCount + report.MediaCaseCount + report.MockCameraCaseCount,
+		"central_static":              report.ScenarioCount,
+		"vision_media_le2i_real_pose": report.MediaCaseCount,
+		"mock_camera_e2e":             report.MockCameraCaseCount,
+		"overall":                     report.ScenarioCount + report.MediaCaseCount + report.MockCameraCaseCount,
 	}
 	report.OverallCaseCount = report.CaseTotals["overall"]
 	refreshPipelineAccounting(&report)

@@ -26,13 +26,28 @@ SYNORA_POSE_RKNN_MODEL=/home/rock/Synora-test-media/le2i-v1/models/yolov8n-pose-
 make test-central-v1 MEDIA=le2i
 ```
 
-The same central runner validates the clip, executes the local Vision worker
-backend, injects only its aggregate result into the hermetic Unix-bus/Core/V3
-fixture, and records MLP V3 candidate and Safety Gate test-only results. No
-raw frame, keypoint, coordinate, box, crop, embedding, identity or local
-track ID crosses that boundary. Audio, network access, production Store
-changes and physical actions remain disabled; the temporary harness Store is
-used to prove the Core commit path.
+The explicit media mode uploads each hash-verified clip to the production
+Discovery ingress handler on an ephemeral loopback HTTP server (HTTP 202),
+checks its redacted clip-lifecycle event, and hands the queued temporary file
+only to the local test worker. The worker confirms a human with the existing
+human detector before requesting pose; otherwise it returns
+`pose_status=not_requested` with an explicit gate reason. Processing is capped
+at 16 decoded frames and 16 pose requests/ROIs per clip, with at most one pose
+request per confirmed-human frame. The local file path remains in the queue
+and worker process only; the aggregate result is then injected through the
+central Discovery/Core V3 bus fixture. This is a test ingress plus the central
+aggregate pipeline, not a deployed Discovery service run.
+
+The report keeps `mock_camera_e2e`, `central_static`,
+`vision_media_le2i_real_pose` and `overall` counts distinct. It identifies the
+real backend as `real_rknn_pose_test`, records the pose model SHA-256, RKNN
+runtime/driver versions, model Toolkit version and output shapes, separates
+model initialization from NPU inference p50/p95/max, and includes per-clip
+gate refusals, valid pose results, Store revision, API-targeted V3 snapshot
+observation, MLP V3 heads and Safety Gate/action status. Raw frames, bbox,
+crops, keypoints, embeddings, identities, URLs and local paths are excluded
+from bus payloads, Store, API state and reports. Audio, external network,
+production Store writes and physical actions remain false.
 
 The camera-simulator adapter invokes the existing local human detector first.
 Pose is requested only for a confirmed human and the pose backend never
@@ -62,10 +77,18 @@ The corpus is short and processed into fixed 16-frame clips. It is useful for
 runtime, redaction, latency and non-regression evidence only; it does not
 qualify fall detection or promote V3.
 
-The five categories have conservative semantics: Stand cannot emit a fall
-candidate, Lie cannot emit one without an upright-to-ground transition,
-Likefall remains ambiguous/non-confirmed, and Fall may emit only
-`candidate`. `confirmed` is forbidden. The central report includes human
-confirmation counts, pose request reason, action lifecycle, MLP head labels,
-Safety Gate outcomes and the p50/p95/max pose latency. It never turns these
-clips into a fall qualification set.
+The five categories have conservative semantics: Fall may emit only a
+temporal upright-to-ground `candidate`; Lie, Likefall, Stand and Blank
+prioritize absence of a candidate. `confirmed` is forbidden. Observed
+category differences remain `semantic_status=observed_mismatch` and are
+listed redacted; they do not become artificial successes or a promotion
+threshold. The report includes category/posture and category/fall-state
+matrices, non-fall false positives, observed Fall recall, and inference
+latency p50/p95/max. `semantic_qualification` stays `not_qualified` until
+independent acceptance metrics are defined and met.
+
+The media mode requires both explicit media and model paths. The ordinary
+mock-camera run remains a separate worker with zero pose-model loads and zero
+inference. Neither mode promotes a bundle. Face, plate, sensitive-object,
+aggression and inter-camera fusion capabilities are outside this milestone;
+J2/J3/J4 are not promoted without defined metrics and reproducible results.

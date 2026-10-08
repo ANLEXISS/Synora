@@ -1,7 +1,9 @@
 import json
+import tempfile
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -9,6 +11,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "services" / "vision-worker"))
 from core import yolov8_pose_backend as MODULE  # noqa: E402
+from core import model_runner as MODEL_RUNNER  # noqa: E402
 
 
 class CentralYOLOPoseTests(unittest.TestCase):
@@ -48,6 +51,20 @@ class CentralYOLOPoseTests(unittest.TestCase):
     def test_model_path_is_explicit_and_unavailable(self):
         with self.assertRaises(MODULE.ModelUnavailableError):
             MODULE.load_backend("/tmp/does-not-exist-yolov8n-pose.rknn")
+
+    def test_rknnlite_unavailable_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / "pose.rknn"
+            model.write_bytes(b"not-a-model")
+            with patch.object(MODEL_RUNNER, "RKNNLite", None):
+                with self.assertRaises(MODULE.ModelUnavailableError) as raised:
+                    MODULE.load_backend(str(model))
+            self.assertEqual(raised.exception.code, "backend_unavailable")
+
+    def test_pose_gate_requires_confirmed_human_and_respects_roi_budget(self):
+        self.assertFalse(MODULE.pose_gate_allows([], 0, 1))
+        self.assertTrue(MODULE.pose_gate_allows([{"score": 0.9}], 0, 1))
+        self.assertFalse(MODULE.pose_gate_allows([{"score": 0.9}], 1, 1))
 
 
 if __name__ == "__main__":

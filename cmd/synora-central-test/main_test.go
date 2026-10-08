@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -194,6 +195,19 @@ func TestPipelineAccountingUsesEveryStaticAndLe2iJourney(t *testing.T) {
 	}
 }
 
+func TestMediaPipelineAccountingUsesActualJourneyCount(t *testing.T) {
+	cases := make([]mediaCaseReport, 48)
+	for index := range cases {
+		cases[index] = mediaCaseReport{ID: "media-" + strconv.Itoa(index), Journey: completedJourney()}
+	}
+	report := mediaSuiteReport{Cases: cases}
+	report.ScenarioCount = len(report.Cases)
+	finalizeMediaPipelineAccounting(&report)
+	if !report.PipelineAccountingValid || report.PipelineCompletedCount != 48 || report.PipelineIncompleteCount != 0 {
+		t.Fatalf("media accounting does not reflect all journeys: valid=%t completed=%d incomplete=%d", report.PipelineAccountingValid, report.PipelineCompletedCount, report.PipelineIncompleteCount)
+	}
+}
+
 func TestPipelineIncompleteDiagnosticsOnlyAppearForIncompleteJourney(t *testing.T) {
 	complete := caseReport{Journey: completedJourney()}
 	incomplete := caseReport{Journey: completedJourney()[:10]}
@@ -335,6 +349,71 @@ func TestLe2iManifestStrictContractAndMissingModelState(t *testing.T) {
 	}
 	if le2iModelStatus("/tmp/does-not-exist-yolov8n-pose.rknn", poseModelDiagnostic{Status: "unavailable"}) != mediaStatusModelMissing {
 		t.Fatal("missing model file was not classified as blocked_model_missing")
+	}
+}
+
+func TestLe2iMissingMediaAndBadHashReturnStructuredCoreJourneys(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", ".."))
+	entry := le2iCase{ID: "le2i-redacted-case", Category: "Fall", ClipRelativePath: "clip.mp4",
+		ClipSHA256: strings.Repeat("0", 64), ClipCodec: "h264", ClipWidth: 320, ClipHeight: 240,
+		ClipFPS: "25/1", ClipFrameCount: 16}
+	mediaRoot := t.TempDir()
+	missing := evaluateLe2iCase(repoRoot, entry, mediaRoot, poseModelDiagnostic{Status: "available"})
+	if missing.Status != mediaStatusMediaMissing || !journeyComplete(missing.Journey) || missing.PoseStatus != "unavailable" {
+		t.Fatalf("missing media did not return a structured fail-closed Core journey: %+v", missing)
+	}
+	clipPath := filepath.Join(mediaRoot, entry.ClipRelativePath)
+	if err := os.WriteFile(clipPath, []byte("not-the-declared-clip"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	badHash := evaluateLe2iCase(repoRoot, entry, mediaRoot, poseModelDiagnostic{Status: "available"})
+	if badHash.Status != mediaStatusIntegrity || !journeyComplete(badHash.Journey) || badHash.PoseRequestCount != 0 {
+		t.Fatalf("invalid media hash did not return a structured, non-inference result: %+v", badHash)
+	}
+	encoded, err := json.Marshal([]mediaCaseReport{missing, badHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), mediaRoot) || containsForbiddenJSON(encoded) {
+		t.Fatal("media failure report leaked a path or raw Vision field")
+	}
+}
+
+func TestLe2iMediaUsesDiscoveryHTTPIngressBeforeWorker(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "source.mp4")
+	if err := os.WriteFile(source, []byte("bounded-test-video-bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	storedPath, status, lifecycleEvents, cleanup, err := ingressLe2iClip(source, "le2i-test-clip")
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if err != nil || status != http.StatusAccepted || lifecycleEvents != 1 {
+		t.Fatalf("Discovery HTTP ingress did not accept and publish the redacted clip lifecycle: status=%d events=%d err=%v", status, lifecycleEvents, err)
+	}
+	if storedPath == "" || !strings.HasSuffix(storedPath, "le2i-test-clip.mp4") {
+		t.Fatalf("worker queue did not receive the temporary stored media path: %q", storedPath)
+	}
+}
+
+func TestLe2iNonFallCategoriesDoNotCountCandidateAsSemanticMatch(t *testing.T) {
+	for _, category := range []string{"Blank", "Lie", "Likefall", "Stand"} {
+		if le2iSemanticMatch(category, poseAggregateResult{PoseStatus: "available", Posture: "ambiguous", FallState: "candidate"}) {
+			t.Errorf("%s candidate was counted as a semantic match", category)
+		}
+	}
+}
+
+func TestLe2iPoseWorkerTimeoutIsExplicit(t *testing.T) {
+	root := t.TempDir()
+	python := filepath.Join(root, "slow-python")
+	if err := os.WriteFile(python, []byte("#!/bin/sh\nsleep 1\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PYTHON", python)
+	_, err := runPoseMediaCaseWithTimeout(filepath.Clean(filepath.Join("..", "..")), "redacted.mp4", "redacted.rknn", 20*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("pose worker timeout was not explicit: %v", err)
 	}
 }
 
