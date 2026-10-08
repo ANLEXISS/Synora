@@ -194,6 +194,11 @@ func sanitizePilotState(payload []byte, messageType string) map[string]any {
 	}
 	base := envelope.Snapshot
 	if messageType == "core.snapshot.v3" {
+		for _, key := range []string{"simulated_camera", "vision_status", "vision_evidence_source", "inference_executed"} {
+			if value, ok := envelope.Snapshot[key]; ok {
+				state[key] = value
+			}
+		}
 		if value, ok := envelope.Snapshot["base_v2"].(map[string]any); ok {
 			base = value
 		}

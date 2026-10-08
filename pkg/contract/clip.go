@@ -39,36 +39,37 @@ func (status ClipStatus) Validate() error {
 // Clip is the shared metadata contract. Path is persisted for Core's physical
 // file reconciliation but is cleared by every public RPC/REST adapter.
 type Clip struct {
-	ID            string     `json:"id"`
-	ActivationID  string     `json:"activation_id,omitempty"`
-	ClipIndex     int        `json:"clip_index,omitempty"`
-	SequenceKey   string     `json:"sequence_key,omitempty"`
-	TrackID       string     `json:"track_id,omitempty"`
-	EpisodeID     string     `json:"episode_id,omitempty"`
-	Zone          string     `json:"zone,omitempty"`
-	TriggerReason string     `json:"trigger_reason,omitempty"`
-	StartedAt     time.Time  `json:"started_at,omitempty"`
-	EndsAt        time.Time  `json:"ends_at,omitempty"`
-	Pipeline      string     `json:"pipeline,omitempty"`
-	CameraID      string     `json:"camera_id"`
-	NodeID        string     `json:"node_id,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-	ReceivedAt    time.Time  `json:"received_at,omitempty"`
-	ReadyAt       time.Time  `json:"ready_at,omitempty"`
-	ProcessingAt  time.Time  `json:"processing_started_at,omitempty"`
-	ProcessedAt   time.Time  `json:"processed_at,omitempty"`
-	ExpiresAt     time.Time  `json:"expires_at,omitempty"`
-	Status        ClipStatus `json:"status"`
-	SizeBytes     int64      `json:"size_bytes"`
-	Checksum      string     `json:"checksum,omitempty"`
-	MediaType     string     `json:"media_type,omitempty"`
-	Container     string     `json:"container,omitempty"`
-	Duration      float64    `json:"duration,omitempty"`
-	EventIDs      []string   `json:"event_ids,omitempty"`
-	IncidentIDs   []string   `json:"incident_ids,omitempty"`
-	FailureCode   string     `json:"failure_code,omitempty"`
-	Revision      uint64     `json:"revision"`
+	ID              string     `json:"id"`
+	ActivationID    string     `json:"activation_id,omitempty"`
+	ClipIndex       int        `json:"clip_index,omitempty"`
+	SequenceKey     string     `json:"sequence_key,omitempty"`
+	TrackID         string     `json:"track_id,omitempty"`
+	EpisodeID       string     `json:"episode_id,omitempty"`
+	Zone            string     `json:"zone,omitempty"`
+	TriggerReason   string     `json:"trigger_reason,omitempty"`
+	StartedAt       time.Time  `json:"started_at,omitempty"`
+	EndsAt          time.Time  `json:"ends_at,omitempty"`
+	Pipeline        string     `json:"pipeline,omitempty"`
+	CameraID        string     `json:"camera_id"`
+	NodeID          string     `json:"node_id,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	ReceivedAt      time.Time  `json:"received_at,omitempty"`
+	ReadyAt         time.Time  `json:"ready_at,omitempty"`
+	ProcessingAt    time.Time  `json:"processing_started_at,omitempty"`
+	ProcessedAt     time.Time  `json:"processed_at,omitempty"`
+	ExpiresAt       time.Time  `json:"expires_at,omitempty"`
+	Status          ClipStatus `json:"status"`
+	SizeBytes       int64      `json:"size_bytes"`
+	Checksum        string     `json:"checksum,omitempty"`
+	MediaType       string     `json:"media_type,omitempty"`
+	Container       string     `json:"container,omitempty"`
+	Duration        float64    `json:"duration,omitempty"`
+	SimulatedCamera bool       `json:"simulated_camera,omitempty"`
+	EventIDs        []string   `json:"event_ids,omitempty"`
+	IncidentIDs     []string   `json:"incident_ids,omitempty"`
+	FailureCode     string     `json:"failure_code,omitempty"`
+	Revision        uint64     `json:"revision"`
 
 	// Internal fields retained for persisted event reconstruction. The path is
 	// never exposed as an absolute path.

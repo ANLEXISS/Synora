@@ -243,6 +243,8 @@ type suiteReport struct {
 	SchemaVersion                string                    `json:"schema_version"`
 	CameraMockE2EStatus          string                    `json:"camera_mock_e2e_status"`
 	CameraMockE2EReason          string                    `json:"camera_mock_e2e_reason"`
+	CameraMockE2E                *cameraMockE2EReport      `json:"camera_mock_e2e,omitempty"`
+	CaseTotals                   map[string]int            `json:"case_totals"`
 	Error                        string                    `json:"error,omitempty"`
 	Seed                         int64                     `json:"seed"`
 	LogicalDate                  string                    `json:"logical_date"`
@@ -279,6 +281,7 @@ type suiteReport struct {
 	PipelineIncompleteCount      int                       `json:"pipeline_incomplete_count"`
 	PipelineTerminalStatusCounts map[string]int            `json:"pipeline_terminal_status_counts"`
 	PipelineAccountingValid      bool                      `json:"pipeline_accounting_valid"`
+	MockCameraCaseCount          int                       `json:"mock_camera_case_count"`
 	ActionLifecycleByStatus      map[string]int            `json:"action_lifecycle_by_status"`
 	IdempotenceChecks            map[string]int            `json:"idempotence_checks"`
 	RejectedActionResults        int                       `json:"rejected_action_results"`
@@ -460,6 +463,27 @@ func main() {
 		report.RejectedActionResults += mediaReport.RejectedActionResults
 		overallPassed = overallPassed && mediaReport.Passed
 	}
+	if *bundleOverride != "v1" {
+		mockReport := runCameraMockE2E(root)
+		report.CameraMockE2E = &mockReport
+		report.MockCameraCaseCount = len(mockReport.Cases)
+		report.PassedCount += mockReport.PassedCount
+		report.FailedCount += mockReport.FailedCount
+		report.CameraMockE2EStatus = "not_qualified"
+		report.CameraMockE2EReason = "simulated transport and resilience only; no Vision inference qualification; J2/J3/J4 remain unvalidated"
+		for _, item := range mockReport.Cases {
+			if !item.Passed {
+				overallPassed = false
+			}
+		}
+	}
+	report.CaseTotals = map[string]int{
+		"central_static":    report.ScenarioCount,
+		"vision_media_real": report.MediaCaseCount,
+		"mock_camera_e2e":   report.MockCameraCaseCount,
+		"overall":           report.ScenarioCount + report.MediaCaseCount + report.MockCameraCaseCount,
+	}
+	report.OverallCaseCount = report.CaseTotals["overall"]
 	refreshPipelineAccounting(&report)
 	if !report.PipelineAccountingValid {
 		overallPassed = false
@@ -610,7 +634,7 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 	return suiteReport{
 		SchemaVersion:       "synora.central-e2e/v1",
 		CameraMockE2EStatus: "not_qualified",
-		CameraMockE2EReason: "the central harness does not yet exercise the real HTTP Discovery ingress through GET /api/system/state; C++ mock transport tests use a local test server",
+		CameraMockE2EReason: "camera mock E2E is simulated and is not Vision inference qualification",
 		Error:               errorText, Seed: manifest.Seed, LogicalDate: manifest.LogicalDate,
 		ManifestSHA256: fileSHA256(manifestPath), GeneratorVersion: generatorVersion,
 		StaticCaseCount: staticCount, GeneratedCaseCount: generatedCount, ScenarioCount: len(reports),
@@ -661,11 +685,11 @@ func assessJourney(journey []journeyEvent) (bool, string, []string) {
 			return false, "structured_action_result_not_recorded", missing
 		}
 	} else if journey[7].Status == "blocked_by_safety_gate" {
-		if journey[8].Status != "suppressed_no_action" || journey[8].Reason != "executor_not_called" || journey[9].Status != "blocked_by_safety_gate" || journey[9].Reason != "core_store" {
+		if journey[8].Status != "suppressed_no_action" || !strings.HasPrefix(journey[8].Reason, "executor_not_called") || journey[9].Status != "blocked_by_safety_gate" || !strings.HasPrefix(journey[9].Reason, "core_store") {
 			return false, "structured_action_result_not_recorded", missing
 		}
 	} else {
-		if journey[8].Status != "suppressed_no_action" || journey[8].Reason != "executor_not_called" || journey[9].Status != "suppressed_no_action" || journey[9].Reason != "no_action_result" {
+		if journey[8].Status != "suppressed_no_action" || !strings.HasPrefix(journey[8].Reason, "executor_not_called") || journey[9].Status != "suppressed_no_action" || !strings.HasPrefix(journey[9].Reason, "no_action_result") {
 			return false, "structured_action_result_not_recorded", missing
 		}
 	}
@@ -677,7 +701,7 @@ func assessJourney(journey []journeyEvent) (bool, string, []string) {
 }
 
 func refreshPipelineAccounting(report *suiteReport) {
-	report.OverallCaseCount = report.ScenarioCount + report.MediaCaseCount
+	report.OverallCaseCount = report.ScenarioCount + report.MediaCaseCount + report.MockCameraCaseCount
 	report.PipelineCompletedCount = 0
 	report.PipelineIncompleteCount = 0
 	report.PipelineTerminalStatusCounts = make(map[string]int)
@@ -729,6 +753,29 @@ func refreshPipelineAccounting(report *suiteReport) {
 			}
 		}
 	}
+	if report.CameraMockE2E != nil {
+		for index := range report.CameraMockE2E.Cases {
+			item := &report.CameraMockE2E.Cases[index]
+			complete, reason, missing := assessJourney(item.Journey)
+			if complete {
+				item.PipelineComplete = nil
+				item.PipelineIncompleteReason = ""
+				item.MissingStages = nil
+				item.LastObservedStage = nil
+				report.PipelineCompletedCount++
+			} else {
+				falseValue := false
+				item.PipelineComplete = &falseValue
+				item.PipelineIncompleteReason = reason
+				item.MissingStages = &missing
+				item.LastObservedStage = lastObservedStage(item.Journey)
+				report.PipelineIncompleteCount++
+			}
+			if len(item.Journey) > 0 {
+				report.PipelineTerminalStatusCounts[item.Journey[len(item.Journey)-1].Status]++
+			}
+		}
+	}
 	// Empty/missing journeys are counted incomplete too; the reporting loop above
 	// counts each included case exactly once, including cases without a journey.
 	journeyCount := 0
@@ -744,10 +791,24 @@ func refreshPipelineAccounting(report *suiteReport) {
 			}
 		}
 	}
-	report.PipelineAccountingValid = report.PipelineCompletedCount+report.PipelineIncompleteCount == report.OverallCaseCount && journeyCount == report.OverallCaseCount && len(report.Cases) == report.ScenarioCount
+	if report.CameraMockE2E != nil {
+		for _, item := range report.CameraMockE2E.Cases {
+			if len(item.Journey) > 0 {
+				journeyCount++
+			}
+		}
+	}
+	report.PipelineAccountingValid = report.PipelineCompletedCount+report.PipelineIncompleteCount == report.OverallCaseCount && journeyCount == report.OverallCaseCount && len(report.Cases) == report.ScenarioCount && report.MockCameraCaseCount == lenOrZeroMock(report.CameraMockE2E)
 	if report.VisionMedia != nil {
 		report.PipelineAccountingValid = report.PipelineAccountingValid && len(report.VisionMedia.Cases) == report.MediaCaseCount
 	}
+}
+
+func lenOrZeroMock(report *cameraMockE2EReport) int {
+	if report == nil {
+		return 0
+	}
+	return len(report.Cases)
 }
 
 func lastObservedStage(journey []journeyEvent) *string {

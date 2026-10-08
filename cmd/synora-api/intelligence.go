@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+
+	"synora/internal/systemstate"
 )
 
 func handleIntelligenceTopology(hub *websocketHub) http.HandlerFunc {
@@ -35,17 +37,7 @@ func handleIntelligenceEvents(hub *websocketHub) http.HandlerFunc {
 }
 
 func handlePilotState(hub *websocketHub) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !requireMethod(w, r, http.MethodGet) {
-			return
-		}
-		state := hub.pilotStateSnapshot()
-		if state == nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "unknown", "reason": "no_core_state_observed"})
-			return
-		}
-		writeJSON(w, http.StatusOK, state)
-	}
+	return systemstate.Handler(hub.pilotStateSnapshot)
 }
 
 func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {

@@ -69,6 +69,7 @@ type Config struct {
 	ClipManager             *vision.ClipManager
 	ClipDuration            time.Duration
 	EpisodeContinuityWindow time.Duration
+	TestVisionWorker        bool
 
 	AllowInsecure bool
 	OnStatus      func(status, reason string)
@@ -186,6 +187,16 @@ func NewHandler(cfg Config) http.Handler {
 			return
 		}
 		defer os.Remove(upload.tempPath)
+		simulatedCamera := strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Synora-Simulated-Camera")), "true") ||
+			strings.EqualFold(strings.TrimSpace(upload.fields["simulated_camera"]), "true")
+		if cfg.TestVisionWorker {
+			if os.Getenv("SYNORA_TEST_VISION_WORKER") != "1" {
+				http.Error(w, "test vision worker is not enabled", http.StatusServiceUnavailable)
+				return
+			}
+			// The test boundary is authoritative; the request cannot clear the marker.
+			simulatedCamera = true
+		}
 
 		clipID := firstNonEmpty(headerClipID, upload.fields["clip_id"])
 		if clipID == "" {
@@ -339,7 +350,8 @@ func NewHandler(cfg Config) http.Handler {
 			EpisodeID: episodeID, Zone: zone, TriggerReason: triggerReason, StartedAt: startedAt, EndsAt: endsAt, Pipeline: pipeline,
 			ReadyAt: now, Status: contract.ClipStatusReady, SizeBytes: size,
 			Checksum: checksum, MediaType: upload.mediaType, Container: "mp4", Duration: duration,
-			UpdatedAt: now, Revision: 1,
+			SimulatedCamera: simulatedCamera,
+			UpdatedAt:       now, Revision: 1,
 		}
 		if cfg.Devices != nil {
 			cfg.Devices.TouchCameraClip(deviceID, now)
@@ -357,7 +369,7 @@ func NewHandler(cfg Config) http.Handler {
 			http.Error(w, "analysis queue unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		if err := cfg.Queue.Enqueue(&vision.ClipJob{ID: clipID, CameraID: deviceID, Path: finalPath, CreatedAt: now, ActivationID: activationID, ClipIndex: clipIndex, NodeID: nodeID, SequenceKey: sequenceKey, TrackID: trackID, EpisodeID: episodeID, Zone: zone, TopologyClass: zone, TriggerReason: triggerReason, StartedAt: startedAt, EndsAt: endsAt, Pipeline: pipeline}); err != nil {
+		if err := cfg.Queue.Enqueue(&vision.ClipJob{ID: clipID, CameraID: deviceID, SimulatedCamera: simulatedCamera, Path: finalPath, CreatedAt: now, ActivationID: activationID, ClipIndex: clipIndex, NodeID: nodeID, SequenceKey: sequenceKey, TrackID: trackID, EpisodeID: episodeID, Zone: zone, TopologyClass: zone, TriggerReason: triggerReason, StartedAt: startedAt, EndsAt: endsAt, Pipeline: pipeline}); err != nil {
 			log.Printf("analysis queue unavailable clip=%s err=%v", clipID, err)
 			_ = publishLifecycle(cfg.Publisher, contract.EventClipFailed, clip, "analysis_queue_full", clipID+":failed")
 			http.Error(w, "analysis queue full", http.StatusServiceUnavailable)
@@ -365,7 +377,7 @@ func NewHandler(cfg Config) http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(map[string]any{"status": "queued", "clip_id": clipID})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "queued", "clip_id": clipID, "simulated_camera": simulatedCamera})
 	})
 	return mux
 }

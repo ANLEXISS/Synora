@@ -60,10 +60,11 @@ type Manager struct {
 	apiServer     *externalAPIServer
 	securityCfg   *security.Config
 
-	stateMu        sync.Mutex
-	activeIngress  int
-	stateResetting bool
-	clipRoot       string
+	stateMu          sync.Mutex
+	activeIngress    int
+	stateResetting   bool
+	clipRoot         string
+	testVisionWorker bool
 }
 
 func NewManager(
@@ -188,6 +189,19 @@ func NewManager(
 	}
 
 	return m
+}
+
+// NewTestOnlyManager constructs only the bus boundary required by the
+// hermetic central integration suite. It must never start production workers.
+func NewTestOnlyManager(busClient *bus.Client) *Manager {
+	if os.Getenv("SYNORA_TEST_VISION_WORKER") != "1" || busClient == nil {
+		return nil
+	}
+	return &Manager{
+		bus: busClient, clock: func() time.Time { return time.Now().UTC() },
+		actionResults: make(map[string]contract.Event), snapshotCache: NewSnapshotCache(),
+		testVisionWorker: true,
+	}
 }
 
 // StartBusOnlyContext starts the real Discovery bus boundary without opening
@@ -459,8 +473,32 @@ func (m *Manager) handleVisionEnrichmentV3(message contract.Message) {
 		_ = m.bus.Send(contract.Message{ID: message.ID + ":rejected", Type: "discovery.ingress.rejected", Kind: contract.KindEvent, Source: "discovery", Target: message.Source, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
 		return
 	}
-	body, _ := json.Marshal(map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "accepted", "event_type": contract.EventVisionEnrichmentV3})
-	_ = m.bus.Send(contract.Message{ID: message.ID + ":accepted", Type: "discovery.ingress.accepted", Kind: contract.KindEvent, Source: "discovery", Target: message.Source, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
+	if m.testVisionWorker {
+		var marker struct {
+			Provenance           string `json:"provenance"`
+			SimulatedCamera      bool   `json:"simulated_camera"`
+			VisionStatus         string `json:"vision_status"`
+			VisionEvidenceSource string `json:"vision_evidence_source"`
+			InferenceExecuted    bool   `json:"inference_executed"`
+		}
+		if err := json.Unmarshal(message.Payload, &marker); err != nil || marker.Provenance != "simulated_test_worker" ||
+			!marker.SimulatedCamera || marker.VisionStatus != "unavailable" ||
+			marker.VisionEvidenceSource != "simulated_test_worker" || marker.InferenceExecuted {
+			body, _ := json.Marshal(map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "rejected", "reason": "simulated_worker_contract_invalid", "simulated_camera": true})
+			_ = m.bus.Send(contract.Message{ID: message.ID + ":rejected", Type: "discovery.ingress.rejected", Kind: contract.KindEvent, Source: "discovery", Target: message.Source, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
+			return
+		}
+	}
+	accepted := map[string]any{"schema_version": "discovery.ingress.result/v1", "status": "accepted", "event_type": contract.EventVisionEnrichmentV3}
+	acceptedTarget := message.Source
+	if m.testVisionWorker {
+		accepted["simulated_camera"] = true
+		accepted["vision_evidence_source"] = "simulated_test_worker"
+		accepted["inference_executed"] = false
+		acceptedTarget = "camera-simulator"
+	}
+	body, _ := json.Marshal(accepted)
+	_ = m.bus.Send(contract.Message{ID: message.ID + ":accepted", Type: "discovery.ingress.accepted", Kind: contract.KindEvent, Source: "discovery", Target: acceptedTarget, CorrelationID: message.ID, Timestamp: m.clock(), Payload: body})
 	_ = m.bus.Send(contract.Message{ID: message.ID + ":v3", Type: contract.EventVisionEnrichmentV3, Kind: contract.KindEvent, Source: "discovery", Target: "core", CorrelationID: message.ID, Timestamp: message.Timestamp, Payload: message.Payload})
 }
 

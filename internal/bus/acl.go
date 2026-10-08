@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -90,11 +91,28 @@ func authorizeACL(msg contract.Message, service string, allowed map[string]struc
 			}
 		}
 	case contract.KindEvent:
+		if service == "vision" && msg.Type == contract.EventVisionEnrichmentV3 && msg.Target == "discovery" &&
+			os.Getenv("SYNORA_TEST_VISION_WORKER") == "1" && simulatedTestWorkerMessage(msg.Payload) {
+			return nil
+		}
 		if eventACLAllowed(service, msg.Type, msg.Target) {
 			return nil
 		}
 	}
 	return fmt.Errorf("message not authorized for %s: %s -> %s (%s)", service, msg.Type, msg.Target, msg.Kind)
+}
+
+func simulatedTestWorkerMessage(payload []byte) bool {
+	var envelope struct {
+		Provenance           string `json:"provenance"`
+		SimulatedCamera      bool   `json:"simulated_camera"`
+		VisionStatus         string `json:"vision_status"`
+		VisionEvidenceSource string `json:"vision_evidence_source"`
+		InferenceExecuted    bool   `json:"inference_executed"`
+	}
+	return json.Unmarshal(payload, &envelope) == nil && envelope.Provenance == "simulated_test_worker" &&
+		envelope.SimulatedCamera && envelope.VisionStatus == "unavailable" &&
+		envelope.VisionEvidenceSource == "simulated_test_worker" && !envelope.InferenceExecuted
 }
 
 func eventACLAllowed(service, eventType, target string) bool {

@@ -110,11 +110,15 @@ type VisionSignalsV3 struct {
 // CognitiveSnapshotV3 keeps V2 as a nested, immutable base and adds only the
 // signals that proved impossible to represent without changing V2 semantics.
 type CognitiveSnapshotV3 struct {
-	SchemaVersion string              `json:"schema_version"`
-	Revision      uint64              `json:"revision"`
-	CapturedAt    time.Time           `json:"captured_at"`
-	BaseV2        CognitiveSnapshotV2 `json:"base_v2"`
-	Vision        VisionSignalsV3     `json:"vision"`
+	SchemaVersion        string              `json:"schema_version"`
+	Revision             uint64              `json:"revision"`
+	CapturedAt           time.Time           `json:"captured_at"`
+	BaseV2               CognitiveSnapshotV2 `json:"base_v2"`
+	Vision               VisionSignalsV3     `json:"vision"`
+	SimulatedCamera      bool                `json:"simulated_camera"`
+	VisionStatus         string              `json:"vision_status,omitempty"`
+	VisionEvidenceSource string              `json:"vision_evidence_source,omitempty"`
+	InferenceExecuted    bool                `json:"inference_executed"`
 }
 
 func (s CognitiveSnapshotV3) Normalized() CognitiveSnapshotV3 {
@@ -125,6 +129,22 @@ func (s CognitiveSnapshotV3) Normalized() CognitiveSnapshotV3 {
 	s.CapturedAt = s.CapturedAt.UTC()
 	s.BaseV2 = s.BaseV2.Normalized()
 	s.BaseV2.SchemaVersion = SnapshotSchemaVersionV2
+	if s.SimulatedCamera {
+		s.VisionStatus = "unavailable"
+		s.VisionEvidenceSource = "simulated_test_worker"
+		s.InferenceExecuted = false
+		s.Vision.PoseStatus = PoseV3Unavailable
+		s.Vision.Posture = PostureV3Unknown
+		s.Vision.FallState = FallV3Unknown
+		s.Vision.PoseQuality = 0
+		s.Vision.PoseObservationCount = 0
+		s.Vision.PoseSampled = false
+		s.Vision.RealDetection = false
+		s.BaseV2.Vision.PoseStatus = PoseV3Unavailable
+		s.BaseV2.Vision.Posture = PostureV3Unknown
+		s.BaseV2.Vision.FallState = FallV3Unknown
+		s.BaseV2.Vision.PoseQuality = 0
+	}
 	// This is the one authoritative duration. It occupies the existing V2
 	// prefix position without changing the V1 nominal bundle or any offset.
 	s.Vision.ImmobilitySeconds = nonNegativeV2(s.Vision.ImmobilitySeconds)

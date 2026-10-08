@@ -29,3 +29,8 @@ la confiance réseau, l’endpoint et le chemin MediaMTX seront tous observés.
 Cette qualification transport ne suffira pas encore à clôturer J2 : il faudra
 ensuite la preuve du parcours réel Discovery → Vision → Core, la reprise après
 panne et la rétention sur le RK3588.
+
+Le harnais central apporte désormais une **preuve E2E de transport et
+résilience simulés** avec ingress Discovery HTTP local et worker de test sans
+modèle. Ce jalon n’est pas une preuve d’inférence Vision et ne modifie pas la
+décision ci-dessus : J2, J3 et J4 restent non validés.

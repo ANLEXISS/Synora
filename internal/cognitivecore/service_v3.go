@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"synora/pkg/contract"
@@ -21,10 +22,18 @@ type ServiceV3 struct {
 }
 
 type v3BusEnvelope struct {
-	Test       bool                `json:"test"`
-	Provenance string              `json:"provenance"`
-	EventType  string              `json:"event_type"`
-	Snapshot   CognitiveSnapshotV3 `json:"snapshot"`
+	Test                 bool   `json:"test"`
+	Provenance           string `json:"provenance"`
+	EventType            string `json:"event_type"`
+	SimulatedCamera      bool   `json:"simulated_camera"`
+	VisionStatus         string `json:"vision_status"`
+	VisionEvidenceSource string `json:"vision_evidence_source"`
+	InferenceExecuted    bool   `json:"inference_executed"`
+	WorkerResult         struct {
+		Status string `json:"status"`
+		Reason string `json:"reason"`
+	} `json:"worker_result"`
+	Snapshot CognitiveSnapshotV3 `json:"snapshot"`
 }
 
 func (s *ServiceV3) now() time.Time {
@@ -72,13 +81,31 @@ func (s *ServiceV3) Handle(ctx context.Context, message contract.Message) error 
 	if err := json.Unmarshal(message.Payload, &envelope); err != nil {
 		return fmt.Errorf("decode V3 bus envelope: %w", err)
 	}
+	if envelope.Provenance == "simulated_test_worker" {
+		if os.Getenv("SYNORA_TEST_VISION_WORKER") != "1" || !envelope.SimulatedCamera ||
+			envelope.VisionStatus != "unavailable" || envelope.VisionEvidenceSource != "simulated_test_worker" || envelope.InferenceExecuted ||
+			envelope.WorkerResult.Status != "unavailable" || envelope.WorkerResult.Reason == "" {
+			return fmt.Errorf("invalid simulated test worker provenance")
+		}
+		envelope.Snapshot.SimulatedCamera = true
+		envelope.Snapshot.VisionStatus = "unavailable"
+		envelope.Snapshot.VisionEvidenceSource = "simulated_test_worker"
+		envelope.Snapshot.InferenceExecuted = false
+	}
 	if message.Type == contract.EventValidationTestInference && (!envelope.Test || envelope.Provenance != "test-harness") {
 		return fmt.Errorf("invalid V3 test-harness envelope")
 	}
 	if envelope.EventType == "" {
 		envelope.EventType = contract.EventVisionEnrichmentV3
 	}
-	event := contract.Event{ID: message.ID, Type: envelope.EventType, Source: "discovery", Timestamp: message.Timestamp.UTC(), Payload: map[string]any{"schema_version": contract.EventVisionEnrichmentV3}}
+	eventPayload := map[string]any{"schema_version": contract.EventVisionEnrichmentV3}
+	if envelope.SimulatedCamera {
+		eventPayload["simulated_camera"] = true
+		eventPayload["vision_status"] = envelope.VisionStatus
+		eventPayload["vision_evidence_source"] = envelope.VisionEvidenceSource
+		eventPayload["inference_executed"] = false
+	}
+	event := contract.Event{ID: message.ID, Type: envelope.EventType, Source: "discovery", Timestamp: message.Timestamp.UTC(), Payload: eventPayload}
 	if event.Timestamp.IsZero() {
 		event.Timestamp = s.now()
 	}
@@ -93,9 +120,10 @@ func (s *ServiceV3) Handle(ctx context.Context, message contract.Message) error 
 		SchemaVersion          string     `json:"schema_version"`
 		Revision               uint64     `json:"revision"`
 		Decision               DecisionV3 `json:"decision"`
+		SimulatedCamera        bool       `json:"simulated_camera"`
 		PhysicalActionExecuted bool       `json:"physical_action_executed"`
 		AudioRendered          bool       `json:"audio_rendered"`
-	}{"core-decision/v3", result.Result.Revision, *result.Commit.DecisionV3, false, false})
+	}{"core-decision/v3", result.Result.Revision, *result.Commit.DecisionV3, result.Commit.SnapshotV3.SimulatedCamera, false, false})
 	if err != nil {
 		return err
 	}
@@ -106,9 +134,10 @@ func (s *ServiceV3) Handle(ctx context.Context, message contract.Message) error 
 		SchemaVersion          string              `json:"schema_version"`
 		Revision               uint64              `json:"revision"`
 		Snapshot               CognitiveSnapshotV3 `json:"snapshot"`
+		SimulatedCamera        bool                `json:"simulated_camera"`
 		PhysicalActionExecuted bool                `json:"physical_action_executed"`
 		AudioRendered          bool                `json:"audio_rendered"`
-	}{"core-snapshot/v3", result.Result.Revision, *result.Commit.SnapshotV3, false, false})
+	}{"core-snapshot/v3", result.Result.Revision, *result.Commit.SnapshotV3, result.Commit.SnapshotV3.SimulatedCamera, false, false})
 	if err != nil {
 		return err
 	}

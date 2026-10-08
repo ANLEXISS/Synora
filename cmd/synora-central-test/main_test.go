@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,8 +76,8 @@ func TestCentralExpansionIsTheCLIExecutionSet(t *testing.T) {
 	}
 	report := buildSuiteReport(manifestPath, manifest, all, reports, time.Now(), map[string]backendReport{})
 	if report.CameraMockE2EStatus != "not_qualified" ||
-		!strings.Contains(report.CameraMockE2EReason, "real HTTP Discovery ingress") ||
-		!strings.Contains(report.CameraMockE2EReason, "GET /api/system/state") {
+		!strings.Contains(report.CameraMockE2EReason, "simulated") ||
+		!strings.Contains(report.CameraMockE2EReason, "not Vision inference qualification") {
 		t.Fatalf("camera mock software tests must not qualify the real central HTTP E2E: status=%q reason=%q", report.CameraMockE2EStatus, report.CameraMockE2EReason)
 	}
 	if report.ScenarioCount != len(all) || report.ScenarioCount != report.StaticCaseCount+report.GeneratedCaseCount {
@@ -106,6 +107,44 @@ func TestCentralExpansionIsTheCLIExecutionSet(t *testing.T) {
 	}
 	if generatedV3 != generatedScenarioCount(manifest.Generated) {
 		t.Fatalf("BUNDLE=v3 dropped generated scenarios: %d/%d", generatedV3, generatedScenarioCount(manifest.Generated))
+	}
+}
+
+func TestCameraMockE2EIsTransportOnlyAndPreservesProvenance(t *testing.T) {
+	report := runCameraMockE2E(filepath.Clean(filepath.Join("..", "..")))
+	if report.CaseCount != 6 || report.PassedCount != 6 || report.FailedCount != 0 {
+		t.Fatalf("mock E2E scenarios did not all pass: %+v", report)
+	}
+	if report.Qualification != "not_qualified" || report.VisionStatus != "unavailable" || report.PoseStatus != "unavailable" ||
+		report.ModelLoads != 0 || report.InferenceExecutions != 0 || report.RawVisionForwarded || report.ExternalNetworkAccess ||
+		report.AudioRendered || report.PhysicalActionExecuted {
+		t.Fatalf("mock E2E crossed the simulated transport boundary: %+v", report)
+	}
+	if report.StateHTTPBefore != http.StatusServiceUnavailable || report.StateHTTPDuring != http.StatusOK || report.StateHTTPAfter != http.StatusOK ||
+		!containsTrue(report.StateDuring, "simulated_camera") || !containsTrue(report.StateAfter, "simulated_camera") ||
+		report.StateDuring["status"] != "pending_vision" || report.StateAfter["vision_status"] != "unavailable" ||
+		report.StateAfter["vision_evidence_source"] != "simulated_test_worker" {
+		t.Fatalf("system state did not report before/pending/final provenance: %+v", report)
+	}
+	accounting := suiteReport{CameraMockE2E: &report, MockCameraCaseCount: report.CaseCount}
+	refreshPipelineAccounting(&accounting)
+	if !accounting.PipelineAccountingValid || accounting.OverallCaseCount != report.CaseCount ||
+		accounting.PipelineCompletedCount != report.CaseCount || accounting.PipelineIncompleteCount != 0 {
+		t.Fatalf("mock journeys were not fully included in central accounting: %+v", accounting)
+	}
+	for _, item := range report.Cases {
+		if !journeyComplete(item.Journey) || !item.MockCamera || item.InferenceExecuted || item.ModelLoaded || item.PhysicalActionExecuted || item.AudioRendered || item.ExternalNetworkAccess {
+			complete, reason, missing := assessJourney(item.Journey)
+			t.Fatalf("mock case is incomplete or unsafe (journey_complete=%t reason=%s missing=%v marker=%t inference=%t model=%t physical=%t audio=%t network=%t): %+v", complete, reason, missing, item.MockCamera, item.InferenceExecuted, item.ModelLoaded, item.PhysicalActionExecuted, item.AudioRendered, item.ExternalNetworkAccess, item)
+		}
+		for _, stage := range item.Journey {
+			if !strings.Contains(stage.Reason, "simulated_camera=true") {
+				t.Fatalf("simulation provenance missing at journey stage %s: %+v", stage.Stage, stage)
+			}
+		}
+		if item.ActionStatus == "blocked_by_safety_gate" && item.ExecutorCalls != 0 {
+			t.Fatalf("blocked Safety Gate case contacted executor: %+v", item)
+		}
 	}
 }
 

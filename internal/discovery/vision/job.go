@@ -31,7 +31,8 @@ type ClipJob struct {
 	EndsAt        time.Time `json:"ends_at,omitempty"`
 	Pipeline      string    `json:"pipeline,omitempty"`
 
-	CameraID string `json:"camera_id"`
+	CameraID        string `json:"camera_id"`
+	SimulatedCamera bool   `json:"simulated_camera,omitempty"`
 
 	Path string `json:"path"`
 

@@ -212,7 +212,7 @@ func (s *Server) handle(conn net.Conn) {
 
 func (s *Server) processIdentityAllowed(peer peerCredential, service string) bool {
 	if s != nil && s.allowTestProcess && peer.known && peer.pid == os.Getpid() {
-		return service == "api" || service == "camera-simulator" || service == "core" || service == "discovery"
+		return service == "api" || service == "camera-simulator" || service == "core" || service == "discovery" || service == "vision"
 	}
 	return processIdentityAllowed(peer, service)
 }

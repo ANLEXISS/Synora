@@ -101,6 +101,33 @@ ouverts par ce harness et restent explicitement `unavailable`. Les signaux
 pose/face synthétiques ne sont donc jamais présentés comme une exécution ou
 une qualification réelle de RTMPose ou de reconnaissance faciale.
 
+## Jalon caméra simulée
+
+Pour les sélections de bundle candidates (hors `BUNDLE=v1`), le même rapport
+inclut six cas `mock_camera_e2e`. Ils démarrent un bus temporaire, l’ingress
+HTTP Discovery sur loopback éphémère, un worker Vision de test et un endpoint
+éphémère `GET /api/system/state` ; aucun service de `/opt/synora` n’est
+démarré. L’endpoint d’état partage le handler redacted de l’API et une vue
+volatile alimentée par les snapshots Core reçus sur le bus. Il ne s’agit pas
+de démarrer le service API de production.
+
+Ce jalon est une **preuve E2E de transport et résilience simulés**, pas une
+preuve d’inférence Vision. Le worker est gardé par
+`SYNORA_TEST_VISION_WORKER=1`, ne reçoit pas de chemin média, ne décode aucun
+MP4 et ne charge aucun modèle ; il renvoie uniquement `vision_status=unavailable`,
+`pose_status=unavailable`, `vision_evidence_source=simulated_test_worker`,
+`simulated_camera=true` et `inference_executed=false`. Le marqueur simulé est
+imposé au boundary test et propagé dans Discovery, le snapshot/Store, le
+rapport et l’état redacted. Les scénarios couvrent ingress accepté et rejeté
+contrôlé, worker retardé/indisponible, doublon idempotent et reprise après
+redémarrage. Les résultats du rapport distinguent `central_static`,
+`vision_media_real`, `mock_camera_e2e` et `overall`; aucun cas simulé ne compte
+comme qualification Vision ou pose.
+
+Le mock demeure `not_qualified`. Il ne qualifie ni une inférence ni une chute ;
+J2/J3/J4 restent non validés. Audio, réseau externe et action physique restent
+désactivés, et un blocage Safety Gate ne contacte pas l’exécuteur.
+
 ## Migration des anciens lanceurs
 
 Le harness central remplace les parcours système concurrents qui combinaient
