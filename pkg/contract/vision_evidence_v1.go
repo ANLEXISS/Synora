@@ -221,10 +221,11 @@ func (e VisionEvidenceV1) Validate() error {
 	if e.Pose.ImmobilitySeconds > 0 && e.Presence.Human.State != "present" {
 		return fmt.Errorf("immobility requires a present human")
 	}
-	for name, value := range map[string]VisionSemanticResultV1{"face": e.Face, "plate": e.Plate} {
-		if err := validateSemanticResult(e.WindowSeconds, value); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
+	if err := validateSemanticResult(e.WindowSeconds, e.Face, true); err != nil {
+		return fmt.Errorf("face: %w", err)
+	}
+	if err := validateSemanticResult(e.WindowSeconds, e.Plate, false); err != nil {
+		return fmt.Errorf("plate: %w", err)
 	}
 	if err := validateEvidenceSupport(e.WindowSeconds, e.Sensitive.Availability, e.Sensitive.Category, e.Sensitive.Confidence, e.Sensitive.Quality, e.Sensitive.Support, []string{"none", "generic", "unknown"}); err != nil {
 		return fmt.Errorf("sensitive_object: %w", err)
@@ -300,8 +301,12 @@ func validateEvidenceMeasure(window float64, value VisionMeasureV1, states []str
 	return validateEvidenceSupport(window, value.Availability, value.State, value.Confidence, value.Quality, value.Support, states)
 }
 
-func validateSemanticResult(window float64, value VisionSemanticResultV1) error {
-	return validateEvidenceSupport(window, value.Availability, value.Result, value.Confidence, value.Quality, value.Support, []string{"recognized", "unknown", "ambiguous"})
+func validateSemanticResult(window float64, value VisionSemanticResultV1, face bool) error {
+	states := []string{"recognized", "unknown", "ambiguous"}
+	if face {
+		states = append(states, "candidate")
+	}
+	return validateEvidenceSupport(window, value.Availability, value.Result, value.Confidence, value.Quality, value.Support, states)
 }
 
 func validateEvidenceSupport(window float64, availability VisionAvailabilityV1, state string, confidence, quality float64, support VisionSupportV1, states []string) error {

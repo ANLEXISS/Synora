@@ -142,7 +142,12 @@ def validate_vision_evidence_v1(value: Any) -> dict[str, Any]:
         item = value[family]
         _object(item, semantic_schema, family)
         _enum(item["availability"], _SCHEMA["$defs"]["availability"], family + ".availability")
-        _enum(item["result"], semantic_schema["properties"]["result"], family + ".result")
+        result_schema = semantic_schema["properties"]["result"]
+        if family == "face" and item["result"] == "candidate":
+            if item["availability"] != "evaluated":
+                raise VisionEvidenceContractError("face.candidate requires evaluated availability")
+        else:
+            _enum(item["result"], result_schema, family + ".result")
         _unit(item["confidence"], family + ".confidence")
         _unit(item["quality"], family + ".quality")
         _support(item["support"], duration, family + ".support", item["availability"], item["result"], item["confidence"], item["quality"])

@@ -54,6 +54,25 @@ class VisionEvidenceV1Test(unittest.TestCase):
             value["face"]["support"] = {"valid_evaluations": 0, "continuity": "unknown", "supported_seconds": 0, "gap_count": 0}
             validate_vision_evidence_v1(value)
 
+    def test_face_candidate_is_explicit_and_not_a_plate_result(self):
+        candidate_golden = json.loads((ROOT / "pkg/contract/testdata/v1/vision-evidence-face-candidate-v1.json").read_text())
+        self.assertEqual(validate_vision_evidence_v1(candidate_golden)["face"]["result"], "candidate")
+        value = copy.deepcopy(self.fixture)
+        value["face"].update({"availability": "evaluated", "result": "candidate",
+                              "confidence": .75, "quality": .8,
+                              "support": {"valid_evaluations": 2, "continuity": "continuous",
+                                          "supported_seconds": 1, "gap_count": 0}})
+        validate_vision_evidence_v1(value)
+        value["plate"].update({"availability": "evaluated", "result": "candidate",
+                               "confidence": .75, "quality": .8,
+                               "support": value["face"]["support"]})
+        with self.assertRaises(VisionEvidenceContractError):
+            validate_vision_evidence_v1(value)
+        value = copy.deepcopy(self.fixture)
+        value["face"]["result"] = "candidate"
+        with self.assertRaises(VisionEvidenceContractError):
+            validate_vision_evidence_v1(value)
+
     def test_pose_vocab_preserves_seated_reclined_and_ground(self):
         for posture in ("upright", "seated", "reclined", "ground", "ambiguous", "unknown"):
             value = copy.deepcopy(self.fixture)

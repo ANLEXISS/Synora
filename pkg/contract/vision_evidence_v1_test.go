@@ -92,6 +92,45 @@ func TestVisionEvidenceV1SeparatesRealReplayAndSimulatedTestProvenance(t *testin
 	}
 }
 
+func TestVisionEvidenceV1FaceCandidateIsExplicitAndFaceOnly(t *testing.T) {
+	body := visionEvidenceFixture(t)
+	var value map[string]any
+	if err := json.Unmarshal(body, &value); err != nil {
+		t.Fatal(err)
+	}
+	face := value["face"].(map[string]any)
+	face["availability"] = "evaluated"
+	face["result"] = "candidate"
+	face["confidence"], face["quality"] = .75, .8
+	face["support"] = map[string]any{"valid_evaluations": 2, "continuity": "continuous", "supported_seconds": 1.0, "gap_count": 0}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeVisionEvidenceV1(encoded); err != nil {
+		t.Fatalf("valid face candidate rejected: %v", err)
+	}
+	value["plate"].(map[string]any)["availability"] = "evaluated"
+	value["plate"].(map[string]any)["result"] = "candidate"
+	value["plate"].(map[string]any)["confidence"] = .75
+	value["plate"].(map[string]any)["quality"] = .8
+	value["plate"].(map[string]any)["support"] = face["support"]
+	encoded, _ = json.Marshal(value)
+	if _, err := DecodeVisionEvidenceV1(encoded); err == nil {
+		t.Fatal("candidate must not be accepted for the plate semantic")
+	}
+}
+
+func TestVisionEvidenceV1FaceCandidateGolden(t *testing.T) {
+	body, err := os.ReadFile("testdata/v1/vision-evidence-face-candidate-v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeVisionEvidenceV1(body); err != nil {
+		t.Fatalf("face candidate golden rejected: %v", err)
+	}
+}
+
 func TestVisionEvidenceV1ClosedFunctionalVocabularies(t *testing.T) {
 	body := visionEvidenceFixture(t)
 	for family, states := range map[string][]string{
