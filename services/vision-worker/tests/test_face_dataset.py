@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import socket
 import sys
@@ -139,9 +140,18 @@ class FaceDatasetTests(unittest.TestCase):
             manager = FaceDatasetManager(root, FakeRecognizer())
             self.assertEqual(manager.startup()["status"], "empty")
             recognizer.swap_face_db({"resident-1": {"photo-1": np.asarray([1, 0, 0], dtype=np.float32)}}, "v-1", 1, "fp")
-            self.assertEqual(recognizer.identify_embedding(np.asarray([1, 0, 0], dtype=np.float32))[1], "resident-1")
+            with self.assertLogs("synora.vision.facerec", level=logging.INFO) as captured:
+                self.assertEqual(recognizer.identify_embedding(np.asarray([1, 0, 0], dtype=np.float32))[1], "resident-1")
+            self.assertNotIn("resident-1", " ".join(captured.output))
+            self.assertNotIn("1.000", " ".join(captured.output))
             recognizer.swap_face_db({}, "v-2", 2, "fp")
             self.assertEqual(recognizer.identify_embedding(np.asarray([1, 0, 0], dtype=np.float32))[0], "unknown")
+
+    def test_face_threshold_configuration_is_finite_and_bounded(self):
+        with mock.patch.dict(os.environ, {"SYNORA_VISION_FACE_MATCH_THRESHOLD": "nan",
+                                          "SYNORA_VISION_FACE_CANDIDATE_THRESHOLD": "1.1"}):
+            self.assertEqual(worker_module._worker_unit_interval("SYNORA_VISION_FACE_MATCH_THRESHOLD", .90), .90)
+            self.assertEqual(worker_module._worker_unit_interval("SYNORA_VISION_FACE_CANDIDATE_THRESHOLD", .65), .65)
 
     def test_concurrent_recognition_sees_complete_snapshot(self):
         with tempfile.TemporaryDirectory() as root:

@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 import sys
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.events import ALLOWED_EVENT_TYPES, EventBuilder
+from core.observability import DebugStore, PipelineMetrics, PipelineTrace
 from core.pipeline import VisionPipeline
 from modules.face.FaceRecognizer import FaceRecognizer
 from worker import build_dry_run_event
@@ -40,8 +42,8 @@ class DummyDebugStore:
 
 class MockRecognizer:
 
-    match_threshold = 0.58
-    uncertain_threshold = 0.45
+    match_threshold = 0.90
+    uncertain_threshold = 0.65
 
     def __init__(self, status, identity, score):
         self.status = status
@@ -249,8 +251,8 @@ class EventContractTests(unittest.TestCase):
             self.assertFalse(recognizer.available)
             self.assertEqual(recognizer.capability()["status"], "unavailable")
             self.assertIsNone(recognizer.embed(np.zeros((112, 112, 3), dtype=np.uint8)))
-            self.assertEqual(recognizer.match_threshold, 0.58)
-            self.assertEqual(recognizer.uncertain_threshold, 0.45)
+            self.assertEqual(recognizer.match_threshold, 0.90)
+            self.assertEqual(recognizer.uncertain_threshold, 0.65)
 
     def test_identity_cache_expires_after_ten_seconds(self):
         self.assertEqual(VisionPipeline.FACE_MIN_SIZE, 80)
@@ -269,6 +271,34 @@ class EventContractTests(unittest.TestCase):
         self.assertEqual(first[0]["type"], "vision.uncertain")
         self.assertEqual(second[0]["type"], "vision.uncertain")
         self.assertNotEqual(second[0]["type"], "vision.identity")
+
+    def test_pipeline_metrics_snapshot_never_contains_identity_map(self):
+        payload = PipelineMetrics().snapshot()
+        self.assertNotIn("identities", payload)
+
+    def test_pipeline_trace_redacts_face_ids_coordinates_names_and_paths(self):
+        forbidden = ("resident-private", "local-track-72", "/private/gallery", "bbox", "embedding")
+        with tempfile.TemporaryDirectory() as root:
+            store = DebugStore(root, enabled=True)
+            trace = PipelineTrace("camera-test", "local-track-72", store, trace_id="trace-test")
+            with self.assertLogs("synora.vision.observability", level=logging.INFO) as captured:
+                with trace.step("face", details={
+                    "local_track_id": forbidden[1], "identity": forbidden[0],
+                    "path": forbidden[2], "bbox": [1, 2, 3, 4], "embedding": [0.1],
+                }):
+                    pass
+            with open(os.path.join(root, "timeline", "timeline.jsonl"), encoding="utf-8") as timeline:
+                payload = timeline.read()
+            for value in forbidden:
+                self.assertNotIn(value, payload)
+                self.assertNotIn(value, " ".join(captured.output))
+            self.assertIn('"frame_id": "redacted"', payload)
+
+    def test_disabled_debug_store_does_not_write_trace_timeline(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = DebugStore(root, enabled=False)
+            store.append_timeline({"frame_id": "redacted"})
+            self.assertFalse(os.path.exists(os.path.join(root, "timeline", "timeline.jsonl")))
 
     def test_dataset_swap_invalidates_track_identity_cache(self):
         pipeline = make_pipeline("match", "alexis", 0.95, faces=True)

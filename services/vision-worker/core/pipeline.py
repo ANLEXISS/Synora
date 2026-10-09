@@ -508,10 +508,7 @@ class VisionPipeline:
             )
 
         except Exception:
-
-            log.exception(
-                "ARCFACE ALIGN FAILED"
-            )
+            log.error("Face alignment unavailable")
 
             return None
 
@@ -544,20 +541,12 @@ class VisionPipeline:
             success = True
             error = None
 
-        except Exception as exc:
-
-            log.exception(
-                "YOLO FAILURE frame=%d",
-                self.frame_id,
-            )
-            self.metrics.error(
-                "yolo",
-                str(exc),
-                trace.trace_id if trace else None,
-            )
+        except Exception:
+            log.error("Person detector unavailable")
+            self.metrics.error("yolo", "person_detector_error")
             persons_small = []
             success = False
-            error = str(exc)
+            error = "person_detector_error"
 
         debug = frame_small.copy()
 
@@ -757,13 +746,7 @@ class VisionPipeline:
                 (x2 - x1) < 40 or
                 (y2 - y1) < 40
             ):
-                log.warning(
-                    "TRACK SKIPPED too_small frame=%d track=%s bbox=%s trace=%s",
-                    self.frame_id,
-                    track.id,
-                    track.box,
-                    trace.trace_id,
-                )
+                log.warning("Track skipped because its region was below minimum size")
                 continue
 
             roi = frame[
@@ -772,12 +755,7 @@ class VisionPipeline:
             ]
 
             if roi.size == 0:
-                log.warning(
-                    "TRACK SKIPPED empty_roi frame=%d track=%s trace=%s",
-                    self.frame_id,
-                    track.id,
-                    trace.trace_id,
-                )
+                log.warning("Track skipped because its region was empty")
                 continue
 
             self.debug_step(
@@ -817,17 +795,8 @@ class VisionPipeline:
                 faces = []
                 scrfd_success = False
                 scrfd_error = str(exc)
-                log.exception(
-                    "SCRFD FAILURE frame=%d track=%s trace=%s",
-                    self.frame_id,
-                    track.id,
-                    trace.trace_id,
-                )
-                self.metrics.error(
-                    "scrfd",
-                    str(exc),
-                    trace.trace_id,
-                )
+                log.error("Face detector unavailable")
+                self.metrics.error("scrfd", "face_detector_error")
 
             log.info(
                 "SCRFD faces=%d",
@@ -868,12 +837,7 @@ class VisionPipeline:
             )
 
             if not faces:
-                log.warning(
-                    "Personne detectee -> aucun visage trouve frame=%d track=%s trace=%s",
-                    self.frame_id,
-                    track.id,
-                    trace.trace_id,
-                )
+                log.warning("Person detected; no usable face observation")
                 continue
 
             candidates = (
@@ -904,25 +868,14 @@ class VisionPipeline:
                 )
 
                 if crop.size == 0:
-                    log.warning(
-                        "FACE CROP EMPTY frame=%d track=%s trace=%s",
-                        self.frame_id,
-                        track.id,
-                        trace.trace_id,
-                    )
+                    log.warning("Face crop unavailable")
                     continue
 
                 if (
                     crop.shape[0] < self.FACE_MIN_SIZE or
                     crop.shape[1] < self.FACE_MIN_SIZE
                 ):
-                    log.warning(
-                        "FACE CROP SKIPPED too_small frame=%d track=%s size=%s trace=%s",
-                        self.frame_id,
-                        track.id,
-                        crop.shape,
-                        trace.trace_id,
-                    )
+                    log.warning("Face crop skipped because it was below minimum size")
                     continue
 
                 with trace.step(
@@ -948,12 +901,7 @@ class VisionPipeline:
 
                 if arcface_input is None:
 
-                    log.warning(
-                        "FACE ALIGN FAILED fallback_resize frame=%d track=%s trace=%s",
-                        self.frame_id,
-                        track.id,
-                        trace.trace_id,
-                    )
+                    log.warning("Face alignment unavailable; conservative fallback applied")
 
                     arcface_input = cv2.resize(
                         crop,
@@ -1058,13 +1006,6 @@ class VisionPipeline:
 
         for track_id in track_ids:
 
-            trace = PipelineTrace(
-                camera,
-                f"recognition-track-{track_id}",
-                self.debug_store,
-                self.metrics,
-            )
-
             faces = self.track_faces.get(
                 track_id,
                 [],
@@ -1078,11 +1019,7 @@ class VisionPipeline:
 
             if not faces:
 
-                log.warning(
-                    "Personne detectee -> aucun visage trouve track=%s trace=%s",
-                    track_id,
-                    trace.trace_id,
-                )
+                log.warning("Person detected; no usable face observation")
 
             else:
 
@@ -1101,15 +1038,6 @@ class VisionPipeline:
                 if not self.should_run_arcface(
                     track_id
                 ):
-
-                    trace.skipped(
-                        "arcface",
-                        "identity_reuse_interval",
-                        {
-                            "track_id": track_id,
-                            "last_arcface_frame": self.track_last_arcface.get(track_id),
-                        },
-                    )
 
                     memory = self.track_identity_memory.get(
                         track_id
@@ -1156,33 +1084,16 @@ class VisionPipeline:
                         arcface_error = None
 
                         try:
-                            with trace.step(
-                                "arcface",
-                                details={
-                                    "track_id": track_id,
-                                    "face_index": face_index,
-                                },
-                                input_shape=list(face.shape),
-                            ):
+                            emb = self.face_recognizer.embed(face)
 
-                                emb = self.face_recognizer.embed(
-                                    face
-                                )
-
-                        except Exception as exc:
+                        except Exception:
 
                             arcface_success = False
-                            arcface_error = str(exc)
-                            log.exception(
-                                "ARCFACE EMBED FAILURE track=%s trace=%s",
-                                track_id,
-                                trace.trace_id,
-                            )
-                            self.metrics.error(
-                                "arcface",
-                                str(exc),
-                                trace.trace_id,
-                            )
+                            arcface_error = "face_backend_error"
+                            log.error("Face embedding unavailable")
+                            self.metrics.error("arcface", "face_backend_error")
+                        finally:
+                            self.metrics.timing("arcface", (time.perf_counter() - arcface_start) * 1000.0)
 
                         if emb is None:
 
@@ -1191,11 +1102,7 @@ class VisionPipeline:
                                 arcface_error or
                                 "embedding is None"
                             )
-                            log.error(
-                                "Visage trouve -> aucun embedding track=%s trace=%s",
-                                track_id,
-                                trace.trace_id,
-                            )
+                            log.error("Face embedding unavailable")
 
                         else:
 
@@ -1203,50 +1110,19 @@ class VisionPipeline:
                                 emb
                             )
 
-                        self.debug_step(
-                            camera,
-                            f"recognition-track-{track_id}",
-                            "arcface",
-                            raw=face,
-                            annotated=face,
-                            duration_ms=(time.perf_counter() - arcface_start) * 1000.0,
-                            success=arcface_success,
-                            error=arcface_error,
-                            output_count=1 if emb is not None else 0,
-                            details={
-                                "track_id": track_id,
-                                "face_index": face_index,
-                                "embedding_created": emb is not None,
-                            },
-                            trace=trace,
-                            item_id=f"track{track_id}_face{face_index}",
-                        )
-
-                        self.save_debug_recognition(
-                            face,
-                            track_id,
-                            "candidate",
-                            0.0,
-                        )
-
                     any_match = False
 
                     for emb in embeddings:
 
-                        with trace.step(
-                            "match",
-                            details={
-                                "track_id": track_id,
-                            },
-                        ):
-
-                            (
-                                emb_status,
-                                emb_identity,
-                                emb_score,
-                            ) = self.face_recognizer.identify_embedding(
-                                emb
-                            )
+                        match_start = time.perf_counter()
+                        try:
+                            emb_status, emb_identity, emb_score = self.face_recognizer.identify_embedding(emb)
+                        except Exception:
+                            emb_status, emb_identity, emb_score = "unknown", None, 0.0
+                            log.error("Face matching unavailable")
+                            self.metrics.error("face_match", "face_matching_error")
+                        finally:
+                            self.metrics.timing("face_match", (time.perf_counter() - match_start) * 1000.0)
 
                         if emb_identity:
                             any_match = True
@@ -1260,17 +1136,12 @@ class VisionPipeline:
                             "status": emb_status,
                             "identity": emb_identity,
                             "score": float(emb_score),
-                            "trace_id": trace.trace_id,
                             "time": time.time(),
                         })
 
                     if embeddings and not any_match:
 
-                        log.warning(
-                            "Embedding cree -> aucun matching track=%s trace=%s",
-                            track_id,
-                            trace.trace_id,
-                        )
+                        log.warning("Face embedding did not match the local gallery")
 
                     observations = [
                         obs for obs in self.recognition_buffer(
@@ -1327,15 +1198,6 @@ class VisionPipeline:
 
                         status = "uncertain"
 
-                if identity:
-
-                    self.save_debug_recognition(
-                        best_faces[0],
-                        track_id,
-                        identity,
-                        score,
-                    )
-
                 self.track_identity_memory[
                     track_id
                 ] = {
@@ -1346,18 +1208,6 @@ class VisionPipeline:
                     "status": status,
                     "cached_at": time.monotonic(),
                 }
-
-            self.metrics.identity(
-                track_id,
-                {
-                    "status": status,
-                    "identity": identity,
-                    "score": score,
-                    "best_score": best_score,
-                    "consistency": consistency,
-                    "observations": len(self.recognition_buffer(track_id)),
-                },
-            )
 
             if status == "match":
 
@@ -1395,24 +1245,6 @@ class VisionPipeline:
 
             events.append(event)
             self.metrics.incr("events_generated")
-
-            self.debug_step(
-                camera,
-                f"recognition-track-{track_id}",
-                "events",
-                output_count=1,
-                details={
-                    "track_id": track_id,
-                    "event": event,
-                    "status": status,
-                    "identity": identity,
-                    "score": score,
-                    "best_score": best_score,
-                    "consistency": consistency,
-                },
-                trace=trace,
-                item_id=f"track{track_id}",
-            )
 
         if not events and self.person_seen:
 

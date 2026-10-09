@@ -20,8 +20,8 @@ class FaceRecognizer:
         self,
         model_path="/var/lib/synora/models/arcface_w600k_r50.rknn",
         faces_dir="/opt/synora/services/vision-worker/data/faces",
-        match_threshold=0.58,
-        uncertain_threshold=0.45,
+        match_threshold=0.90,
+        uncertain_threshold=0.65,
         debug_dir=""
     ):
 
@@ -53,12 +53,7 @@ class FaceRecognizer:
         except ModelUnavailableError as exc:
             self.error = exc.message
             self.capability_status = exc.as_dict()
-            log.error(
-                "ARCFACE unavailable code=%s model=%s error=%s",
-                exc.code,
-                model_path,
-                exc.message,
-            )
+            log.error("ARCFACE unavailable code=%s", exc.code)
         except Exception as exc:
             self.error = str(exc)
             self.capability_status = {
@@ -67,7 +62,7 @@ class FaceRecognizer:
                 "path": model_path,
                 "error": self.error,
             }
-            log.exception("ARCFACE unavailable model=%s", model_path)
+            log.error("ARCFACE unavailable code=rknn_runtime_error")
 
         self.embedding_dim = 512
         self._db_lock = threading.RLock()
@@ -76,12 +71,7 @@ class FaceRecognizer:
         self.dataset_fingerprint = ""
 
         if self.available:
-            log.info(
-                "ARCFACE MODEL READY dim=%d backend=%s model=%s",
-                self.embedding_dim,
-                self.runner.backend,
-                model_path,
-            )
+            log.info("ARCFACE MODEL READY dim=%d backend=%s", self.embedding_dim, self.runner.backend)
 
         # The active database is an immutable snapshot.  It is deliberately
         # not populated from the historical display-name directory layout.
@@ -721,11 +711,7 @@ class FaceRecognizer:
             self.match_threshold
         ):
 
-            log.info(
-                "MATCH resident=%s score=%.3f",
-                best_identity,
-                best_score,
-            )
+            log.info("FACE MATCH THRESHOLD MET")
 
             return (
                 "match",
@@ -742,11 +728,7 @@ class FaceRecognizer:
             self.uncertain_threshold
         ):
 
-            log.info(
-                "UNCERTAIN resident=%s score=%.3f",
-                best_identity,
-                best_score,
-            )
+            log.info("FACE CANDIDATE RANGE THRESHOLD MET")
 
             return (
                 "uncertain",
@@ -754,10 +736,7 @@ class FaceRecognizer:
                 best_score,
             )
 
-        log.info(
-            "UNKNOWN score=%.3f",
-            best_score,
-        )
+        log.info("FACE UNKNOWN THRESHOLD RESULT")
 
         return (
             "unknown",

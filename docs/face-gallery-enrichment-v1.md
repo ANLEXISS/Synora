@@ -13,6 +13,13 @@ The Python and Go validators share the versioned JSON Schema and golden fixture.
 The extension is a contract capability only; it does not mean that the
 recognizer emits candidates or that a candidate is persisted/promoted.
 
+Face processing is forced unavailable until a qualification artifact is
+implemented and reviewed. The worker's dry-run capabilities also report face
+inference as unavailable. Face recognition logs contain neither identity nor
+similarity score; worker debug timelines are disabled by default, trace detail
+payloads are redacted, and aggregate worker metrics do not expose an identity
+map.
+
 ## Existing local storage and limits
 
 The current local face source/dataset code is separate from the Universal
@@ -25,30 +32,37 @@ to be a hardened biometric vault. Do not enable an adaptive candidate gallery
 or import private media until the host's ownership/permissions, explicit
 consent, retention, and recovery procedure have been reviewed.
 
-The face worker is opt-in by configuration and its current similarity model
-and thresholds have not been independently qualified. A model file being
-present, a unit test passing, or a local image matching is not qualification.
+The face worker is fail-closed: no qualification artifact exists, so an
+explicit enable flag still reports the backend as `unavailable` and does not
+construct the face recognizer. Its current similarity model and thresholds
+have not been independently qualified. A model file being present, a unit
+test passing, or a local image matching is not qualification.
 No recognition status from this implementation may be treated as a reliable
 identity decision or used to weaken the deterministic Safety Gate.
 
-## Provisional policy target (not yet active)
+## Provisional score thresholds and policy status
 
-The proposed thresholds are configuration defaults for future controlled
-evaluation, not calibrated operating points:
+The recognizer defaults are now 0.65 for the uncertainty floor and 0.90 for
+match (`SYNORA_VISION_FACE_CANDIDATE_THRESHOLD` and
+`SYNORA_VISION_FACE_MATCH_THRESHOLD`), with a 0.90 temporal-consistency
+default. These are provisional
+configuration thresholds for future controlled evaluation, not calibrated
+operating points. The current worker maps the middle band to its conservative
+`uncertain` result; it does not persist a `candidate` sample.
 
 | Score | Intended result | Persistence |
 |---|---|---|
 | `< 0.65` | `unknown` | none |
-| `0.65–<0.90` | `candidate` | local-only, bounded TTL, only after all quality/track/episode/quota checks |
-| `>= 0.90` | `recognized` | only with a qualified backend and independent, consistent observations |
+| `0.65–<0.90` | `uncertain` today; target is `candidate` | no candidate persistence is active |
+| `>= 0.90` | `recognized` by the unqualified opt-in worker path | not qualified; do not enable as a resident identity decision |
 
 Candidate-only self-bootstrap is forbidden. A promotion requires a distinct,
 high-confidence anchor for the same resident in the same continuous episode
 and local track, or a separately audited manual approval. Multiple faces,
 ambiguous identity, low quality, stale/restarted episodes, duplicate samples,
 quota exhaustion, invalid source gallery, simulated/replay provenance, or an
-unqualified backend must fail closed. This policy is not implemented as a
-candidate persistence/promotions workflow yet; no such workflow is claimed.
+unqualified backend must fail closed. The candidate persistence/promotions
+workflow is not implemented; no such workflow is claimed.
 
 ## Privacy and qualification status
 

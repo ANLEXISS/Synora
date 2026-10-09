@@ -35,6 +35,16 @@ class WorkerRuntimeTests(unittest.TestCase):
         self.assertIsNone(worker.pipeline)
         self.assertEqual(worker.face_error, "disabled_by_configuration")
 
+    def test_explicit_face_enable_remains_unavailable_until_backend_qualification(self):
+        with mock.patch.dict(os.environ, {"SYNORA_VISION_FACE_ENABLED": "1"}, clear=False):
+            worker = VisionWorker(dry_run=True)
+            capabilities = worker.capabilities()
+        self.assertTrue(worker.face_requested)
+        self.assertFalse(worker.face_enabled)
+        self.assertIsNone(worker.face_recognizer)
+        self.assertEqual(capabilities["capabilities"]["face_recognition"]["status"], "unavailable")
+        self.assertEqual(capabilities["capabilities"]["face_detection"]["status"], "unavailable")
+
     def test_worker_has_no_http_debug_server(self):
         worker = VisionWorker(dry_run=True)
         self.assertFalse(hasattr(worker, "debug_app"))

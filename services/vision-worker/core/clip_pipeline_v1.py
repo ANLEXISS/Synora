@@ -636,7 +636,7 @@ class ConfiguredFaceEnricher(FaceEnricher):
     requires_roi = True
 
     def __init__(self, vision_pipeline: Any, min_crops: int = 2,
-                 stability_threshold: float = 0.67):
+                 stability_threshold: float = 0.90):
         self.pipeline = vision_pipeline
         self.min_crops = max(2, int(min_crops))
         self.stability_threshold = _bounded(stability_threshold)

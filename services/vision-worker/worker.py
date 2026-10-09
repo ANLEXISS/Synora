@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import math
 import os
 import signal
 import socket
@@ -51,6 +52,9 @@ EDGE_PIPELINE = "edge-v1"
 EPISODE_RELEASE = "episode.release"
 VISION_ENRICHMENT_V3 = "vision.enrichment.v3"
 ARCFACE_EMBEDDING_DIMENSION = 512
+# No independently validated facial backend/qualification manifest exists yet.
+# Keep this subsystem fail-closed even when an enable flag is set.
+FACE_BACKEND_QUALIFIED = False
 FACE_DATA_ROOT = os.path.abspath(os.path.realpath(os.getenv("SYNORA_FACE_DATA_ROOT", "/var/lib/synora/vision/face")))
 MODEL_ROOT = os.getenv("SYNORA_MODEL_ROOT", "/var/lib/synora/models")
 ARCFACE_MODEL = os.getenv("SYNORA_ARCFACE_MODEL", os.path.join(MODEL_ROOT, "arcface_w600k_r50.rknn"))
@@ -89,6 +93,14 @@ def _worker_float(name, fallback):
         return fallback
 
 
+def _worker_unit_interval(name, fallback):
+    try:
+        value = float(os.getenv(name, str(fallback)))
+        return value if math.isfinite(value) and 0.0 <= value <= 1.0 else fallback
+    except (TypeError, ValueError, OverflowError):
+        return fallback
+
+
 def _worker_enabled(name, default=False):
     return os.getenv(name, "1" if default else "0").strip() == "1"
 
@@ -107,7 +119,8 @@ class VisionWorker:
         self.face_error = None
         self.face_dataset = None
         self.face_dataset_startup_error = None
-        self.face_enabled = _worker_enabled("SYNORA_VISION_FACE_ENABLED")
+        self.face_requested = _worker_enabled("SYNORA_VISION_FACE_ENABLED")
+        self.face_enabled = self.face_requested and FACE_BACKEND_QUALIFIED
         self.plate_enabled = _worker_enabled("SYNORA_VISION_PLATE_ENABLED")
         self.sensitive_objects_enabled = _worker_enabled("SYNORA_VISION_SENSITIVE_OBJECTS_ENABLED")
         self.clip_v1_enabled = dry_run or os.getenv("SYNORA_VISION_CLIP_V1_ENABLED", "0") == "1"
@@ -146,10 +159,14 @@ class VisionWorker:
                 try:
                     try:
                         from modules.face.FaceRecognizer import FaceRecognizer
-                        self.face_recognizer = FaceRecognizer(model_path=ARCFACE_MODEL)
-                    except Exception as exc:
-                        self.face_error = str(exc)
-                        log.exception("FACE backend unavailable during initialization")
+                        self.face_recognizer = FaceRecognizer(
+                            model_path=ARCFACE_MODEL,
+                            match_threshold=_worker_unit_interval("SYNORA_VISION_FACE_MATCH_THRESHOLD", .90),
+                            uncertain_threshold=_worker_unit_interval("SYNORA_VISION_FACE_CANDIDATE_THRESHOLD", .65),
+                        )
+                    except Exception:
+                        self.face_error = "face_backend_init_failed"
+                        log.error("FACE backend unavailable during initialization")
                     if self.face_recognizer is not None and self.person_detector is not None:
                         from core.pipeline import VisionPipeline
                         self.pipeline = VisionPipeline(self.face_recognizer, self.person_detector)
@@ -158,11 +175,11 @@ class VisionWorker:
                             self.face_dataset.startup()
                         except FaceDatasetError as exc:
                             self.face_dataset_startup_error = exc.code
-                except Exception as exc:
-                    self.pipeline_error = str(exc)
-                    log.exception("VISION PIPELINE degraded during initialization")
+                except Exception:
+                    self.pipeline_error = "vision_pipeline_init_failed"
+                    log.error("VISION PIPELINE degraded during initialization")
             else:
-                self.face_error = "disabled_by_configuration"
+                self.face_error = "face_backend_not_qualified" if self.face_requested else "disabled_by_configuration"
             if self.detector_error:
                 self.pipeline_error = self.detector_error
         if not dry_run and self.detector_backend is None:
@@ -195,8 +212,8 @@ class VisionWorker:
                 "backend": "dry_run",
                 "embedding_dimension": ARCFACE_EMBEDDING_DIMENSION,
                 "capabilities": {
-                    "face_detection": dict(available),
-                    "face_recognition": dict(available),
+                    "face_detection": {"status": "unavailable", "mode": "dry_run", "reason": "face inference is not executed"},
+                    "face_recognition": {"status": "unavailable", "mode": "dry_run", "reason": "face inference is not executed"},
                     "object_detection": dict(available),
                     "weapon_detection": dict(available),
                     "fall_detection": dict(available),
@@ -226,14 +243,19 @@ class VisionWorker:
         else:
             weapon_capability["status"] = "unavailable"
             weapon_capability["error"] = "weapon detector is not enabled in the clip pipeline"
-        face_capability = self.face_recognizer.capability() if self.face_recognizer is not None else {
-            "status": "disabled" if not getattr(self, "face_enabled", False) else "unavailable",
-            "error": getattr(self, "face_error", None) or "face recognizer unavailable",
-        }
+        if self.face_recognizer is not None:
+            face_capability = self.face_recognizer.capability()
+        elif getattr(self, "face_requested", False):
+            face_capability = {"status": "unavailable", "error": "face_backend_not_qualified"}
+        else:
+            face_capability = {"status": "disabled", "error": "disabled_by_configuration"}
         object_capability = self.person_detector.capability() if self.person_detector is not None else {"status": "unavailable", "error": getattr(self, "detector_error", None) or "person detector unavailable"}
-        face_detection = {"status": "disabled", "error": "disabled_by_configuration"} if not getattr(self, "face_enabled", False) else {"status": "unavailable", "error": "face detector unavailable"}
-        if self.pipeline is not None:
+        if self.face_recognizer is not None and self.pipeline is not None:
             face_detection = self.pipeline.face_detection_capability()
+        elif getattr(self, "face_requested", False):
+            face_detection = {"status": "unavailable", "error": "face_backend_not_qualified"}
+        else:
+            face_detection = {"status": "disabled", "error": "disabled_by_configuration"}
         backend = "unavailable"
         for component in (self.face_recognizer, self.person_detector):
             runner = getattr(component, "runner", None)
@@ -579,7 +601,7 @@ class VisionWorker:
                                    for event in events]}
             face = ConfiguredFaceEnricher(self.pipeline,
                                           min_crops=int(os.getenv("SYNORA_VISION_V1_MIN_FACE_CROPS", "2")),
-                                          stability_threshold=_worker_float("SYNORA_VISION_V1_IDENTITY_STABILITY", .67))
+                                          stability_threshold=_worker_float("SYNORA_VISION_V1_IDENTITY_STABILITY", .90))
             face = face if self.face_enabled else UnavailableFaceEnricher()
             pipeline = VisionClipPipelineV1(self._clip_v1_config(), face, UnavailablePlateEnricher(), UnavailableSensitiveObjectEnricher(), preliminary_sink)
             try:

@@ -55,7 +55,6 @@ class PipelineMetrics:
         self.input_frames = deque(maxlen=300)
         self.processed_frames = deque(maxlen=300)
         self.errors = deque(maxlen=100)
-        self.identities = {}
 
     def mark_input(self):
         with self.lock:
@@ -93,10 +92,6 @@ class PipelineMetrics:
                 ),
             }
 
-    def identity(self, track_id, payload):
-        with self.lock:
-            self.identities[str(track_id)] = payload
-
     def error(self, step, message, trace_id=None):
         with self.lock:
             self.errors.append({
@@ -126,7 +121,6 @@ class PipelineMetrics:
             }
             counters = dict(self.counters)
             queues = dict(self.queue_sizes)
-            identities = dict(self.identities)
             errors = list(self.errors)
             latencies = list(self.latencies)
             input_frames = list(self.input_frames)
@@ -155,7 +149,6 @@ class PipelineMetrics:
                 "events_generated": counters.get("events_generated", 0),
                 "events_dropped": counters.get("events_dropped", 0),
             },
-            "identities": identities,
             "errors": errors,
         }
 
@@ -239,7 +232,10 @@ class DebugStore:
         }
 
     def append_timeline(self, entry):
+        if not self.enabled:
+            return None
         path = os.path.join(self.root, "timeline", "timeline.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with self.lock:
             with open(path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(entry, default=_json_default) + "\n")
@@ -249,7 +245,7 @@ class PipelineTrace:
 
     def __init__(self, camera_id, frame_id, store, metrics=None, trace_id=None):
         self.camera_id = camera_id
-        self.frame_id = frame_id
+        self.frame_id = frame_id if isinstance(frame_id, int) and not isinstance(frame_id, bool) else "redacted"
         self.trace_id = trace_id or uuid.uuid4().hex
         self.store = store
         self.metrics = metrics
@@ -263,15 +259,15 @@ class PipelineTrace:
             self.trace_id,
             self.frame_id,
             name,
-            details or {},
+            {},
         )
         status = "SUCCESS"
         error = None
         try:
             yield
-        except Exception as exc:
+        except Exception:
             status = "FAILURE"
-            error = str(exc)
+            error = "vision_step_failed"
             if self.metrics:
                 self.metrics.error(name, error, self.trace_id)
             raise
@@ -293,7 +289,7 @@ class PipelineTrace:
                 "success": success,
                 "error": error,
                 "input_shape": input_shape or [],
-                "details": details or {},
+                "details": {},
             }
             self.store.append_timeline(entry)
             log.info(
@@ -318,10 +314,7 @@ class PipelineTrace:
             "duration_ms": 0.0,
             "success": True,
             "error": None,
-            "details": {
-                **(details or {}),
-                "reason": reason,
-            },
+            "details": {"reason": "skipped"},
         }
         self.store.append_timeline(entry)
         log.info(
@@ -329,5 +322,5 @@ class PipelineTrace:
             self.trace_id,
             self.frame_id,
             name,
-            reason,
+            "skipped",
         )
