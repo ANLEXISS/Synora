@@ -48,15 +48,17 @@ type CommitResult struct {
 }
 
 type storeDiskState struct {
-	SchemaVersion string               `json:"schema_version"`
-	Revision      uint64               `json:"revision"`
-	Snapshot      CognitiveSnapshot    `json:"snapshot"`
-	SnapshotV3    *CognitiveSnapshotV3 `json:"snapshot_v3,omitempty"`
-	Journal       []Commit             `json:"journal"`
-	Decisions     []Decision           `json:"decisions"`
-	ActionOutbox  []ActionRequest      `json:"action_outbox"`
-	Processed     []string             `json:"processed"`
-	Claimed       []string             `json:"claimed"`
+	SchemaVersion       string                           `json:"schema_version"`
+	Revision            uint64                           `json:"revision"`
+	Snapshot            CognitiveSnapshot                `json:"snapshot"`
+	SnapshotV3          *CognitiveSnapshotV3             `json:"snapshot_v3,omitempty"`
+	Journal             []Commit                         `json:"journal"`
+	Decisions           []Decision                       `json:"decisions"`
+	ActionOutbox        []ActionRequest                  `json:"action_outbox"`
+	Processed           []string                         `json:"processed"`
+	Claimed             []string                         `json:"claimed"`
+	Residents           map[string]ResidentGalleryRecord `json:"resident_galleries,omitempty"`
+	ResidentIdempotency map[string]string                `json:"resident_idempotency,omitempty"`
 }
 
 type storeJournalRecord struct {
@@ -91,18 +93,20 @@ type PersistenceHooks struct {
 }
 
 type UniversalStore struct {
-	mu             sync.RWMutex
-	revision       uint64
-	journal        []Commit
-	decisions      []Decision
-	actionOutbox   []ActionRequest
-	processed      map[string]struct{}
-	processedOrder []string
-	snapshot       CognitiveSnapshot
-	snapshotV3     *CognitiveSnapshotV3
-	claimed        map[string]struct{}
-	dir            string
-	hooks          PersistenceHooks
+	mu                  sync.RWMutex
+	revision            uint64
+	journal             []Commit
+	decisions           []Decision
+	actionOutbox        []ActionRequest
+	processed           map[string]struct{}
+	processedOrder      []string
+	snapshot            CognitiveSnapshot
+	snapshotV3          *CognitiveSnapshotV3
+	claimed             map[string]struct{}
+	residentGalleries   map[string]ResidentGalleryRecord
+	residentIdempotency map[string]string
+	dir                 string
+	hooks               PersistenceHooks
 }
 
 func NewUniversalStore() *UniversalStore {
@@ -110,7 +114,7 @@ func NewUniversalStore() *UniversalStore {
 }
 
 func newUniversalStore(revision uint64) *UniversalStore {
-	return &UniversalStore{revision: revision, journal: make([]Commit, 0, MaxJournalEntries), decisions: make([]Decision, 0, MaxDecisionEntries), actionOutbox: make([]ActionRequest, 0, MaxActionOutbox), processed: make(map[string]struct{}), claimed: make(map[string]struct{}), snapshot: CognitiveSnapshot{SchemaVersion: SnapshotSchemaVersion, CapturedAt: time.Unix(0, 0).UTC(), Topology: "unknown", Episode: EpisodeFacts{Phase: "initial"}}}
+	return &UniversalStore{revision: revision, journal: make([]Commit, 0, MaxJournalEntries), decisions: make([]Decision, 0, MaxDecisionEntries), actionOutbox: make([]ActionRequest, 0, MaxActionOutbox), processed: make(map[string]struct{}), claimed: make(map[string]struct{}), residentGalleries: make(map[string]ResidentGalleryRecord), residentIdempotency: make(map[string]string), snapshot: CognitiveSnapshot{SchemaVersion: SnapshotSchemaVersion, CapturedAt: time.Unix(0, 0).UTC(), Topology: "unknown", Episode: EpisodeFacts{Phase: "initial"}}}
 }
 
 // OpenUniversalStore opens or creates a durable local Store. The directory is
@@ -138,12 +142,21 @@ func OpenUniversalStore(dir string) (*UniversalStore, error) {
 			return nil, fmt.Errorf("unsupported universal store state schema %q", disk.SchemaVersion)
 		}
 		s.revision, s.snapshot, s.snapshotV3, s.journal, s.decisions, s.actionOutbox = disk.Revision, disk.Snapshot.Normalized(), disk.SnapshotV3, disk.Journal, disk.Decisions, disk.ActionOutbox
+		if disk.Residents != nil {
+			s.residentGalleries = disk.Residents
+		}
+		if disk.ResidentIdempotency != nil {
+			s.residentIdempotency = disk.ResidentIdempotency
+		}
 		for _, id := range disk.Processed {
 			s.processed[id] = struct{}{}
 			s.processedOrder = append(s.processedOrder, id)
 		}
 		for _, id := range disk.Claimed {
 			s.claimed[id] = struct{}{}
+		}
+		if err := validateResidentGalleryState(s.residentGalleries, s.residentIdempotency); err != nil {
+			return nil, fmt.Errorf("universal store resident gallery state is corrupt: %w", err)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("read universal store state: %w", err)
@@ -240,6 +253,8 @@ func (s *UniversalStore) resetMemoryLocked() {
 	s.snapshot = initial.snapshot
 	s.snapshotV3 = nil
 	s.claimed = initial.claimed
+	s.residentGalleries = initial.residentGalleries
+	s.residentIdempotency = initial.residentIdempotency
 }
 
 func (s *UniversalStore) SetPersistenceHooks(hooks PersistenceHooks) {
@@ -687,15 +702,17 @@ func (s *UniversalStore) diskStateLocked() storeDiskState {
 	sort.Strings(processed)
 	sort.Strings(claimed)
 	return storeDiskState{
-		SchemaVersion: "universal-store/v1",
-		Revision:      s.revision,
-		Snapshot:      s.snapshot,
-		SnapshotV3:    s.snapshotV3,
-		Journal:       append([]Commit(nil), s.journal...),
-		Decisions:     append([]Decision(nil), s.decisions...),
-		ActionOutbox:  append([]ActionRequest(nil), s.actionOutbox...),
-		Processed:     processed,
-		Claimed:       claimed,
+		SchemaVersion:       "universal-store/v1",
+		Revision:            s.revision,
+		Snapshot:            s.snapshot,
+		SnapshotV3:          s.snapshotV3,
+		Journal:             append([]Commit(nil), s.journal...),
+		Decisions:           append([]Decision(nil), s.decisions...),
+		ActionOutbox:        append([]ActionRequest(nil), s.actionOutbox...),
+		Processed:           processed,
+		Claimed:             claimed,
+		Residents:           cloneResidentGalleryRecords(s.residentGalleries),
+		ResidentIdempotency: cloneStringMap(s.residentIdempotency),
 	}
 }
 

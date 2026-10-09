@@ -1,9 +1,12 @@
 package cognitivecore
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -35,6 +38,9 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 	}
 	if message.Kind == contract.KindRPC && message.Type == contract.RPCSystemResetState {
 		return s.handleSystemStateReset(message)
+	}
+	if message.Kind == contract.KindRPC && message.Type == RPCResidentGallery {
+		return s.handleResidentGalleryRPC(message)
 	}
 	if isLegacyVisionContract(message.Type) {
 		return s.rejectLegacyVision(message)
@@ -134,6 +140,68 @@ func (s *Service) Handle(ctx context.Context, message contract.Message) error {
 		}
 	}
 	return nil
+}
+
+const RPCResidentGallery = "core.resident_gallery"
+
+type ResidentGalleryRPCRequest struct {
+	Operation      string `json:"operation"`
+	ResidentRef    string `json:"resident_ref,omitempty"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+}
+
+func (s *Service) handleResidentGalleryRPC(message contract.Message) error {
+	if message.Source != "discovery" || message.Target != "core" {
+		return s.sendResidentGalleryRPC(message, httpStatusForbidden, nil)
+	}
+	var request ResidentGalleryRPCRequest
+	decoder := json.NewDecoder(bytes.NewReader(message.Payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return s.sendResidentGalleryRPC(message, httpStatusBadRequest, nil)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return s.sendResidentGalleryRPC(message, httpStatusBadRequest, nil)
+	}
+	now := s.now()
+	var record ResidentGalleryRecord
+	var duplicate bool
+	var err error
+	switch request.Operation {
+	case "create":
+		record = ResidentGalleryRecord{ResidentRef: request.ResidentRef, GalleryStatus: "not_enrolled", PolicyVersion: ResidentGalleryPolicyVersion, CreatedAt: now, UpdatedAt: now}
+		record, duplicate, err = s.Core.Store.CreateResidentGallery(record, request.IdempotencyKey)
+	case "status":
+		var exists bool
+		record, exists = s.Core.Store.ResidentGallery(request.ResidentRef)
+		if !exists {
+			err = errors.New("resident unavailable")
+		}
+	case "rollback":
+		record, err = s.Core.Store.RollbackResidentGallery(request.ResidentRef, now)
+	case "delete":
+		record, err = s.Core.Store.DeleteResidentGallery(request.ResidentRef, now)
+	default:
+		err = errors.New("invalid resident operation")
+	}
+	if err != nil {
+		return s.sendResidentGalleryRPC(message, httpStatusBadRequest, nil)
+	}
+	return s.sendResidentGalleryRPC(message, "ok", map[string]any{"resident": record, "duplicate": duplicate})
+}
+
+const (
+	httpStatusForbidden  = "forbidden"
+	httpStatusBadRequest = "invalid"
+)
+
+func (s *Service) sendResidentGalleryRPC(request contract.Message, status string, result map[string]any) error {
+	body, err := json.Marshal(map[string]any{"status": status, "result": result})
+	if err != nil {
+		return err
+	}
+	return s.Bus.Send(contract.Message{ID: request.ID, Type: RPCResidentGallery, Kind: contract.KindRPC, Source: serviceName(s.Name), Target: request.Source, CorrelationID: request.ID, Timestamp: s.now(), Payload: body})
 }
 
 func isLegacyVisionContract(eventType string) bool {

@@ -315,7 +315,7 @@ func (m *Manager) StartContext(ctx context.Context) {
 	api := NewExternalAPI(m.securityCfg, boundary, busEventPublisher{client: m.bus}, m.snapshotCache, func() map[string]any {
 		status := healthState.snapshot()
 		return map[string]any{"service": "discovery", "status": status.VisionWorkerStatus, "vision_worker": status.VisionWorkerStatus, "vision_ingress": status.VisionIngressStatus, "network": status.NetworkStatus}
-	})
+	}, busResidentGalleryService{client: m.bus})
 	m.apiServer = startExternalAPIServer(runtime, m.securityCfg, api)
 
 	clipDir := runtime.Paths.ClipRoot

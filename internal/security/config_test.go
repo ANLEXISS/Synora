@@ -1,6 +1,7 @@
 package security
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,39 @@ func TestFeatureFlagsDefaultAndExplicitDisable(t *testing.T) {
 	flags.DevSimulationEnabled = &falseValue
 	if flags.Enabled(FeatureSynoraLab) || flags.Enabled(FeatureDevSimulation) {
 		t.Fatalf("explicit feature disable was ignored: %#v", flags)
+	}
+}
+
+func TestAPITokenScopesRequireExplicitHashedGrant(t *testing.T) {
+	adminToken, err := RandomHex(32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyToken, err := RandomHex(32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := &Config{
+		APITokenHash: HashSecret(legacyToken),
+		APITokenScopes: map[string][]string{
+			HashSecret(adminToken): {"resident:write", "face_gallery:manage"},
+		},
+	}
+	if config.VerifyAPITokenScopes("", "resident:write") {
+		t.Fatal("empty token gained a scope")
+	}
+	if config.VerifyAPITokenScopes(legacyToken, "resident:write") {
+		t.Fatal("legacy API token implicitly gained an administrative scope")
+	}
+	if config.VerifyAPITokenScopes(adminToken, "resident:write", "face_gallery:missing") {
+		t.Fatal("token with a missing scope was authorized")
+	}
+	if !config.VerifyAPITokenScopes(adminToken, "resident:write", "face_gallery:manage") {
+		t.Fatal("explicitly scoped token was rejected")
+	}
+	serialized, err := json.Marshal(config)
+	if err != nil || strings.Contains(string(serialized), adminToken) {
+		t.Fatal("raw scoped token was serialized into configuration")
 	}
 }
 

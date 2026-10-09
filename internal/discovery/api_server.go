@@ -59,8 +59,12 @@ func (s *externalAPIServer) shutdown(ctx context.Context) error {
 	return nil
 }
 
-func NewExternalAPI(cfg *security.Config, boundary *Boundary, publisher EventPublisher, updates EventSubscription, health func() map[string]any) http.Handler {
-	api := (&WebAPI{Boundary: boundary, Publisher: publisher, Updates: updates, Health: health}).Handler()
+func NewExternalAPI(cfg *security.Config, boundary *Boundary, publisher EventPublisher, updates EventSubscription, health func() map[string]any, residents ...ResidentGalleryService) http.Handler {
+	var residentService ResidentGalleryService
+	if len(residents) > 0 {
+		residentService = residents[0]
+	}
+	api := (&WebAPI{Boundary: boundary, Publisher: publisher, Updates: updates, Health: health, Security: cfg, Residents: residentService}).Handler()
 	return externalMiddleware(cfg, api)
 }
 

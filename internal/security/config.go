@@ -27,18 +27,21 @@ const (
 )
 
 type Config struct {
-	APITokenHash            string            `yaml:"api_token_hash,omitempty"`
-	APIToken                string            `yaml:"api_token,omitempty"`
-	SessionSecretFile       string            `yaml:"session_secret_file,omitempty"`
-	SessionStoreFile        string            `yaml:"session_store_file,omitempty"`
-	AllowedOrigins          []string          `yaml:"allowed_origins"`
-	DeviceSecrets           map[string]string `yaml:"device_secrets"`
-	PairingEnabled          bool              `yaml:"pairing_enabled"`
-	PublicSystemHealth      bool              `yaml:"public_system_health,omitempty"`
-	MaxTimestampSkewSeconds int               `yaml:"max_timestamp_skew_seconds,omitempty"`
-	Server                  ServerConfig      `yaml:"server,omitempty"`
-	Vision                  VisionConfig      `yaml:"vision,omitempty"`
-	Features                FeatureFlags      `yaml:"features,omitempty"`
+	APITokenHash string `yaml:"api_token_hash,omitempty"`
+	APIToken     string `yaml:"api_token,omitempty"`
+	// APITokenScopes maps SHA-256 token hashes to explicitly granted scopes.
+	// The raw bearer token is never persisted in this map or in logs.
+	APITokenScopes          map[string][]string `yaml:"api_token_scopes,omitempty"`
+	SessionSecretFile       string              `yaml:"session_secret_file,omitempty"`
+	SessionStoreFile        string              `yaml:"session_store_file,omitempty"`
+	AllowedOrigins          []string            `yaml:"allowed_origins"`
+	DeviceSecrets           map[string]string   `yaml:"device_secrets"`
+	PairingEnabled          bool                `yaml:"pairing_enabled"`
+	PublicSystemHealth      bool                `yaml:"public_system_health,omitempty"`
+	MaxTimestampSkewSeconds int                 `yaml:"max_timestamp_skew_seconds,omitempty"`
+	Server                  ServerConfig        `yaml:"server,omitempty"`
+	Vision                  VisionConfig        `yaml:"vision,omitempty"`
+	Features                FeatureFlags        `yaml:"features,omitempty"`
 }
 
 // FeatureFlags separates product/admin capabilities from developer-only
@@ -308,13 +311,41 @@ func (c *Config) VerifyAPIToken(token string) bool {
 	}
 	c.Normalize()
 	token = strings.TrimSpace(token)
-	if token == "" || c.APITokenHash == "" {
+	if token == "" {
 		return false
 	}
-	return subtle.ConstantTimeCompare(
+	if c.APITokenHash != "" && subtle.ConstantTimeCompare(
 		[]byte(HashSecret(token)),
 		[]byte(c.APITokenHash),
-	) == 1
+	) == 1 {
+		return true
+	}
+	_, scoped := c.APITokenScopes[HashSecret(token)]
+	return scoped
+}
+
+// VerifyAPITokenScopes requires an explicit grant for every requested scope.
+// The legacy bootstrap token intentionally receives no privileged scopes.
+func (c *Config) VerifyAPITokenScopes(token string, required ...string) bool {
+	if c == nil || strings.TrimSpace(token) == "" || len(required) == 0 {
+		return false
+	}
+	c.Normalize()
+	hash := HashSecret(strings.TrimSpace(token))
+	grants, exists := c.APITokenScopes[hash]
+	if !exists {
+		return false
+	}
+	granted := make(map[string]struct{}, len(grants))
+	for _, scope := range grants {
+		granted[scope] = struct{}{}
+	}
+	for _, scope := range required {
+		if _, ok := granted[strings.TrimSpace(scope)]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Config) AllowsOrigin(origin string) bool {

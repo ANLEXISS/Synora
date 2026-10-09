@@ -79,6 +79,64 @@ and real facial recognition. Contract candidate support is implemented;
 facial backend qualification, consented independent evaluation, a hardened
 vault/retention workflow, and a local consent smoke test remain open.
 
+## Inactive resident-gallery foundations
+
+The repository now contains an inactive software foundation; this does not
+enable enrollment or facial recognition. Discovery exposes the following
+redacted administration surface on its existing HTTP server:
+
+| Route | Authorization | Effect |
+|---|---|---|
+| `POST /api/residents` | `resident:write` and `face_gallery:manage` | Creates only an opaque logical resident record; accepts an idempotency key and no identity fields |
+| `GET /api/residents/{resident_ref}/face-gallery/status` | Existing authenticated API token | Returns only opaque reference, gallery state, generation and policy version |
+| `POST /api/residents/{resident_ref}/face-gallery/rollback` | Both administration scopes | Resets the logical gallery state; no image or model operation |
+| `DELETE /api/residents/{resident_ref}` | Both administration scopes | Logically disables the resident record |
+
+Scoped API credentials are configured by SHA-256 token hash under
+`api_token_scopes`; raw tokens are never stored there. The legacy API token
+does not gain administrative scopes implicitly. The administrator must
+provision both exact scopes out of band. HTTP errors do not disclose which
+scope was missing. The public status projection contains no name, image,
+embedding, score, path, or identity.
+
+Core owns the persisted logical resident registry in the Universal Store.
+Records contain an opaque `resident_ref`, one of `not_enrolled`, `prepared`,
+`unavailable`, `disabled`, or `error`, a gallery generation, the policy
+version, redacted error category, timestamps and logical deletion state.
+Idempotency keys are hashed before persistence. Store restart validates the
+registry and fails closed on corrupt records. No resident name or biometric
+material is written there.
+
+The local consent reader accepts only a server-configured private root and a
+server-derived filename from the opaque reference. It validates the strict
+versioned fields, allowlisted source-set ID and digest, time bounds, revocation
+state and policy version. A `simulated_test` attestation is always rejected by
+the real validator. This is a technical audit record only, not proof of legal
+consent; no real attestation was created during this work.
+
+The separate vault abstraction supports an empty versioned manifest, atomic
+generation pointer, digest verification and rollback. It rejects symlinks,
+traversal, noncanonical roots and directories with broad permissions. The
+vault was exercised only in temporary test directories and remains empty.
+Protection is local filesystem permissions and separation; application-level
+encryption and managed keys are explicitly out of scope. The test-only
+candidate lifecycle is memory-only, uses synthetic opaque case identifiers,
+enforces TTL, deduplication and quotas, and cannot write to the local vault.
+Thresholds `.65`/`.90`, minimum quality `.70`, 24-hour candidate TTL, 16
+pending candidates, four per episode and 40 per day are provisional test
+policy values, not calibrated recognition operating points. The test policy
+limits pending samples to 16 per resident, four per episode, and 12 per day.
+
+`FACE_BACKEND_QUALIFIED` remains `false`; the production worker reports face
+recognition unavailable and does not instantiate the face recognizer. The
+deterministic test backend accepts only named synthetic cases, no images or
+model files. Therefore these foundations are not a private-media smoke test,
+not real replay verification, and not facial-recognition qualification. No
+photos were opened, copied, hashed, moved or enrolled by these foundations.
+The CognitiveSnapshot V3 86D layout and its offsets are unchanged, and face
+signals remain unencoded unless an existing mapping is explicitly added in a
+separate reviewed task.
+
 ## V1 milestone snapshot
 
 States use only the project vocabulary. This is a source audit, not a claim of
@@ -90,7 +148,7 @@ current commit before treating software tests as current evidence.
 | Camera ingress / Discovery | `implemented` | Discovery ingress and central transport/resilience cases | Hardware installation/recovery qualification | Complete controlled J2/J3/J4 evidence |
 | Evidence V1 / Core / Store | `implemented` | Strict V1 validator and central contract journeys | Full runtime deployment audit | Validate all producers and deployed ACLs |
 | Pose and fall | `prepared_blocked` | Aggregate contracts and optional replay harness | No qualified real fall corpus/backend evidence | Label independent clips and qualify metrics |
-| Face / resident gallery | `prepared_blocked` | Local source/dataset primitives; candidate contract extension | Consent, vault hardening, model qualification and independent evaluation absent | Build approved vault/policy workflow before local smoke |
+| Face / resident gallery | `prepared_blocked` | Opaque resident API/Store, scope checks, technical attestation reader, empty vault and synthetic policy tests | Real consent, qualified backend, independent evaluation, encryption/key review and private smoke absent | Obtain verifiable consent out of band; separately qualify backend before any approved smoke |
 | Vehicles | `not_configured` | Suite slots/contracts only | No qualified backend or labeled corpus | Register and qualify a backend |
 | Plates | `not_configured` | Aggregate contract only | No qualified backend or labeled corpus | Register and qualify a backend |
 | Animals | `not_configured` | Suite slots/contracts only | No qualified backend or labeled corpus | Register and qualify a backend |

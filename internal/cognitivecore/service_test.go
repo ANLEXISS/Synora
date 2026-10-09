@@ -52,6 +52,61 @@ func TestEventFromMessageDoesNotInventPayloadFacts(t *testing.T) {
 	}
 }
 
+func TestResidentGalleryRPCIsCoreOwnedRedactedAndIdempotent(t *testing.T) {
+	now := time.Date(2026, 4, 5, 6, 7, 8, 0, time.UTC)
+	store := NewUniversalStore()
+	bus := &serviceBus{}
+	service := &Service{Bus: bus, Core: &Core{Store: store, Now: func() time.Time { return now }}, Name: "core"}
+	ref := "res_0123456789abcdef0123456789abcdef"
+	request := ResidentGalleryRPCRequest{Operation: "create", ResidentRef: ref, IdempotencyKey: "resident-create-0001"}
+	body, _ := json.Marshal(request)
+	message := contract.Message{ID: "rpc-create", Type: RPCResidentGallery, Kind: contract.KindRPC, Source: "discovery", Target: "core", Payload: body}
+	if err := service.Handle(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if len(bus.sent) != 1 || bus.sent[0].Kind != contract.KindRPC || bus.sent[0].Target != "discovery" || store.Revision() != 1 {
+		t.Fatalf("Core did not persist and respond to resident RPC: sent=%+v rev=%d", bus.sent, store.Revision())
+	}
+	if strings.Contains(string(bus.sent[0].Payload), "name") || strings.Contains(string(bus.sent[0].Payload), "embedding") || strings.Contains(string(bus.sent[0].Payload), "path") {
+		t.Fatalf("resident RPC response not redacted: %s", bus.sent[0].Payload)
+	}
+	bus.sent = nil
+	message.ID = "rpc-retry"
+	if err := service.Handle(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	var response map[string]any
+	if len(bus.sent) != 1 || json.Unmarshal(bus.sent[0].Payload, &response) != nil || response["status"] != "ok" {
+		t.Fatalf("idempotent RPC retry failed: %+v", bus.sent)
+	}
+	result := response["result"].(map[string]any)
+	if result["duplicate"] != true || store.Revision() != 1 {
+		t.Fatalf("retry created another resident: result=%v revision=%d", result, store.Revision())
+	}
+}
+
+func TestResidentGalleryRPCRejectsNonDiscoveryAndInvalidRequestsWithoutDetails(t *testing.T) {
+	bus := &serviceBus{}
+	store := NewUniversalStore()
+	service := &Service{Bus: bus, Core: &Core{Store: store}, Name: "core"}
+	for _, source := range []string{"api", "unknown"} {
+		message := contract.Message{ID: "bad-source", Type: RPCResidentGallery, Kind: contract.KindRPC, Source: source, Target: "core", Payload: json.RawMessage(`{"operation":"create"}`)}
+		if err := service.Handle(context.Background(), message); err != nil {
+			t.Fatal(err)
+		}
+		if len(bus.sent) == 0 || strings.Contains(string(bus.sent[len(bus.sent)-1].Payload), "scope") {
+			t.Fatal("RPC rejection was missing or overly descriptive")
+		}
+	}
+	unknownField := contract.Message{ID: "raw-field", Type: RPCResidentGallery, Kind: contract.KindRPC, Source: "discovery", Target: "core", Payload: json.RawMessage(`{"operation":"create","resident_ref":"res_0123456789abcdef0123456789abcdef","idempotency_key":"resident-create-9999","name":"private"}`)}
+	if err := service.Handle(context.Background(), unknownField); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := store.ResidentGallery("res_0123456789abcdef0123456789abcdef"); exists {
+		t.Fatal("Core stored a resident RPC containing an unknown identity field")
+	}
+}
+
 func TestServicesStructurallyRejectLegacyVisionWithoutStoreMutation(t *testing.T) {
 	legacyTypes := []string{
 		contract.EventVisionSegmentReadyV1,

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"synora/internal/cognitivecore"
+	"synora/internal/facegallery"
 	"synora/internal/foundationv1"
 	"synora/pkg/contract"
 )
@@ -98,6 +99,41 @@ func TestFixtureVisionEvidenceAdapterProducesStrictV1(t *testing.T) {
 	}
 	if containsForbiddenJSON(workerEncoded) {
 		t.Fatal("simulated aggregate contract misclassified as raw Vision data")
+	}
+}
+
+func TestSyntheticFaceGallerySignalsProjectOnlySemanticEvidenceV1(t *testing.T) {
+	value, err := loadFixture("../../testdata/central-e2e-v1/cases/v3-pose-not-requested.json")
+	if err != nil || len(value.Messages) == 0 {
+		t.Fatalf("load synthetic case: %v", err)
+	}
+	body, err := attachFixtureVisionEvidenceV1(value.Messages[0].Payload, "synthetic-face-evidence", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := contract.DecodeVisionEvidenceV1(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{"unavailable", "unknown", "candidate", "ambiguous", "recognized"} {
+		projected, err := facegallery.ApplySyntheticResult(base, facegallery.SemanticResult{Result: status})
+		if err != nil {
+			t.Fatalf("status %s projection failed: %v", status, err)
+		}
+		if projected.Face.Confidence != 0 || projected.Face.Quality != 0 || projected.Provenance != "simulated_test" {
+			t.Fatalf("status %s leaked score or provenance: %+v", status, projected.Face)
+		}
+		encoded, _ := json.Marshal(projected)
+		if containsForbiddenJSON(encoded) || strings.Contains(string(encoded), `"resident_ref"`) || strings.Contains(string(encoded), `"track_id"`) {
+			t.Fatalf("status %s leaked restricted fields", status)
+		}
+	}
+	if _, err := facegallery.ApplySyntheticResult(base, facegallery.SemanticResult{Result: "recognized"}); err != nil {
+		t.Fatal(err)
+	}
+	base.Provenance = "replay"
+	if _, err := facegallery.ApplySyntheticResult(base, facegallery.SemanticResult{Result: "recognized"}); err == nil {
+		t.Fatal("test face result was accepted for replay provenance")
 	}
 }
 

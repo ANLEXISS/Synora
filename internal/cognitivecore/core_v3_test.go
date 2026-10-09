@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"synora/internal/facegallery"
 	"synora/pkg/contract"
 )
 
@@ -45,6 +47,50 @@ func TestVisionEvidenceV1MapsOnlyExistingV3Offsets(t *testing.T) {
 	}
 	if mapped.VisionEvidence == nil || mapped.VisionEvidence.Pose.TransitionToGroundConfidence != .37 {
 		t.Fatal("unmapped continuous evidence was not retained")
+	}
+}
+
+func TestSyntheticFaceGalleryEvidenceTraversesCoreV3WithoutIdentityOrGateOverride(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "pkg", "contract", "testdata", "v1", "vision-evidence-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := contract.DecodeVisionEvidenceV1(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence.Provenance = "simulated_test"
+	evidence.SimulatedCamera = true
+	evidence, err = facegallery.ApplySyntheticResult(evidence, facegallery.SemanticResult{Result: "recognized"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedEvidence, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encodedEvidence), "resident_ref") || strings.Contains(string(encodedEvidence), "embedding") || strings.Contains(string(encodedEvidence), "score") || evidence.Face.Confidence != 0 {
+		t.Fatal("synthetic semantic evidence contains private identifiers or scores")
+	}
+	snapshot, err := (CognitiveSnapshotV3{CapturedAt: evidence.WindowEnd, BaseV2: goldenSnapshotV2(), SimulatedCamera: true, VisionStatus: "unavailable", VisionEvidenceSource: "simulated_test_worker"}).ApplyVisionEvidenceV1(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vector, err := (SnapshotEncoderV3{}).Encode(context.Background(), snapshot)
+	if err != nil || vector.Shape[0] != 86 || vector.FeatureNames != CognitiveFeatureNamesV3 {
+		t.Fatalf("face evidence changed the frozen V3 vector: shape=%v err=%v", vector.Shape, err)
+	}
+	core := &CoreV3{Store: NewUniversalStore(), Encoder: SnapshotEncoderV3{}, MLP: fixedMLPV3{}, ActiveDryRun: true, Now: func() time.Time { return evidence.WindowEnd }}
+	event := contract.Event{ID: "synthetic-face-core-event", Type: contract.EventVisionEvidenceV1, Source: "discovery", Timestamp: evidence.WindowEnd, Payload: map[string]any{"vision_evidence": evidence}}
+	result, err := core.Process(context.Background(), event, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Commit.DecisionV3 == nil || result.Commit.DecisionV3.Mode != "active_dry_run" || result.Commit.DecisionV3.PhysicalActionExecuted || result.Commit.DecisionV3.Action.Status != "blocked" || result.Result.Action != nil {
+		t.Fatalf("synthetic face signal altered dry-run action guarantees: decision=%+v result=%+v", result.Commit.DecisionV3, result.Result)
+	}
+	if result.Commit.SnapshotV3 == nil || result.Commit.SnapshotV3.VisionEvidence == nil || result.Commit.SnapshotV3.VisionEvidence.Face.Result != "recognized" {
+		t.Fatal("redacted semantic Evidence V1 did not remain in Store")
 	}
 }
 
