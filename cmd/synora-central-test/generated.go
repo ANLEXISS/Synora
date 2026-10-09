@@ -119,7 +119,7 @@ func generatedFixture(spec generatedSuite, index int) fixture {
 	}
 	payload := map[string]any{"event_type": "synora.vision.enrichment/v3", "provenance": "test-harness", "snapshot": snapshot, "test": true}
 	body, _ := json.Marshal(payload)
-	return fixture{
+	value := fixture{
 		ID: id, Suite: spec.Suite, Clock: clock, Bundle: spec.Bundle,
 		Capabilities: []string{"announce", "record"},
 		Messages:     []fixtureMessage{{ID: "msg-" + id, Type: "synora.vision.enrichment/v3", Timestamp: clock, Payload: body}},
@@ -132,4 +132,37 @@ func generatedFixture(spec generatedSuite, index int) fixture {
 			Forbidden: []string{"frame", "image", "media", "bbox", "crop", "keypoints", "embedding", "identity", "local_track_id"},
 		},
 	}
+	if spec.Family == "resident_gallery" {
+		value.GalleryScenario = residentGalleryScenario(index)
+	}
+	if spec.Family == "face_gallery_policy" {
+		value.GalleryScenario = faceGalleryScenario(index)
+	}
+	return value
+}
+
+func residentGalleryScenario(index int) string {
+	cases := []string{
+		"resident_create_scoped", "resident_no_token", "resident_scope_missing_write",
+		"resident_scope_missing_manage", "resident_status_redacted", "resident_logical_delete",
+		"resident_create_idempotent",
+	}
+	if index < 0 || index >= len(cases) {
+		return ""
+	}
+	return cases[index]
+}
+
+func faceGalleryScenario(index int) string {
+	cases := []string{
+		"face_attestation_missing", "face_attestation_expired", "face_attestation_revoked",
+		"face_source_not_allowlisted", "face_backend_unavailable", "face_score_0649",
+		"face_score_0650", "face_score_0899", "face_score_0900_no_consensus",
+		"face_consensus_synthetic", "face_multi_faces", "face_quality_low", "face_quota",
+		"face_candidate_ttl", "face_generation_rollback", "face_forbidden_payload",
+	}
+	if index < 0 || index >= len(cases) {
+		return ""
+	}
+	return cases[index]
 }

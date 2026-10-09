@@ -137,6 +137,23 @@ The CognitiveSnapshot V3 86D layout and its offsets are unchanged, and face
 signals remain unencoded unless an existing mapping is explicitly added in a
 separate reviewed task.
 
+The central harness additionally executes 23 counted cases in the
+`resident_gallery` and `face_gallery_policy` families. Each runs the normal
+redacted V3 bus journey through Discovery, Core, Universal Store, MLP, Safety
+Gate and the dry-run action-result path. A per-case API exercise starts
+Discovery's authenticated HTTP handler on an ephemeral loopback port and
+reaches the resident service through the real Discovery-to-Core bus RPC.
+Policy boundary cases use synthetic values only. Threshold checks, synthetic
+consensus, TTL, quota and empty-generation rollback never expose exact scores
+or identifiers in the report. A synthetic in-memory consensus transition
+cannot promote a real gallery. The report separates both families, records
+terminal outcomes and asserts absence of raw media, crops, embeddings, precise
+scores, names, local paths and identities. Static plus generated central cases
+now total 426 (403 existing manifest cases plus 23 new), and all 23 must have complete
+journeys. This is software integration evidence only: `FACE_BACKEND_QUALIFIED`
+remains `false`; no face model, private photos or real consent are used, and no
+facial-inference or identity qualification is claimed.
+
 ## V1 milestone snapshot
 
 States use only the project vocabulary. This is a source audit, not a claim of

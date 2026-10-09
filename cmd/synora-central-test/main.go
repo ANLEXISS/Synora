@@ -73,18 +73,19 @@ type expandedScenario struct {
 }
 
 type fixture struct {
-	ID           string           `json:"id"`
-	Suite        string           `json:"suite"`
-	Clock        string           `json:"clock"`
-	InitialStore map[string]any   `json:"initial_store"`
-	Capabilities []string         `json:"capabilities"`
-	Bundle       string           `json:"bundle"`
-	BundlePath   string           `json:"bundle_path,omitempty"`
-	TestBackend  string           `json:"test_backend,omitempty"`
-	ForcedDanger string           `json:"forced_danger,omitempty"`
-	Messages     []fixtureMessage `json:"messages"`
-	Expected     fixtureExpected  `json:"expected"`
-	Reset        *fixtureReset    `json:"reset,omitempty"`
+	ID              string           `json:"id"`
+	Suite           string           `json:"suite"`
+	Clock           string           `json:"clock"`
+	InitialStore    map[string]any   `json:"initial_store"`
+	Capabilities    []string         `json:"capabilities"`
+	Bundle          string           `json:"bundle"`
+	BundlePath      string           `json:"bundle_path,omitempty"`
+	TestBackend     string           `json:"test_backend,omitempty"`
+	ForcedDanger    string           `json:"forced_danger,omitempty"`
+	Messages        []fixtureMessage `json:"messages"`
+	Expected        fixtureExpected  `json:"expected"`
+	Reset           *fixtureReset    `json:"reset,omitempty"`
+	GalleryScenario string           `json:"-"`
 }
 
 type fixtureReset struct {
@@ -172,6 +173,22 @@ type caseReport struct {
 	IdempotenceChecks        idempotenceChecks `json:"idempotence_checks"`
 	RejectedActionResults    int               `json:"rejected_action_results"`
 	DataResetStatus          string            `json:"data_reset_status,omitempty"`
+	GalleryTerminalStatus    string            `json:"gallery_terminal_status,omitempty"`
+	GalleryResult            string            `json:"gallery_result,omitempty"`
+	GalleryHTTPStatus        int               `json:"gallery_http_status,omitempty"`
+	GalleryJourneyExercised  bool              `json:"gallery_journey_exercised"`
+	GalleryRedaction         *galleryRedaction `json:"gallery_redaction,omitempty"`
+	GalleryPromotion         string            `json:"gallery_promotion,omitempty"`
+}
+
+type galleryRedaction struct {
+	RawMediaAbsent     bool `json:"raw_media_absent"`
+	CropAbsent         bool `json:"crop_absent"`
+	EmbeddingAbsent    bool `json:"embedding_absent"`
+	PreciseScoreAbsent bool `json:"precise_score_absent"`
+	NameAbsent         bool `json:"name_absent"`
+	LocalPathAbsent    bool `json:"local_path_absent"`
+	IdentityAbsent     bool `json:"identity_absent"`
 }
 
 type journeyEvent struct {
@@ -250,6 +267,8 @@ type suiteReport struct {
 	SchemaVersion                 string                    `json:"schema_version"`
 	CameraMockE2EStatus           string                    `json:"camera_mock_e2e_status"`
 	CameraMockE2EReason           string                    `json:"camera_mock_e2e_reason"`
+	FaceBackendQualified          bool                      `json:"face_backend_qualified"`
+	RealGalleryPromotion          bool                      `json:"real_gallery_promotion"`
 	CameraMockE2E                 *cameraMockE2EReport      `json:"camera_mock_e2e,omitempty"`
 	FoundationV1E2E               *foundationv1.E2ESuite    `json:"foundation_v1_e2e,omitempty"`
 	FoundationV1CaseCount         int                       `json:"foundation_v1_case_count"`
@@ -273,6 +292,7 @@ type suiteReport struct {
 	RawVisionForwarded            bool                      `json:"raw_vision_forwarded"`
 	SuiteCounts                   map[string]int            `json:"suite_counts"`
 	FamilyCounts                  map[string]int            `json:"family_counts"`
+	GalleryTerminalCounts         map[string]map[string]int `json:"gallery_terminal_counts"`
 	Coverage                      map[string]int            `json:"coverage"`
 	ModelBackends                 map[string]backendReport  `json:"model_backends"`
 	VisionMedia                   *mediaSuiteReport         `json:"vision_media,omitempty"`
@@ -619,6 +639,9 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 	actionLifecycle := make(map[string]int)
 	idempotence := make(map[string]int)
 	visionMigration := visionMigrationReport{}
+	galleryTerminalCounts := map[string]map[string]int{
+		"resident_gallery": {}, "face_gallery_policy": {},
+	}
 	for _, generated := range manifest.Generated {
 		familyCounts[generated.Family] = 0
 	}
@@ -641,6 +664,9 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 			family = item.Suite
 		}
 		familyCounts[family]++
+		if item.GalleryTerminalStatus != "" && galleryTerminalCounts[family] != nil {
+			galleryTerminalCounts[family][item.GalleryTerminalStatus]++
+		}
 		if item.PoseStatus != "" {
 			coverage["pose:"+item.PoseStatus]++
 		}
@@ -695,16 +721,17 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 		rejectedActionResults += item.RejectedActionResults
 	}
 	return suiteReport{
-		SchemaVersion:       "synora.central-e2e/v1",
-		CameraMockE2EStatus: "not_qualified",
-		CameraMockE2EReason: "camera mock E2E is simulated and is not Vision inference qualification",
-		Error:               errorText, Seed: manifest.Seed, LogicalDate: manifest.LogicalDate,
+		SchemaVersion:        "synora.central-e2e/v1",
+		CameraMockE2EStatus:  "not_qualified",
+		CameraMockE2EReason:  "camera mock E2E is simulated and is not Vision inference qualification",
+		FaceBackendQualified: false, RealGalleryPromotion: false,
+		Error: errorText, Seed: manifest.Seed, LogicalDate: manifest.LogicalDate,
 		ManifestSHA256: fileSHA256(manifestPath), GeneratorVersion: generatorVersion,
 		StaticCaseCount: staticCount, GeneratedCaseCount: generatedCount, ScenarioCount: len(reports),
 		PassedCount: passedCount, FailedCount: len(reports) - passedCount, Passed: len(reports) > 0 && passedCount == len(reports),
 		DurationMS: float64(time.Since(started).Microseconds()) / 1000, NetworkAccess: false,
 		AudioRendered: false, PhysicalAction: false, RawVisionForwarded: false,
-		SuiteCounts: suiteCounts, FamilyCounts: familyCounts, Coverage: coverage, ModelBackends: backends,
+		SuiteCounts: suiteCounts, FamilyCounts: familyCounts, GalleryTerminalCounts: galleryTerminalCounts, Coverage: coverage, ModelBackends: backends,
 		PipelineCompletedCount: pipelineCompleted, PipelineIncompleteCount: pipelineIncomplete,
 		ActionLifecycleByStatus: actionLifecycle, IdempotenceChecks: idempotence, RejectedActionResults: rejectedActionResults,
 		VisionMigration: visionMigration,
@@ -1124,6 +1151,21 @@ func runFixture(repo string, value fixture) caseReport {
 			go func() { _ = service.Run(ctx) }()
 		}
 	}
+	if value.GalleryScenario != "" {
+		galleryResult, galleryErr := runResidentGalleryCase(value.GalleryScenario, discoveryClient, store, clock)
+		report.GalleryTerminalStatus = galleryResult.TerminalStatus
+		report.GalleryResult = galleryResult.Result
+		report.GalleryHTTPStatus = galleryResult.HTTPStatus
+		report.GalleryJourneyExercised = galleryErr == nil
+		report.GalleryRedaction = &galleryResult.Redaction
+		report.GalleryPromotion = galleryResult.Promotion
+		if report.GalleryPromotion == "" {
+			report.GalleryPromotion = "none_real_backend_unqualified"
+		}
+		if galleryErr != nil {
+			report.Error = "resident gallery scenario: " + galleryErr.Error()
+		}
+	}
 
 	transportRejected := false
 	duplicateCameraSent := false
@@ -1289,6 +1331,13 @@ func runFixture(repo string, value fixture) caseReport {
 		report.IdempotenceChecks.ActionResultDuplicateSafe = !duplicateResultSent || countTraceStatus(records, "core.action_result", "duplicate") > 0 || (resultCount > 0 && len(reopenedSnapshot.ActionResults) == resultCount)
 	}
 	report = validateExpected(report, value.Expected)
+	if value.GalleryScenario != "" && !journeyComplete(report.Journey) {
+		report.GalleryJourneyExercised = false
+		report.Passed = false
+		if report.Error == "" {
+			report.Error = "gallery case did not complete the standard Core/Store/MLP/Safety Gate journey"
+		}
+	}
 	cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)
 	return finishCase(report, started)
 }

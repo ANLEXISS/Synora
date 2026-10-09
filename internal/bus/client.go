@@ -254,23 +254,26 @@ func (c *Client) RequestWithTimeout(
 	target string,
 	timeout time.Duration,
 ) (*contract.Message, error) {
-	id := uuid.New().String()
+	return c.RequestMessageWithTimeout(contract.Message{ID: uuid.New().String(), Type: msgType, Kind: contract.KindRPC, Source: source, Target: target, Payload: payload}, timeout)
+}
 
-	msg := contract.Message{
-		ID:      id,
-		Type:    msgType,
-		Kind:    contract.KindRPC,
-		Source:  source,
-		Target:  target,
-		Payload: payload,
+// RequestMessageWithTimeout sends an RPC message with caller-supplied metadata
+// (notably a deterministic timestamp for hermetic runtimes) and waits for its
+// matching response. A zero ID is generated; other fields are preserved.
+func (c *Client) RequestMessageWithTimeout(msg contract.Message, timeout time.Duration) (*contract.Message, error) {
+	if msg.ID == "" {
+		msg.ID = uuid.New().String()
+	}
+	if msg.Kind == "" {
+		msg.Kind = contract.KindRPC
 	}
 
 	ch := make(chan pendingResponse, 1)
 
 	c.mu.Lock()
-	c.pending[id] = ch
+	c.pending[msg.ID] = ch
 	c.mu.Unlock()
-	defer c.removePending(id)
+	defer c.removePending(msg.ID)
 
 	if err := c.Send(msg); err != nil {
 		return nil, err

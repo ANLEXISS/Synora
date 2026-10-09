@@ -32,6 +32,68 @@ func TestCentralFixtureManifestHasRequiredMinimum(t *testing.T) {
 	}
 }
 
+func TestResidentGalleryScenariosAreManifestCountedAndFullyMapped(t *testing.T) {
+	manifest, err := loadManifest("../../testdata/central-e2e-v1/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		"resident_gallery":    {"resident_create_scoped", "resident_no_token", "resident_scope_missing_write", "resident_scope_missing_manage", "resident_status_redacted", "resident_logical_delete", "resident_create_idempotent"},
+		"face_gallery_policy": {"face_attestation_missing", "face_attestation_expired", "face_attestation_revoked", "face_source_not_allowlisted", "face_backend_unavailable", "face_score_0649", "face_score_0650", "face_score_0899", "face_score_0900_no_consensus", "face_consensus_synthetic", "face_multi_faces", "face_quality_low", "face_quota", "face_candidate_ttl", "face_generation_rollback", "face_forbidden_payload"},
+	}
+	seen := map[string]map[string]bool{"resident_gallery": {}, "face_gallery_policy": {}}
+	for _, spec := range manifest.Generated {
+		if spec.Family != "resident_gallery" && spec.Family != "face_gallery_policy" {
+			continue
+		}
+		if spec.Count != len(want[spec.Family]) || spec.Suite != spec.Family || spec.Bundle != "v3" {
+			t.Fatalf("gallery family declaration is inconsistent: %+v", spec)
+		}
+		for index := 0; index < spec.Count; index++ {
+			value := generatedFixture(spec, index)
+			if value.GalleryScenario == "" || seen[spec.Family][value.GalleryScenario] {
+				t.Fatalf("gallery scenario missing or duplicated in %s: %+v", spec.Family, value)
+			}
+			seen[spec.Family][value.GalleryScenario] = true
+		}
+	}
+	for family, cases := range want {
+		if len(seen[family]) != len(cases) {
+			t.Fatalf("family %s expands to %d cases, want %d", family, len(seen[family]), len(cases))
+		}
+		for _, name := range cases {
+			if !seen[family][name] {
+				t.Fatalf("family %s omitted required case %s", family, name)
+			}
+		}
+	}
+	if got := len(manifest.Cases) + generatedScenarioCount(manifest.Generated); got != 426 {
+		t.Fatalf("central static+generated scenario total=%d, want 426 (403 existing manifest cases+23)", got)
+	}
+}
+
+func TestGalleryReportRedactionAndTerminalFamilyCounters(t *testing.T) {
+	redaction := &galleryRedaction{RawMediaAbsent: true, CropAbsent: true, EmbeddingAbsent: true, PreciseScoreAbsent: true, NameAbsent: true, LocalPathAbsent: true, IdentityAbsent: true}
+	reports := []caseReport{
+		{ID: "resident-gallery-001", Suite: "resident_gallery", Family: "resident_gallery", GalleryTerminalStatus: "completed", GalleryRedaction: redaction},
+		{ID: "resident-gallery-002", Suite: "resident_gallery", Family: "resident_gallery", GalleryTerminalStatus: "expected_rejection", GalleryRedaction: redaction},
+	}
+	manifest := suiteManifest{Seed: 1, LogicalDate: "2026-01-01T00:00:00Z"}
+	got := buildSuiteReport("../../testdata/central-e2e-v1/manifest.json", manifest, nil, reports, time.Now(), nil)
+	if got.FamilyCounts["resident_gallery"] != 2 || got.GalleryTerminalCounts["resident_gallery"]["completed"] != 1 || got.GalleryTerminalCounts["resident_gallery"]["expected_rejection"] != 1 {
+		t.Fatalf("gallery terminal counts are incorrect: %+v", got.GalleryTerminalCounts)
+	}
+	body, err := json.Marshal(got.Cases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"DO_NOT_STORE_NAME", `"embedding":`, `"resident_ref":`, `"local_path":`, `"score":`, "0.649", "0.650", "0.899", "0.900"} {
+		if strings.Contains(string(body), forbidden) {
+			t.Fatalf("gallery report leaked %q", forbidden)
+		}
+	}
+}
+
 func TestFixtureVisionEvidenceAdapterProducesStrictV1(t *testing.T) {
 	body, err := os.ReadFile("../../testdata/central-e2e-v1/cases/v3-pose-not-requested.json")
 	if err != nil {

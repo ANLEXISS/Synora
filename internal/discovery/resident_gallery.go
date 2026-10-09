@@ -8,11 +8,26 @@ import (
 	"time"
 
 	"synora/internal/bus"
+	"synora/pkg/contract"
 )
 
 const residentGalleryRPC = "core.resident_gallery"
 
-type busResidentGalleryService struct{ client *bus.Client }
+type busResidentGalleryService struct {
+	client *bus.Client
+	now    func() time.Time
+}
+
+// NewBusResidentGalleryService exposes the Discovery-to-Core resident API
+// adapter for the central E2E harness.
+// Callers receive only the redacted ResidentGalleryService projection.
+func NewBusResidentGalleryService(client *bus.Client, clocks ...func() time.Time) ResidentGalleryService {
+	service := busResidentGalleryService{client: client}
+	if len(clocks) > 0 {
+		service.now = clocks[0]
+	}
+	return service
+}
 
 type residentGalleryRPCRequest struct {
 	Operation      string `json:"operation"`
@@ -39,7 +54,11 @@ func (s busResidentGalleryService) call(ctx context.Context, request residentGal
 	if err != nil {
 		return ResidentGalleryView{}, false, err
 	}
-	response, err := s.client.RequestWithTimeout(residentGalleryRPC, "discovery", body, "core", 5*time.Second)
+	now := time.Now().UTC()
+	if s.now != nil {
+		now = s.now().UTC()
+	}
+	response, err := s.client.RequestMessageWithTimeout(contract.Message{Type: residentGalleryRPC, Kind: contract.KindRPC, Source: "discovery", Target: "core", Timestamp: now, Payload: body}, 5*time.Second)
 	if err != nil || response == nil {
 		return ResidentGalleryView{}, false, errors.New("resident service unavailable")
 	}

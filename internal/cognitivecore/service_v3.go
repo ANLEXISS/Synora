@@ -52,6 +52,13 @@ func (s *ServiceV3) Handle(ctx context.Context, message contract.Message) error 
 	if s == nil || s.Bus == nil || s.Core == nil {
 		return fmt.Errorf("V3 cognitive core service is not configured")
 	}
+	if message.Kind == contract.KindRPC && message.Type == RPCResidentGallery {
+		// Resident/gallery administration is a non-Vision Core/Store RPC shared
+		// by the nominal and V3 services. Reuse the same Universal Store without
+		// introducing gallery fields into the V3 CognitiveSnapshot.
+		sharedStore := &Core{Store: s.Core.Store}
+		return (&Service{Bus: s.Bus, Core: sharedStore, Name: s.Name, Now: s.Now}).handleResidentGalleryRPC(message)
+	}
 	if message.Type == contract.EventActionResult || message.Type == "discovery.action.result" {
 		var payload map[string]any
 		if err := json.Unmarshal(message.Payload, &payload); err != nil {

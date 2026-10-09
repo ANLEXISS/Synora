@@ -123,7 +123,9 @@
     {"id_prefix": "face-aggregate", "suite": "face_aggregate", "family": "face_aggregate", "count": 70, "seed": 20260121, "bundle": "v3"},
     {"id_prefix": "communication-gate", "suite": "communication_gate", "family": "communication_gate", "count": 50, "seed": 20260131, "bundle": "v3"},
     {"id_prefix": "camera-health", "suite": "camera_health", "family": "camera_health", "count": 45, "seed": 20260141, "bundle": "v3"},
-    {"id_prefix": "rtmpose-runtime", "suite": "rtmpose_runtime", "family": "rtmpose_runtime", "count": 40, "seed": 20260151, "bundle": "v3"}
+    {"id_prefix": "rtmpose-runtime", "suite": "rtmpose_runtime", "family": "rtmpose_runtime", "count": 40, "seed": 20260151, "bundle": "v3"},
+    {"id_prefix": "resident-gallery", "suite": "resident_gallery", "family": "resident_gallery", "count": 7, "seed": 20260161, "bundle": "v3"},
+    {"id_prefix": "face-gallery-policy", "suite": "face_gallery_policy", "family": "face_gallery_policy", "count": 16, "seed": 20260171, "bundle": "v3"}
   ],
   "minimum_cases": 280,
   "schema_version": "synora.central-e2e-manifest/v1",

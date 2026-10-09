@@ -18,10 +18,12 @@ camera-simulator
     -> trace de parcours et assertions d’idempotence
 ```
 
-Aucune caméra, aucun clip, aucun NPU/RKNN, aucun socket réseau, aucun chemin
+Aucune caméra, aucun clip, aucun NPU/RKNN, aucun accès réseau externe, aucun chemin
 `/opt/synora` et aucun Store persistant ne sont ouverts par ce harness. Les
 capacités d’action et de rendu sont des gardes négatives : toute exécution
 physique, audio ou réseau rend le scénario invalide.
+Les cas galerie démarrent uniquement un listener HTTP authentifié sur
+`127.0.0.1` avec port éphémère, arrêté à la fin de chaque cas.
 
 ## Commandes
 
@@ -42,16 +44,27 @@ internes au MLP sont normalisées à zéro dans ce test hermétique afin que les
 payloads de décision et leurs hash soient identiques à chaque exécution. La
 latence opérationnelle se mesure séparément sur le backend concerné.
 
-La suite versionnée est dans `testdata/central-e2e-v1/`. Elle contient 106
-cas statiques et 295 cas générés déclarativement, soit 401 scénarios, avec un
+La suite versionnée est dans `testdata/central-e2e-v1/`. Elle contient 108
+cas statiques et 318 cas générés déclarativement, soit 426 scénarios, avec un
 seed et une date logique fixes, deux suites JSONL immuables
 (`reference-suite.jsonl`, `redteam-suite.jsonl`) et un minimum déclaré de 280
 cas. Les familles générées sont séparées du corpus d’apprentissage et
 couvrent 90 cas pose/mouvement, 70 agrégats face, 50 garde communication,
-45 santé/intégrité caméra et 40 cas de disponibilité RTMPose. Les scénarios couvrent aussi l’ingress Edge, les
+45 santé/intégrité caméra, 40 cas de disponibilité RTMPose, 7 parcours
+`resident_gallery` et 16 parcours `face_gallery_policy`. Les 403 cas
+statiques/générés précédemment présents dans le manifeste passent ainsi à 426.
+Ces 23 cas lancent
+une API Discovery authentifiée sur loopback éphémère, passent par le RPC réel
+Discovery→Core, puis complètent le parcours V3 normal. Les erreurs attendues
+sont des terminaux structurés, pas des journeys incomplètes. Le backend facial
+reste indisponible et non qualifié; les tests de politique n’utilisent que des
+valeurs synthétiques. Les autres scénarios couvrent aussi l’ingress Edge, les
 séquences, doublons et gaps, topologies, cas invalides/red-team, modèle
 indisponible, matrice V3 pose/posture/chute candidate/récupération et
 multi-caméras.
+Dans un run complet, `overall_case_count` inclut aussi 6 cas de mock caméra et
+29 cas Foundation V1 : il passe donc de 438 à 461, tandis que
+`scenario_count` (manifestes statique + généré) vaut 426.
 
 Pour ajouter un cas, ajouter une règle dans
 `tools/generate_central_fixtures.py`, régénérer avec ce script, puis vérifier
