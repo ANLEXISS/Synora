@@ -95,8 +95,75 @@ func TestResidentGalleryScenariosAreManifestCountedAndFullyMapped(t *testing.T) 
 			}
 		}
 	}
-	if got := len(manifest.Cases) + generatedScenarioCount(manifest.Generated); got != 426 {
-		t.Fatalf("central static+generated scenario total=%d, want 426 (403 existing manifest cases+23)", got)
+	if got := len(manifest.Cases) + generatedScenarioCount(manifest.Generated); got != 444 {
+		t.Fatalf("central static+generated scenario total=%d, want 444 (426 existing + 18 J2 cases)", got)
+	}
+}
+
+func TestCameraJ2ManifestFamiliesExpandAllRequiredHealthStates(t *testing.T) {
+	manifest, err := loadManifest("../../testdata/central-e2e-v1/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]struct{ name, state string }{
+		"camera_ingress_j2": cameraIngressJ2Cases,
+		"camera_health_j2":  cameraHealthJ2Cases,
+	}
+	seen := map[string]bool{}
+	for _, spec := range manifest.Generated {
+		cases, ok := want[spec.Family]
+		if !ok {
+			continue
+		}
+		if spec.Count != len(cases) || spec.Suite != spec.Family || spec.Bundle != "v3" {
+			t.Fatalf("J2 family declaration mismatch: %+v", spec)
+		}
+		for i, expected := range cases {
+			state, name := cameraJ2Expected(i, spec.Family)
+			if name != expected.name || state != expected.state {
+				t.Fatalf("J2 case %s expected %s/%s, got %s/%s", spec.Family, expected.name, expected.state, name, state)
+			}
+			fixture := generatedFixture(spec, i)
+			body, err := attachFixtureVisionEvidenceV1(fixture.Messages[0].Payload, fixture.Messages[0].ID, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), true)
+			if err != nil {
+				t.Fatalf("J2 case %s evidence: %v", name, err)
+			}
+			evidence, err := contract.DecodeVisionEvidenceV1(body)
+			if err != nil || evidence.CameraHealthDetail == nil || evidence.CameraHealthDetail.State != state || evidence.CameraHealthDetail.Provenance != "simulated_test" {
+				t.Fatalf("J2 case %s invalid detail: evidence=%+v err=%v", name, evidence.CameraHealthDetail, err)
+			}
+			seen[name] = true
+		}
+	}
+	if len(seen) != 18 {
+		t.Fatalf("J2 families expanded %d cases, want 18", len(seen))
+	}
+}
+
+func TestCameraJ2FixturesTraverseCentralPipelineAsSimulatedEvidence(t *testing.T) {
+	manifest, err := loadManifest("../../testdata/central-e2e-v1/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range []string{"camera_ingress_j2", "camera_health_j2"} {
+		var selected *fixture
+		for _, spec := range manifest.Generated {
+			if spec.Family == family {
+				value := generatedFixture(spec, 0)
+				selected = &value
+				break
+			}
+		}
+		if selected == nil {
+			t.Fatalf("manifest omitted family %s", family)
+		}
+		item := runFixture("../..", *selected)
+		state, _ := cameraJ2Expected(0, family)
+		if !item.Passed || !journeyComplete(item.Journey) || item.VisionEvidenceV1Status != "validated_and_stored" ||
+			item.CameraHealthJ2State != state || item.CameraHealthJ2Provenance != "simulated_test" ||
+			item.NetworkAccess || item.AudioRendered || item.PhysicalAction || item.RawVisionForwarded {
+			t.Fatalf("family %s did not traverse the central pipeline safely: %+v", family, item)
+		}
 	}
 }
 
@@ -276,7 +343,8 @@ func TestAllStaticLegacyVisionInputsBecomeEvidenceV1(t *testing.T) {
 			if message.Type != contract.EventVisionEnrichmentV3 && message.Type != contract.EventValidationTestInference {
 				continue
 			}
-			encoded, conversionErr := attachFixtureVisionEvidenceV1(message.Payload, message.ID, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), false)
+			simulatedJ2 := scenario.Family == "camera_ingress_j2" || scenario.Family == "camera_health_j2"
+			encoded, conversionErr := attachFixtureVisionEvidenceV1(message.Payload, message.ID, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), simulatedJ2)
 			if conversionErr != nil {
 				t.Errorf("fixture %s: %v", scenario.Value.ID, conversionErr)
 				continue
@@ -402,6 +470,14 @@ func TestCameraMockE2EIsTransportOnlyAndPreservesProvenance(t *testing.T) {
 		report.StateAfter["vision_evidence_source"] != "simulated_test_worker" {
 		t.Fatalf("system state did not report before/pending/final provenance: %+v", report)
 	}
+	if report.APIAuthenticatedHTTP != http.StatusServiceUnavailable || report.APIUnauthenticatedHTTP != http.StatusUnauthorized {
+		t.Fatalf("ephemeral API auth boundary mismatch: authenticated=%d unauthenticated=%d", report.APIAuthenticatedHTTP, report.APIUnauthenticatedHTTP)
+	}
+	if report.Measurements.Provenance != "simulated_test" || report.Measurements.NPUMode != "not_used" ||
+		report.Measurements.LossDetection != "not_measured_without_live_camera" || report.Measurements.RecoveryMeasurement != "synthetic_worker_restart_only" ||
+		report.Measurements.SegmentsNotApplicable != "no_media_decoded_or_segmented" {
+		t.Fatalf("J2 measurements hide their simulated/non-measured provenance: %+v", report.Measurements)
+	}
 	accounting := suiteReport{CameraMockE2E: &report, MockCameraCaseCount: report.CaseCount}
 	refreshPipelineAccounting(&accounting)
 	if !accounting.PipelineAccountingValid || accounting.OverallCaseCount != report.CaseCount ||
@@ -409,6 +485,9 @@ func TestCameraMockE2EIsTransportOnlyAndPreservesProvenance(t *testing.T) {
 		t.Fatalf("mock journeys were not fully included in central accounting: %+v", accounting)
 	}
 	for _, item := range report.Cases {
+		if item.MeasurementProvenance != "simulated_test" || item.SourceToACKMS <= 0 || item.IngressToEvidenceMS <= 0 {
+			t.Fatalf("mock case lacks timed, provenance-labelled transport measurements: %+v", item)
+		}
 		if !journeyComplete(item.Journey) || !item.MockCamera || !item.StoreSimulatedCamera || item.InferenceExecuted || item.ModelLoaded || item.PhysicalActionExecuted || item.AudioRendered || item.ExternalNetworkAccess {
 			complete, reason, missing := assessJourney(item.Journey)
 			t.Fatalf("mock case is incomplete or unsafe (journey_complete=%t reason=%s missing=%v marker=%t store_marker=%t inference=%t model=%t physical=%t audio=%t network=%t): %+v", complete, reason, missing, item.MockCamera, item.StoreSimulatedCamera, item.InferenceExecuted, item.ModelLoaded, item.PhysicalActionExecuted, item.AudioRendered, item.ExternalNetworkAccess, item)

@@ -334,6 +334,7 @@ func TestPluginResultMustBeEvidenceV1AndPipelineMustRemainDryRun(t *testing.T) {
 	}
 	evidence.Provenance = "simulated_test"
 	evidence.SimulatedCamera = true
+	evidence.CameraHealthDetail.Provenance = "simulated_test"
 	if evidence.RuntimeAggregate != nil {
 		evidence.RuntimeAggregate.RealDetection = false
 		evidence.RuntimeAggregate.ReplaySimulation = true
@@ -421,6 +422,7 @@ func TestPluginResultMustBeEvidenceV1AndPipelineMustRemainDryRun(t *testing.T) {
 		})
 	}
 	evidence.Provenance, evidence.SimulatedCamera = "real", false
+	evidence.CameraHealthDetail.Provenance = "real_camera"
 	if evidence.RuntimeAggregate != nil {
 		evidence.RuntimeAggregate.RealDetection = true
 		evidence.RuntimeAggregate.ReplaySimulation = false

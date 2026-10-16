@@ -61,6 +61,7 @@ func TestSyntheticFaceGalleryEvidenceTraversesCoreV3WithoutIdentityOrGateOverrid
 	}
 	evidence.Provenance = "simulated_test"
 	evidence.SimulatedCamera = true
+	evidence.CameraHealthDetail.Provenance = "simulated_test"
 	evidence, err = facegallery.ApplySyntheticResult(evidence, facegallery.SemanticResult{Result: "recognized"})
 	if err != nil {
 		t.Fatal(err)

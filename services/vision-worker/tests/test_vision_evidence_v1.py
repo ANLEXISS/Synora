@@ -19,6 +19,23 @@ class VisionEvidenceV1Test(unittest.TestCase):
         encoded = encode_vision_evidence_v1(self.fixture)
         self.assertEqual(json.loads(encoded), self.fixture)
 
+    def test_camera_health_detail_v1_states_are_closed_and_aggregate_only(self):
+        for state in ("healthy", "stream_missing", "frozen_frame", "black_or_occluded", "degraded", "unavailable", "recovered"):
+            value = copy.deepcopy(self.fixture)
+            value["camera_health_detail"]["state"] = state
+            if state in {"stream_missing", "unavailable"}:
+                value["camera_health_detail"]["confidence"] = 0
+                value["camera_health_detail"]["quality"] = 0
+            validate_vision_evidence_v1(value)
+        invalid = copy.deepcopy(self.fixture)
+        invalid["camera_health_detail"]["state"] = "frozen"
+        with self.assertRaises(VisionEvidenceContractError):
+            validate_vision_evidence_v1(invalid)
+        invalid = copy.deepcopy(self.fixture)
+        invalid["camera_health_detail"]["frame_hash"] = "must-not-be-accepted"
+        with self.assertRaises(VisionEvidenceContractError):
+            validate_vision_evidence_v1(invalid)
+
     def test_provenance_values_and_simulated_marker(self):
         for provenance in ("real", "replay"):
             value = copy.deepcopy(self.fixture)
@@ -28,6 +45,7 @@ class VisionEvidenceV1Test(unittest.TestCase):
         value = copy.deepcopy(self.fixture)
         value["provenance"] = "simulated_test"
         value["simulated_camera"] = True
+        value["camera_health_detail"]["provenance"] = "simulated_test"
         validate_vision_evidence_v1(value)
         value["simulated_camera"] = False
         with self.assertRaises(VisionEvidenceContractError):

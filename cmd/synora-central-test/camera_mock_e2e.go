@@ -13,8 +13,10 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"synora/internal/bus"
@@ -50,6 +52,21 @@ type cameraMockE2EReport struct {
 	ExternalNetworkAccess  bool                   `json:"external_network_access"`
 	AudioRendered          bool                   `json:"audio_rendered"`
 	PhysicalActionExecuted bool                   `json:"physical_action_executed"`
+	APIAuthenticatedHTTP   int                    `json:"api_authenticated_http"`
+	APIUnauthenticatedHTTP int                    `json:"api_unauthenticated_http"`
+	Measurements           cameraJ2Measurements   `json:"measurements"`
+}
+
+type cameraJ2Measurements struct {
+	Provenance            string  `json:"provenance"`
+	ProcessCPUUserMS      float64 `json:"process_cpu_user_ms"`
+	ProcessCPUSystemMS    float64 `json:"process_cpu_system_ms"`
+	ProcessPeakRSSBytes   uint64  `json:"process_peak_rss_bytes"`
+	GoHeapInUseBytes      uint64  `json:"go_heap_inuse_bytes"`
+	NPUMode               string  `json:"npu_mode"`
+	LossDetection         string  `json:"loss_detection_measurement"`
+	RecoveryMeasurement   string  `json:"recovery_measurement"`
+	SegmentsNotApplicable string  `json:"segments_measurement"`
 }
 
 type cameraMockCaseReport struct {
@@ -84,6 +101,14 @@ type cameraMockCaseReport struct {
 	MissingStages            *[]string      `json:"missing_stages,omitempty"`
 	LastObservedStage        *string        `json:"last_observed_stage,omitempty"`
 	Passed                   bool           `json:"passed"`
+	APIRedactionVerified     bool           `json:"api_redaction_verified"`
+	MeasurementProvenance    string         `json:"measurement_provenance"`
+	SourceToACKMS            float64        `json:"source_to_ack_ms"`
+	IngressToEvidenceMS      float64        `json:"ingress_to_first_evidence_ms"`
+	QueueDepthObserved       int            `json:"queue_depth_observed"`
+	IngressRejectedCount     int            `json:"ingress_rejected_count"`
+	DuplicateSuppressedCount int            `json:"duplicate_suppressed_count"`
+	CoreStoreDecisionCount   int            `json:"core_store_decision_count"`
 }
 
 type mockState struct {
@@ -312,6 +337,7 @@ type mockIngressPublisher interface {
 
 func runCameraMockE2E(repo string) cameraMockE2EReport {
 	report := cameraMockE2EReport{Status: "simulated_transport_resilience", Qualification: "not_qualified", SimulatedCamera: true, VisionEvidenceSource: "simulated_test_worker", VisionStatus: "unavailable", PoseStatus: "unavailable"}
+	usageStart := readJ2ResourceUsage()
 	previousTestWorker := os.Getenv("SYNORA_TEST_VISION_WORKER")
 	_ = os.Setenv("SYNORA_TEST_VISION_WORKER", "1")
 	defer func() {
@@ -420,6 +446,10 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 			http.NotFound(w, r)
 			return
 		}
+		if r.Header.Get("Authorization") != "Bearer j2-ephemeral-test-token" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		systemstate.Handler(state.get).ServeHTTP(w, r)
 	})}
 	apiDone := make(chan error, 1)
@@ -474,9 +504,19 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 		return failedMockSuite(report, "ingress listener escaped loopback")
 	}
 
-	before, beforeCode, err := getRedactedState(apiURL)
+	_, unauthenticatedCode, _ := getRedactedState(apiURL, "")
+	_, beforeCode, err := getRedactedState(apiURL, "j2-ephemeral-test-token")
 	if err != nil || beforeCode != http.StatusServiceUnavailable {
 		return failedMockSuite(report, "initial API state was not explicitly unavailable")
+	}
+	if unauthenticatedCode != http.StatusUnauthorized {
+		return failedMockSuite(report, "unauthenticated API state request was not rejected")
+	}
+	report.APIAuthenticatedHTTP = beforeCode
+	report.APIUnauthenticatedHTTP = unauthenticatedCode
+	before, _, err := getRedactedState(apiURL, "j2-ephemeral-test-token")
+	if err != nil {
+		return failedMockSuite(report, "initial authenticated API state unavailable")
 	}
 	report.StateBefore = before
 	report.StateHTTPBefore = beforeCode
@@ -484,7 +524,7 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 	for _, id := range ids {
 		item := cameraMockCaseReport{ID: id, ExpectedHTTP: []int{http.StatusAccepted}, MockCamera: true,
 			VisionEvidence: "simulated", InferenceExecuted: false, ModelLoaded: false,
-			PhysicalActionExecuted: false, AudioRendered: false, ExternalNetworkAccess: false}
+			PhysicalActionExecuted: false, AudioRendered: false, ExternalNetworkAccess: false, MeasurementProvenance: "simulated_test"}
 		if id == "mock-ingress-503" {
 			item.ExpectedHTTP = []int{http.StatusServiceUnavailable}
 		}
@@ -492,7 +532,7 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 			item.ExpectedHTTP = []int{http.StatusAccepted, http.StatusAccepted}
 		}
 		item.StoreRevisionBefore = store.Revision()
-		item.StateBefore, item.StateHTTPBefore, _ = getRedactedState(apiURL)
+		item.StateBefore, item.StateHTTPBefore, _ = getRedactedState(apiURL, "j2-ephemeral-test-token")
 		var release chan struct{}
 		if id == "mock-accepted" || id == "mock-ingress-503" || id == "mock-timeout" || id == "mock-duplicate" || id == "mock-worker-unavailable" {
 			release = make(chan struct{})
@@ -504,14 +544,20 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 			workerCancel()
 			<-workerDone
 		}
+		ingressStarted := time.Now()
+		uploadStarted := time.Now()
 		status, uploadErr := uploadMockClip(ingressServer.URL+"/vision", id, false)
+		item.SourceToACKMS = float64(time.Since(uploadStarted).Microseconds()) / 1000
 		item.ActualHTTP = append(item.ActualHTTP, status)
 		if uploadErr != nil {
 			item.DataLeak = append(item.DataLeak, "mock_upload_error")
 		}
 		if id == "mock-duplicate" {
+			duplicateStarted := time.Now()
 			secondStatus, secondErr := uploadMockClip(ingressServer.URL+"/vision", id, false)
+			item.SourceToACKMS += float64(time.Since(duplicateStarted).Microseconds()) / 1000
 			item.ActualHTTP = append(item.ActualHTTP, secondStatus)
+			item.DuplicateSuppressedCount = 1
 			if secondErr != nil {
 				item.DataLeak = append(item.DataLeak, "duplicate_upload_error")
 			}
@@ -519,7 +565,11 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 		if id == "mock-recovery" {
 			startWorker()
 		}
-		item.StateDuring, item.StateHTTPDuring, _ = getRedactedState(apiURL)
+		item.QueueDepthObserved = len(jobs)
+		if id == "mock-ingress-503" {
+			item.IngressRejectedCount = 1
+		}
+		item.StateDuring, item.StateHTTPDuring, _ = getRedactedState(apiURL, "j2-ephemeral-test-token")
 		if id == "mock-accepted" {
 			report.StateDuring = cloneAnyMap(item.StateDuring)
 			report.StateHTTPDuring = item.StateHTTPDuring
@@ -528,7 +578,7 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 			close(release)
 		}
 		if id == "mock-recovery" { // queued while stopped; the restarted worker drains it.
-			item.StateDuring, item.StateHTTPDuring, _ = getRedactedState(apiURL)
+			item.StateDuring, item.StateHTTPDuring, _ = getRedactedState(apiURL, "j2-ephemeral-test-token")
 		}
 		if item.ActualHTTP[0] != item.ExpectedHTTP[0] {
 			item.DataLeak = append(item.DataLeak, "unexpected_http_status")
@@ -536,15 +586,19 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 		if id == "mock-duplicate" && (len(item.ActualHTTP) != len(item.ExpectedHTTP) || item.ActualHTTP[1] != item.ExpectedHTTP[1]) {
 			item.DataLeak = append(item.DataLeak, "duplicate_http_status_mismatch")
 		}
-		if err := waitForMockState(apiURL, item.StoreRevisionBefore, 5*time.Second); err != nil {
+		if err := waitForMockState(apiURL, "j2-ephemeral-test-token", item.StoreRevisionBefore, 5*time.Second); err != nil {
 			item.DataLeak = append(item.DataLeak, "structured_core_result_missing")
 		}
-		item.StateAfter, item.StateHTTPAfter, _ = getRedactedState(apiURL)
+		item.IngressToEvidenceMS = float64(time.Since(ingressStarted).Microseconds()) / 1000
+		item.StateAfter, item.StateHTTPAfter, _ = getRedactedState(apiURL, "j2-ephemeral-test-token")
 		if id == "mock-accepted" {
 			report.StateAfter = cloneAnyMap(item.StateAfter)
 			report.StateHTTPAfter = item.StateHTTPAfter
 		}
 		item.StoreRevisionAfter = store.Revision()
+		if item.StoreRevisionAfter > item.StoreRevisionBefore {
+			item.CoreStoreDecisionCount = 1
+		}
 		item.StoreSimulatedCamera = latestMockStoreSimulationMarker(store)
 		if latestMockStoreEvidenceV1(store) {
 			item.VisionEvidenceV1Status = "validated_and_stored"
@@ -567,7 +621,9 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 		item.ExecutorCalls = calls
 		item.ActionStatus = latestMockActionStatus(store)
 		item.Journey = mockCompleteJourney(id, item.ActualHTTP[0], item.ActionStatus)
-		item.Passed = len(item.DataLeak) == 0 && containsTrue(item.StateDuring, "simulated_camera") && containsTrue(item.StateAfter, "simulated_camera") && item.StateAfter["vision_evidence"] != nil && item.StoreSimulatedCamera && item.VisionEvidenceV1Status == "validated_and_stored" && item.StoreRevisionAfter > item.StoreRevisionBefore
+		item.APIRedactionVerified = (item.StateHTTPBefore == http.StatusServiceUnavailable || item.StateHTTPBefore == http.StatusOK) &&
+			(item.StateHTTPDuring == http.StatusServiceUnavailable || item.StateHTTPDuring == http.StatusOK) && item.StateHTTPAfter == http.StatusOK
+		item.Passed = len(item.DataLeak) == 0 && item.APIRedactionVerified && containsTrue(item.StateDuring, "simulated_camera") && containsTrue(item.StateAfter, "simulated_camera") && item.StateAfter["vision_evidence"] != nil && item.StoreSimulatedCamera && item.VisionEvidenceV1Status == "validated_and_stored" && item.StoreRevisionAfter > item.StoreRevisionBefore
 		if id == "mock-duplicate" {
 			item.Passed = item.Passed && len(item.ActualHTTP) == 2 && item.ActualHTTP[1] == http.StatusAccepted
 		}
@@ -597,7 +653,7 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 		}
 	}
 	if report.StateAfter == nil {
-		report.StateAfter, report.StateHTTPAfter, _ = getRedactedState(apiURL)
+		report.StateAfter, report.StateHTTPAfter, _ = getRedactedState(apiURL, "j2-ephemeral-test-token")
 	}
 	if history, historyErr := store.History(); historyErr == nil {
 		serialized, _ := json.Marshal(history)
@@ -605,7 +661,36 @@ func runCameraMockE2E(repo string) cameraMockE2EReport {
 			report.RawVisionForwarded = true
 		}
 	}
+	usageEnd := readJ2ResourceUsage()
+	report.Measurements = cameraJ2Measurements{
+		Provenance: "simulated_test", ProcessCPUUserMS: usageEnd.userMS - usageStart.userMS,
+		ProcessCPUSystemMS: usageEnd.systemMS - usageStart.systemMS, ProcessPeakRSSBytes: usageEnd.peakRSSBytes,
+		GoHeapInUseBytes: usageEnd.heapInUseBytes, NPUMode: "not_used",
+		LossDetection: "not_measured_without_live_camera", RecoveryMeasurement: "synthetic_worker_restart_only",
+		SegmentsNotApplicable: "no_media_decoded_or_segmented",
+	}
 	return report
+}
+
+type j2ResourceUsage struct {
+	userMS, systemMS             float64
+	peakRSSBytes, heapInUseBytes uint64
+}
+
+func readJ2ResourceUsage() j2ResourceUsage {
+	var result j2ResourceUsage
+	var usage syscall.Rusage
+	if syscall.Getrusage(syscall.RUSAGE_SELF, &usage) == nil {
+		result.userMS = float64(usage.Utime.Sec)*1000 + float64(usage.Utime.Usec)/1000
+		result.systemMS = float64(usage.Stime.Sec)*1000 + float64(usage.Stime.Usec)/1000
+		if usage.Maxrss > 0 {
+			result.peakRSSBytes = uint64(usage.Maxrss) * 1024
+		}
+	}
+	var memory runtime.MemStats
+	runtime.ReadMemStats(&memory)
+	result.heapInUseBytes = memory.HeapInuse
+	return result
 }
 
 func failedMockSuite(report cameraMockE2EReport, reason string) cameraMockE2EReport {
@@ -654,9 +739,16 @@ func uploadMockClip(endpoint, clipID string, marker bool) (int, error) {
 	return response.StatusCode, nil
 }
 
-func getRedactedState(endpoint string) (map[string]any, int, error) {
+func getRedactedState(endpoint, token string) (map[string]any, int, error) {
 	client := &http.Client{Timeout: time.Second}
-	response, err := client.Get(endpoint)
+	request, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -672,10 +764,10 @@ func getRedactedState(endpoint string) (map[string]any, int, error) {
 	return state, response.StatusCode, nil
 }
 
-func waitForMockState(endpoint string, revision uint64, timeout time.Duration) error {
+func waitForMockState(endpoint, token string, revision uint64, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		state, status, err := getRedactedState(endpoint)
+		state, status, err := getRedactedState(endpoint, token)
 		if err == nil && status == http.StatusOK && containsTrue(state, "simulated_camera") {
 			current, _ := state["revision"].(float64)
 			if uint64(current) > revision {

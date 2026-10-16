@@ -102,6 +102,19 @@ func generatedFixture(spec generatedSuite, index int) fixture {
 		"risk_confidence": 0.0, "risk_kind": "none", "risk_observation_count": 0,
 		"risk_persistence": "none", "risk_quality_sufficient": true, "risk_status": "not_available",
 	}
+	if spec.Family == "camera_ingress_j2" || spec.Family == "camera_health_j2" {
+		state, source := cameraJ2Expected(index, spec.Family)
+		vision["camera_health_detail_state"] = state
+		vision["camera_health_detail_provenance"] = "simulated_test"
+		vision["camera_health_detail_confidence"] = .9
+		vision["camera_health_detail_quality"] = .85
+		if state == "stream_missing" || state == "unavailable" {
+			vision["camera_health_detail_confidence"] = 0.0
+			vision["camera_health_detail_quality"] = 0.0
+		}
+		vision["camera_health_j2_case"] = source
+		vision["simulated_camera"] = true
+	}
 	if poseStatus == "available" && posture == "upright" {
 		vision["pose_quality"] = .9
 	} else if poseStatus == "low_quality" {
@@ -121,8 +134,9 @@ func generatedFixture(spec generatedSuite, index int) fixture {
 	body, _ := json.Marshal(payload)
 	value := fixture{
 		ID: id, Suite: spec.Suite, Clock: clock, Bundle: spec.Bundle,
-		Capabilities: []string{"announce", "record"},
-		Messages:     []fixtureMessage{{ID: "msg-" + id, Type: "synora.vision.enrichment/v3", Timestamp: clock, Payload: body}},
+		SimulatedCamera: spec.Family == "camera_ingress_j2" || spec.Family == "camera_health_j2",
+		Capabilities:    []string{"announce", "record"},
+		Messages:        []fixtureMessage{{ID: "msg-" + id, Type: "synora.vision.enrichment/v3", Timestamp: clock, Payload: body}},
 		Expected: fixtureExpected{
 			Discovery:  map[string]any{"status": "accepted"},
 			Snapshot:   map[string]any{"schema_version": "cognitive-snapshot/v3", "input_dimension": float64(86)},
@@ -139,6 +153,33 @@ func generatedFixture(spec generatedSuite, index int) fixture {
 		value.GalleryScenario = faceGalleryScenario(index)
 	}
 	return value
+}
+
+var cameraIngressJ2Cases = []struct{ name, state string }{
+	{"source_healthy_ingress", "healthy"}, {"startup_source_absent", "stream_missing"},
+	{"stream_loss_after_healthy", "stream_missing"}, {"stream_recovered", "recovered"},
+	{"malformed_source", "unavailable"}, {"worker_timeout", "unavailable"},
+	{"queue_backpressure", "degraded"}, {"duplicate_idempotent", "healthy"},
+	{"discovery_restart_recovery", "recovered"},
+}
+
+var cameraHealthJ2Cases = []struct{ name, state string }{
+	{"frozen_stream", "frozen_frame"}, {"black_or_occluded", "black_or_occluded"},
+	{"degraded_cadence", "degraded"}, {"invalid_evidence_rejected", "unavailable"},
+	{"vision_backend_unavailable", "unavailable"}, {"loss_recovery_cycle", "recovered"},
+	{"health_without_signal", "stream_missing"}, {"safety_gate_dry_run", "healthy"},
+	{"production_isolation", "healthy"},
+}
+
+func cameraJ2Expected(index int, family string) (state, name string) {
+	cases := cameraIngressJ2Cases
+	if family == "camera_health_j2" {
+		cases = cameraHealthJ2Cases
+	}
+	if index < 0 || index >= len(cases) {
+		return "unavailable", "invalid_case_index"
+	}
+	return cases[index].state, cases[index].name
 }
 
 func residentGalleryScenario(index int) string {

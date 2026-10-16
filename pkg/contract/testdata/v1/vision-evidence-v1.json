@@ -9,6 +9,7 @@
   "provenance": "real",
   "simulated_camera": false,
   "camera_health": {"availability": "evaluated", "state": "healthy", "confidence": 0.99, "quality": 0.98, "support": {"valid_evaluations": 1, "continuity": "continuous", "supported_seconds": 1, "gap_count": 0}},
+  "camera_health_detail": {"schema_version": "synora.camera.health/v1", "state": "healthy", "provenance": "real_camera", "observed_at": "2026-01-01T00:00:01Z", "window_seconds": 1, "confidence": 0.99, "quality": 0.98},
   "trigger": {"availability": "evaluated", "state": "motion", "confidence": 0.8, "quality": 0.9, "support": {"valid_evaluations": 1, "continuity": "continuous", "supported_seconds": 1, "gap_count": 0}},
   "presence": {
     "human": {"availability": "evaluated", "state": "present", "confidence": 0.9, "quality": 0.9, "support": {"valid_evaluations": 1, "continuity": "continuous", "supported_seconds": 1, "gap_count": 0}},

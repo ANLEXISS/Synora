@@ -60,6 +60,46 @@ func TestVisionEvidenceV1GoldenAndStrictRejection(t *testing.T) {
 	}
 }
 
+func TestCameraHealthDetailV1ClosedStatesAndProvenance(t *testing.T) {
+	body := visionEvidenceFixture(t)
+	var evidence VisionEvidenceV1
+	if err := json.Unmarshal(body, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []string{"healthy", "stream_missing", "frozen_frame", "black_or_occluded", "degraded", "unavailable", "recovered"} {
+		t.Run(state, func(t *testing.T) {
+			candidate := evidence
+			detail := *evidence.CameraHealthDetail
+			detail.State = state
+			if state == "stream_missing" || state == "unavailable" {
+				detail.Confidence, detail.Quality = 0, 0
+			}
+			candidate.CameraHealthDetail = &detail
+			encoded, _ := json.Marshal(candidate)
+			if _, err := DecodeVisionEvidenceV1(encoded); err != nil {
+				t.Fatalf("valid state rejected: %v", err)
+			}
+		})
+	}
+	for name, mutate := range map[string]func(*CameraHealthDetailV1){
+		"unknown state":      func(v *CameraHealthDetailV1) { v.State = "frozen" },
+		"unknown provenance": func(v *CameraHealthDetailV1) { v.Provenance = "mock" },
+		"score out of range": func(v *CameraHealthDetailV1) { v.Quality = 1.1 },
+		"wrong version":      func(v *CameraHealthDetailV1) { v.SchemaVersion = "synora.camera.health/v2" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := evidence
+			detail := *evidence.CameraHealthDetail
+			mutate(&detail)
+			candidate.CameraHealthDetail = &detail
+			encoded, _ := json.Marshal(candidate)
+			if _, err := DecodeVisionEvidenceV1(encoded); err == nil {
+				t.Fatal("invalid camera health extension accepted")
+			}
+		})
+	}
+}
+
 func TestVisionEvidenceV1SeparatesRealReplayAndSimulatedTestProvenance(t *testing.T) {
 	body := visionEvidenceFixture(t)
 	for _, provenance := range []string{"real", "replay", "simulated_test"} {
@@ -79,6 +119,7 @@ func TestVisionEvidenceV1SeparatesRealReplayAndSimulatedTestProvenance(t *testin
 				aggregate["real_detection"], aggregate["replay_simulation"] = false, true
 			case "simulated_test":
 				value["simulated_camera"] = true
+				value["camera_health_detail"].(map[string]any)["provenance"] = "simulated_test"
 				aggregate["real_detection"], aggregate["replay_simulation"] = false, true
 			}
 			encoded, err := json.Marshal(value)

@@ -81,6 +81,7 @@ type fixture struct {
 	Bundle          string           `json:"bundle"`
 	BundlePath      string           `json:"bundle_path,omitempty"`
 	TestBackend     string           `json:"test_backend,omitempty"`
+	SimulatedCamera bool             `json:"simulated_camera,omitempty"`
 	ForcedDanger    string           `json:"forced_danger,omitempty"`
 	Messages        []fixtureMessage `json:"messages"`
 	Expected        fixtureExpected  `json:"expected"`
@@ -143,6 +144,8 @@ type caseReport struct {
 	FaceStatus               string            `json:"face_status,omitempty"`
 	FaceQualification        string            `json:"face_qualification,omitempty"`
 	CameraHealthStatus       string            `json:"camera_health_status,omitempty"`
+	CameraHealthJ2State      string            `json:"camera_health_j2_state,omitempty"`
+	CameraHealthJ2Provenance string            `json:"camera_health_j2_provenance,omitempty"`
 	CommunicationStatus      string            `json:"communication_status,omitempty"`
 	CommunicationReasons     []string          `json:"communication_reasons,omitempty"`
 	MLPHeads                 []string          `json:"mlp_heads,omitempty"`
@@ -267,6 +270,9 @@ type suiteReport struct {
 	SchemaVersion                 string                    `json:"schema_version"`
 	CameraMockE2EStatus           string                    `json:"camera_mock_e2e_status"`
 	CameraMockE2EReason           string                    `json:"camera_mock_e2e_reason"`
+	CameraJ2Status                string                    `json:"camera_j2_status"`
+	CameraJ2Source                string                    `json:"camera_j2_source"`
+	CameraJ2Reason                string                    `json:"camera_j2_reason"`
 	FaceBackendQualified          bool                      `json:"face_backend_qualified"`
 	RealGalleryPromotion          bool                      `json:"real_gallery_promotion"`
 	CameraMockE2E                 *cameraMockE2EReport      `json:"camera_mock_e2e,omitempty"`
@@ -490,6 +496,9 @@ func main() {
 		backends["mlp_v3_cpu_candidate"] = backendReport{Status: "not_run", Backend: "cpu-bundle-v3-candidate", RealModel: false, Reason: "bundle was not selected"}
 	}
 	report := buildSuiteReport(*manifestPath, manifest, scenarios, reports, started, backends)
+	report.CameraJ2Status = "prepared_blocked_on_real_camera"
+	report.CameraJ2Source = "unavailable"
+	report.CameraJ2Reason = "V4L2 HDMI receiver reports no signal; no authorized live camera or local stream; J2 cases are synthetic and non-qualifying"
 	overallPassed := passed
 	for _, item := range reports {
 		report.AudioRendered = report.AudioRendered || item.AudioRendered
@@ -724,6 +733,9 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 		SchemaVersion:        "synora.central-e2e/v1",
 		CameraMockE2EStatus:  "not_qualified",
 		CameraMockE2EReason:  "camera mock E2E is simulated and is not Vision inference qualification",
+		CameraJ2Status:       "prepared_blocked_on_real_camera",
+		CameraJ2Source:       "unavailable",
+		CameraJ2Reason:       "V4L2 HDMI receiver reports no signal; no authorized live camera or local stream; J2 cases are synthetic and non-qualifying",
 		FaceBackendQualified: false, RealGalleryPromotion: false,
 		Error: errorText, Seed: manifest.Seed, LogicalDate: manifest.LogicalDate,
 		ManifestSHA256: fileSHA256(manifestPath), GeneratorVersion: generatorVersion,
@@ -1185,7 +1197,7 @@ func runFixture(repo string, value fixture) caseReport {
 		wireType := message.Type
 		if message.Type == contract.EventVisionEnrichmentV3 || message.Type == contract.EventValidationTestInference {
 			var conversionErr error
-			payload, conversionErr = attachFixtureVisionEvidenceV1(payload, message.ID, timestamp, false)
+			payload, conversionErr = attachFixtureVisionEvidenceV1(payload, message.ID, timestamp, value.SimulatedCamera)
 			if conversionErr != nil {
 				report.Error = "fixture Vision Evidence V1 conversion failed: " + conversionErr.Error()
 				break
@@ -1912,6 +1924,10 @@ func enrichFromMessages(report caseReport, records []busRecord) caseReport {
 			if json.Unmarshal(event.Payload, &envelope) == nil {
 				if envelope.Snapshot.VisionEvidence != nil && envelope.Snapshot.VisionEvidence.Validate() == nil {
 					report.VisionEvidenceV1Status = "validated_and_stored"
+					if detail := envelope.Snapshot.VisionEvidence.CameraHealthDetail; detail != nil {
+						report.CameraHealthJ2State = detail.State
+						report.CameraHealthJ2Provenance = detail.Provenance
+					}
 				}
 				report.PoseStatus = envelope.Snapshot.Vision.PoseStatus
 				report.PoseQuality = envelope.Snapshot.Vision.PoseQuality

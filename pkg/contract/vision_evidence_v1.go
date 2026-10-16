@@ -76,30 +76,46 @@ type VisionSemanticResultV1 struct {
 }
 
 type VisionEvidenceV1 struct {
-	SchemaVersion    string                    `json:"schema_version"`
-	EventID          string                    `json:"event_id"`
-	EpisodeID        string                    `json:"episode_id"`
-	WindowStart      time.Time                 `json:"window_start"`
-	WindowEnd        time.Time                 `json:"window_end"`
-	WindowSeconds    float64                   `json:"window_seconds"`
-	Topology         string                    `json:"topology"`
-	Provenance       string                    `json:"provenance"`
-	SimulatedCamera  bool                      `json:"simulated_camera"`
-	CameraHealth     VisionMeasureV1           `json:"camera_health"`
-	Trigger          VisionMeasureV1           `json:"trigger"`
-	Presence         VisionPresenceV1          `json:"presence"`
-	Activity         VisionMeasureV1           `json:"activity"`
-	Pose             VisionPoseV1              `json:"pose"`
-	Face             VisionSemanticResultV1    `json:"face"`
-	Plate            VisionSemanticResultV1    `json:"plate"`
-	Sensitive        VisionSensitiveV1         `json:"sensitive_object"`
-	Media            VisionMediaContinuityV1   `json:"media"`
-	RuntimeAggregate *VisionRuntimeAggregateV1 `json:"runtime_aggregate,omitempty"`
-	ProducerHealth   string                    `json:"producer_health"`
-	Processing       string                    `json:"processing_status"`
-	ErrorCode        string                    `json:"error_code,omitempty"`
-	PriorityReasons  []string                  `json:"priority_reasons,omitempty"`
+	SchemaVersion      string                    `json:"schema_version"`
+	EventID            string                    `json:"event_id"`
+	EpisodeID          string                    `json:"episode_id"`
+	WindowStart        time.Time                 `json:"window_start"`
+	WindowEnd          time.Time                 `json:"window_end"`
+	WindowSeconds      float64                   `json:"window_seconds"`
+	Topology           string                    `json:"topology"`
+	Provenance         string                    `json:"provenance"`
+	SimulatedCamera    bool                      `json:"simulated_camera"`
+	CameraHealth       VisionMeasureV1           `json:"camera_health"`
+	CameraHealthDetail *CameraHealthDetailV1     `json:"camera_health_detail,omitempty"`
+	Trigger            VisionMeasureV1           `json:"trigger"`
+	Presence           VisionPresenceV1          `json:"presence"`
+	Activity           VisionMeasureV1           `json:"activity"`
+	Pose               VisionPoseV1              `json:"pose"`
+	Face               VisionSemanticResultV1    `json:"face"`
+	Plate              VisionSemanticResultV1    `json:"plate"`
+	Sensitive          VisionSensitiveV1         `json:"sensitive_object"`
+	Media              VisionMediaContinuityV1   `json:"media"`
+	RuntimeAggregate   *VisionRuntimeAggregateV1 `json:"runtime_aggregate,omitempty"`
+	ProducerHealth     string                    `json:"producer_health"`
+	Processing         string                    `json:"processing_status"`
+	ErrorCode          string                    `json:"error_code,omitempty"`
+	PriorityReasons    []string                  `json:"priority_reasons,omitempty"`
 }
+
+// CameraHealthDetailV1 is an explicitly versioned, aggregate-only extension
+// for transport-health states that do not alter the frozen Evidence V1 or MLP
+// vocabularies. It never carries device identifiers or pixel-derived data.
+type CameraHealthDetailV1 struct {
+	SchemaVersion string    `json:"schema_version"`
+	State         string    `json:"state"`
+	Provenance    string    `json:"provenance"`
+	ObservedAt    time.Time `json:"observed_at"`
+	WindowSeconds float64   `json:"window_seconds"`
+	Confidence    float64   `json:"confidence"`
+	Quality       float64   `json:"quality"`
+}
+
+const CameraHealthDetailSchemaV1 = "synora.camera.health/v1"
 
 // VisionRuntimeAggregateV1 preserves aggregate-only V2/V3 facts that do not
 // have dedicated family fields in the original Evidence V1 shape. It is a
@@ -184,6 +200,33 @@ func (e VisionEvidenceV1) Validate() error {
 	}
 	if err := validateEvidenceMeasure(e.WindowSeconds, e.CameraHealth, []string{"healthy", "degraded", "unavailable", "tamper_suspected"}); err != nil {
 		return fmt.Errorf("camera_health: %w", err)
+	}
+	if e.CameraHealthDetail != nil {
+		detail := e.CameraHealthDetail
+		if detail.SchemaVersion != CameraHealthDetailSchemaV1 {
+			return fmt.Errorf("invalid camera health detail version")
+		}
+		switch detail.State {
+		case "healthy", "stream_missing", "frozen_frame", "black_or_occluded", "degraded", "unavailable", "recovered":
+		default:
+			return fmt.Errorf("invalid camera health detail state")
+		}
+		switch detail.Provenance {
+		case "real_camera", "real_local_stream", "local_replay", "simulated_test":
+		default:
+			return fmt.Errorf("invalid camera health detail provenance")
+		}
+		_, offset := detail.ObservedAt.Zone()
+		if detail.ObservedAt.IsZero() || offset != 0 || detail.ObservedAt.Before(e.WindowStart) || detail.ObservedAt.After(e.WindowEnd) ||
+			!finiteRange(detail.WindowSeconds, 0, e.WindowSeconds) || !finiteRange(detail.Confidence, 0, 1) || !finiteRange(detail.Quality, 0, 1) {
+			return fmt.Errorf("invalid camera health detail measurement")
+		}
+		if (e.Provenance == "simulated_test") != (detail.Provenance == "simulated_test") {
+			return fmt.Errorf("camera health detail provenance mismatch")
+		}
+		if (detail.State == "unavailable" || detail.State == "stream_missing") && (detail.Confidence != 0 || detail.Quality != 0) {
+			return fmt.Errorf("unavailable camera health detail must not carry scores")
+		}
 	}
 	if err := validateEvidenceMeasure(e.WindowSeconds, e.Trigger, []string{"motion", "human_probable", "vehicle_probable", "animal_probable", "tamper", "unknown"}); err != nil {
 		return fmt.Errorf("trigger: %w", err)

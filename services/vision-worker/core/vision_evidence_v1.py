@@ -110,6 +110,27 @@ def validate_vision_evidence_v1(value: Any) -> dict[str, Any]:
 
     health_states = _SCHEMA["$defs"]["health"]["allOf"][1]["properties"]["state"]["enum"]
     _measure(value["camera_health"], duration, "camera_health", health_states)
+    camera_detail = value.get("camera_health_detail")
+    if camera_detail is not None:
+        schema = _SCHEMA["$defs"]["camera_health_detail_v1"]
+        _object(camera_detail, schema, "camera_health_detail")
+        for key, child in schema["properties"].items():
+            if key in camera_detail and isinstance(child, dict):
+                _enum(camera_detail[key], child, "camera_health_detail." + key)
+        observed = camera_detail["observed_at"]
+        try:
+            observed_at = datetime.fromisoformat(observed.replace("Z", "+00:00"))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise VisionEvidenceContractError("camera_health_detail: invalid observed_at") from exc
+        health_window = camera_detail["window_seconds"]
+        if observed_at.tzinfo is None or observed_at.utcoffset().total_seconds() != 0 or not start <= observed_at <= end or isinstance(health_window, bool) or not isinstance(health_window, (int, float)) or not math.isfinite(health_window) or not 0 <= health_window <= duration:
+            raise VisionEvidenceContractError("camera_health_detail: invalid measurement window")
+        _unit(camera_detail["confidence"], "camera_health_detail.confidence")
+        _unit(camera_detail["quality"], "camera_health_detail.quality")
+        if (value["provenance"] == "simulated_test") != (camera_detail["provenance"] == "simulated_test"):
+            raise VisionEvidenceContractError("camera_health_detail: provenance mismatch")
+        if camera_detail["state"] in {"unavailable", "stream_missing"} and (camera_detail["confidence"] or camera_detail["quality"]):
+            raise VisionEvidenceContractError("camera_health_detail: unavailable state carries scores")
     _measure(value["trigger"], duration, "trigger", _SCHEMA["properties"]["trigger"]["properties"]["state"]["enum"])
     _object(value["presence"], _SCHEMA["properties"]["presence"], "presence")
     presence_states = _SCHEMA["$defs"]["presence"]["allOf"][1]["properties"]["state"]["enum"]

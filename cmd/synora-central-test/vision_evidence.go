@@ -153,6 +153,15 @@ func attachFixtureVisionEvidenceV1(payload []byte, id string, at time.Time, simu
 		ProducerHealth: "healthy", Processing: "partial",
 		RuntimeAggregate: runtimeAggregate,
 	}
+	if state := stringMap(vision, "camera_health_detail_state", ""); state != "" {
+		detailProvenance := stringMap(vision, "camera_health_detail_provenance", "simulated_test")
+		evidence.CameraHealthDetail = &contract.CameraHealthDetailV1{
+			SchemaVersion: contract.CameraHealthDetailSchemaV1, State: state, Provenance: detailProvenance,
+			ObservedAt: at.UTC(), WindowSeconds: windowSeconds,
+			Confidence: numberMap(vision, "camera_health_detail_confidence", 0),
+			Quality:    numberMap(vision, "camera_health_detail_quality", 0),
+		}
+	}
 	if simulated {
 		evidence.ProducerHealth = "unavailable"
 		evidence.Processing = "unavailable"
