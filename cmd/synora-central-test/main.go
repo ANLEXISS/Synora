@@ -1227,11 +1227,10 @@ func runFixture(repo string, value fixture) caseReport {
 	if wantAccepted > 0 && len(value.Messages) > 0 {
 		first := *firstWireMessage
 		duplicateErr := camera.Send(first)
-		// A transport-level replay rejection is itself a valid duplicate
-		// outcome; a successful send is checked downstream by the Store/action
-		// count. Any other error is still safe here because the original case
-		// already completed and no second message can reach Core.
-		duplicateCameraSent = duplicateErr == nil || duplicateErr != nil
+		// The report only claims duplicate idempotence when the replay write
+		// succeeded. The executor count below then proves that it did not
+		// execute a second action.
+		duplicateCameraSent = duplicateCameraSendSucceeded(duplicateErr)
 	} else if wantAccepted == 0 {
 		// A rejected ingress cannot dispatch an action; the no-second-action
 		// invariant is satisfied at the boundary without a second send.
@@ -1340,6 +1339,10 @@ func runFixture(repo string, value fixture) caseReport {
 	}
 	cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)
 	return finishCase(report, started)
+}
+
+func duplicateCameraSendSucceeded(err error) bool {
+	return err == nil
 }
 
 func expectedReportFrom(expected fixtureExpected) expectedReport {

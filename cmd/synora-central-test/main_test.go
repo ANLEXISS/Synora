@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +18,33 @@ import (
 	"synora/internal/foundationv1"
 	"synora/pkg/contract"
 )
+
+func TestDuplicateCameraReplayAccountingRequiresSuccessfulWrite(t *testing.T) {
+	if !duplicateCameraSendSucceeded(nil) {
+		t.Fatal("successful bus write must count as a duplicate send")
+	}
+	if duplicateCameraSendSucceeded(errors.New("test bus write failure")) {
+		t.Fatal("failed bus write must not count as a sent duplicate")
+	}
+
+	value, err := loadFixture("../../testdata/central-e2e-v1/cases/gate-announce-safe.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := runFixture("../..", value)
+	if !item.Passed {
+		t.Fatalf("duplicate replay fixture failed: %s", item.Error)
+	}
+	if item.ActionLifecycleStatus != "allowed_dry_run" {
+		t.Fatalf("fixture did not exercise a dry-run action: %q", item.ActionLifecycleStatus)
+	}
+	if !item.IdempotenceChecks.CameraDuplicateNoSecondAction {
+		t.Fatal("accepted camera replay did not prove at-most-once action execution")
+	}
+	if item.PhysicalAction || item.AudioRendered || item.NetworkAccess {
+		t.Fatal("duplicate replay test escaped dry-run isolation")
+	}
+}
 
 func TestCentralFixtureManifestHasRequiredMinimum(t *testing.T) {
 	manifest, err := loadManifest("../../testdata/central-e2e-v1/manifest.json")
