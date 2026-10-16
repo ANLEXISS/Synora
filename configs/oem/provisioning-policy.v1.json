@@ -1,0 +1,15 @@
+{
+  "schema_version": "synora.oem.provisioning-policy/v1",
+  "bootstrap_enabled_by_default": false,
+  "configuration_secret_separation": true,
+  "roles": [
+    {"name":"owner","scopes":["system:read","profile:read","profile:write","adapter:read","audit:read"]},
+    {"name":"administrator","scopes":["system:read","profile:read","profile:write","adapter:read","audit:read"]},
+    {"name":"operator","scopes":["system:read","adapter:read"]},
+    {"name":"observer","scopes":["system:read"]}
+  ],
+  "secret_material_in_repository": false,
+  "local_retention_policy": "existing_runtime_retention_policy",
+  "api_projection": "authenticated_redacted_allowlist",
+  "update_policy": {"automatic_ota": false,"updates_require_reviewed_release": true}
+}

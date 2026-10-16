@@ -28,6 +28,7 @@ import (
 	"synora/internal/cognitivecore"
 	"synora/internal/discovery"
 	"synora/internal/foundationv1"
+	"synora/internal/oemprofile"
 	"synora/internal/visionsuite"
 	"synora/pkg/contract"
 )
@@ -267,62 +268,65 @@ type backendReport struct {
 }
 
 type suiteReport struct {
-	SchemaVersion                 string                    `json:"schema_version"`
-	CameraMockE2EStatus           string                    `json:"camera_mock_e2e_status"`
-	CameraMockE2EReason           string                    `json:"camera_mock_e2e_reason"`
-	CameraJ2Status                string                    `json:"camera_j2_status"`
-	CameraJ2Source                string                    `json:"camera_j2_source"`
-	CameraJ2Reason                string                    `json:"camera_j2_reason"`
-	FaceBackendQualified          bool                      `json:"face_backend_qualified"`
-	RealGalleryPromotion          bool                      `json:"real_gallery_promotion"`
-	CameraMockE2E                 *cameraMockE2EReport      `json:"camera_mock_e2e,omitempty"`
-	FoundationV1E2E               *foundationv1.E2ESuite    `json:"foundation_v1_e2e,omitempty"`
-	FoundationV1CaseCount         int                       `json:"foundation_v1_case_count"`
-	CaseTotals                    map[string]int            `json:"case_totals"`
-	Error                         string                    `json:"error,omitempty"`
-	Seed                          int64                     `json:"seed"`
-	LogicalDate                   string                    `json:"logical_date"`
-	ManifestSHA256                string                    `json:"manifest_sha256"`
-	GeneratorVersion              string                    `json:"generator_version"`
-	StaticCaseCount               int                       `json:"static_case_count"`
-	GeneratedCaseCount            int                       `json:"generated_case_count"`
-	ScenarioCount                 int                       `json:"scenario_count"`
-	OverallCaseCount              int                       `json:"overall_case_count"`
-	PassedCount                   int                       `json:"passed_count"`
-	FailedCount                   int                       `json:"failed_count"`
-	Passed                        bool                      `json:"passed"`
-	DurationMS                    float64                   `json:"duration_ms"`
-	NetworkAccess                 bool                      `json:"network_access"`
-	AudioRendered                 bool                      `json:"audio_rendered"`
-	PhysicalAction                bool                      `json:"physical_action_executed"`
-	RawVisionForwarded            bool                      `json:"raw_vision_forwarded"`
-	SuiteCounts                   map[string]int            `json:"suite_counts"`
-	FamilyCounts                  map[string]int            `json:"family_counts"`
-	GalleryTerminalCounts         map[string]map[string]int `json:"gallery_terminal_counts"`
-	Coverage                      map[string]int            `json:"coverage"`
-	ModelBackends                 map[string]backendReport  `json:"model_backends"`
-	VisionMedia                   *mediaSuiteReport         `json:"vision_media,omitempty"`
-	VisionMigration               visionMigrationReport     `json:"vision_migration"`
-	MediaCaseCount                int                       `json:"media_case_count"`
-	NotRunCount                   int                       `json:"not_run_count"`
-	BlockedModelMissingCount      int                       `json:"blocked_model_missing_count"`
-	PoseBackendStatus             string                    `json:"pose_backend_status"`
-	MediaManifestSHA256           string                    `json:"media_manifest_sha256"`
-	MediaHashVerificationPassed   bool                      `json:"media_hash_verification_passed"`
-	PoseLatencyMS                 map[string]float64        `json:"pose_latency_ms"`
-	PostureByCategory             map[string]map[string]int `json:"posture_by_category"`
-	FallStateByCategory           map[string]map[string]int `json:"fall_state_by_category"`
-	MediaByCategory               map[string]map[string]int `json:"media_by_category"`
-	PipelineCompletedCount        int                       `json:"pipeline_completed_count"`
-	PipelineRejectedExpectedCount int                       `json:"pipeline_rejected_expected_count"`
-	PipelineIncompleteCount       int                       `json:"pipeline_incomplete_count"`
-	PipelineTerminalStatusCounts  map[string]int            `json:"pipeline_terminal_status_counts"`
-	PipelineAccountingValid       bool                      `json:"pipeline_accounting_valid"`
-	MockCameraCaseCount           int                       `json:"mock_camera_case_count"`
-	ActionLifecycleByStatus       map[string]int            `json:"action_lifecycle_by_status"`
-	IdempotenceChecks             map[string]int            `json:"idempotence_checks"`
-	RejectedActionResults         int                       `json:"rejected_action_results"`
-	Cases                         []caseReport              `json:"cases"`
+	SchemaVersion                 string                       `json:"schema_version"`
+	CameraMockE2EStatus           string                       `json:"camera_mock_e2e_status"`
+	CameraMockE2EReason           string                       `json:"camera_mock_e2e_reason"`
+	CameraJ2Status                string                       `json:"camera_j2_status"`
+	CameraJ2Source                string                       `json:"camera_j2_source"`
+	CameraJ2Reason                string                       `json:"camera_j2_reason"`
+	FaceBackendQualified          bool                         `json:"face_backend_qualified"`
+	RealGalleryPromotion          bool                         `json:"real_gallery_promotion"`
+	CameraMockE2E                 *cameraMockE2EReport         `json:"camera_mock_e2e,omitempty"`
+	FoundationV1E2E               *foundationv1.E2ESuite       `json:"foundation_v1_e2e,omitempty"`
+	FoundationV1CaseCount         int                          `json:"foundation_v1_case_count"`
+	OEMProfileV1                  []oemProfileE2ECase          `json:"oem_profile_v1,omitempty"`
+	OEMProfileV1CaseCount         int                          `json:"oem_profile_v1_case_count"`
+	OEMProfilePreflight           map[string]oemprofile.Report `json:"oem_profile_preflight,omitempty"`
+	CaseTotals                    map[string]int               `json:"case_totals"`
+	Error                         string                       `json:"error,omitempty"`
+	Seed                          int64                        `json:"seed"`
+	LogicalDate                   string                       `json:"logical_date"`
+	ManifestSHA256                string                       `json:"manifest_sha256"`
+	GeneratorVersion              string                       `json:"generator_version"`
+	StaticCaseCount               int                          `json:"static_case_count"`
+	GeneratedCaseCount            int                          `json:"generated_case_count"`
+	ScenarioCount                 int                          `json:"scenario_count"`
+	OverallCaseCount              int                          `json:"overall_case_count"`
+	PassedCount                   int                          `json:"passed_count"`
+	FailedCount                   int                          `json:"failed_count"`
+	Passed                        bool                         `json:"passed"`
+	DurationMS                    float64                      `json:"duration_ms"`
+	NetworkAccess                 bool                         `json:"network_access"`
+	AudioRendered                 bool                         `json:"audio_rendered"`
+	PhysicalAction                bool                         `json:"physical_action_executed"`
+	RawVisionForwarded            bool                         `json:"raw_vision_forwarded"`
+	SuiteCounts                   map[string]int               `json:"suite_counts"`
+	FamilyCounts                  map[string]int               `json:"family_counts"`
+	GalleryTerminalCounts         map[string]map[string]int    `json:"gallery_terminal_counts"`
+	Coverage                      map[string]int               `json:"coverage"`
+	ModelBackends                 map[string]backendReport     `json:"model_backends"`
+	VisionMedia                   *mediaSuiteReport            `json:"vision_media,omitempty"`
+	VisionMigration               visionMigrationReport        `json:"vision_migration"`
+	MediaCaseCount                int                          `json:"media_case_count"`
+	NotRunCount                   int                          `json:"not_run_count"`
+	BlockedModelMissingCount      int                          `json:"blocked_model_missing_count"`
+	PoseBackendStatus             string                       `json:"pose_backend_status"`
+	MediaManifestSHA256           string                       `json:"media_manifest_sha256"`
+	MediaHashVerificationPassed   bool                         `json:"media_hash_verification_passed"`
+	PoseLatencyMS                 map[string]float64           `json:"pose_latency_ms"`
+	PostureByCategory             map[string]map[string]int    `json:"posture_by_category"`
+	FallStateByCategory           map[string]map[string]int    `json:"fall_state_by_category"`
+	MediaByCategory               map[string]map[string]int    `json:"media_by_category"`
+	PipelineCompletedCount        int                          `json:"pipeline_completed_count"`
+	PipelineRejectedExpectedCount int                          `json:"pipeline_rejected_expected_count"`
+	PipelineIncompleteCount       int                          `json:"pipeline_incomplete_count"`
+	PipelineTerminalStatusCounts  map[string]int               `json:"pipeline_terminal_status_counts"`
+	PipelineAccountingValid       bool                         `json:"pipeline_accounting_valid"`
+	MockCameraCaseCount           int                          `json:"mock_camera_case_count"`
+	ActionLifecycleByStatus       map[string]int               `json:"action_lifecycle_by_status"`
+	IdempotenceChecks             map[string]int               `json:"idempotence_checks"`
+	RejectedActionResults         int                          `json:"rejected_action_results"`
+	Cases                         []caseReport                 `json:"cases"`
 }
 
 type visionMigrationReport struct {
@@ -408,6 +412,23 @@ func waitForActionResult(executor *testActionExecutor, timeout time.Duration) {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func waitForStoredActionResults(storeDir string, minimum int, timeout time.Duration) cognitivecore.CognitiveSnapshot {
+	deadline := time.Now().Add(timeout)
+	for {
+		store, err := cognitivecore.OpenUniversalStore(storeDir)
+		if err == nil {
+			snapshot := store.Snapshot()
+			if len(snapshot.ActionResults) >= minimum || time.Now().After(deadline) {
+				return snapshot
+			}
+		}
+		if time.Now().After(deadline) {
+			return cognitivecore.CognitiveSnapshot{}
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -563,12 +584,42 @@ func main() {
 	if foundationReport.FailedCount > 0 {
 		overallPassed = false
 	}
+	oemCases := runOEMProfileE2E(root)
+	report.OEMProfileV1 = oemCases
+	report.OEMProfileV1CaseCount = len(oemCases)
+	report.OEMProfilePreflight = make(map[string]oemprofile.Report)
+	for _, path := range []string{"configs/oem/synora-rk3588-central-v1.yaml", "configs/oem/synora-generic-cpu-development-v1.yaml"} {
+		profile, body, loadErr := oemprofile.Load(path)
+		if loadErr != nil {
+			overallPassed = false
+			report.Error = "OEM profile preflight failed: " + loadErr.Error()
+			continue
+		}
+		report.OEMProfilePreflight[profile.ProfileID] = oemprofile.Preflight(profile, body, oemprofile.ObserveHost())
+	}
+	if report.FamilyCounts == nil {
+		report.FamilyCounts = map[string]int{}
+	}
+	report.FamilyCounts["oem_profile_v1"] = len(oemCases)
+	for _, item := range oemCases {
+		if item.Passed {
+			report.PassedCount++
+		} else {
+			report.FailedCount++
+			overallPassed = false
+		}
+	}
+	if err := oemProfileJourneyCheck(oemCases); err != nil {
+		overallPassed = false
+		report.Error = err.Error()
+	}
 	report.CaseTotals = map[string]int{
 		"central_static":              report.ScenarioCount,
 		"vision_media_le2i_real_pose": report.MediaCaseCount,
 		"mock_camera_e2e":             report.MockCameraCaseCount,
 		"foundation_v1_software_e2e":  report.FoundationV1CaseCount,
-		"overall":                     report.ScenarioCount + report.MediaCaseCount + report.MockCameraCaseCount + report.FoundationV1CaseCount,
+		"oem_profile_v1":              report.OEMProfileV1CaseCount,
+		"overall":                     report.ScenarioCount + report.MediaCaseCount + report.MockCameraCaseCount + report.FoundationV1CaseCount + report.OEMProfileV1CaseCount,
 	}
 	report.OverallCaseCount = report.CaseTotals["overall"]
 	refreshPipelineAccounting(&report)
@@ -804,7 +855,7 @@ func assessJourney(journey []journeyEvent) (bool, string, []string) {
 }
 
 func refreshPipelineAccounting(report *suiteReport) {
-	report.OverallCaseCount = report.ScenarioCount + report.MediaCaseCount + report.MockCameraCaseCount + report.FoundationV1CaseCount
+	report.OverallCaseCount = report.ScenarioCount + report.MediaCaseCount + report.MockCameraCaseCount + report.FoundationV1CaseCount + report.OEMProfileV1CaseCount
 	report.PipelineCompletedCount = 0
 	report.PipelineRejectedExpectedCount = 0
 	report.PipelineIncompleteCount = 0
@@ -924,6 +975,21 @@ func refreshPipelineAccounting(report *suiteReport) {
 				terminalCounts["failed_expected"] == report.FoundationV1E2E.JourneysTerminalFailedExpected &&
 				incomplete == report.FoundationV1E2E.JourneysIncomplete
 	}
+	for index := range report.OEMProfileV1 {
+		item := &report.OEMProfileV1[index]
+		complete, reason, missing := assessJourney(item.Journey)
+		if complete {
+			report.PipelineCompletedCount++
+		} else {
+			report.PipelineIncompleteCount++
+			item.ErrorCategory = "central_pipeline_incomplete:" + reason
+			_ = missing
+		}
+		if len(item.Journey) > 0 {
+			report.PipelineTerminalStatusCounts[item.Journey[len(item.Journey)-1].Status]++
+			journeyCount++
+		}
+	}
 	// Empty/missing journeys are counted incomplete too; the reporting loop above
 	// counts each included case exactly once, including cases without a journey.
 	for _, item := range report.Cases {
@@ -945,7 +1011,8 @@ func refreshPipelineAccounting(report *suiteReport) {
 			}
 		}
 	}
-	report.PipelineAccountingValid = foundationAccountingValid && report.PipelineCompletedCount+report.PipelineRejectedExpectedCount+report.PipelineIncompleteCount == report.OverallCaseCount && journeyCount == report.OverallCaseCount && len(report.Cases) == report.ScenarioCount && report.MockCameraCaseCount == lenOrZeroMock(report.CameraMockE2E) && report.FoundationV1CaseCount == lenOrZeroFoundation(report.FoundationV1E2E)
+	journeyExpected := report.OverallCaseCount
+	report.PipelineAccountingValid = foundationAccountingValid && report.PipelineCompletedCount+report.PipelineRejectedExpectedCount+report.PipelineIncompleteCount == journeyExpected && journeyCount == journeyExpected && len(report.Cases) == report.ScenarioCount && report.MockCameraCaseCount == lenOrZeroMock(report.CameraMockE2E) && report.FoundationV1CaseCount == lenOrZeroFoundation(report.FoundationV1E2E) && report.OEMProfileV1CaseCount == len(report.OEMProfileV1)
 	if report.VisionMedia != nil {
 		report.PipelineAccountingValid = report.PipelineAccountingValid && len(report.VisionMedia.Cases) == report.MediaCaseCount
 	}
@@ -1329,10 +1396,8 @@ func runFixture(repo string, value fixture) caseReport {
 			report.MLPObservations = append(report.MLPObservations, observation)
 		}
 	}
-	reopenedSnapshot := cognitivecore.CognitiveSnapshot{}
-	if reopened, openErr := cognitivecore.OpenUniversalStore(storeDir); openErr == nil {
-		reopenedSnapshot = reopened.Snapshot()
-	}
+	_, expectedStoredResults := actionExecutor.snapshot()
+	reopenedSnapshot := waitForStoredActionResults(storeDir, expectedStoredResults, centralTimeout)
 	report = attachActionLifecycle(report, value, clock, records, actionExecutor, reopenedSnapshot)
 	report.IdempotenceChecks.CameraDuplicateNoSecondAction = duplicateCameraSent && actionExecutor.everyRequestExecutedOnce()
 	report.RejectedActionResults = countTraceStatus(records, "core.action_result", "rejected")

@@ -1,0 +1,31 @@
+profile_id: synora-generic-cpu-development-v1
+schema_version: synora.oem.profile/v1
+product_variant: development
+target_architecture: any
+minimum_runtime_version: "1.0.0"
+hardware_class: generic-cpu
+vision_inputs: [mock, replay]
+compute_capabilities: [cpu]
+storage_capabilities: [local_store]
+network_capabilities: [local_api]
+device_capabilities: [dry_run_actions]
+enabled_modules: [vision-person, vision-pose, camera-health, communication, device-control]
+adapter_selection:
+  vision-person: mock
+  vision-pose: replay
+  camera-health: mock
+  communication: mock
+  device-control: mock
+safety_defaults:
+  action_mode: active_dry_run
+  physical_actions: false
+  audio: false
+  external_network: false
+  require_safety_gate: true
+api_surface:
+  redacted: true
+  authentication_required: true
+compatibility_policy:
+  unknown_fields: reject
+  missing_adapter: unavailable
+  incompatible_model: blocked

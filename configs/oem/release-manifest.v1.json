@@ -1,0 +1,19 @@
+{
+  "schema_version": "synora.release-manifest/v1",
+  "runtime_version": "1.0.0",
+  "profile_schema_version": "synora.oem.profile/v1",
+  "contract_versions": ["synora.vision.evidence/v1", "synora.oem.profile/v1"],
+  "supported_architectures": ["arm64", "amd64"],
+  "required_capabilities": ["local_store", "local_api", "safety_gate", "active_dry_run"],
+  "optional_capabilities": ["rknn", "v4l2", "rtsp", "vision_face", "vision_vehicle", "vision_plate", "vision_animal"],
+  "adapter_inventory": [
+    {"adapter": "mock", "state": "included_test_only"},
+    {"adapter": "replay", "state": "included_test_only"},
+    {"adapter": "v4l2", "state": "behind_discovery"},
+    {"adapter": "rtsp", "state": "behind_discovery"},
+    {"adapter": "rk3588-rknn", "state": "optional_unavailable_without_runtime"}
+  ],
+  "model_manifest_requirements": "required only when a profile explicitly selects a model-backed module; verify manifest and artifact SHA-256 before activation",
+  "safety_defaults": {"action_mode": "active_dry_run", "physical_actions": false, "audio": false, "external_network": false, "safety_gate_required": true},
+  "build_provenance": {"source": "git", "buildvcs": false, "secrets_included": false}
+}

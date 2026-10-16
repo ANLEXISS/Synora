@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synora.oem.profile/v1",
+  "title": "Synora OEM/ODM profile v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile_id", "schema_version", "product_variant", "target_architecture", "minimum_runtime_version", "hardware_class", "vision_inputs", "compute_capabilities", "storage_capabilities", "network_capabilities", "device_capabilities", "enabled_modules", "adapter_selection", "safety_defaults", "api_surface", "compatibility_policy"],
+  "properties": {
+    "profile_id": {"type":"string","pattern":"^[a-z0-9_-]+$"},
+    "schema_version": {"const":"synora.oem.profile/v1"},
+    "product_variant": {"type":"string","minLength":1},
+    "target_architecture": {"enum":["arm64","amd64","any"]},
+    "minimum_runtime_version": {"type":"string","pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "hardware_class": {"type":"string","minLength":1},
+    "vision_inputs": {"type":"array","items":{"type":"string"}},
+    "compute_capabilities": {"type":"array","items":{"type":"string"}},
+    "storage_capabilities": {"type":"array","items":{"type":"string"}},
+    "network_capabilities": {"type":"array","items":{"type":"string"}},
+    "device_capabilities": {"type":"array","items":{"type":"string"}},
+    "enabled_modules": {"type":"array","items":{"enum":["vision-person","vision-pose","vision-face","vision-vehicle","vision-plate","vision-animal","camera-health","device-control","communication"]}},
+    "adapter_selection": {"type":"object","additionalProperties":false,"patternProperties":{"^(vision-person|vision-pose|vision-face|vision-vehicle|vision-plate|vision-animal|camera-health|device-control|communication)$":{"enum":["rk3588-rknn","cpu-onnx","v4l2","rtsp","mock","replay","driver-specific"]}}},
+    "model_manifest_requirements": {"type":"object","additionalProperties":false,"patternProperties":{"^(vision-person|vision-pose|vision-face|vision-vehicle|vision-plate|vision-animal|camera-health|device-control|communication)$":{"type":"object","additionalProperties":false,"required":["path","sha256","artifact_required"],"properties":{"path":{"type":"string","minLength":1},"sha256":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"},"artifact_required":{"type":"boolean"}}}}},
+    "safety_defaults": {"type":"object","additionalProperties":false,"required":["action_mode","physical_actions","audio","external_network","require_safety_gate"],"properties":{"action_mode":{"const":"active_dry_run"},"physical_actions":{"const":false},"audio":{"const":false},"external_network":{"const":false},"require_safety_gate":{"const":true}}},
+    "api_surface": {"type":"object","additionalProperties":false,"required":["redacted","authentication_required"],"properties":{"redacted":{"const":true},"authentication_required":{"const":true}}},
+    "compatibility_policy": {"type":"object","additionalProperties":false,"required":["unknown_fields","missing_adapter","incompatible_model"],"properties":{"unknown_fields":{"const":"reject"},"missing_adapter":{"const":"unavailable"},"incompatible_model":{"const":"blocked"}}}
+  }
+}

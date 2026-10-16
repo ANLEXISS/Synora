@@ -1,0 +1,26 @@
+{
+  "schema_version": "synora.dependency-licenses/v1",
+  "scope": "runtime Go dependencies declared in go.mod and Python runtime pins in services/vision-worker/requirements.txt; test-only module graph entries excluded; no dependencies downloaded for this inventory",
+  "go_modules": [
+    {"module":"github.com/eclipse/paho.mqtt.golang","version":"v1.5.1","license":"EPL-2.0"},
+    {"module":"github.com/google/uuid","version":"v1.6.0","license":"BSD-3-Clause"},
+    {"module":"github.com/gorilla/websocket","version":"v1.5.3","license":"BSD-2-Clause"},
+    {"module":"golang.org/x/crypto","version":"v0.44.0","license":"BSD-3-Clause"},
+    {"module":"golang.org/x/net","version":"v0.46.0","license":"BSD-3-Clause"},
+    {"module":"golang.org/x/sync","version":"v0.17.0","license":"BSD-3-Clause"},
+    {"module":"golang.org/x/sys","version":"v0.38.0","license":"BSD-3-Clause"},
+    {"module":"golang.org/x/term","version":"v0.37.0","license":"BSD-3-Clause"},
+    {"module":"golang.org/x/text","version":"v0.31.0","license":"BSD-3-Clause"},
+    {"module":"golang.org/x/sys","version":"v0.38.0","license":"BSD-3-Clause"},
+    {"module":"golang.org/x/term","version":"v0.37.0","license":"BSD-3-Clause"},
+    {"module":"golang.org/x/text","version":"v0.31.0","license":"BSD-3-Clause"},
+    {"module":"gopkg.in/yaml.v3","version":"v3.0.1","license":"MIT OR Apache-2.0"}
+  ],
+  "python_packages": [
+    {"name":"rknn-toolkit-lite2","version":"2.3.2","license":"vendor SDK terms; confirm redistribution rights with Rockchip before shipping","platform":"aarch64/arm64"},
+    {"name":"opencv-python-headless","version":"4.10.0.84","license":"Apache-2.0"},
+    {"name":"numpy","version":"1.26.4","license":"BSD-3-Clause"},
+    {"name":"scipy","version":"1.13.1","license":"BSD-3-Clause"}
+  ],
+  "note": "Transitive Python dependencies are environment-resolved; produce a deployment lock/SBOM before release. License list is inventory, not legal advice."
+}

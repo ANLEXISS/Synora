@@ -2,11 +2,14 @@ package discovery
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"time"
 
 	"synora/internal/bus"
+	"synora/internal/oemprofile"
 	"synora/internal/runtimeconfig"
 )
 
@@ -19,6 +22,16 @@ func Run() error {
 func RunContext(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if profilePath := os.Getenv("SYNORA_OEM_PROFILE"); profilePath != "" {
+		profile, _, profileErr := oemprofile.Load(profilePath)
+		if profileErr != nil {
+			return fmt.Errorf("OEM profile refused: %w", profileErr)
+		}
+		if profileErr = oemprofile.ValidateStartup(profile, runtime.GOARCH, "1.0.0"); profileErr != nil {
+			return fmt.Errorf("OEM profile refused: %w", profileErr)
+		}
+		log.Printf("OEM profile accepted profile_id=%s schema=%s; optional adapter availability remains fail-closed", profile.ProfileID, profile.SchemaVersion)
 	}
 	runtime, err := runtimeconfig.Load(os.Getenv)
 	if err != nil {

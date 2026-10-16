@@ -1,0 +1,36 @@
+profile_id: synora-rk3588-central-v1
+schema_version: synora.oem.profile/v1
+product_variant: central
+target_architecture: arm64
+minimum_runtime_version: "1.0.0"
+hardware_class: rk3588
+vision_inputs: [v4l2, rtsp]
+compute_capabilities: [cpu, rknn]
+storage_capabilities: [local_store]
+network_capabilities: [local_api]
+device_capabilities: [dry_run_actions]
+enabled_modules: [vision-person, vision-pose, camera-health, communication, device-control]
+adapter_selection:
+  vision-person: rk3588-rknn
+  vision-pose: rk3588-rknn
+  camera-health: v4l2
+  communication: mock
+  device-control: mock
+model_manifest_requirements:
+  vision-pose:
+    path: configs/rtmpose-s.manifest.json
+    sha256: 127f130a540013237d7488189435ebc61ee9a2c395ebfcfacfea7c88cb01ff27
+    artifact_required: false
+safety_defaults:
+  action_mode: active_dry_run
+  physical_actions: false
+  audio: false
+  external_network: false
+  require_safety_gate: true
+api_surface:
+  redacted: true
+  authentication_required: true
+compatibility_policy:
+  unknown_fields: reject
+  missing_adapter: unavailable
+  incompatible_model: blocked
