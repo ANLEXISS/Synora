@@ -16,6 +16,9 @@ adapter_selection:
   camera-health: v4l2
   communication: mock
   device-control: mock
+model_selection:
+  vision-person: {package_id: synora-person-rknn-prepared, runtime_adapter_id: rk3588-rknn, postprocess_adapter_id: person-aggregate-v1, requested_mode: prepared}
+  vision-pose: {package_id: synora-pose-rknn-prepared, runtime_adapter_id: rk3588-rknn, postprocess_adapter_id: pose-aggregate-v1, requested_mode: prepared}
 model_manifest_requirements:
   vision-pose:
     path: configs/rtmpose-s.manifest.json

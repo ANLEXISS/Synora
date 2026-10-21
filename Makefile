@@ -7,7 +7,7 @@ SHELL := /usr/bin/env bash
 	build-bootstrap-config install-bootstrap-config generate-version install-version install-model-manifest build-boot-healthcheck install-boot-healthcheck
 
 .PHONY: test test-central-v1 qualify-cognitive-v1 qualify-cognitive-v3 verify-rtmpose-clip cognitive-runtime-benchmark-v1
-.PHONY: preflight-oem-v1
+.PHONY: preflight-oem-v1 preflight-oem-models
 
 CENTRAL_E2E_MANIFEST ?= testdata/central-e2e-v1/manifest.json
 CENTRAL_E2E_OUT ?= $(if $(OUT),$(OUT),/tmp/synora-central-e2e-v1.json)
@@ -150,6 +150,9 @@ test-central-v1: check-go
 
 preflight-oem-v1: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-oem-preflight --profile "$(PROFILE)"
+
+preflight-oem-models: check-go
+	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-oem-model-preflight --profile "$(PROFILE)" --packages-root "$${SYNORA_OEM_PACKAGE_ROOT:-configs/oem/model-packages}" --artifact-root "$${SYNORA_MODEL_ROOT:-}"
 
 qualify-camera: check-go
 	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-camera-qualification --out "$${OUT:-/tmp/synora-camera-qualification.json}"

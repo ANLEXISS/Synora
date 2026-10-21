@@ -47,7 +47,7 @@ func TestPreflightSeparatesRequestedObservedEffectiveAndQualification(t *testing
 		t.Fatal(err)
 	}
 	r := Preflight(p, body, RuntimeObservation{Architecture: "arm64", RuntimeVersion: "1", StorageWritable: true, APIAuthConfigured: true, RKNNAvailable: false})
-	if r.RequestedCapabilities["rknn"] != "prepared" || r.ObservedCapabilities["vision-pose.rk3588-rknn"] != "unavailable" || r.EffectiveCapabilities["vision-pose"] != "unavailable" {
+	if r.RequestedCapabilities["rknn"] != "prepared" || r.ObservedCapabilities["vision-pose.rk3588-rknn"] != "not_implemented" || r.EffectiveCapabilities["vision-pose"] != "unavailable" {
 		t.Fatalf("bad capability separation: %+v", r)
 	}
 	if r.EffectiveCapabilities["vision-pose"] == "qualified" {
@@ -124,5 +124,27 @@ func TestStartupGateRejectsArchitectureAndVersionMismatch(t *testing.T) {
 	}
 	if err := ValidateStartup(p, "arm64", "1.0.0"); err != nil {
 		t.Fatalf("compatible profile rejected: %v", err)
+	}
+}
+
+func TestSelectedModelAdaptersFailClosedWithoutRuntimeAndNeverFallback(t *testing.T) {
+	rk, body, err := Load("../../configs/oem/synora-rk3588-central-v1.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preflight := Preflight(rk, body, RuntimeObservation{Architecture: "arm64", RuntimeVersion: "1.0.0", RKNNAvailable: true, StorageWritable: true, APIAuthConfigured: true})
+	if got := preflight.EffectiveCapabilities["vision-pose"]; got != "unavailable" {
+		t.Fatalf("RKNN profile silently reported effective=%s", got)
+	}
+	if got := preflight.ObservedCapabilities["vision-pose.rk3588-rknn"]; got != "not_implemented" {
+		t.Fatalf("runtime observation=%s", got)
+	}
+	cpu, body, err := Load("../../configs/oem/synora-generic-cpu-development-v1.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preflight = Preflight(cpu, body, RuntimeObservation{Architecture: "arm64", RuntimeVersion: "1.0.0", StorageWritable: true, APIAuthConfigured: true})
+	if preflight.EffectiveCapabilities["vision-person"] != "simulated_test" || preflight.EffectiveCapabilities["vision-pose"] != "unavailable" {
+		t.Fatalf("unexpected test profile effective capabilities: %+v", preflight.EffectiveCapabilities)
 	}
 }

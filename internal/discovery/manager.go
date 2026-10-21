@@ -62,13 +62,14 @@ type Manager struct {
 	apiServer     *externalAPIServer
 	securityCfg   *security.Config
 
-	stateMu          sync.Mutex
-	activeIngress    int
-	stateResetting   bool
-	clipRoot         string
-	testVisionWorker bool
-	migrationMu      sync.Mutex
-	migrationMetrics VisionMigrationMetrics
+	stateMu           sync.Mutex
+	activeIngress     int
+	stateResetting    bool
+	clipRoot          string
+	testVisionWorker  bool
+	modelCapabilities map[string]ModuleRuntimeCapability
+	migrationMu       sync.Mutex
+	migrationMetrics  VisionMigrationMetrics
 }
 
 type VisionMigrationMetrics struct {
@@ -154,11 +155,12 @@ func NewManager(
 			busClient,
 		),
 
-		auth:          auth,
-		securityCfg:   cfg,
-		snapshotCache: NewSnapshotCache(),
-		actionResults: make(map[string]contract.Event),
-		clipRoot:      runtime.Paths.ClipRoot,
+		auth:              auth,
+		securityCfg:       cfg,
+		snapshotCache:     NewSnapshotCache(),
+		actionResults:     make(map[string]contract.Event),
+		clipRoot:          runtime.Paths.ClipRoot,
+		modelCapabilities: loadModelCapabilities(),
 	}
 	faceRoot := runtime.Paths.FaceDataRoot
 	if strings.TrimSpace(os.Getenv("SYNORA_FACE_DATA_ROOT")) == "" && strings.TrimSpace(cfg.Vision.FaceDataRoot) != "" {
@@ -314,7 +316,7 @@ func (m *Manager) StartContext(ctx context.Context) {
 	boundary := &Boundary{DryRun: true, Store: m.snapshotCache}
 	api := NewExternalAPI(m.securityCfg, boundary, busEventPublisher{client: m.bus}, m.snapshotCache, func() map[string]any {
 		status := healthState.snapshot()
-		return map[string]any{"service": "discovery", "status": status.VisionWorkerStatus, "vision_worker": status.VisionWorkerStatus, "vision_ingress": status.VisionIngressStatus, "network": status.NetworkStatus}
+		return map[string]any{"service": "discovery", "status": status.VisionWorkerStatus, "vision_worker": status.VisionWorkerStatus, "vision_ingress": status.VisionIngressStatus, "network": status.NetworkStatus, "module_capabilities": m.modelCapabilities}
 	}, busResidentGalleryService{client: m.bus})
 	m.apiServer = startExternalAPIServer(runtime, m.securityCfg, api)
 
@@ -331,6 +333,7 @@ func (m *Manager) StartContext(ctx context.Context) {
 		Authenticator:           m,
 		Devices:                 m.devices,
 		Queue:                   m.pool,
+		Admission:               func() bool { return capabilitiesPermitVision(m.modelCapabilities, m.testVisionWorker) },
 		Publisher:               m.bus,
 		ClipDuration:            clipDuration("SYNORA_VISION_V1_MAX_DURATION", 10*time.Second),
 		EpisodeContinuityWindow: clipDuration("SYNORA_VISION_V1_CONTINUITY_WINDOW", 5*time.Second),

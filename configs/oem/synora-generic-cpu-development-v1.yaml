@@ -16,6 +16,9 @@ adapter_selection:
   camera-health: mock
   communication: mock
   device-control: mock
+model_selection:
+  vision-person: {package_id: synora-person-mock-test, runtime_adapter_id: mock, postprocess_adapter_id: mock-aggregate-v1, requested_mode: test_only}
+  vision-pose: {package_id: synora-pose-replay-test, runtime_adapter_id: replay, postprocess_adapter_id: mock-aggregate-v1, requested_mode: test_only}
 safety_defaults:
   action_mode: active_dry_run
   physical_actions: false

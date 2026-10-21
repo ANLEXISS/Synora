@@ -43,12 +43,20 @@ type Profile struct {
 	APISurface                APISurface                          `yaml:"api_surface" json:"api_surface"`
 	CompatibilityPolicy       Compatibility                       `yaml:"compatibility_policy" json:"compatibility_policy"`
 	ModelManifestRequirements map[string]ModelManifestRequirement `yaml:"model_manifest_requirements,omitempty" json:"model_manifest_requirements,omitempty"`
+	ModelSelection            map[string]ModelSelection           `yaml:"model_selection,omitempty" json:"model_selection,omitempty"`
 }
 
 type ModelManifestRequirement struct {
 	Path             string `yaml:"path" json:"path"`
 	SHA256           string `yaml:"sha256" json:"sha256"`
 	ArtifactRequired bool   `yaml:"artifact_required" json:"artifact_required"`
+}
+
+type ModelSelection struct {
+	PackageID            string `yaml:"package_id" json:"package_id"`
+	RuntimeAdapterID     string `yaml:"runtime_adapter_id" json:"runtime_adapter_id"`
+	PostprocessAdapterID string `yaml:"postprocess_adapter_id" json:"postprocess_adapter_id"`
+	RequestedMode        string `yaml:"requested_mode" json:"requested_mode"`
 }
 
 type SafetyDefaults struct {
@@ -146,6 +154,17 @@ func (p Profile) Validate() error {
 	for module, req := range p.ModelManifestRequirements {
 		if !knownModule(module) || req.Path == "" || filepath.IsAbs(req.Path) || strings.Contains(req.Path, "..") || !sha256Hex.MatchString(req.SHA256) {
 			return fmt.Errorf("invalid model manifest requirement for %q", module)
+		}
+	}
+	for module, selection := range p.ModelSelection {
+		if !knownModule(module) || selection.PackageID == "" || !safeName(selection.PackageID) || !knownAdapter(selection.RuntimeAdapterID) || selection.PostprocessAdapterID == "" || (selection.RequestedMode != "prepared" && selection.RequestedMode != "test_only" && selection.RequestedMode != "available") {
+			return fmt.Errorf("invalid model selection for %q", module)
+		}
+		if !contains(p.EnabledModules, module) {
+			return fmt.Errorf("model selected for disabled module %q", module)
+		}
+		if (selection.RuntimeAdapterID == "mock" || selection.RuntimeAdapterID == "replay") && selection.RequestedMode != "test_only" {
+			return fmt.Errorf("test adapter for %q must request test_only mode", module)
 		}
 	}
 	for _, module := range p.EnabledModules {
@@ -272,6 +291,25 @@ func Preflight(p Profile, body []byte, obs RuntimeObservation) Report {
 			r.EffectiveCapabilities[module] = "available"
 		} else if contains(p.EnabledModules, module) {
 			r.EffectiveCapabilities[module] = "unavailable"
+		}
+	}
+	for module, selection := range p.ModelSelection {
+		state := "unavailable"
+		if selection.RuntimeAdapterID == "mock" && p.HardwareClass == "generic-cpu" && selection.RequestedMode == "test_only" {
+			state = "simulated_test"
+		}
+		if selection.RuntimeAdapterID == "replay" {
+			r.ObservedCapabilities[module+".replay"] = "unavailable"
+		}
+		if selection.RuntimeAdapterID == "rk3588-rknn" || selection.RuntimeAdapterID == "cpu-onnx" {
+			r.ObservedCapabilities[module+"."+selection.RuntimeAdapterID] = "not_implemented"
+		}
+		if (selection.RuntimeAdapterID == "mock" || selection.RuntimeAdapterID == "replay") && p.HardwareClass != "generic-cpu" {
+			state = "blocked"
+		}
+		r.EffectiveCapabilities[module] = state
+		if state == "unavailable" || state == "blocked" {
+			r.BlockedCapabilities = appendUnique(r.BlockedCapabilities, module)
 		}
 	}
 	for _, c := range p.ComputeCapabilities {
@@ -406,7 +444,7 @@ func ResolveProfilePath(path string) (string, error) {
 	return clean, nil
 }
 func AdapterInventory() map[string]string {
-	return map[string]string{"vision-person.rk3588-rknn": "included_optional_runtime", "vision-person.mock": "included_test_only", "vision-pose.rk3588-rknn": "included_optional_runtime", "vision-pose.replay": "included_test_only", "camera-health.v4l2": "included_behind_discovery", "camera-health.mock": "included_test_only", "communication.mock": "included_test_only", "device-control.mock": "included_dry_run_only"}
+	return map[string]string{"vision-person.rk3588-rknn": "registered_no_executor", "vision-person.onnx-cpu": "registered_no_executor", "vision-person.mock": "included_test_adapter", "vision-pose.rk3588-rknn": "registered_no_executor", "vision-pose.onnx-cpu": "registered_no_executor", "vision-pose.replay": "registered_test_only_unavailable", "camera-health.v4l2": "included_behind_discovery", "camera-health.mock": "included_test_only", "communication.mock": "included_test_only", "device-control.mock": "included_dry_run_only"}
 }
 func knownModule(s string) bool {
 	switch s {
@@ -426,7 +464,7 @@ func adapterSupported(m, a string) bool {
 	if a == "mock" || a == "replay" {
 		return true
 	}
-	return ((m == "vision-pose" || m == "vision-person") && a == "rk3588-rknn") || (m == "camera-health" && (a == "v4l2" || a == "rtsp"))
+	return ((m == "vision-pose" || m == "vision-person") && (a == "rk3588-rknn" || a == "cpu-onnx")) || (m == "camera-health" && (a == "v4l2" || a == "rtsp"))
 }
 func safeName(s string) bool {
 	for _, r := range s {

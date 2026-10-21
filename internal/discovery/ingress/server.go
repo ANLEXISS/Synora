@@ -65,6 +65,7 @@ type Config struct {
 	Authenticator           Authenticator
 	Devices                 DeviceTracker
 	Queue                   Queue
+	Admission               func() bool
 	Publisher               Publisher
 	ClipManager             *vision.ClipManager
 	ClipDuration            time.Duration
@@ -350,6 +351,11 @@ func NewHandler(cfg Config) http.Handler {
 		if cfg.Queue == nil {
 			_ = vision.PublishClipFailure(cfg.Publisher, job, "worker_unavailable")
 			http.Error(w, "analysis queue unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if cfg.Admission != nil && !cfg.Admission() {
+			_ = vision.PublishClipFailure(cfg.Publisher, job, "model_package_unavailable")
+			http.Error(w, "selected vision module unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		if err := cfg.Queue.Enqueue(job); err != nil {

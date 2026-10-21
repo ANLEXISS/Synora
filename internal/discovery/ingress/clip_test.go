@@ -80,6 +80,36 @@ func TestClipIngressKeepsClipLifecyclePrivateAndQueuesMetadata(t *testing.T) {
 	}
 }
 
+func TestUnavailableOEMModelAdmissionNeverQueuesVisionJob(t *testing.T) {
+	root := t.TempDir()
+	queue := &clipTestQueue{}
+	publisher := &clipTestPublisher{root: root}
+	handler := NewHandler(Config{ClipDir: root, Queue: queue, Publisher: publisher, MaxClipSize: 1024, Admission: func() bool { return false }})
+	req, contentType := multipartRequest(t, "cam-1", "clip-unavailable", []byte("synthetic-video"))
+	req.Header.Set("X-Synora-Device", "cam-1")
+	req.Header.Set("X-Synora-Clip-ID", "clip-unavailable")
+	req.Header.Set("X-Synora-Activation-ID", "activation-1")
+	req.Header.Set("X-Synora-Sequence-Key", "sequence-1")
+	req.Header.Set("Content-Type", contentType)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if len(queue.jobs) != 0 {
+		t.Fatalf("unavailable model received %d jobs", len(queue.jobs))
+	}
+	found := false
+	for _, message := range publisher.messages {
+		if message.Type == contract.EventVisionEvidenceV1 && bytes.Contains(message.Payload, []byte(`"error_code":"worker_unavailable"`)) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("unavailable model failure was not reported structurally: %#v", publisher.messages)
+	}
+}
+
 func TestClipIngressRetryIsIdempotentAndCollisionRejected(t *testing.T) {
 	root := t.TempDir()
 	queue := &clipTestQueue{}

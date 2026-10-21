@@ -549,6 +549,30 @@ func TestPipelineAccountingUsesEveryStaticAndLe2iJourney(t *testing.T) {
 	}
 }
 
+func TestOEMModelPackageScenariosHaveCompleteCentralJourneys(t *testing.T) {
+	cases := runOEMModelPackageE2E("../..")
+	if len(cases) != 26 {
+		t.Fatalf("model package cases=%d want 26", len(cases))
+	}
+	for _, item := range cases {
+		if item.Family != "oem_model_packages_v1" || !item.Passed || !item.RuntimePipelinePassed {
+			t.Errorf("scenario %s failed: %+v", item.ID, item.ScenarioResult)
+		}
+		if complete, reason, _ := assessJourney(item.Journey); !complete {
+			t.Errorf("scenario %s journey incomplete: %s", item.ID, reason)
+		}
+	}
+	encoded, err := json.Marshal(cases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"artifact_sha256", "/home/rock/", "/tmp/", "tensor_name", "bbox", "embedding"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Errorf("forbidden model data in central report: %s", forbidden)
+		}
+	}
+}
+
 func TestMediaPipelineAccountingUsesActualJourneyCount(t *testing.T) {
 	cases := make([]mediaCaseReport, 48)
 	for index := range cases {
