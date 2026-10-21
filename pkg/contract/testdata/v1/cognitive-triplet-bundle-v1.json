@@ -1,0 +1,12 @@
+{
+  "schema_version":"synora.cognitive.triplet-bundle/v1",
+  "event_model_manifest_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "context_model_manifest_hash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "arbiter_model_manifest_hash":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "event_frame_schema_hash":"560463998a8fc0fbe016ffcd89aec71ca27b2050bfddbaa03ff30393c71afae4",
+  "context_frame_schema_hash":"88a89e8d79fccb7d0bc5eed3d1f7a05d47982d5c03ceb3ac39991a3efd9d92a2",
+  "arbitration_frame_schema_hash":"82698f4efa9e954068e7508bfdc2ceb44fae886fce3d849e0937032333a8f3e7",
+  "label_taxonomy_hash":"577a480852fa8dfdca7ed92316f063b86986095b0b92541f22ef99adf5fb6fbc",
+  "calibration_manifest_hash":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "compatibility_version":"synora.cognitive.triplet-compatibility/v1"
+}

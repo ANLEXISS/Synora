@@ -1,0 +1,14 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"synora.cognitive.arbitration-frame/v1",
+  "type":"object","additionalProperties":false,
+  "required":["schema_version","logical_timestamp","event_branch","context_branch","system","previous_decision"],
+  "properties":{
+    "schema_version":{"const":"synora.cognitive.arbitration-frame/v1"},
+    "logical_timestamp":{"type":"string","format":"date-time"},
+    "event_branch":{"type":"object","additionalProperties":false,"required":["local_impact","quality","confidence","availability"],"properties":{"event_embedding":{"type":"array","minItems":1,"maxItems":4096,"items":{"type":"number","minimum":-1,"maximum":1}},"local_impact":{"enum":["neutral","attention","threat","uncertain"]},"quality":{"enum":["sufficient","degraded","unavailable"]},"confidence":{"type":"number","minimum":0,"maximum":1},"availability":{"enum":["available","unavailable","degraded"]}}},
+    "context_branch":{"type":"object","additionalProperties":false,"required":["temporal_pattern","topology_pattern","quality","confidence","availability"],"properties":{"context_embedding":{"type":"array","minItems":1,"maxItems":4096,"items":{"type":"number","minimum":-1,"maximum":1}},"temporal_pattern":{"enum":["calm","persistent","escalating","unresolved","unknown","unavailable"]},"topology_pattern":{"enum":["expected","anomalous","unknown","unavailable"]},"quality":{"enum":["sufficient","degraded","unavailable"]},"confidence":{"type":"number","minimum":0,"maximum":1},"availability":{"enum":["available","unavailable","degraded"]}}},
+    "system":{"type":"object","additionalProperties":false,"required":["armed","degraded","safety_level","device_capabilities","action_possible","cooldown","resource_budget","api_state","store_state"],"properties":{"armed":{"type":"boolean"},"degraded":{"type":"boolean"},"safety_level":{"enum":["normal","elevated","restricted","unknown"]},"device_capabilities":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"enum":["notify","record","announce"]}},"action_possible":{"type":"boolean"},"cooldown":{"type":"boolean"},"resource_budget":{"enum":["normal","constrained","exhausted","unknown"]},"api_state":{"enum":["available","degraded","unavailable"]},"store_state":{"enum":["available","degraded","unavailable"]}}},
+    "previous_decision":{"type":"object","additionalProperties":false,"required":["danger","transition","action_result"],"properties":{"danger":{"enum":["none","low","elevated","critical","unknown"]},"transition":{"enum":["none","raised","lowered","stable","unknown"]},"action_result":{"enum":["none","success","failed","blocked","suppressed","unknown"]}}}
+  }
+}

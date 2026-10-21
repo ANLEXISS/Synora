@@ -1,0 +1,9 @@
+{
+  "schema_version": "synora.cognitive.event-frame/v1",
+  "envelope": {"provenance":"replay","availability":"degraded","quality":0.25,"logical_timestamp":"2026-01-01T00:00:00Z"},
+  "security": {"armed":false,"degraded":true,"alarm_state":"unknown","constraints":["dry_run_only","no_audio","no_physical_action","fail_closed"]},
+  "presence": {"human":"unknown","animal":"unknown","vehicle":"unknown","unknown":true},
+  "topology": {"zone_type":"unknown","environment":"unknown","boundary":"unknown","restriction":"unknown","relation":"unknown"},
+  "evidence": {"vision_availability":"degraded","pose_availability":"evaluated","face_availability":"unavailable","sensor_state":"unavailable","access_state":"unknown","motion_state":"still","camera_health":"degraded","enrichment_state":"partial"},
+  "co_evidence": {"concurrent_facts":1,"independent_sources":1,"contradictions":0,"sufficiency":"degraded"}
+}

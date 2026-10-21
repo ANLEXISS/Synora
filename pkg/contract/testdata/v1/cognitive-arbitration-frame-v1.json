@@ -1,0 +1,8 @@
+{
+  "schema_version": "synora.cognitive.arbitration-frame/v1",
+  "logical_timestamp": "2026-01-01T00:00:00Z",
+  "event_branch": {"local_impact":"uncertain","quality":"unavailable","confidence":0,"availability":"unavailable"},
+  "context_branch": {"temporal_pattern":"unavailable","topology_pattern":"unavailable","quality":"unavailable","confidence":0,"availability":"unavailable"},
+  "system": {"armed":false,"degraded":false,"safety_level":"unknown","device_capabilities":[],"action_possible":false,"cooldown":false,"resource_budget":"unknown","api_state":"unavailable","store_state":"unavailable"},
+  "previous_decision": {"danger":"unknown","transition":"unknown","action_result":"unknown"}
+}

@@ -1,0 +1,19 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"synora.cognitive.triplet-bundle/v1",
+  "type":"object","additionalProperties":false,
+  "required":["schema_version","event_model_manifest_hash","context_model_manifest_hash","arbiter_model_manifest_hash","event_frame_schema_hash","context_frame_schema_hash","arbitration_frame_schema_hash","label_taxonomy_hash","calibration_manifest_hash","compatibility_version"],
+  "properties":{
+    "schema_version":{"const":"synora.cognitive.triplet-bundle/v1"},
+    "event_model_manifest_hash":{"$ref":"#/$defs/hash"},
+    "context_model_manifest_hash":{"$ref":"#/$defs/hash"},
+    "arbiter_model_manifest_hash":{"$ref":"#/$defs/hash"},
+    "event_frame_schema_hash":{"$ref":"#/$defs/hash"},
+    "context_frame_schema_hash":{"$ref":"#/$defs/hash"},
+    "arbitration_frame_schema_hash":{"$ref":"#/$defs/hash"},
+    "label_taxonomy_hash":{"$ref":"#/$defs/hash"},
+    "calibration_manifest_hash":{"$ref":"#/$defs/hash"},
+    "compatibility_version":{"const":"synora.cognitive.triplet-compatibility/v1"}
+  },
+  "$defs":{"hash":{"type":"string","pattern":"^[a-f0-9]{64}$"}}
+}

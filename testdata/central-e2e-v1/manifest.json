@@ -127,7 +127,8 @@
     {"id_prefix": "resident-gallery", "suite": "resident_gallery", "family": "resident_gallery", "count": 7, "seed": 20260161, "bundle": "v3"},
     {"id_prefix": "face-gallery-policy", "suite": "face_gallery_policy", "family": "face_gallery_policy", "count": 16, "seed": 20260171, "bundle": "v3"},
     {"id_prefix": "camera-ingress-j2", "suite": "camera_ingress_j2", "family": "camera_ingress_j2", "count": 9, "seed": 20260201, "bundle": "v3"},
-    {"id_prefix": "camera-health-j2", "suite": "camera_health_j2", "family": "camera_health_j2", "count": 9, "seed": 20260211, "bundle": "v3"}
+    {"id_prefix": "camera-health-j2", "suite": "camera_health_j2", "family": "camera_health_j2", "count": 9, "seed": 20260211, "bundle": "v3"},
+    {"id_prefix": "triplet-cognitive", "suite": "triplet_cognitive_contract_v1", "family": "triplet_cognitive_contract_v1", "count": 21, "seed": 20260301, "bundle": "v3"}
   ],
   "minimum_cases": 280,
   "schema_version": "synora.central-e2e-manifest/v1",

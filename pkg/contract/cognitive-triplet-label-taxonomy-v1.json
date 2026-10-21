@@ -1,0 +1,8 @@
+{
+  "schema_version":"synora.cognitive.triplet-label-taxonomy/v1",
+  "danger":["none","low","elevated","critical","unknown"],
+  "incident":["none","routine_presence","safety_event","system_event","unknown"],
+  "task":["none","monitor","notify","review","unknown"],
+  "action":["no_action","notify","record","announce","unknown"],
+  "communication_intent":["none","neutral_presence_notice","wellness_check","safety_instruction","unknown"]
+}

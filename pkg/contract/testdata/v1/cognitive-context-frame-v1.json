@@ -1,0 +1,10 @@
+{
+  "schema_version": "synora.cognitive.context-frame/v1",
+  "provenance": "simulated_test",
+  "logical_timestamp": "2026-01-01T00:00:00Z",
+  "episode": {"phase":"unknown","age_seconds":0,"segment_count":0,"fact_count":0,"calm_seconds":0,"gap_count":0,"expired":false,"resumed":false},
+  "temporal": {"recurrence":"unknown","persistence":"unknown","intensification":"unknown","short_window":"unknown","medium_window":"unknown","long_window":"unknown","stability":"unknown","sequence":["unknown"]},
+  "topology": {"visited_zones":[],"transition":"unknown","direction":"unknown","coverage":"unknown","correlation_ambiguous":true},
+  "actions": {"last_action":"none","last_result":"none","cooldown":false,"failure_count":0,"idempotent":true,"pending":false},
+  "availability": {"camera_coverage":"unknown","unavailable_modules":["vision_person","vision_pose"],"degraded_sources":0,"quality":0}
+}

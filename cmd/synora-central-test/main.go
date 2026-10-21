@@ -88,6 +88,7 @@ type fixture struct {
 	Expected        fixtureExpected  `json:"expected"`
 	Reset           *fixtureReset    `json:"reset,omitempty"`
 	GalleryScenario string           `json:"-"`
+	TripletScenario string           `json:"-"`
 }
 
 type fixtureReset struct {
@@ -183,6 +184,10 @@ type caseReport struct {
 	GalleryJourneyExercised  bool              `json:"gallery_journey_exercised"`
 	GalleryRedaction         *galleryRedaction `json:"gallery_redaction,omitempty"`
 	GalleryPromotion         string            `json:"gallery_promotion,omitempty"`
+	TripletContractStatus    string            `json:"triplet_contract_status,omitempty"`
+	TripletFramesBuilt       int               `json:"triplet_frames_built,omitempty"`
+	TripletModelsExecuted    bool              `json:"triplet_models_executed"`
+	TripletDecisionPathUsed  bool              `json:"triplet_decision_path_used"`
 }
 
 type galleryRedaction struct {
@@ -306,6 +311,9 @@ type suiteReport struct {
 	SuiteCounts                   map[string]int                     `json:"suite_counts"`
 	FamilyCounts                  map[string]int                     `json:"family_counts"`
 	GalleryTerminalCounts         map[string]map[string]int          `json:"gallery_terminal_counts"`
+	TripletFramesBuilt            int                                `json:"triplet_frames_built"`
+	TripletModelsExecuted         bool                               `json:"triplet_models_executed"`
+	TripletDecisionPathUsed       bool                               `json:"triplet_decision_path_used"`
 	Coverage                      map[string]int                     `json:"coverage"`
 	ModelBackends                 map[string]backendReport           `json:"model_backends"`
 	VisionMedia                   *mediaSuiteReport                  `json:"vision_media,omitempty"`
@@ -653,14 +661,14 @@ func main() {
 		fatalReport(*outPath, err)
 	}
 	if report.VisionMedia != nil {
-		fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_rejected_expected=%d pipeline_incomplete=%d camera_mock_e2e=%s foundation_v1=%s terminal_statuses=%s families=%s manifest_sha256=%s vision_media_total=%d vision_media_status=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount+report.VisionMedia.PassedCount, report.FailedCount+report.VisionMedia.FailedCount, report.PipelineCompletedCount, report.PipelineRejectedExpectedCount, report.PipelineIncompleteCount, report.CameraMockE2EStatus, foundationReport.Status, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, report.VisionMedia.ScenarioCount, formatCounts(report.VisionMedia.StatusCounts), formatCounts(report.ActionLifecycleByStatus))
+		fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_rejected_expected=%d pipeline_incomplete=%d camera_mock_e2e=%s foundation_v1=%s triplet_frames=%d triplet_models_executed=%t triplet_decision_path_used=%t terminal_statuses=%s families=%s manifest_sha256=%s vision_media_total=%d vision_media_status=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount+report.VisionMedia.PassedCount, report.FailedCount+report.VisionMedia.FailedCount, report.PipelineCompletedCount, report.PipelineRejectedExpectedCount, report.PipelineIncompleteCount, report.CameraMockE2EStatus, foundationReport.Status, report.TripletFramesBuilt, report.TripletModelsExecuted, report.TripletDecisionPathUsed, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, report.VisionMedia.ScenarioCount, formatCounts(report.VisionMedia.StatusCounts), formatCounts(report.ActionLifecycleByStatus))
 		if !overallPassed {
 			fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
 			os.Exit(1)
 		}
 		return
 	}
-	fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_rejected_expected=%d pipeline_incomplete=%d camera_mock_e2e=%s foundation_v1=%s terminal_statuses=%s families=%s manifest_sha256=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount, report.FailedCount, report.PipelineCompletedCount, report.PipelineRejectedExpectedCount, report.PipelineIncompleteCount, report.CameraMockE2EStatus, foundationReport.Status, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, formatCounts(report.ActionLifecycleByStatus))
+	fmt.Printf("central E2E report=%s total=%d passed=%d failed=%d pipeline_completed=%d pipeline_rejected_expected=%d pipeline_incomplete=%d camera_mock_e2e=%s foundation_v1=%s triplet_frames=%d triplet_models_executed=%t triplet_decision_path_used=%t terminal_statuses=%s families=%s manifest_sha256=%s action_lifecycle=%s\n", *outPath, report.OverallCaseCount, report.PassedCount, report.FailedCount, report.PipelineCompletedCount, report.PipelineRejectedExpectedCount, report.PipelineIncompleteCount, report.CameraMockE2EStatus, foundationReport.Status, report.TripletFramesBuilt, report.TripletModelsExecuted, report.TripletDecisionPathUsed, formatCounts(report.PipelineTerminalStatusCounts), formatCounts(report.FamilyCounts), report.ManifestSHA256, formatCounts(report.ActionLifecycleByStatus))
 	if !overallPassed {
 		fmt.Fprintln(os.Stderr, "central E2E failed:", *outPath)
 		os.Exit(1)
@@ -792,6 +800,8 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 	}
 	pipelineCompleted, pipelineIncomplete := 0, 0
 	rejectedActionResults := 0
+	tripletFramesBuilt := 0
+	tripletModelsExecuted, tripletDecisionPathUsed := false, false
 	for _, item := range reports {
 		complete := journeyComplete(item.Journey)
 		if complete {
@@ -800,6 +810,9 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 			pipelineIncomplete++
 		}
 		rejectedActionResults += item.RejectedActionResults
+		tripletFramesBuilt += item.TripletFramesBuilt
+		tripletModelsExecuted = tripletModelsExecuted || item.TripletModelsExecuted
+		tripletDecisionPathUsed = tripletDecisionPathUsed || item.TripletDecisionPathUsed
 	}
 	return suiteReport{
 		SchemaVersion:        "synora.central-e2e/v1",
@@ -816,6 +829,7 @@ func buildSuiteReport(manifestPath string, manifest suiteManifest, scenarios []e
 		DurationMS: float64(time.Since(started).Microseconds()) / 1000, NetworkAccess: false,
 		AudioRendered: false, PhysicalAction: false, RawVisionForwarded: false,
 		SuiteCounts: suiteCounts, FamilyCounts: familyCounts, GalleryTerminalCounts: galleryTerminalCounts, Coverage: coverage, ModelBackends: backends,
+		TripletFramesBuilt: tripletFramesBuilt, TripletModelsExecuted: tripletModelsExecuted, TripletDecisionPathUsed: tripletDecisionPathUsed,
 		PipelineCompletedCount: pipelineCompleted, PipelineIncompleteCount: pipelineIncomplete,
 		ActionLifecycleByStatus: actionLifecycle, IdempotenceChecks: idempotence, RejectedActionResults: rejectedActionResults,
 		VisionMigration: visionMigration,
@@ -1448,6 +1462,26 @@ func runFixture(repo string, value fixture) caseReport {
 		report.Passed = false
 		if report.Error == "" {
 			report.Error = "gallery case did not complete the standard Core/Store/MLP/Safety Gate journey"
+		}
+	}
+	if value.TripletScenario != "" {
+		report.TripletModelsExecuted = false
+		report.TripletDecisionPathUsed = false
+		if !journeyComplete(report.Journey) || report.SnapshotDimension != cognitivecore.CognitiveVectorSizeV3 || report.SnapshotVersion != cognitivecore.SnapshotSchemaVersionV3 {
+			report.TripletContractStatus = "failed_active_v3_journey_changed"
+			report.Passed = false
+		} else {
+			status, built, frameErr := verifyTripletFromStore(store)
+			if frameErr == nil {
+				frameErr = verifyTripletScenario(value.TripletScenario, store)
+			}
+			report.TripletContractStatus = status
+			report.TripletFramesBuilt = built
+			if frameErr != nil {
+				report.TripletContractStatus = "failed"
+				report.Passed = false
+				report.Error = "triplet contract harness: " + frameErr.Error()
+			}
 		}
 	}
 	cleanupRuntime(ctx, manager, apiClient, coreClient, discoveryClient, camera, server)

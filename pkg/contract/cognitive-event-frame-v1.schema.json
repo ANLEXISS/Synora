@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synora.cognitive.event-frame/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "envelope", "security", "presence", "topology", "evidence", "co_evidence"],
+  "properties": {
+    "schema_version": {"const": "synora.cognitive.event-frame/v1"},
+    "envelope": {"type":"object","additionalProperties":false,"required":["provenance","availability","quality","logical_timestamp"],"properties":{"provenance":{"enum":["real","replay","simulated_test"]},"availability":{"enum":["available","degraded","unavailable"]},"quality":{"type":"number","minimum":0,"maximum":1},"logical_timestamp":{"type":"string","format":"date-time"}}},
+    "security": {"type":"object","additionalProperties":false,"required":["armed","degraded","alarm_state"],"properties":{"armed":{"type":"boolean"},"degraded":{"type":"boolean"},"alarm_state":{"enum":["clear","triggered","unknown"]},"constraints":{"type":"array","maxItems":16,"uniqueItems":true,"items":{"enum":["dry_run_only","no_audio","no_physical_action","fail_closed"]}}}},
+    "presence": {"type":"object","additionalProperties":false,"required":["human","animal","vehicle","unknown"],"properties":{"human":{"$ref":"#/$defs/presence"},"animal":{"$ref":"#/$defs/presence"},"vehicle":{"$ref":"#/$defs/presence"},"unknown":{"type":"boolean"}}},
+    "topology": {"type":"object","additionalProperties":false,"required":["zone_type","environment","boundary","restriction","relation"],"properties":{"zone_type":{"enum":["public","private","restricted","protected","unknown"]},"environment":{"enum":["indoor","outdoor","unknown"]},"boundary":{"enum":["none","threshold","perimeter","zone","unknown"]},"restriction":{"enum":["open","limited","restricted","unknown"]},"relation":{"enum":["inside","entering","leaving","crossing","unknown"]}}},
+    "evidence": {"type":"object","additionalProperties":false,"required":["vision_availability","pose_availability","face_availability","sensor_state","access_state","motion_state","camera_health","enrichment_state"],"properties":{"vision_availability":{"$ref":"#/$defs/moduleAvailability"},"pose_availability":{"$ref":"#/$defs/moduleAvailability"},"face_availability":{"$ref":"#/$defs/moduleAvailability"},"sensor_state":{"enum":["unavailable","unknown","available","degraded"]},"access_state":{"enum":["unknown","open","closed","forced"]},"motion_state":{"enum":["unknown","still","moving","candidate"]},"camera_health":{"enum":["unknown","healthy","degraded","offline","uncertain","unavailable"]},"enrichment_state":{"enum":["unknown","complete","partial","unavailable","rejected"]}}},
+    "co_evidence": {"type":"object","additionalProperties":false,"required":["concurrent_facts","independent_sources","contradictions","sufficiency"],"properties":{"concurrent_facts":{"type":"integer","minimum":0,"maximum":64},"independent_sources":{"type":"integer","minimum":0,"maximum":16},"contradictions":{"type":"integer","minimum":0,"maximum":64},"sufficiency":{"enum":["sufficient","insufficient","unknown","degraded"]}}}
+  },
+  "$defs": {
+    "presence":{"enum":["unknown","absent","candidate","confirmed"]},
+    "moduleAvailability":{"enum":["not_requested","unavailable","unknown","available","evaluated","degraded"]}
+  }
+}

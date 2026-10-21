@@ -95,8 +95,70 @@ func TestResidentGalleryScenariosAreManifestCountedAndFullyMapped(t *testing.T) 
 			}
 		}
 	}
-	if got := len(manifest.Cases) + generatedScenarioCount(manifest.Generated); got != 444 {
-		t.Fatalf("central static+generated scenario total=%d, want 444 (426 existing + 18 J2 cases)", got)
+	if got := len(manifest.Cases) + generatedScenarioCount(manifest.Generated); got != 465 {
+		t.Fatalf("central static+generated scenario total=%d, want 465 (426 existing + 18 J2 cases + 21 triplet cases)", got)
+	}
+}
+
+func TestTripletCognitiveCasesAreManifestCountedAndKeepV3Nominal(t *testing.T) {
+	manifest, err := loadManifest("../../testdata/central-e2e-v1/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec *generatedSuite
+	for i := range manifest.Generated {
+		if manifest.Generated[i].Family == "triplet_cognitive_contract_v1" {
+			spec = &manifest.Generated[i]
+			break
+		}
+	}
+	if spec == nil || spec.Count != len(tripletCognitiveCases) || spec.Bundle != "v3" {
+		t.Fatalf("triplet manifest coverage mismatch: %+v", spec)
+	}
+	seen := map[string]bool{}
+	for i := 0; i < spec.Count; i++ {
+		value := generatedFixture(*spec, i)
+		if value.TripletScenario == "" || seen[value.TripletScenario] || value.Bundle != "v3" || value.Expected.Snapshot["input_dimension"] != float64(86) {
+			t.Fatalf("invalid/duplicate triplet scenario or active V3 drift: %+v", value)
+		}
+		seen[value.TripletScenario] = true
+	}
+	if len(seen) != len(tripletCognitiveCases) {
+		t.Fatalf("triplet generated %d cases, want %d", len(seen), len(tripletCognitiveCases))
+	}
+}
+
+func TestTripletRepresentativeCasesTraverseTheCentralStoreSafely(t *testing.T) {
+	manifest, err := loadManifest("../../testdata/central-e2e-v1/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec *generatedSuite
+	for i := range manifest.Generated {
+		if manifest.Generated[i].Family == "triplet_cognitive_contract_v1" {
+			spec = &manifest.Generated[i]
+			break
+		}
+	}
+	if spec == nil {
+		t.Fatal("triplet family missing from central manifest")
+	}
+	want := []string{"vision_unavailable", "cooldown_active", "action_failed", "bundle_incompatible", "forbidden_field_rejected", "real_provenance_contract_only", "replay_provenance", "topology_expected", "topology_anomalous"}
+	for _, name := range want {
+		index := -1
+		for i, candidate := range tripletCognitiveCases {
+			if candidate == name {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			t.Fatalf("triplet case missing: %s", name)
+		}
+		item := runFixture("../..", generatedFixture(*spec, index))
+		if !item.Passed || !journeyComplete(item.Journey) || item.TripletContractStatus != "validated_redacted_deterministic" || item.TripletFramesBuilt != 3 || item.TripletModelsExecuted || item.TripletDecisionPathUsed || item.SnapshotDimension != 86 || item.RawVisionForwarded || item.AudioRendered || item.PhysicalAction || item.NetworkAccess {
+			t.Fatalf("triplet case %s did not preserve active V3 and dry-run boundaries: %+v", name, item)
+		}
 	}
 }
 

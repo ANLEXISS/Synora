@@ -146,6 +146,13 @@ func generatedFixture(spec generatedSuite, index int) fixture {
 			Forbidden: []string{"frame", "image", "media", "bbox", "crop", "keypoints", "embedding", "identity", "local_track_id"},
 		},
 	}
+	if spec.Family == "triplet_cognitive_contract_v1" {
+		value.TripletScenario = tripletCognitiveCases[index%len(tripletCognitiveCases)]
+		value.ID = fmt.Sprintf("%s-%s", spec.IDPrefix, value.TripletScenario)
+		applyTripletScenario(value.TripletScenario, snapshot, baseVision, vision)
+		body, _ = json.Marshal(map[string]any{"event_type": "synora.vision.enrichment/v3", "provenance": "simulated_test", "snapshot": snapshot, "test": true})
+		value.Messages[0].Payload = body
+	}
 	if spec.Family == "resident_gallery" {
 		value.GalleryScenario = residentGalleryScenario(index)
 	}
@@ -153,6 +160,57 @@ func generatedFixture(spec generatedSuite, index int) fixture {
 		value.GalleryScenario = faceGalleryScenario(index)
 	}
 	return value
+}
+
+var tripletCognitiveCases = []string{
+	"vision_unavailable", "presence_exterior", "restricted_threshold", "protected_interior",
+	"isolated_event", "multi_segment_persistence", "escalation", "calm_episode_end", "episode_gaps",
+	"topology_expected", "topology_anomalous", "camera_unavailable", "pose_module_unavailable",
+	"action_failed", "cooldown_active", "replay_provenance", "simulated_test_provenance",
+	"real_provenance_contract_only", "duplicate_replay", "bundle_incompatible", "forbidden_field_rejected",
+}
+
+func applyTripletScenario(name string, snapshot map[string]any, baseVision, vision map[string]any) {
+	base := snapshot["base_v2"].(map[string]any)
+	base["episode"] = map[string]any{"phase": "candidate", "segment_count": 1, "gap_count": 0, "seconds_since_first": 1.0, "seconds_since_last": 1.0, "calm_seconds": 0.0}
+	switch name {
+	case "vision_unavailable":
+		vision["pose_status"], vision["pose_quality"], vision["pose_sampled"] = "unavailable", 0.0, false
+		vision["pose_observation_count"], vision["face_status"], vision["posture"], vision["fall_state"] = 0, "unavailable", "unknown", "unknown"
+		vision["camera_health_status"] = "unknown"
+	case "presence_exterior":
+		base["topology"] = "public_outdoor"
+		baseVision["human_confirmed"] = true
+		vision["immobility_seconds"] = 1.0
+	case "restricted_threshold":
+		base["topology"] = "restricted_threshold"
+		vision["camera_health_status"] = "healthy"
+	case "protected_interior":
+		base["topology"] = "protected_interior"
+	case "multi_segment_persistence":
+		base["episode"] = map[string]any{"phase": "confirmed", "segment_count": 5, "gap_count": 1, "seconds_since_first": 120.0, "seconds_since_last": 5.0, "calm_seconds": 0.0}
+	case "escalation":
+		base["episode"] = map[string]any{"phase": "confirmed", "segment_count": 4, "gap_count": 0, "seconds_since_first": 45.0, "seconds_since_last": 1.0, "calm_seconds": 0.0}
+		vision["risk_status"], vision["risk_kind"], vision["risk_confidence"] = "suspected", "other", .7
+	case "calm_episode_end":
+		base["episode"] = map[string]any{"phase": "final", "segment_count": 3, "gap_count": 0, "seconds_since_first": 60.0, "seconds_since_last": 60.0, "calm_seconds": 45.0}
+	case "episode_gaps":
+		base["episode"] = map[string]any{"phase": "candidate", "segment_count": 3, "gap_count": 2, "seconds_since_first": 60.0, "seconds_since_last": 10.0, "calm_seconds": 0.0}
+	case "camera_unavailable":
+		vision["camera_health_status"], vision["camera_integrity_status"] = "offline", "unknown"
+		vision["pose_status"], vision["pose_quality"], vision["posture"], vision["fall_state"] = "unavailable", 0.0, "unknown", "unknown"
+	case "pose_module_unavailable":
+		vision["pose_status"], vision["pose_quality"], vision["pose_observation_count"], vision["posture"], vision["fall_state"] = "unavailable", 0.0, 0, "unknown", "unknown"
+	case "cooldown_active":
+		base["communication"] = map[string]any{"announce_available": true, "tts_status": "not_requested", "cooldown_active": true, "cooldown_remaining_seconds": 10.0}
+	case "replay_provenance":
+		vision["replay_simulation"], vision["real_detection"] = true, false
+	case "simulated_test_provenance", "real_provenance_contract_only":
+		vision["replay_simulation"], vision["real_detection"] = false, false
+	case "topology_expected", "topology_anomalous", "duplicate_replay", "bundle_incompatible", "forbidden_field_rejected":
+		// These variants exercise contract validation and replay on the same
+		// redacted Store-derived frame; they do not synthesize visual facts.
+	}
 }
 
 var cameraIngressJ2Cases = []struct{ name, state string }{

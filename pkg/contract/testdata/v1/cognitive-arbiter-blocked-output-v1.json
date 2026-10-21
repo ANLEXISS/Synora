@@ -1,0 +1,9 @@
+{
+  "danger":"unknown",
+  "incident":"unknown",
+  "task":"unknown",
+  "action":"unknown",
+  "communication_intent":"unknown",
+  "decision_confidence_calibrated":0,
+  "decision_availability":"blocked"
+}
